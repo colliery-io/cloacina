@@ -159,6 +159,102 @@ mod tests {
     }
 
     #[test]
+    fn test_cloaca_var_and_var_or_from_python() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            loader::ensure_cloaca_module(py).unwrap();
+            let cloaca = py.import("cloaca").unwrap();
+            let locals = pyo3::types::PyDict::new(py);
+            locals.set_item("cloaca", cloaca).unwrap();
+
+            // var_or returns default when env var is not set
+            let result: String = py
+                .eval(
+                    pyo3::ffi::c_str!("cloaca.var_or('UNIT_TEST_MISSING_VAR', 'fallback')"),
+                    None,
+                    Some(&locals),
+                )
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(result, "fallback");
+
+            // var raises KeyError when env var is not set
+            let err = py.eval(
+                pyo3::ffi::c_str!("cloaca.var('UNIT_TEST_MISSING_VAR')"),
+                None,
+                Some(&locals),
+            );
+            assert!(err.is_err(), "var() should raise KeyError for missing var");
+
+            // Set env var and verify var() returns it
+            std::env::set_var("CLOACINA_VAR_UNIT_TEST_PY_VAR", "hello_from_rust");
+            let result: String = py
+                .eval(
+                    pyo3::ffi::c_str!("cloaca.var('UNIT_TEST_PY_VAR')"),
+                    None,
+                    Some(&locals),
+                )
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(result, "hello_from_rust");
+            std::env::remove_var("CLOACINA_VAR_UNIT_TEST_PY_VAR");
+
+            // var_or returns value when env var IS set
+            std::env::set_var("CLOACINA_VAR_UNIT_TEST_PY_OR", "real_value");
+            let result: String = py
+                .eval(
+                    pyo3::ffi::c_str!("cloaca.var_or('UNIT_TEST_PY_OR', 'ignored')"),
+                    None,
+                    Some(&locals),
+                )
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(result, "real_value");
+            std::env::remove_var("CLOACINA_VAR_UNIT_TEST_PY_OR");
+        });
+    }
+
+    #[test]
+    fn test_cloaca_cg_decorators_are_callable() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            loader::ensure_cloaca_module(py).unwrap();
+
+            // Verify decorators are callable (not just present as attributes)
+            let cloaca = py.import("cloaca").unwrap();
+            assert!(
+                cloaca
+                    .getattr("passthrough_accumulator")
+                    .unwrap()
+                    .is_callable(),
+                "passthrough_accumulator should be callable"
+            );
+            assert!(
+                cloaca.getattr("node").unwrap().is_callable(),
+                "node should be callable"
+            );
+            assert!(
+                cloaca.getattr("var").unwrap().is_callable(),
+                "var should be callable"
+            );
+            assert!(
+                cloaca.getattr("var_or").unwrap().is_callable(),
+                "var_or should be callable"
+            );
+
+            // ComputationGraphBuilder should be a class (instantiable)
+            let cgb = cloaca.getattr("ComputationGraphBuilder").unwrap();
+            assert!(
+                cgb.is_callable(),
+                "ComputationGraphBuilder should be a class"
+            );
+        });
+    }
+
+    #[test]
     fn test_validate_no_stdlib_shadowing_rejects_os_py() {
         let dir = tempfile::TempDir::new().unwrap();
         let workflow_dir = dir.path().join("workflow");

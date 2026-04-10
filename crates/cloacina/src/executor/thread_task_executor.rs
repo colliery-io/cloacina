@@ -1242,4 +1242,50 @@ mod tests {
             assert_eq!(exec.semaphore().available_permits(), 8);
         }
     } // mod sqlite_tests
+
+    // -----------------------------------------------------------------------
+    // Runtime isolation tests (deadlock prevention)
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_new_uses_empty_runtime_not_from_global() {
+        // ThreadTaskExecutor::new() must NOT call Runtime::from_global() — that
+        // was the cause of the deadlock when #[ctor] constructors blocked.
+        // Verify the runtime is empty (use_globals = false, no workflows).
+        let db = Database::new("sqlite://:memory:", "test", 1);
+        let config = ExecutorConfig::default();
+        let exec = ThreadTaskExecutor::new(db, Arc::new(TaskRegistry::new()), config);
+
+        // The runtime should be isolated (Runtime::new(), not from_global())
+        assert!(
+            exec.runtime.workflow_names().is_empty(),
+            "new() executor should have an empty runtime with no workflows"
+        );
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_with_runtime_and_registry_uses_provided_runtime() {
+        let db = Database::new("sqlite://:memory:", "test", 1);
+        let config = ExecutorConfig::default();
+
+        // Create a runtime with a workflow
+        let runtime = Arc::new(Runtime::new());
+        let wf = crate::workflow::Workflow::new("test_wf");
+        runtime.register_workflow("test_wf".to_string(), move || wf.clone());
+
+        let exec = ThreadTaskExecutor::with_runtime_and_registry(
+            db,
+            Arc::new(TaskRegistry::new()),
+            runtime,
+            config,
+        );
+
+        // Executor should see the workflow via the provided runtime
+        assert!(
+            exec.runtime.get_workflow("test_wf").is_some(),
+            "Executor should use the provided runtime"
+        );
+    }
 }

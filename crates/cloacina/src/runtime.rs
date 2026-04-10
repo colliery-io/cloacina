@@ -348,4 +348,100 @@ mod tests {
         assert!(debug.contains("Runtime"));
         assert!(debug.contains("tasks: 0"));
     }
+
+    #[test]
+    fn test_from_global_sees_late_registrations() {
+        // Create runtime BEFORE registering the workflow
+        let runtime = Runtime::from_global();
+
+        // Register a workflow in globals AFTER runtime creation
+        let unique_name = format!(
+            "late_reg_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let wf = Workflow::new(&unique_name);
+        crate::workflow::register_workflow_constructor(unique_name.clone(), move || wf.clone());
+
+        // from_global() delegates to globals — should see the late registration
+        assert!(
+            runtime.get_workflow(&unique_name).is_some(),
+            "from_global() runtime should see workflows registered after creation"
+        );
+    }
+
+    #[test]
+    fn test_new_does_not_see_global_registrations() {
+        // Register a workflow in globals
+        let unique_name = format!(
+            "isolated_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let wf = Workflow::new(&unique_name);
+        crate::workflow::register_workflow_constructor(unique_name.clone(), move || wf.clone());
+
+        // Runtime::new() is isolated — should NOT see global registrations
+        let runtime = Runtime::new();
+        assert!(
+            runtime.get_workflow(&unique_name).is_none(),
+            "Runtime::new() should NOT see globally registered workflows"
+        );
+    }
+
+    #[test]
+    fn test_local_registration_takes_precedence_over_global() {
+        let runtime = Runtime::from_global();
+
+        // Register a workflow in globals
+        let unique_name = format!(
+            "precedence_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let global_wf = Workflow::new(&unique_name);
+        crate::workflow::register_workflow_constructor(unique_name.clone(), move || {
+            global_wf.clone()
+        });
+
+        // Register a DIFFERENT workflow with the same name locally — use a
+        // distinguishable instance by setting tenant
+        let mut local_wf = Workflow::new(&unique_name);
+        local_wf.set_tenant("local_tenant");
+        runtime.register_workflow(unique_name.clone(), move || local_wf.clone());
+
+        // Local should win
+        let result = runtime.get_workflow(&unique_name).unwrap();
+        assert_eq!(
+            result.tenant(),
+            "local_tenant",
+            "Local registration should take precedence over global"
+        );
+    }
+
+    #[test]
+    fn test_from_global_has_task_fallback() {
+        let runtime = Runtime::from_global();
+
+        // Check a task that exists in globals (from #[ctor] registrations in test binary)
+        // We can't easily register a task here without a Task impl, but we can verify
+        // that has_task delegates to globals by checking use_globals is true
+        assert!(
+            runtime.inner.use_globals,
+            "from_global() should have use_globals = true"
+        );
+
+        // new() should NOT have use_globals
+        let isolated = Runtime::new();
+        assert!(
+            !isolated.inner.use_globals,
+            "new() should have use_globals = false"
+        );
+    }
 }
