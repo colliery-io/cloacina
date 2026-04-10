@@ -594,6 +594,60 @@ impl PythonGraphExecutor {
     }
 }
 
+/// Build a [`ComputationGraphDeclaration`] from a registered Python graph executor.
+///
+/// This bridges the Python CG world (decorators + `ComputationGraphBuilder`) into
+/// the Rust `ReactiveScheduler` by wrapping the Python executor in a `CompiledGraphFn`.
+pub fn build_python_graph_declaration(
+    graph_name: &str,
+    tenant_id: Option<String>,
+) -> Option<crate::computation_graph::scheduler::ComputationGraphDeclaration> {
+    use crate::computation_graph::reactor::{InputStrategy, ReactionCriteria};
+    use crate::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphDeclaration, ReactorDeclaration,
+    };
+    use cloacina_computation_graph::InputCache;
+    use std::sync::Arc;
+
+    let executor = get_graph_executor(graph_name)?;
+
+    let criteria = match executor.react_mode.as_str() {
+        "when_all" => ReactionCriteria::WhenAll,
+        _ => ReactionCriteria::WhenAny,
+    };
+
+    let accumulator_names = executor.accumulators.clone();
+
+    // Build CompiledGraphFn from the Python executor
+    let graph_fn: cloacina_computation_graph::CompiledGraphFn =
+        Arc::new(move |cache: InputCache| {
+            let exec = executor.clone();
+            Box::pin(async move { exec.execute(&cache).await })
+        });
+
+    // Build passthrough accumulator declarations for each
+    let accumulators = accumulator_names
+        .iter()
+        .map(|name| AccumulatorDeclaration {
+            name: name.clone(),
+            factory: Arc::new(
+                crate::computation_graph::packaging_bridge::PassthroughAccumulatorFactory,
+            ),
+        })
+        .collect();
+
+    Some(ComputationGraphDeclaration {
+        name: graph_name.to_string(),
+        accumulators,
+        reactor: ReactorDeclaration {
+            criteria,
+            strategy: InputStrategy::Latest,
+            graph_fn,
+        },
+        tenant_id,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Graph execution (synchronous, inside GIL)
 // ---------------------------------------------------------------------------

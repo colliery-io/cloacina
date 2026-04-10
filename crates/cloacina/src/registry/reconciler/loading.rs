@@ -160,8 +160,11 @@ impl RegistryReconciler {
                 self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
 
             (task_namespaces, workflow_name, trigger_names)
-        } else if cloacina_manifest.metadata.language == "python" {
-            // Python path: extract package, import module, register via PyO3
+        } else if cloacina_manifest.metadata.language == "python"
+            && !cloacina_manifest.metadata.has_computation_graph()
+        {
+            // Python workflow path: extract package, import module, register via PyO3
+            // (Python CG packages skip this — handled in step 7 below)
             debug!("Loading Python package: {}", metadata.package_name);
 
             // Ensure the Python interpreter is initialized (idempotent — safe to call multiple times)
@@ -233,6 +236,12 @@ impl RegistryReconciler {
             );
 
             (task_namespaces, workflow_name, trigger_names)
+        } else if cloacina_manifest.metadata.language == "python"
+            && cloacina_manifest.metadata.has_computation_graph()
+        {
+            // Python CG packages: no workflow tasks to register.
+            // The CG import happens in step 7 below.
+            (vec![], None, vec![])
         } else {
             return Err(RegistryError::RegistrationFailed {
                     message: format!(
@@ -359,6 +368,9 @@ impl RegistryReconciler {
                     let wd = extracted.workflow_dir.clone();
                     let vd = extracted.vendor_dir.clone();
 
+                    let gn_for_decl = graph_name.clone();
+                    let tenant = self.config.default_tenant_id.clone();
+
                     tokio::task::spawn_blocking(move || {
                         pyo3::prepare_freethreaded_python();
                         crate::python::loader::import_python_computation_graph(&wd, &vd, &em, &gn)
@@ -370,6 +382,31 @@ impl RegistryReconciler {
                     .map_err(|e| RegistryError::RegistrationFailed {
                         message: format!("spawn_blocking failed during Python CG import: {}", e),
                     })??;
+
+                    // Build declaration from the registered Python executor and load into ReactiveScheduler
+                    if let Some(decl) =
+                        crate::python::computation_graph::build_python_graph_declaration(
+                            &gn_for_decl,
+                            Some(tenant),
+                        )
+                    {
+                        {
+                            let scheduler_guard = self.reactive_scheduler.read().await;
+                            if let Some(ref scheduler) = *scheduler_guard {
+                                if let Err(e) = scheduler.load_graph(decl).await {
+                                    warn!(
+                                        "Failed to load Python CG '{}' into ReactiveScheduler: {}",
+                                        gn_for_decl, e
+                                    );
+                                } else {
+                                    info!(
+                                        "Python computation graph '{}' loaded into ReactiveScheduler",
+                                        gn_for_decl
+                                    );
+                                }
+                            }
+                        }
+                    }
 
                     info!(
                         "Python computation graph '{}' imported from '{}'",

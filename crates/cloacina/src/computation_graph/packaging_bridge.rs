@@ -254,7 +254,7 @@ async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCac
 /// All packaged accumulators are passthrough at the host level — they receive
 /// serialized events via WebSocket/socket and forward them to the reactor.
 /// The actual processing logic lives inside the FFI plugin's `execute_graph()`.
-struct PassthroughAccumulatorFactory;
+pub struct PassthroughAccumulatorFactory;
 
 struct GenericPassthroughAccumulator;
 

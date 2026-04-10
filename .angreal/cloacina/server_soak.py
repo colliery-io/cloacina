@@ -366,23 +366,23 @@ input_strategy = "latest"
     graph_py = f"""import cloaca
 
 @cloaca.passthrough_accumulator
-def alpha(event):
+def py_alpha(event):
     return event
 
 with cloaca.ComputationGraphBuilder(
     "{graph_name}",
-    react={{"mode": "when_any", "accumulators": ["alpha"]}},
+    react={{"mode": "when_any", "accumulators": ["py_alpha"]}},
     graph={{
-        "process": {{"inputs": ["alpha"]}},
+        "process": {{"inputs": ["py_alpha"]}},
         "output": {{"inputs": ["process"]}},
     }},
 ) as builder:
 
     @cloaca.node
-    def process(alpha):
-        if alpha is None:
+    def process(py_alpha):
+        if py_alpha is None:
             return {{"result": 0.0}}
-        return {{"result": alpha.get("value", 0.0) * 2.0}}
+        return {{"result": py_alpha.get("value", 0.0) * 2.0}}
 
     @cloaca.node
     def output(process):
@@ -1011,7 +1011,7 @@ def server_soak():
                 assert server_proc.poll() is None, "Server crashed during Python CG loading!"
                 stderr_file.flush()
                 stderr = stderr_path.read_text() if stderr_path.exists() else ""
-                if "py_soak_graph" in stderr and "loaded" in stderr.lower():
+                if "py_soak_graph" in stderr and "imported" in stderr:
                     elapsed = int(time.time() - py_cg_load_start)
                     print(f"  Python CG package loaded ({elapsed}s) ✓")
                     py_cg_loaded = True
@@ -1188,7 +1188,7 @@ def server_soak():
             try:
                 ws = PersistentWebSocket(
                     "127.0.0.1", 18080,
-                    "/v1/ws/accumulator/alpha", token
+                    "/v1/ws/accumulator/py_alpha", token
                 )
                 import math
                 seq = 0

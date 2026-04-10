@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-10T02:33:31Z | 425 files | JavaScript, Python, Rust
+> Generated: 2026-04-10T12:42:05Z | 425 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -702,6 +702,7 @@
 #### crates/cloacina/src/computation_graph/packaging_bridge.rs
 
 - pub `build_declaration_from_ffi` function L114-177 — `( graph_meta: &GraphPackageMetadata, library_data: Vec<u8>, ) -> ComputationGrap...` — Convert FFI graph metadata + library data into a `ComputationGraphDeclaration`
+- pub `PassthroughAccumulatorFactory` struct L257 — `-` — A generic passthrough accumulator factory for FFI-loaded packages.
 -  `LoadedGraphPlugin` struct L45-49 — `{ handle: std::sync::Mutex<fidius_host::PluginHandle>, _temp_dir: tempfile::Temp...` — A persistent handle to a loaded FFI graph plugin.
 -  `LoadedGraphPlugin` type L53 — `impl Send for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
 -  `LoadedGraphPlugin` type L54 — `impl Sync for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
@@ -709,7 +710,6 @@
 -  `load` function L59-92 — `(library_data: &[u8]) -> Result<Self, String>` — Load a graph plugin from library bytes.
 -  `execute_graph` function L95-106 — `( &self, request: GraphExecutionRequest, ) -> Result<cloacina_workflow_plugin::G...` — Call execute_graph (method index 3) on the loaded plugin.
 -  `execute_graph_via_ffi` function L180-250 — `(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult` — Execute a computation graph via FFI using the pre-loaded plugin handle.
--  `PassthroughAccumulatorFactory` struct L257 — `-` — A generic passthrough accumulator factory for FFI-loaded packages.
 -  `GenericPassthroughAccumulator` struct L259 — `-` — `execute_graph()` via fidius FFI.
 -  `GenericPassthroughAccumulator` type L262-269 — `= GenericPassthroughAccumulator` — `execute_graph()` via fidius FFI.
 -  `Event` type L263 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
@@ -3327,6 +3327,7 @@
 - pub `PythonGraphExecutor` struct L481-488 — `{ name: String, node_functions: HashMap<String, PyObject>, node_map: HashMap<Str...` — ```
 - pub `execute_sync` function L515-556 — `( &self, py: Python<'_>, inputs: &HashMap<String, PyObject>, ) -> PyResult<PyObj...` — Execute the graph synchronously from Python with dict inputs.
 - pub `execute` function L559-594 — `( &self, cache: &crate::computation_graph::types::InputCache, ) -> GraphResult` — Execute the graph with the given input cache.
+- pub `build_python_graph_declaration` function L601-649 — `( graph_name: &str, tenant_id: Option<String>, ) -> Option<crate::computation_gr...` — Build a [`ComputationGraphDeclaration`] from a registered Python graph executor.
 -  `NODE_REGISTRY` variable L62-63 — `: Lazy<Mutex<HashMap<String, PyObject>>>` — ```
 -  `ACTIVE_GRAPH_CONTEXT` variable L64 — `: Lazy<Mutex<Option<String>>>` — ```
 -  `push_graph_context` function L66-69 — `(name: String)` — ```
@@ -3346,10 +3347,10 @@
 -  `PythonGraphExecutor` type L494-509 — `impl Clone for PythonGraphExecutor` — ```
 -  `clone` function L495-508 — `(&self) -> Self` — ```
 -  `PythonGraphExecutor` type L511-595 — `= PythonGraphExecutor` — ```
--  `execute_graph_sync` function L601-743 — `( py: Python<'_>, node_functions: &HashMap<String, PyObject>, execution_order: &...` — ```
--  `build_node_args` function L745-786 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — ```
--  `parse_graph_dict` function L792-837 — `(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>>` — ```
--  `compute_execution_order` function L839-898 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — ```
+-  `execute_graph_sync` function L655-797 — `( py: Python<'_>, node_functions: &HashMap<String, PyObject>, execution_order: &...` — ```
+-  `build_node_args` function L799-840 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — ```
+-  `parse_graph_dict` function L846-891 — `(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>>` — ```
+-  `compute_execution_order` function L893-952 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — ```
 
 #### crates/cloacina/src/python/computation_graph_tests.rs
 
@@ -3429,17 +3430,17 @@
 #### crates/cloacina/src/python/loader.rs
 
 - pub `PythonLoaderError` enum L69-81 — `ImportError | ValidationError | RegistrationError | RuntimeError` — Error type for Python package loading operations.
-- pub `ensure_cloaca_module` function L94-137 — `(py: Python) -> PyResult<()>` — Ensure the `cloaca` Python module is available in the embedded interpreter.
-- pub `validate_no_stdlib_shadowing` function L163-187 — `( workflow_dir: &Path, vendor_dir: &Path, ) -> Result<(), PythonLoaderError>` — Import a Python workflow module and register its tasks.
-- pub `import_and_register_python_workflow` function L189-205 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
-- pub `import_and_register_python_workflow_named` function L207-360 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
-- pub `import_python_computation_graph` function L368-445 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, graph_name: &str, ...` — Import a Python computation graph module and return the graph name.
+- pub `ensure_cloaca_module` function L94-157 — `(py: Python) -> PyResult<()>` — Ensure the `cloaca` Python module is available in the embedded interpreter.
+- pub `validate_no_stdlib_shadowing` function L183-207 — `( workflow_dir: &Path, vendor_dir: &Path, ) -> Result<(), PythonLoaderError>` — Import a Python workflow module and register its tasks.
+- pub `import_and_register_python_workflow` function L209-225 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
+- pub `import_and_register_python_workflow_named` function L227-380 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
+- pub `import_python_computation_graph` function L388-465 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, graph_name: &str, ...` — Import a Python computation graph module and return the graph name.
 -  `IMPORT_TIMEOUT_SECS` variable L35 — `: u64` — Default timeout for Python module import (seconds).
 -  `STDLIB_DENY_LIST` variable L39-65 — `: &[&str]` — Python stdlib module names that must never appear in extracted packages.
 -  `PythonLoaderError` type L83-87 — `= PythonLoaderError` — cloacina task execution engine.
 -  `from` function L84-86 — `(err: PyErr) -> Self` — cloacina task execution engine.
--  `py_var` function L450-452 — `(name: &str) -> PyResult<String>` — Python binding: `cloaca.var(name)` — resolve a `CLOACINA_VAR_{NAME}` env var.
--  `py_var_or` function L457-459 — `(name: &str, default: &str) -> String` — Python binding: `cloaca.var_or(name, default)` — resolve with a fallback.
+-  `py_var` function L470-472 — `(name: &str) -> PyResult<String>` — Python binding: `cloaca.var(name)` — resolve a `CLOACINA_VAR_{NAME}` env var.
+-  `py_var_or` function L477-479 — `(name: &str, default: &str) -> String` — Python binding: `cloaca.var_or(name, default)` — resolve with a fallback.
 
 #### crates/cloacina/src/python/mod.rs
 
@@ -3454,11 +3455,11 @@
 - pub `workflow_context` module L43 — `-` — `#[pymodule]` definition.
 - pub `bindings` module L71 — `-` — `#[pymodule]` definition.
 -  `computation_graph_tests` module L31 — `-` — `#[pymodule]` definition.
--  `tests` module L74-185 — `-` — `#[pymodule]` definition.
+-  `tests` module L74-195 — `-` — `#[pymodule]` definition.
 -  `test_python_workflow_via_with_gil` function L80-126 — `()` — `#[pymodule]` definition.
--  `test_ensure_cloaca_module_registers_in_sys_modules` function L129-149 — `()` — `#[pymodule]` definition.
--  `test_validate_no_stdlib_shadowing_rejects_os_py` function L152-168 — `()` — `#[pymodule]` definition.
--  `test_validate_no_stdlib_shadowing_allows_normal_packages` function L171-184 — `()` — `#[pymodule]` definition.
+-  `test_ensure_cloaca_module_registers_in_sys_modules` function L129-159 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_rejects_os_py` function L162-178 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_allows_normal_packages` function L181-194 — `()` — `#[pymodule]` definition.
 
 #### crates/cloacina/src/python/namespace.rs
 
@@ -3904,36 +3905,36 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-845 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L38-404 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L407-454 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L457-498 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L501-642 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L645-693 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L696-743 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L746-769 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L772-783 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L791-833 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `unregister_package_triggers` function L836-844 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
--  `tests` module L848-1145 — `-` — Package loading, unloading, and task/workflow registration.
--  `make_test_reconciler` function L857-862 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
--  `make_test_metadata` function L864-877 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata_with_triggers` function L879-896 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_with_no_triggers_returns_empty` function L904-913 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_tracks_registered_triggers` function L917-948 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_skips_unregistered_triggers` function L952-972 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_mixed_registered_and_missing` function L976-1015 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_removes_from_global_registry` function L1023-1042 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_handles_already_removed` function L1046-1053 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_empty_list_is_noop` function L1057-1060 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_removes_from_global_registry` function L1068-1103 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_nonexistent_is_ok` function L1107-1114 — `()` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` struct L1121-1123 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` type L1126-1144 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
--  `name` function L1127-1129 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
--  `poll_interval` function L1131-1133 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
--  `allow_concurrent` function L1135-1137 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
--  `poll` function L1139-1143 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L27-882 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L38-441 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L444-491 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L494-535 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L538-679 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L682-730 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L733-780 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L783-806 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L809-820 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L828-870 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `unregister_package_triggers` function L873-881 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `tests` module L885-1182 — `-` — Package loading, unloading, and task/workflow registration.
+-  `make_test_reconciler` function L894-899 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
+-  `make_test_metadata` function L901-914 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata_with_triggers` function L916-933 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_with_no_triggers_returns_empty` function L941-950 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_tracks_registered_triggers` function L954-985 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_skips_unregistered_triggers` function L989-1009 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_mixed_registered_and_missing` function L1013-1052 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_removes_from_global_registry` function L1060-1079 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_handles_already_removed` function L1083-1090 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_empty_list_is_noop` function L1094-1097 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_removes_from_global_registry` function L1105-1140 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_nonexistent_is_ok` function L1144-1151 — `()` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` struct L1158-1160 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` type L1163-1181 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
+-  `name` function L1164-1166 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
+-  `poll_interval` function L1168-1170 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
+-  `allow_concurrent` function L1172-1174 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
+-  `poll` function L1176-1180 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -6391,57 +6392,57 @@
 - pub `run` function L52-259 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
 - pub `RequestId` struct L267 — `-` — Build the axum router with all routes.
 -  `request_id_middleware` function L271-292 — `( mut request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L294-425 — `(state: AppState) -> Router` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `health` function L428-430 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L433-462 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L465-475 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
--  `fallback_404` function L478-483 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L486-508 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L514-562 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L566-568 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L571-1474 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L579 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_state` function L582-613 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `create_test_api_key` function L616-624 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L627-642 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L648-674 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L680-692 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L696-708 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L712-765 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_no_token_returns_401` function L771-783 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L787-800 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L804-817 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L821-834 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L840-858 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L862-878 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L882-897 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L901-926 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L930-945 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L949-963 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L969-995 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_tenants` function L999-1013 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L1017-1033 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L1037-1074 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L1078-1093 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L1099-1113 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L1117-1130 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L1134-1158 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L1162-1186 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `fixture_path` function L1189-1194 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L1197-1208 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L1211-1221 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L1225-1251 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L1255-1281 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L1285-1305 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1311-1325 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1329-1342 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1346-1360 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1364-1377 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1381-1396 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1400-1418 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1424-1438 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1442-1455 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1461-1473 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `build_router` function L294-413 — `(state: AppState) -> Router` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `health` function L416-418 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L421-450 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L453-463 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
+-  `fallback_404` function L466-471 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L474-496 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L502-550 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L554-556 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L559-1462 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L567 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_state` function L570-601 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `create_test_api_key` function L604-612 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L615-630 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L636-662 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L668-680 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L684-696 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L700-753 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_no_token_returns_401` function L759-771 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L775-788 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L792-805 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L809-822 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L828-846 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L850-866 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L870-885 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L889-914 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L918-933 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L937-951 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L957-983 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L987-1001 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L1005-1021 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L1025-1062 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L1066-1081 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L1087-1101 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L1105-1118 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L1122-1146 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L1150-1174 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `fixture_path` function L1177-1182 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L1185-1196 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L1199-1209 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L1213-1239 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L1243-1269 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1273-1293 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1299-1313 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1317-1330 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1334-1348 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1352-1365 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1369-1384 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1388-1406 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1412-1426 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1430-1443 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1449-1461 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
