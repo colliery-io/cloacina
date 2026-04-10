@@ -145,6 +145,16 @@ mod tests {
             assert!(cloaca_mod.hasattr("TriggerResult").unwrap());
             assert!(cloaca_mod.hasattr("WorkflowBuilder").unwrap());
             assert!(cloaca_mod.hasattr("Context").unwrap());
+            // Computation graph decorators
+            assert!(cloaca_mod.hasattr("passthrough_accumulator").unwrap());
+            assert!(cloaca_mod.hasattr("stream_accumulator").unwrap());
+            assert!(cloaca_mod.hasattr("polling_accumulator").unwrap());
+            assert!(cloaca_mod.hasattr("batch_accumulator").unwrap());
+            assert!(cloaca_mod.hasattr("node").unwrap());
+            assert!(cloaca_mod.hasattr("ComputationGraphBuilder").unwrap());
+            // Variable registry
+            assert!(cloaca_mod.hasattr("var").unwrap());
+            assert!(cloaca_mod.hasattr("var_or").unwrap());
         });
     }
 

@@ -911,16 +911,16 @@ def server_soak():
         else:
             print(f"  Python upload returned {status}: {json.dumps(body)[:200]}")
 
-        # Wait for Python package to load (no compilation needed — should be fast)
-        print("  Waiting for Python package to load (up to 30s)...")
+        # Wait for Python package to load — reconciler may be busy with Rust compilation
+        print("  Waiting for Python package to load (up to 120s)...")
         py_workflow_ready = False
         py_load_start = time.time()
-        for _ in range(15):
+        for _ in range(60):
             time.sleep(2)
             assert server_proc.poll() is None, "Server crashed during Python package loading!"
             stderr_file.flush()
             stderr = stderr_path.read_text() if stderr_path.exists() else ""
-            if "Python package loaded" in stderr or "Python workflow imported" in stderr:
+            if "soak-server-python" in stderr and ("Python package loaded" in stderr or "Python workflow imported" in stderr):
                 elapsed = int(time.time() - py_load_start)
                 print(f"  Python package loaded ({elapsed}s) ✓")
                 py_workflow_ready = True
@@ -1003,10 +1003,10 @@ def server_soak():
         if status == 201:
             print("  Python CG upload successful ✓")
 
-            # Wait for Python CG package to load (no compilation — should be fast)
-            print("  Waiting for Python CG package to load (up to 30s)...")
+            # Wait for Python CG package to load — reconciler may be busy
+            print("  Waiting for Python CG package to load (up to 120s)...")
             py_cg_load_start = time.time()
-            for _ in range(15):
+            for _ in range(60):
                 time.sleep(2)
                 assert server_proc.poll() is None, "Server crashed during Python CG loading!"
                 stderr_file.flush()

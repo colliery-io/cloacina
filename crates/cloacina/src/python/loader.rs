@@ -126,6 +126,26 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
     module.add_class::<super::workflow_context::PyWorkflowContext>()?;
     module.add_class::<super::namespace::PyTaskNamespace>()?;
 
+    // Computation graph decorators and builder
+    module.add_function(wrap_pyfunction!(
+        super::computation_graph::passthrough_accumulator_decorator,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::computation_graph::stream_accumulator_decorator,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::computation_graph::polling_accumulator_decorator,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::computation_graph::batch_accumulator_decorator,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(super::computation_graph::node, &module)?)?;
+    module.add_class::<super::computation_graph::PyComputationGraphBuilder>()?;
+
     // Variable registry
     module.add_function(wrap_pyfunction!(py_var, &module)?)?;
     module.add_function(wrap_pyfunction!(py_var_or, &module)?)?;
