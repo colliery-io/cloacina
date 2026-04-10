@@ -406,6 +406,82 @@ with cloaca.ComputationGraphBuilder(
     return buf.getvalue()
 
 
+def create_python_kafka_cg_source_package(pkg_name, graph_name, acc_name, topic):
+    """Create a Python CG source package with a Kafka-sourced stream accumulator."""
+    version = "1.0.0"
+    prefix = f"{pkg_name}-{version}"
+
+    package_toml = f"""[package]
+name = "{pkg_name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+package_type = ["computation_graph"]
+graph_name = "{graph_name}"
+language = "python"
+description = "Python Kafka CG soak test"
+entry_module = "{graph_name}.graph"
+reaction_mode = "when_any"
+input_strategy = "latest"
+
+[[metadata.accumulators]]
+name = "{acc_name}"
+accumulator_type = "stream"
+
+[metadata.accumulators.config]
+broker = "KAFKA_BROKER"
+topic = "{topic}"
+group = "{pkg_name}-group"
+"""
+
+    init_py = ""
+
+    graph_py = f"""import cloaca
+
+@cloaca.passthrough_accumulator
+def {acc_name}(event):
+    return event
+
+with cloaca.ComputationGraphBuilder(
+    "{graph_name}",
+    react={{"mode": "when_any", "accumulators": ["{acc_name}"]}},
+    graph={{
+        "process": {{"inputs": ["{acc_name}"]}},
+        "output": {{"inputs": ["process"]}},
+    }},
+) as builder:
+
+    @cloaca.node
+    def process({acc_name}):
+        if {acc_name} is None:
+            return {{"result": 0.0}}
+        return {{"result": {acc_name}.get("value", 0.0) * 3.0}}
+
+    @cloaca.node
+    def output(process):
+        return process
+"""
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:bz2") as tar:
+        for rel_path, content in [
+            ("package.toml", package_toml),
+            (f"workflow/{graph_name}/__init__.py", init_py),
+            (f"workflow/{graph_name}/graph.py", graph_py),
+        ]:
+            data = content.encode()
+            archive_path = f"{prefix}/{rel_path}"
+            entry = tarfile.TarInfo(name=archive_path)
+            entry.size = len(data)
+            entry.mode = 0o644
+            tar.addfile(entry, io.BytesIO(data))
+
+    return buf.getvalue()
+
+
 def kafka_create_topic(topic_name):
     """Create a Kafka topic using the CLI tools inside the container."""
     try:
@@ -1071,8 +1147,20 @@ def server_soak():
             else:
                 print(f"  Kafka batch upload: {s}")
 
+            # Upload Python Kafka CG package (stream)
+            py_kafka_pkg = create_python_kafka_cg_source_package(
+                "soak-py-kafka-stream", "py_kafka_stream_graph", "py_stream_source", "soak.stream"
+            )
+            s, b = api_request("POST", f"{base_url}/v1/tenants/public/workflows",
+                               token=token, files=py_kafka_pkg)
+            if s == 201:
+                print("  Python Kafka stream CG package uploaded ✓")
+            else:
+                print(f"  Python Kafka stream upload: {s}")
+
             # Wait for Kafka CG packages to compile and load
             print("  Waiting for Kafka CG packages (up to 120s)...")
+            py_kafka_stream_loaded = False
             kafka_compile_start = time.time()
             for _ in range(60):
                 time.sleep(2)
@@ -1081,18 +1169,24 @@ def server_soak():
                 stderr = stderr_path.read_text() if stderr_path.exists() else ""
                 stream_ok = "kafka_stream_graph" in stderr and "loaded into ReactiveScheduler" in stderr
                 batch_ok = "kafka_batch_graph" in stderr and "loaded into ReactiveScheduler" in stderr
+                py_stream_ok = "py_kafka_stream_graph" in stderr and "loaded into ReactiveScheduler" in stderr
                 if not kafka_stream_loaded and stream_ok:
                     print(f"  Kafka stream graph loaded ({int(time.time() - kafka_compile_start)}s) ✓")
                     kafka_stream_loaded = True
                 if not kafka_batch_loaded and batch_ok:
                     print(f"  Kafka batch graph loaded ({int(time.time() - kafka_compile_start)}s) ✓")
                     kafka_batch_loaded = True
-                if kafka_stream_loaded and kafka_batch_loaded:
+                if not py_kafka_stream_loaded and py_stream_ok:
+                    print(f"  Python Kafka stream graph loaded ({int(time.time() - kafka_compile_start)}s) ✓")
+                    py_kafka_stream_loaded = True
+                if kafka_stream_loaded and kafka_batch_loaded and py_kafka_stream_loaded:
                     break
             if not kafka_stream_loaded:
                 print("  WARNING: Kafka stream graph not loaded")
             if not kafka_batch_loaded:
                 print("  WARNING: Kafka batch graph not loaded")
+            if not py_kafka_stream_loaded:
+                print("  WARNING: Python Kafka stream graph not loaded")
 
         # Step 9: Operational soak — execute workflows while querying API
         soak_duration = 60
@@ -1379,10 +1473,12 @@ def server_soak():
         py_cg_fires = count_graph_fires(clean_stderr, "py_soak_graph")
         kafka_stream_fires = count_graph_fires(clean_stderr, "kafka_stream_graph")
         kafka_batch_fires = count_graph_fires(clean_stderr, "kafka_batch_graph")
+        py_kafka_stream_fires = count_graph_fires(clean_stderr, "py_kafka_stream_graph")
         print(f"    WS graph fires:       {ws_graph_fires}")
         print(f"    Py CG graph fires:    {py_cg_fires}")
         print(f"    Kafka stream fires:   {kafka_stream_fires}")
         print(f"    Kafka batch fires:    {kafka_batch_fires}")
+        print(f"    Py Kafka stream fires:{py_kafka_stream_fires}")
         print(f"    CG health checks OK:  {stats['cg_health_ok']}")
         print(f"    List queries OK:      {stats['list_queries']}")
         print(f"    API errors:           {stats['api_errors']}")
@@ -1406,6 +1502,8 @@ def server_soak():
             assert kafka_stream_fires > 0, f"Kafka stream graph never fired! ({stats['kafka_stream_produced']} messages produced)"
         if kafka_batch_loaded:
             assert kafka_batch_fires > 0, f"Kafka batch graph never fired! ({stats['kafka_batch_produced']} messages produced)"
+        if kafka_ready and py_kafka_stream_loaded:
+            assert py_kafka_stream_fires > 0, "Python Kafka stream graph never fired!"
 
         # Step 10: Final health check
         print_section_header("Step 10: Final health check")

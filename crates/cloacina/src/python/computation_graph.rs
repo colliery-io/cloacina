@@ -601,7 +601,11 @@ impl PythonGraphExecutor {
 pub fn build_python_graph_declaration(
     graph_name: &str,
     tenant_id: Option<String>,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
 ) -> Option<crate::computation_graph::scheduler::ComputationGraphDeclaration> {
+    use crate::computation_graph::packaging_bridge::{
+        PassthroughAccumulatorFactory, StreamBackendAccumulatorFactory,
+    };
     use crate::computation_graph::reactor::{InputStrategy, ReactionCriteria};
     use crate::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphDeclaration, ReactorDeclaration,
@@ -625,14 +629,25 @@ pub fn build_python_graph_declaration(
             Box::pin(async move { exec.execute(&cache).await })
         });
 
-    // Build passthrough accumulator declarations for each
+    // Build accumulator declarations — use package.toml overrides when available
     let accumulators = accumulator_names
         .iter()
-        .map(|name| AccumulatorDeclaration {
-            name: name.clone(),
-            factory: Arc::new(
-                crate::computation_graph::packaging_bridge::PassthroughAccumulatorFactory,
-            ),
+        .map(|name| {
+            let factory: Arc<dyn crate::computation_graph::scheduler::AccumulatorFactory> =
+                if let Some(override_cfg) = accumulator_overrides.iter().find(|a| a.name == *name) {
+                    match override_cfg.accumulator_type.as_str() {
+                        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
+                            override_cfg.config.clone(),
+                        )),
+                        _ => Arc::new(PassthroughAccumulatorFactory),
+                    }
+                } else {
+                    Arc::new(PassthroughAccumulatorFactory)
+                };
+            AccumulatorDeclaration {
+                name: name.clone(),
+                factory,
+            }
         })
         .collect();
 

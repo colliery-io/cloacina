@@ -370,6 +370,7 @@ impl RegistryReconciler {
 
                     let gn_for_decl = graph_name.clone();
                     let tenant = self.config.default_tenant_id.clone();
+                    let acc_overrides = cloacina_manifest.metadata.accumulators.clone();
 
                     tokio::task::spawn_blocking(move || {
                         pyo3::prepare_freethreaded_python();
@@ -388,6 +389,7 @@ impl RegistryReconciler {
                         crate::python::computation_graph::build_python_graph_declaration(
                             &gn_for_decl,
                             Some(tenant),
+                            &acc_overrides,
                         )
                     {
                         {

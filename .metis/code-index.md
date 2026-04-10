@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-10T12:42:05Z | 425 files | JavaScript, Python, Rust
+> Generated: 2026-04-10T13:24:13Z | 425 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -703,6 +703,8 @@
 
 - pub `build_declaration_from_ffi` function L114-177 — `( graph_meta: &GraphPackageMetadata, library_data: Vec<u8>, ) -> ComputationGrap...` — Convert FFI graph metadata + library data into a `ComputationGraphDeclaration`
 - pub `PassthroughAccumulatorFactory` struct L257 — `-` — A generic passthrough accumulator factory for FFI-loaded packages.
+- pub `StreamBackendAccumulatorFactory` struct L310-313 — `{ config: std::collections::HashMap<String, String> }` — A stream-backed accumulator factory for FFI-loaded packages.
+- pub `new` function L316-318 — `(config: std::collections::HashMap<String, String>) -> Self` — `execute_graph()` via fidius FFI.
 -  `LoadedGraphPlugin` struct L45-49 — `{ handle: std::sync::Mutex<fidius_host::PluginHandle>, _temp_dir: tempfile::Temp...` — A persistent handle to a loaded FFI graph plugin.
 -  `LoadedGraphPlugin` type L53 — `impl Send for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
 -  `LoadedGraphPlugin` type L54 — `impl Sync for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
@@ -717,9 +719,7 @@
 -  `process` function L266-268 — `(&mut self, event: serde_json::Value) -> Option<serde_json::Value>` — `execute_graph()` via fidius FFI.
 -  `PassthroughAccumulatorFactory` type L271-303 — `impl AccumulatorFactory for PassthroughAccumulatorFactory` — `execute_graph()` via fidius FFI.
 -  `spawn` function L272-302 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
--  `StreamBackendAccumulatorFactory` struct L310-313 — `{ config: std::collections::HashMap<String, String> }` — A stream-backed accumulator factory for FFI-loaded packages.
 -  `StreamBackendAccumulatorFactory` type L315-319 — `= StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
--  `new` function L316-318 — `(config: std::collections::HashMap<String, String>) -> Self` — `execute_graph()` via fidius FFI.
 -  `StreamBackendAccumulatorFactory` type L321-445 — `impl AccumulatorFactory for StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
 -  `spawn` function L322-444 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
 -  `tests` module L448-515 — `-` — `execute_graph()` via fidius FFI.
@@ -1205,7 +1205,7 @@
 -  `default` function L251-253 — `() -> Self` — ```
 -  `Runtime` type L256-267 — `= Runtime` — ```
 -  `fmt` function L257-266 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
--  `tests` module L270-351 — `-` — ```
+-  `tests` module L270-447 — `-` — ```
 -  `test_empty_runtime` function L275-282 — `()` — ```
 -  `test_register_and_get_workflow` function L285-293 — `()` — ```
 -  `test_scoped_mutations_dont_affect_other_runtimes` function L296-305 — `()` — ```
@@ -1213,6 +1213,10 @@
 -  `test_from_global_captures_workflows` function L320-329 — `()` — ```
 -  `test_workflow_names` function L332-342 — `()` — ```
 -  `test_debug_format` function L345-350 — `()` — ```
+-  `test_from_global_sees_late_registrations` function L353-373 — `()` — ```
+-  `test_new_does_not_see_global_registrations` function L376-394 — `()` — ```
+-  `test_local_registration_takes_precedence_over_global` function L397-426 — `()` — ```
+-  `test_from_global_has_task_fallback` function L429-446 — `()` — ```
 
 #### crates/cloacina/src/task.rs
 
@@ -2680,7 +2684,7 @@
 -  `has_capacity` function L985-987 — `(&self) -> bool` — to the executor based on routing rules.
 -  `metrics` function L989-999 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
 -  `name` function L1001-1003 — `(&self) -> &str` — to the executor based on routing rules.
--  `tests` module L1007-1245 — `-` — to the executor based on routing rules.
+-  `tests` module L1007-1291 — `-` — to the executor based on routing rules.
 -  `test_merge_primitives_latest_wins` function L1016-1021 — `()` — to the executor based on routing rules.
 -  `test_merge_string_latest_wins` function L1024-1029 — `()` — to the executor based on routing rules.
 -  `test_merge_different_types_latest_wins` function L1032-1037 — `()` — to the executor based on routing rules.
@@ -2707,6 +2711,8 @@
 -  `test_executor_name` function L1213-1216 — `()` — to the executor based on routing rules.
 -  `test_executor_clone_shares_semaphore` function L1219-1227 — `()` — to the executor based on routing rules.
 -  `test_executor_custom_config` function L1230-1243 — `()` — to the executor based on routing rules.
+-  `test_new_uses_empty_runtime_not_from_global` function L1252-1265 — `()` — to the executor based on routing rules.
+-  `test_with_runtime_and_registry_uses_provided_runtime` function L1269-1290 — `()` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 
@@ -3327,7 +3333,7 @@
 - pub `PythonGraphExecutor` struct L481-488 — `{ name: String, node_functions: HashMap<String, PyObject>, node_map: HashMap<Str...` — ```
 - pub `execute_sync` function L515-556 — `( &self, py: Python<'_>, inputs: &HashMap<String, PyObject>, ) -> PyResult<PyObj...` — Execute the graph synchronously from Python with dict inputs.
 - pub `execute` function L559-594 — `( &self, cache: &crate::computation_graph::types::InputCache, ) -> GraphResult` — Execute the graph with the given input cache.
-- pub `build_python_graph_declaration` function L601-649 — `( graph_name: &str, tenant_id: Option<String>, ) -> Option<crate::computation_gr...` — Build a [`ComputationGraphDeclaration`] from a registered Python graph executor.
+- pub `build_python_graph_declaration` function L601-664 — `( graph_name: &str, tenant_id: Option<String>, accumulator_overrides: &[cloacina...` — Build a [`ComputationGraphDeclaration`] from a registered Python graph executor.
 -  `NODE_REGISTRY` variable L62-63 — `: Lazy<Mutex<HashMap<String, PyObject>>>` — ```
 -  `ACTIVE_GRAPH_CONTEXT` variable L64 — `: Lazy<Mutex<Option<String>>>` — ```
 -  `push_graph_context` function L66-69 — `(name: String)` — ```
@@ -3347,10 +3353,10 @@
 -  `PythonGraphExecutor` type L494-509 — `impl Clone for PythonGraphExecutor` — ```
 -  `clone` function L495-508 — `(&self) -> Self` — ```
 -  `PythonGraphExecutor` type L511-595 — `= PythonGraphExecutor` — ```
--  `execute_graph_sync` function L655-797 — `( py: Python<'_>, node_functions: &HashMap<String, PyObject>, execution_order: &...` — ```
--  `build_node_args` function L799-840 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — ```
--  `parse_graph_dict` function L846-891 — `(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>>` — ```
--  `compute_execution_order` function L893-952 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — ```
+-  `execute_graph_sync` function L670-812 — `( py: Python<'_>, node_functions: &HashMap<String, PyObject>, execution_order: &...` — ```
+-  `build_node_args` function L814-855 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — ```
+-  `parse_graph_dict` function L861-906 — `(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>>` — ```
+-  `compute_execution_order` function L908-967 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — ```
 
 #### crates/cloacina/src/python/computation_graph_tests.rs
 
@@ -3455,11 +3461,13 @@
 - pub `workflow_context` module L43 — `-` — `#[pymodule]` definition.
 - pub `bindings` module L71 — `-` — `#[pymodule]` definition.
 -  `computation_graph_tests` module L31 — `-` — `#[pymodule]` definition.
--  `tests` module L74-195 — `-` — `#[pymodule]` definition.
+-  `tests` module L74-291 — `-` — `#[pymodule]` definition.
 -  `test_python_workflow_via_with_gil` function L80-126 — `()` — `#[pymodule]` definition.
 -  `test_ensure_cloaca_module_registers_in_sys_modules` function L129-159 — `()` — `#[pymodule]` definition.
--  `test_validate_no_stdlib_shadowing_rejects_os_py` function L162-178 — `()` — `#[pymodule]` definition.
--  `test_validate_no_stdlib_shadowing_allows_normal_packages` function L181-194 — `()` — `#[pymodule]` definition.
+-  `test_cloaca_var_and_var_or_from_python` function L162-218 — `()` — `#[pymodule]` definition.
+-  `test_cloaca_cg_decorators_are_callable` function L221-255 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_rejects_os_py` function L258-274 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_allows_normal_packages` function L277-290 — `()` — `#[pymodule]` definition.
 
 #### crates/cloacina/src/python/namespace.rs
 
@@ -3905,36 +3913,36 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-882 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L38-441 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L444-491 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L494-535 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L538-679 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L682-730 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L733-780 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L783-806 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L809-820 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L828-870 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `unregister_package_triggers` function L873-881 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
--  `tests` module L885-1182 — `-` — Package loading, unloading, and task/workflow registration.
--  `make_test_reconciler` function L894-899 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
--  `make_test_metadata` function L901-914 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata_with_triggers` function L916-933 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_with_no_triggers_returns_empty` function L941-950 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_tracks_registered_triggers` function L954-985 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_skips_unregistered_triggers` function L989-1009 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_mixed_registered_and_missing` function L1013-1052 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_removes_from_global_registry` function L1060-1079 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_handles_already_removed` function L1083-1090 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_empty_list_is_noop` function L1094-1097 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_removes_from_global_registry` function L1105-1140 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_nonexistent_is_ok` function L1144-1151 — `()` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` struct L1158-1160 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` type L1163-1181 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
--  `name` function L1164-1166 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
--  `poll_interval` function L1168-1170 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
--  `allow_concurrent` function L1172-1174 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
--  `poll` function L1176-1180 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L27-884 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L38-443 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L446-493 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L496-537 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L540-681 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L684-732 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L735-782 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L785-808 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L811-822 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L830-872 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `unregister_package_triggers` function L875-883 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `tests` module L887-1184 — `-` — Package loading, unloading, and task/workflow registration.
+-  `make_test_reconciler` function L896-901 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
+-  `make_test_metadata` function L903-916 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata_with_triggers` function L918-935 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_with_no_triggers_returns_empty` function L943-952 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_tracks_registered_triggers` function L956-987 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_skips_unregistered_triggers` function L991-1011 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_mixed_registered_and_missing` function L1015-1054 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_removes_from_global_registry` function L1062-1081 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_handles_already_removed` function L1085-1092 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_empty_list_is_noop` function L1096-1099 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_removes_from_global_registry` function L1107-1142 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_nonexistent_is_ok` function L1146-1153 — `()` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` struct L1160-1162 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` type L1165-1183 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
+-  `name` function L1166-1168 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
+-  `poll_interval` function L1170-1172 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
+-  `allow_concurrent` function L1174-1176 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
+-  `poll` function L1178-1182 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 

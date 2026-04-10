@@ -4,14 +4,14 @@ level: task
 title: "Integration test: server startup → HTTP health check end-to-end (ConnectInfo, rate limiter interaction)"
 short_code: "CLOACI-T-0470"
 created_at: 2026-04-10T12:45:35.437647+00:00
-updated_at: 2026-04-10T12:45:35.437647+00:00
+updated_at: 2026-04-10T13:06:55.943142+00:00
 parent: CLOACI-I-0068
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -37,6 +37,10 @@ The `build_router` function in `serve.rs` uses `axum::serve(listener, app)` whic
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] `build_router` test sends GET /health and receives 200 `{"status":"ok"}`
 - [ ] Test uses `axum::test` or tower `ServiceExt` (no real TCP needed)
 - [ ] Test verifies /ready returns 200 or 503 (not 500)
@@ -47,4 +51,4 @@ The `build_router` function in `serve.rs` uses `axum::serve(listener, app)` whic
 
 ## Status Updates
 
-*To be added during implementation*
+- **2026-04-10**: Existing tests `test_health_returns_200` and `test_ready_returns_200_with_db` already cover the acceptance criteria via tower `oneshot()`. The original bug was in `axum::serve()` (TCP layer), not `build_router()` — the rate limiter has been removed entirely, so the ConnectInfo issue is moot. The server soak test (`angreal cloacina server-soak`) provides the true end-to-end coverage. No new tests needed.

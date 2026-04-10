@@ -307,13 +307,13 @@ impl AccumulatorFactory for PassthroughAccumulatorFactory {
 /// Creates a passthrough accumulator with a background task that reads from a
 /// `StreamBackend` and pushes events into the accumulator's socket channel.
 /// The accumulator itself is still passthrough — the stream reader feeds it.
-struct StreamBackendAccumulatorFactory {
+pub struct StreamBackendAccumulatorFactory {
     /// Stream backend config from the package metadata.
     config: std::collections::HashMap<String, String>,
 }
 
 impl StreamBackendAccumulatorFactory {
-    fn new(config: std::collections::HashMap<String, String>) -> Self {
+    pub fn new(config: std::collections::HashMap<String, String>) -> Self {
         Self { config }
     }
 }
