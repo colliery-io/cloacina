@@ -290,26 +290,59 @@ cloacina-build = {{ path = "../../../crates/cloacina-build" }}
     lib_rs = """use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AlphaData { pub value: f64 }
+pub struct MarketData { pub bid: f64, pub ask: f64 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutputData { pub result: f64 }
+pub struct TradeSignal { pub direction: String, pub price: f64 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEntry { pub reason: String }
 
 #[cloacina_macros::computation_graph(
     react = when_any(alpha),
     graph = {
-        process(alpha) -> output,
+        decision(alpha) => {
+            Trade -> signal_handler,
+            NoAction -> audit_logger,
+        },
     }
 )]
 pub mod soak_graph {
     use super::*;
 
-    pub async fn process(alpha: Option<&AlphaData>) -> f64 {
-        alpha.map(|a| a.value * 2.0).unwrap_or(0.0)
+    pub enum DecisionOutcome {
+        Trade(TradeSignal),
+        NoAction(AuditEntry),
     }
 
-    pub async fn output(value: &f64) -> OutputData {
-        OutputData { result: *value }
+    pub async fn decision(alpha: Option<&MarketData>) -> DecisionOutcome {
+        match alpha {
+            Some(data) => {
+                let spread = data.ask - data.bid;
+                if spread < 1.0 {
+                    let mid = (data.bid + data.ask) / 2.0;
+                    DecisionOutcome::Trade(TradeSignal {
+                        direction: "BUY".to_string(),
+                        price: mid,
+                    })
+                } else {
+                    DecisionOutcome::NoAction(AuditEntry {
+                        reason: format!("spread too wide: {:.2}", spread),
+                    })
+                }
+            }
+            None => DecisionOutcome::NoAction(AuditEntry {
+                reason: "no data".to_string(),
+            }),
+        }
+    }
+
+    pub async fn signal_handler(signal: &TradeSignal) -> TradeSignal {
+        signal.clone()
+    }
+
+    pub async fn audit_logger(reason: &AuditEntry) -> AuditEntry {
+        reason.clone()
     }
 }
 """
@@ -373,20 +406,35 @@ with cloaca.ComputationGraphBuilder(
     "{graph_name}",
     react={{"mode": "when_any", "accumulators": ["py_alpha"]}},
     graph={{
-        "process": {{"inputs": ["py_alpha"]}},
-        "output": {{"inputs": ["process"]}},
+        "decision": {{"inputs": ["py_alpha"], "routes": {{
+            "Trade": "signal_handler",
+            "NoAction": "audit_logger",
+        }}}},
+        "signal_handler": {{}},
+        "audit_logger": {{}},
     }},
 ) as builder:
 
     @cloaca.node
-    def process(py_alpha):
+    def decision(py_alpha):
         if py_alpha is None:
-            return {{"result": 0.0}}
-        return {{"result": py_alpha.get("value", 0.0) * 2.0}}
+            return ("NoAction", {{"reason": "no data"}})
+        bid = py_alpha.get("bid", 0.0)
+        ask = py_alpha.get("ask", 0.0)
+        spread = ask - bid
+        if spread < 1.0:
+            mid = (bid + ask) / 2.0
+            return ("Trade", {{"direction": "BUY", "price": mid}})
+        else:
+            return ("NoAction", {{"reason": f"spread too wide: {{spread:.2f}}"}})
 
     @cloaca.node
-    def output(process):
-        return process
+    def signal_handler(signal):
+        return {{"executed": True, "direction": signal.get("direction", "?"), "price": signal.get("price", 0.0)}}
+
+    @cloaca.node
+    def audit_logger(reason):
+        return {{"logged": True, "reason": reason.get("reason", "unknown")}}
 """
 
     buf = io.BytesIO()
@@ -1251,7 +1299,7 @@ def server_soak():
         py_cg_event_count = {"sent": 0, "failed": 0}
 
         def ws_event_worker():
-            """Push events via persistent WebSocket at ~200 msg/sec."""
+            """Push market data via persistent WebSocket at ~200 msg/sec."""
             try:
                 ws = PersistentWebSocket(
                     "127.0.0.1", 18080,
@@ -1260,7 +1308,10 @@ def server_soak():
                 import math
                 seq = 0
                 while not kafka_stop_event.is_set():
-                    msg = json.dumps({"value": 42.0 + math.sin(seq * 0.1)})
+                    # Alternate tight and wide spreads to exercise both routing branches
+                    mid = 100.0 + math.sin(seq * 0.1)
+                    spread = 0.5 if seq % 3 != 0 else 2.0  # 2/3 Trade, 1/3 NoAction
+                    msg = json.dumps({"bid": mid - spread/2, "ask": mid + spread/2})
                     if ws.send(msg):
                         ws_event_count["sent"] += 1
                     else:
@@ -1310,7 +1361,7 @@ def server_soak():
             producer.close()
 
         def py_cg_event_worker():
-            """Push events to Python CG accumulator via WebSocket at ~100 msg/sec."""
+            """Push market data to Python CG accumulator via WebSocket at ~100 msg/sec."""
             try:
                 ws = PersistentWebSocket(
                     "127.0.0.1", 18080,
@@ -1319,7 +1370,9 @@ def server_soak():
                 import math
                 seq = 0
                 while not kafka_stop_event.is_set():
-                    msg = json.dumps({"value": 10.0 + math.cos(seq * 0.1)})
+                    mid = 50.0 + math.cos(seq * 0.1)
+                    spread = 0.3 if seq % 4 != 0 else 1.5  # 3/4 Trade, 1/4 NoAction
+                    msg = json.dumps({"bid": mid - spread/2, "ask": mid + spread/2})
                     if ws.send(msg):
                         py_cg_event_count["sent"] += 1
                     else:
