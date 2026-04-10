@@ -19,8 +19,8 @@
 //! This example demonstrates how to use Cloacina's multi-tenant capabilities
 //! with PostgreSQL schema-based isolation.
 
+use cloacina::executor::WorkflowExecutionError;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::PipelineError;
 use std::env;
 use tracing::{info, warn};
 
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn demonstrate_multi_tenant_setup(database_url: &str) -> Result<(), PipelineError> {
+async fn demonstrate_multi_tenant_setup(database_url: &str) -> Result<(), WorkflowExecutionError> {
     info!("Creating multi-tenant executors with schema isolation");
 
     // Method 1: Using convenience method
@@ -82,7 +82,7 @@ async fn demonstrate_multi_tenant_setup(database_url: &str) -> Result<(), Pipeli
 }
 
 /// Demonstrates recovery scenarios for multi-tenant systems
-async fn demonstrate_recovery_scenarios(database_url: &str) -> Result<(), PipelineError> {
+async fn demonstrate_recovery_scenarios(database_url: &str) -> Result<(), WorkflowExecutionError> {
     info!("=== Demonstrating Multi-Tenant Recovery ===");
 
     // Demonstrate automatic recovery across restarts

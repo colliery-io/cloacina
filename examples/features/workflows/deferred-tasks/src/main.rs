@@ -38,7 +38,7 @@
 //!     +- defers until simulated external data is "ready"
 //! ```
 
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError, TaskHandle};
 use serde_json::json;

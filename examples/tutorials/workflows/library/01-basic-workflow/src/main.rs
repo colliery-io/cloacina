@@ -18,7 +18,7 @@
 //!
 //! This example demonstrates the most basic usage of Cloacina with a single task.
 
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};

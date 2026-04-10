@@ -39,7 +39,7 @@
 //! - Conditional cleanup that always runs
 //! - Different retry policies for different task types
 
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::Context;

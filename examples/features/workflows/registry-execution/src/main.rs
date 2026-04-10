@@ -43,9 +43,10 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use chrono::{Duration as ChronoDuration, Utc};
 use cloacina::database::Database;
+use cloacina::executor::WorkflowExecutor;
 use cloacina::registry::error::RegistryError;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{Context, PipelineExecutor};
+use cloacina::Context;
 use std::time::Duration;
 
 #[tokio::main]

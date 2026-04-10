@@ -23,7 +23,7 @@
 //! - Callback hooks for task success/failure notifications
 //! - Monitoring task execution outcomes
 
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};

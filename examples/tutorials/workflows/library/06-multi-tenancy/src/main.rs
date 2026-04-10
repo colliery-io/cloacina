@@ -20,9 +20,9 @@
 //! using PostgreSQL schema-based multi-tenancy and the Database Admin API.
 
 use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::{WorkflowExecutor, WorkflowStatus};
 use cloacina::runner::DefaultRunner;
-use cloacina::{task, workflow, Context, PipelineStatus, TaskError};
+use cloacina::{task, workflow, Context, TaskError};
 use serde_json::json;
 use std::collections::HashMap;
 use std::env;
@@ -203,7 +203,7 @@ async fn basic_multi_tenant_demo(database_url: &str) -> Result<(), Box<dyn std::
 
         let result = runner.execute("customer_processing", context).await?;
 
-        if matches!(result.status, PipelineStatus::Completed) {
+        if matches!(result.status, WorkflowStatus::Completed) {
             let records = result
                 .final_context
                 .get("processed_records")
@@ -265,7 +265,7 @@ async fn advanced_admin_demo(admin_database_url: &str) -> Result<(), Box<dyn std
 
             let result = tenant_runner.execute("tenant_onboarding", context).await?;
 
-            if matches!(result.status, PipelineStatus::Completed) {
+            if matches!(result.status, WorkflowStatus::Completed) {
                 let task_count = result
                     .final_context
                     .get("setup_tasks_count")

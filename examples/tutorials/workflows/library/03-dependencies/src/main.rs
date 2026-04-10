@@ -42,7 +42,7 @@
 //! - **Result Combination**: Merging results from parallel tasks
 //! - **Final Convergence**: All processing completes before cleanup
 
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};
