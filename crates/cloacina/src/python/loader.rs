@@ -126,6 +126,10 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
     module.add_class::<super::workflow_context::PyWorkflowContext>()?;
     module.add_class::<super::namespace::PyTaskNamespace>()?;
 
+    // Variable registry
+    module.add_function(wrap_pyfunction!(py_var, &module)?)?;
+    module.add_function(wrap_pyfunction!(py_var_or, &module)?)?;
+
     // Register in sys.modules so `import cloaca` works
     sys_modules.set_item("cloaca", &module)?;
 
@@ -438,4 +442,18 @@ pub fn import_python_computation_graph(
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// Python binding: `cloaca.var(name)` — resolve a `CLOACINA_VAR_{NAME}` env var.
+#[pyfunction]
+#[pyo3(name = "var")]
+fn py_var(name: &str) -> PyResult<String> {
+    crate::var(name).map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))
+}
+
+/// Python binding: `cloaca.var_or(name, default)` — resolve with a fallback.
+#[pyfunction]
+#[pyo3(name = "var_or")]
+fn py_var_or(name: &str, default: &str) -> String {
+    crate::var_or(name, default)
 }

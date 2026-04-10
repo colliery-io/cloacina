@@ -175,7 +175,7 @@ register_stream_backend("my-broker", Box::new(|config| {
 }));
 ```
 
-In packaged deployments, the `StreamBackendAccumulatorFactory` in the packaging bridge looks up backends in this registry by the type name specified in `package.toml` (e.g., `type = "kafka"`). The `KAFKA_BROKER_URL` environment variable provides the broker address at runtime — this avoids embedding connection strings in the compiled package.
+In packaged deployments, the `StreamBackendAccumulatorFactory` in the packaging bridge looks up backends in this registry by the type name specified in `package.toml` (e.g., `type = "kafka"`). The broker address is resolved at runtime via the `CLOACINA_VAR_` convention (e.g., `CLOACINA_VAR_KAFKA_BROKER`) — this avoids embedding connection strings in the compiled package.
 
 ## Accumulator Health States
 

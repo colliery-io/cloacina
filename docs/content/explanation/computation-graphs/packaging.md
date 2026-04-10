@@ -166,7 +166,7 @@ topic = "prod.market.orderbook"
 group = "market-maker-prod"
 ```
 
-This allows the graph code to declare `accumulator_type = "passthrough"` as a development default (push events manually for testing) while the deployed manifest overrides it to `stream` with the production Kafka topic and consumer group. The Kafka broker URL itself comes from `KAFKA_BROKER_URL` at runtime, not from the manifest, so it is not embedded in the package.
+This allows the graph code to declare `accumulator_type = "passthrough"` as a development default (push events manually for testing) while the deployed manifest overrides it to `stream` with the production Kafka topic and consumer group. The Kafka broker URL itself is resolved at runtime via the `CLOACINA_VAR_` convention (the accumulator's `broker` config key names the variable, e.g., `broker = "KAFKA_BROKER"` resolves from `CLOACINA_VAR_KAFKA_BROKER`), so it is not embedded in the package.
 
 ## Accumulator Types in Packaged Graphs
 

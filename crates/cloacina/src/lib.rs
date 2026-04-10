@@ -515,9 +515,11 @@ pub mod runtime;
 pub mod security;
 pub mod task;
 pub mod trigger;
+pub mod var;
 pub mod workflow;
 
 pub use logging::init_logging;
+pub use var::{var, var_or};
 
 #[cfg(test)]
 pub use logging::init_test_logging;

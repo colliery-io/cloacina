@@ -350,17 +350,23 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
         ));
 
         // Spawn the stream reader that feeds the accumulator's socket channel.
-        // Broker URL from KAFKA_BROKER_URL env var, topic and group from package metadata.
+        // Broker URL from CLOACINA_VAR_KAFKA_BROKER (or the "broker" config key), topic and group from package metadata.
         let topic = self.config.get("topic").cloned().unwrap_or_default();
         let group = self
             .config
             .get("group")
             .cloned()
             .unwrap_or_else(|| format!("{}_group", name));
+        // The "broker" config key is the var name to resolve (e.g., "KAFKA_BROKER")
+        let broker_var = self
+            .config
+            .get("broker")
+            .cloned()
+            .expect("stream accumulator config must include 'broker' key");
         let extra_config: std::collections::HashMap<String, String> = self
             .config
             .iter()
-            .filter(|(k, _)| !["topic", "group", "backend"].contains(&k.as_str()))
+            .filter(|(k, _)| !["topic", "group", "backend", "broker"].contains(&k.as_str()))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
 
@@ -370,8 +376,13 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
 
         #[cfg(feature = "kafka")]
         tokio::spawn(async move {
-            let broker_url =
-                std::env::var("KAFKA_BROKER_URL").unwrap_or_else(|_| "localhost:9092".to_string());
+            let broker_url = match crate::var(&broker_var) {
+                Ok(url) => url,
+                Err(e) => {
+                    tracing::error!(accumulator = %acc_name, error = %e, "Cannot start stream reader");
+                    return;
+                }
+            };
 
             let stream_config = super::stream_backend::StreamConfig {
                 broker_url,

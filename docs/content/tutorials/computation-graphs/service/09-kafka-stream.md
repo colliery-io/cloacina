@@ -9,7 +9,7 @@ In the previous tutorials, events arrived via WebSocket pushed by an external pr
 ## What you'll learn
 
 - The `[[metadata.accumulators]]` configuration block in `package.toml`
-- Setting `KAFKA_BROKER_URL` so the server knows where to connect
+- Setting `CLOACINA_VAR_KAFKA_BROKER` so the server knows where to connect
 - Starting Kafka locally with `docker compose`
 - Creating topics and producing test messages with `kafka-console-producer.sh`
 - Three accumulator patterns: passthrough, stateful, and batch
@@ -34,7 +34,7 @@ Normally, an accumulator receives events over its WebSocket channel. A **stream 
 
 The key difference is in `package.toml`. When the reconciler loads your graph and sees `accumulator_type = "stream"`, it spawns a `StreamBackendAccumulatorFactory` instead of the default `PassthroughAccumulatorFactory`. The factory starts a background `tokio::spawn` task that connects to Kafka using the `KafkaStreamBackend` (rdkafka) and forwards every message payload into the accumulator's channel.
 
-The server reads the broker URL from the `KAFKA_BROKER_URL` environment variable. Topic and consumer group come from the `[metadata.accumulators.config]` block.
+The server reads the broker URL from the `CLOACINA_VAR_KAFKA_BROKER` environment variable. Topic and consumer group come from the `[metadata.accumulators.config]` block.
 
 ---
 
@@ -83,12 +83,12 @@ Expected output:
 Created topic price.orderbook.
 ```
 
-## Step 3: Set KAFKA_BROKER_URL
+## Step 3: Set CLOACINA_VAR_KAFKA_BROKER
 
-The server reads this variable at accumulator spawn time (when the graph is loaded):
+The server resolves broker URLs through the `CLOACINA_VAR_` convention. The accumulator's `broker` config key names the variable to look up:
 
 ```bash
-export KAFKA_BROKER_URL="localhost:9092"
+export CLOACINA_VAR_KAFKA_BROKER="localhost:9092"
 ```
 
 If you're running the server as a system service, add this to the service environment file. The variable must be set before the graph is loaded — changing it after loading has no effect on already-running accumulator tasks.
@@ -125,6 +125,7 @@ name = "orderbook"
 accumulator_type = "stream"
 
 [metadata.accumulators.config]
+broker = "KAFKA_BROKER"
 topic = "price.orderbook"
 group = "kafka-price-signal-group"
 ```
@@ -135,6 +136,7 @@ The `[[metadata.accumulators]]` array table declares each accumulator. Fields:
 |---|---|---|
 | `name` | Yes | Must match the accumulator name in the graph macro |
 | `accumulator_type` | Yes | `"passthrough"` (WebSocket) or `"stream"` (Kafka) |
+| `config.broker` | Yes (stream) | Variable name for the broker URL (resolved from `CLOACINA_VAR_{name}`) |
 | `config.topic` | Yes (stream) | Kafka topic to consume from |
 | `config.group` | No | Consumer group ID — defaults to `{name}_group` |
 
@@ -347,6 +349,7 @@ name = "orderbook"
 accumulator_type = "stream"
 
 [metadata.accumulators.config]
+broker = "KAFKA_BROKER"
 topic = "price.orderbook"
 group = "kafka-stateful-group"
 
@@ -499,6 +502,7 @@ name = "trade"
 accumulator_type = "stream"
 
 [metadata.accumulators.config]
+broker = "KAFKA_BROKER"
 topic = "price.trades"
 group = "kafka-vwap-group"
 ```
@@ -547,7 +551,7 @@ docker exec cloacina-kafka \
 
 ## Troubleshooting
 
-**Accumulator shows `"unhealthy"` and graph never fires**: The Kafka connection failed. Check the server logs for `failed to connect to Kafka` messages. Verify `KAFKA_BROKER_URL` is set correctly and that the broker is reachable from the server process. If running the server inside a container, `localhost:9092` may not resolve correctly — use the Docker network hostname instead (e.g., `cloacina-kafka:9092`).
+**Accumulator shows `"unhealthy"` and graph never fires**: The Kafka connection failed. Check the server logs for `failed to connect to Kafka` messages. Verify `CLOACINA_VAR_KAFKA_BROKER` is set correctly and that the broker is reachable from the server process. If running the server inside a container, `localhost:9092` may not resolve correctly — use the Docker network hostname instead (e.g., `cloacina-kafka:9092`).
 
 **Messages produce but `fire_count` stays at 0**: The message payload is not valid JSON matching your boundary type. Verify with `kafka-console-consumer.sh`:
 
