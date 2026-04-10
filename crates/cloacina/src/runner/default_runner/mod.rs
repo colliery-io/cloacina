@@ -215,11 +215,14 @@ impl DefaultRunner {
             heartbeat_interval: config.heartbeat_interval(),
         };
 
-        let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)
-            .map_err(|e| WorkflowExecutionError::Configuration {
-                message: e.to_string(),
-            })?
-            .with_runtime(runtime.clone());
+        // Create executor with the scoped runtime — skip with_global_registry() since
+        // the runtime provides task lookups and the old TaskRegistry is unused.
+        let executor = ThreadTaskExecutor::new(
+            database.clone(),
+            Arc::new(crate::task::TaskRegistry::new()),
+            executor_config,
+        )
+        .with_runtime(runtime.clone());
 
         // Configure dispatcher for push-based task execution
         let dal = DAL::new(database.clone());

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-09T17:50:59Z | 424 files | JavaScript, Python, Rust
+> Generated: 2026-04-10T01:07:07Z | 424 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4113,8 +4113,8 @@
 - pub `schema` function L543-546 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
 - pub `with_config` function L549-552 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
 - pub `runtime` function L559-562 — `(mut self, runtime: Runtime) -> Self` — Sets a scoped [`Runtime`] for this runner.
-- pub `build` function L576-697 — `(self) -> Result<DefaultRunner, WorkflowExecutionError>` — Builds the DefaultRunner
-- pub `routing_config` function L715-718 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+- pub `build` function L576-700 — `(self) -> Result<DefaultRunner, WorkflowExecutionError>` — Builds the DefaultRunner
+- pub `routing_config` function L718-721 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
 -  `DefaultRunnerConfig` type L92-242 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L259-295 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L260-294 — `() -> Self` — configuring the DefaultRunner's behavior.
@@ -4123,18 +4123,18 @@
 -  `default` function L478-480 — `() -> Self` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerBuilder` type L516-520 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L517-519 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L522-719 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L522-722 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `validate_schema_name` function L565-573 — `(schema: &str) -> Result<(), WorkflowExecutionError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L722-888 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L726-741 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L744-767 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L770-778 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L781-802 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L805-820 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L823-826 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L829-842 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L845-853 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L856-887 — `()` — configuring the DefaultRunner's behavior.
+-  `tests` module L725-891 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L729-744 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L747-770 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L773-781 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L784-805 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L808-823 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L826-829 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L832-845 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L848-856 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L859-890 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
@@ -4157,23 +4157,23 @@
 - pub `new` function L125-127 — `(database_url: &str) -> Result<Self, WorkflowExecutionError>` — Creates a new default runner with default configuration
 - pub `builder` function L141-143 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
 - pub `with_schema` function L161-170 — `( database_url: &str, schema: &str, ) -> Result<Self, WorkflowExecutionError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
-- pub `with_config` function L187-261 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, WorkflowExe...` — Creates a new unified executor with custom configuration
-- pub `database` function L264-266 — `(&self) -> &Database` — Returns a reference to the database.
-- pub `dal` function L269-271 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `unified_scheduler` function L277-279 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
-- pub `set_reactive_scheduler` function L283-289 — `( &self, scheduler: Arc<crate::computation_graph::scheduler::ReactiveScheduler>,...` — Set the reactive scheduler for computation graph package routing.
-- pub `shutdown` function L301-338 — `(&self) -> Result<(), WorkflowExecutionError>` — Gracefully shuts down the executor and its background services
+- pub `with_config` function L187-264 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, WorkflowExe...` — Creates a new unified executor with custom configuration
+- pub `database` function L267-269 — `(&self) -> &Database` — Returns a reference to the database.
+- pub `dal` function L272-274 — `(&self) -> DAL` — Returns the DAL for database operations.
+- pub `unified_scheduler` function L280-282 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
+- pub `set_reactive_scheduler` function L286-292 — `( &self, scheduler: Arc<crate::computation_graph::scheduler::ReactiveScheduler>,...` — Set the reactive scheduler for computation graph package routing.
+- pub `shutdown` function L304-341 — `(&self) -> Result<(), WorkflowExecutionError>` — Gracefully shuts down the executor and its background services
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_executor_impl` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_result` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `RuntimeHandles` struct L97-110 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
--  `DefaultRunner` type L112-339 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L341-356 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L342-355 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L359-365 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L360-364 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L112-342 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L344-359 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L345-358 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L362-368 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L363-367 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/pipeline_executor_impl.rs
 
@@ -5350,19 +5350,19 @@
 
 #### crates/cloacina/tests/integration/executor/multi_tenant.rs
 
--  `postgres_multi_tenant_tests` module L19-293 — `-` — Integration tests for multi-tenant functionality
--  `tenant_marker_task` function L33-37 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — Simple task that marks its tenant in the context
--  `setup_tenant_workflow` function L40-67 — `(tenant_schema: &str) -> Workflow` — Helper to create and register a workflow for a specific tenant schema
--  `test_schema_isolation` function L71-159 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that schema-based multi-tenancy provides complete data isolation
--  `test_independent_execution` function L163-235 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that the same workflow can execute independently in different tenants
--  `test_invalid_schema_names` function L239-260 — `()` — Test that invalid schema names are rejected
--  `test_sqlite_schema_rejection` function L264-275 — `()` — Test that schema isolation is only supported for PostgreSQL
--  `test_builder_pattern` function L279-292 — `() -> Result<(), Box<dyn std::error::Error>>` — Test builder pattern for multi-tenant setup
--  `sqlite_multi_tenant_tests` module L295-438 — `-` — Integration tests for multi-tenant functionality
--  `sqlite_tenant_task` function L308-311 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — Simple task for SQLite tests
--  `setup_sqlite_workflow` function L314-340 — `(db_name: &str) -> Workflow` — Helper to create and register a workflow for SQLite tests
--  `test_sqlite_file_isolation` function L344-420 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite multi-tenancy works with separate database files
--  `test_sqlite_separate_files` function L424-437 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite creates separate database files
+-  `postgres_multi_tenant_tests` module L19-315 — `-` — Integration tests for multi-tenant functionality
+-  `tenant_marker_task` function L32-36 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — Simple task that marks its tenant in the context
+-  `setup_tenant_workflow` function L39-67 — `(tenant_schema: &str, runtime: &cloacina::Runtime) -> Workflow` — Helper to create a workflow and register it on a scoped runtime
+-  `test_schema_isolation` function L71-170 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that schema-based multi-tenancy provides complete data isolation
+-  `test_independent_execution` function L174-257 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that the same workflow can execute independently in different tenants
+-  `test_invalid_schema_names` function L261-282 — `()` — Test that invalid schema names are rejected
+-  `test_sqlite_schema_rejection` function L286-297 — `()` — Test that schema isolation is only supported for PostgreSQL
+-  `test_builder_pattern` function L301-314 — `() -> Result<(), Box<dyn std::error::Error>>` — Test builder pattern for multi-tenant setup
+-  `sqlite_multi_tenant_tests` module L317-469 — `-` — Integration tests for multi-tenant functionality
+-  `sqlite_tenant_task` function L329-332 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — Simple task for SQLite tests
+-  `setup_sqlite_workflow` function L335-360 — `(db_name: &str, runtime: &cloacina::Runtime) -> Workflow` — Helper to create a workflow and register it on a scoped runtime
+-  `test_sqlite_file_isolation` function L364-451 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite multi-tenancy works with separate database files
+-  `test_sqlite_separate_files` function L455-468 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite creates separate database files
 
 #### crates/cloacina/tests/integration/executor/pause_resume.rs
 

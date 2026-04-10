@@ -23,7 +23,6 @@ mod postgres_multi_tenant_tests {
     use cloacina::executor::WorkflowExecutor;
     use cloacina::runner::DefaultRunner;
     use cloacina::*;
-    use cloacina::{register_task_constructor, register_workflow_constructor};
     use serde_json::Value;
     use std::env;
     use std::sync::Arc;
@@ -36,8 +35,8 @@ mod postgres_multi_tenant_tests {
         Ok(())
     }
 
-    /// Helper to create and register a workflow for a specific tenant schema
-    fn setup_tenant_workflow(tenant_schema: &str) -> Workflow {
+    /// Helper to create a workflow and register it on a scoped runtime
+    fn setup_tenant_workflow(tenant_schema: &str, runtime: &cloacina::Runtime) -> Workflow {
         let workflow_name = format!("isolation_test_{}", tenant_schema);
 
         let workflow = Workflow::builder(&workflow_name)
@@ -48,17 +47,18 @@ mod postgres_multi_tenant_tests {
             .build()
             .unwrap();
 
-        // Register task constructor
+        // Register task on scoped runtime
         let namespace = TaskNamespace::new(
             workflow.tenant(),
             workflow.package(),
             workflow.name(),
             "tenant_marker_task",
         );
-        register_task_constructor(namespace, || Arc::new(tenant_marker_task_task()));
+        let task = Arc::new(tenant_marker_task_task());
+        runtime.register_task(namespace, move || task.clone());
 
-        // Register workflow constructor
-        register_workflow_constructor(workflow.name().to_string(), {
+        // Register workflow on scoped runtime
+        runtime.register_workflow(workflow.name().to_string(), {
             let workflow = workflow.clone();
             move || workflow.clone()
         });
@@ -73,13 +73,24 @@ mod postgres_multi_tenant_tests {
             "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
         });
 
-        // Create two runners with different schemas
-        let runner_a = DefaultRunner::with_schema(&database_url, "tenant_iso_a").await?;
-        let runner_b = DefaultRunner::with_schema(&database_url, "tenant_iso_b").await?;
+        // Setup workflows BEFORE creating runners (runtime snapshot must capture them)
+        let runtime = cloacina::Runtime::new();
+        let workflow_a = setup_tenant_workflow("tenant_iso_a", &runtime);
+        let workflow_b = setup_tenant_workflow("tenant_iso_b", &runtime);
 
-        // Setup workflows for each tenant
-        let workflow_a = setup_tenant_workflow("tenant_iso_a");
-        let workflow_b = setup_tenant_workflow("tenant_iso_b");
+        // Create two runners with different schemas sharing the same runtime
+        let runner_a = DefaultRunner::builder()
+            .database_url(&database_url)
+            .schema("tenant_iso_a")
+            .runtime(runtime.clone())
+            .build()
+            .await?;
+        let runner_b = DefaultRunner::builder()
+            .database_url(&database_url)
+            .schema("tenant_iso_b")
+            .runtime(runtime)
+            .build()
+            .await?;
 
         // Execute workflow in tenant A
         let context_a = Context::new();
@@ -165,13 +176,24 @@ mod postgres_multi_tenant_tests {
             "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
         });
 
-        // Create two runners with different schemas
-        let runner_a = DefaultRunner::with_schema(&database_url, "tenant_indep_a").await?;
-        let runner_b = DefaultRunner::with_schema(&database_url, "tenant_indep_b").await?;
+        // Setup workflows BEFORE creating runners
+        let runtime = cloacina::Runtime::new();
+        let workflow_a = setup_tenant_workflow("tenant_indep_a", &runtime);
+        let workflow_b = setup_tenant_workflow("tenant_indep_b", &runtime);
 
-        // Setup workflows
-        let workflow_a = setup_tenant_workflow("tenant_indep_a");
-        let workflow_b = setup_tenant_workflow("tenant_indep_b");
+        // Create two runners with different schemas sharing the same runtime
+        let runner_a = DefaultRunner::builder()
+            .database_url(&database_url)
+            .schema("tenant_indep_a")
+            .runtime(runtime.clone())
+            .build()
+            .await?;
+        let runner_b = DefaultRunner::builder()
+            .database_url(&database_url)
+            .schema("tenant_indep_b")
+            .runtime(runtime)
+            .build()
+            .await?;
 
         // Execute in both tenants simultaneously
         let context_a = Context::new();
@@ -299,7 +321,6 @@ mod sqlite_multi_tenant_tests {
     use cloacina::executor::WorkflowExecutor;
     use cloacina::runner::DefaultRunner;
     use cloacina::*;
-    use cloacina::{register_task_constructor, register_workflow_constructor};
     use serde_json::Value;
     use std::sync::Arc;
 
@@ -310,8 +331,8 @@ mod sqlite_multi_tenant_tests {
         Ok(())
     }
 
-    /// Helper to create and register a workflow for SQLite tests
-    fn setup_sqlite_workflow(db_name: &str) -> Workflow {
+    /// Helper to create a workflow and register it on a scoped runtime
+    fn setup_sqlite_workflow(db_name: &str, runtime: &cloacina::Runtime) -> Workflow {
         let workflow_name = format!("sqlite_isolation_{}", db_name);
 
         let workflow = Workflow::builder(&workflow_name)
@@ -321,17 +342,16 @@ mod sqlite_multi_tenant_tests {
             .build()
             .unwrap();
 
-        // Register task constructor
         let namespace = TaskNamespace::new(
             workflow.tenant(),
             workflow.package(),
             workflow.name(),
             "sqlite_tenant_task",
         );
-        register_task_constructor(namespace, || Arc::new(sqlite_tenant_task_task()));
+        let task = Arc::new(sqlite_tenant_task_task());
+        runtime.register_task(namespace, move || task.clone());
 
-        // Register workflow constructor
-        register_workflow_constructor(workflow.name().to_string(), {
+        runtime.register_workflow(workflow.name().to_string(), {
             let workflow = workflow.clone();
             move || workflow.clone()
         });
@@ -346,13 +366,24 @@ mod sqlite_multi_tenant_tests {
         let db_a = tmp.path().join("tenant_a.db");
         let db_b = tmp.path().join("tenant_b.db");
 
-        // Create two executors with different database files
-        let runner_a = DefaultRunner::new(&format!("sqlite://{}", db_a.display())).await?;
-        let runner_b = DefaultRunner::new(&format!("sqlite://{}", db_b.display())).await?;
+        // Setup workflows BEFORE creating runners
+        let runtime = cloacina::Runtime::new();
+        let workflow_a = setup_sqlite_workflow("a", &runtime);
+        let workflow_b = setup_sqlite_workflow("b", &runtime);
 
-        // Setup workflows
-        let workflow_a = setup_sqlite_workflow("a");
-        let workflow_b = setup_sqlite_workflow("b");
+        // Create two executors with different database files
+        let url_a = format!("sqlite://{}", db_a.display());
+        let url_b = format!("sqlite://{}", db_b.display());
+        let runner_a = DefaultRunner::builder()
+            .database_url(&url_a)
+            .runtime(runtime.clone())
+            .build()
+            .await?;
+        let runner_b = DefaultRunner::builder()
+            .database_url(&url_b)
+            .runtime(runtime)
+            .build()
+            .await?;
 
         // Execute workflow in tenant A
         let context_a = Context::new();
