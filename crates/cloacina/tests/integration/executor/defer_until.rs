@@ -21,7 +21,7 @@
 //! once a condition is met.
 
 use cloacina::database::universal_types::UniversalUuid;
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::DefaultRunner;
 use cloacina::*;
 use serde_json::Value;

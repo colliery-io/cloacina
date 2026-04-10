@@ -21,7 +21,7 @@
 use std::sync::Arc;
 
 use crate::dal::DAL;
-use crate::executor::pipeline_executor::PipelineError;
+use crate::executor::pipeline_executor::WorkflowExecutionError;
 use crate::registry::traits::WorkflowRegistry;
 use crate::UniversalUuid;
 
@@ -36,15 +36,15 @@ impl DefaultRunner {
     /// * `timezone` - Timezone for interpreting the cron expression (e.g., "UTC", "America/New_York")
     ///
     /// # Returns
-    /// * `Result<UniversalUuid, PipelineError>` - The ID of the created schedule or an error
+    /// * `Result<UniversalUuid, WorkflowExecutionError>` - The ID of the created schedule or an error
     pub async fn register_cron_workflow(
         &self,
         workflow_name: &str,
         cron_expression: &str,
         timezone: &str,
-    ) -> Result<UniversalUuid, PipelineError> {
+    ) -> Result<UniversalUuid, WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled. Use enable_cron_scheduling(true) in config."
                     .to_string(),
             });
@@ -55,24 +55,25 @@ impl DefaultRunner {
         // Validate cron expression and timezone
         use crate::CronEvaluator;
         CronEvaluator::validate(cron_expression, timezone).map_err(|e| {
-            PipelineError::Configuration {
+            WorkflowExecutionError::Configuration {
                 message: format!("Invalid cron expression or timezone: {}", e),
             }
         })?;
 
         // Calculate initial next run time
         let evaluator = CronEvaluator::new(cron_expression, timezone).map_err(|e| {
-            PipelineError::Configuration {
+            WorkflowExecutionError::Configuration {
                 message: format!("Failed to create cron evaluator: {}", e),
             }
         })?;
 
         let now = chrono::Utc::now();
-        let next_run = evaluator
-            .next_execution(now)
-            .map_err(|e| PipelineError::Configuration {
-                message: format!("Failed to calculate next execution: {}", e),
-            })?;
+        let next_run =
+            evaluator
+                .next_execution(now)
+                .map_err(|e| WorkflowExecutionError::Configuration {
+                    message: format!("Failed to calculate next execution: {}", e),
+                })?;
 
         // Create the schedule using unified NewSchedule
         use crate::database::universal_types::UniversalTimestamp;
@@ -83,7 +84,7 @@ impl DefaultRunner {
         new_schedule.timezone = Some(timezone.to_string());
 
         let schedule = dal.schedule().create(new_schedule).await.map_err(|e| {
-            PipelineError::ExecutionFailed {
+            WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to create cron schedule: {}", e),
             }
         })?;
@@ -99,15 +100,15 @@ impl DefaultRunner {
     /// * `offset` - Number of schedules to skip for pagination
     ///
     /// # Returns
-    /// * `Result<Vec<Schedule>, PipelineError>` - List of cron schedules
+    /// * `Result<Vec<Schedule>, WorkflowExecutionError>` - List of cron schedules
     pub async fn list_cron_schedules(
         &self,
         enabled_only: bool,
         limit: i64,
         offset: i64,
-    ) -> Result<Vec<crate::models::schedule::Schedule>, PipelineError> {
+    ) -> Result<Vec<crate::models::schedule::Schedule>, WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
         }
@@ -116,7 +117,7 @@ impl DefaultRunner {
         dal.schedule()
             .list(Some("cron"), enabled_only, limit, offset)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to list cron schedules: {}", e),
             })
     }
@@ -128,14 +129,14 @@ impl DefaultRunner {
     /// * `enabled` - Whether to enable (true) or disable (false) the schedule
     ///
     /// # Returns
-    /// * `Result<(), PipelineError>` - Success or error
+    /// * `Result<(), WorkflowExecutionError>` - Success or error
     pub async fn set_cron_schedule_enabled(
         &self,
         schedule_id: UniversalUuid,
         enabled: bool,
-    ) -> Result<(), PipelineError> {
+    ) -> Result<(), WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
         }
@@ -147,7 +148,7 @@ impl DefaultRunner {
         } else {
             dal.schedule().disable(schedule_id).await
         }
-        .map_err(|e| PipelineError::ExecutionFailed {
+        .map_err(|e| WorkflowExecutionError::ExecutionFailed {
             message: format!("Failed to update cron schedule: {}", e),
         })
     }
@@ -158,24 +159,23 @@ impl DefaultRunner {
     /// * `schedule_id` - UUID of the schedule to delete
     ///
     /// # Returns
-    /// * `Result<(), PipelineError>` - Success or error
+    /// * `Result<(), WorkflowExecutionError>` - Success or error
     pub async fn delete_cron_schedule(
         &self,
         schedule_id: UniversalUuid,
-    ) -> Result<(), PipelineError> {
+    ) -> Result<(), WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
         }
 
         let dal = DAL::new(self.database.clone());
-        dal.schedule()
-            .delete(schedule_id)
-            .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+        dal.schedule().delete(schedule_id).await.map_err(|e| {
+            WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to delete cron schedule: {}", e),
-            })
+            }
+        })
     }
 
     /// Get a specific cron schedule by ID
@@ -184,24 +184,23 @@ impl DefaultRunner {
     /// * `schedule_id` - UUID of the schedule to retrieve
     ///
     /// # Returns
-    /// * `Result<Schedule, PipelineError>` - The cron schedule or an error
+    /// * `Result<Schedule, WorkflowExecutionError>` - The cron schedule or an error
     pub async fn get_cron_schedule(
         &self,
         schedule_id: UniversalUuid,
-    ) -> Result<crate::models::schedule::Schedule, PipelineError> {
+    ) -> Result<crate::models::schedule::Schedule, WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
         }
 
         let dal = DAL::new(self.database.clone());
-        dal.schedule()
-            .get_by_id(schedule_id)
-            .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+        dal.schedule().get_by_id(schedule_id).await.map_err(|e| {
+            WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get cron schedule: {}", e),
-            })
+            }
+        })
     }
 
     /// Update a cron schedule's expression and/or timezone
@@ -212,15 +211,15 @@ impl DefaultRunner {
     /// * `timezone` - New timezone (optional)
     ///
     /// # Returns
-    /// * `Result<(), PipelineError>` - Success or error
+    /// * `Result<(), WorkflowExecutionError>` - Success or error
     pub async fn update_cron_schedule(
         &self,
         schedule_id: UniversalUuid,
         cron_expression: Option<&str>,
         timezone: Option<&str>,
-    ) -> Result<(), PipelineError> {
+    ) -> Result<(), WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
         }
@@ -229,7 +228,7 @@ impl DefaultRunner {
 
         // Get current schedule to fill in missing values
         let schedule = dal.schedule().get_by_id(schedule_id).await.map_err(|e| {
-            PipelineError::ExecutionFailed {
+            WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get cron schedule: {}", e),
             }
         })?;
@@ -243,7 +242,7 @@ impl DefaultRunner {
         if cron_expression.is_some() || timezone.is_some() {
             use crate::CronEvaluator;
             CronEvaluator::validate(effective_expr, effective_tz).map_err(|e| {
-                PipelineError::Configuration {
+                WorkflowExecutionError::Configuration {
                     message: format!("Invalid cron expression or timezone: {}", e),
                 }
             })?;
@@ -252,22 +251,23 @@ impl DefaultRunner {
         // Calculate new next run time
         use crate::CronEvaluator;
         let evaluator = CronEvaluator::new(effective_expr, effective_tz).map_err(|e| {
-            PipelineError::Configuration {
+            WorkflowExecutionError::Configuration {
                 message: format!("Failed to create cron evaluator: {}", e),
             }
         })?;
 
         let now = chrono::Utc::now();
-        let next_run = evaluator
-            .next_execution(now)
-            .map_err(|e| PipelineError::Configuration {
-                message: format!("Failed to calculate next execution: {}", e),
-            })?;
+        let next_run =
+            evaluator
+                .next_execution(now)
+                .map_err(|e| WorkflowExecutionError::Configuration {
+                    message: format!("Failed to calculate next execution: {}", e),
+                })?;
 
         dal.schedule()
             .update_cron_expression_and_timezone(schedule_id, cron_expression, timezone, next_run)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to update cron schedule: {}", e),
             })?;
 
@@ -282,15 +282,15 @@ impl DefaultRunner {
     /// * `offset` - Number of executions to skip for pagination
     ///
     /// # Returns
-    /// * `Result<Vec<ScheduleExecution>, PipelineError>` - List of schedule executions
+    /// * `Result<Vec<ScheduleExecution>, WorkflowExecutionError>` - List of schedule executions
     pub async fn get_cron_execution_history(
         &self,
         schedule_id: UniversalUuid,
         limit: i64,
         offset: i64,
-    ) -> Result<Vec<crate::models::schedule::ScheduleExecution>, PipelineError> {
+    ) -> Result<Vec<crate::models::schedule::ScheduleExecution>, WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
         }
@@ -299,7 +299,7 @@ impl DefaultRunner {
         dal.schedule_execution()
             .list_by_schedule(schedule_id, limit, offset)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get cron execution history: {}", e),
             })
     }
@@ -310,13 +310,13 @@ impl DefaultRunner {
     /// * `since` - Only include executions since this timestamp
     ///
     /// # Returns
-    /// * `Result<CronExecutionStats, PipelineError>` - Execution statistics
+    /// * `Result<CronExecutionStats, WorkflowExecutionError>` - Execution statistics
     pub async fn get_cron_execution_stats(
         &self,
         since: chrono::DateTime<chrono::Utc>,
-    ) -> Result<crate::dal::ScheduleExecutionStats, PipelineError> {
+    ) -> Result<crate::dal::ScheduleExecutionStats, WorkflowExecutionError> {
         if !self.config.enable_cron_scheduling() {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
         }
@@ -325,7 +325,7 @@ impl DefaultRunner {
         dal.schedule_execution()
             .get_execution_stats(since)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get cron execution stats: {}", e),
             })
     }

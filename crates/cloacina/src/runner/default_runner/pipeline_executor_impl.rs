@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-//! PipelineExecutor trait implementation for DefaultRunner.
+//! WorkflowExecutor trait implementation for DefaultRunner.
 //!
 //! This module provides the core workflow execution functionality including
 //! synchronous and asynchronous execution, status monitoring, and result retrieval.
@@ -25,14 +25,15 @@ use uuid::Uuid;
 
 use crate::dal::DAL;
 use crate::executor::pipeline_executor::{
-    PipelineError, PipelineExecution, PipelineExecutor, PipelineResult, PipelineStatus,
+    WorkflowExecution, WorkflowExecutionError, WorkflowExecutionResult, WorkflowExecutor,
+    WorkflowStatus,
 };
 use crate::Context;
 use crate::UniversalUuid;
 
 use super::DefaultRunner;
 
-/// Implementation of PipelineExecutor trait for DefaultRunner
+/// Implementation of WorkflowExecutor trait for DefaultRunner
 ///
 /// This implementation provides the core workflow execution functionality:
 /// - Synchronous and asynchronous execution
@@ -40,7 +41,7 @@ use super::DefaultRunner;
 /// - Execution cancellation
 /// - Execution listing and management
 #[async_trait]
-impl PipelineExecutor for DefaultRunner {
+impl WorkflowExecutor for DefaultRunner {
     /// Executes a workflow synchronously and waits for completion
     ///
     /// # Arguments
@@ -48,20 +49,20 @@ impl PipelineExecutor for DefaultRunner {
     /// * `context` - Initial context for the workflow
     ///
     /// # Returns
-    /// * `Result<PipelineResult, PipelineError>` - The execution result or an error
+    /// * `Result<WorkflowExecutionResult, WorkflowExecutionError>` - The execution result or an error
     ///
     /// This method will block until the workflow completes or times out.
     async fn execute(
         &self,
         workflow_name: &str,
         context: Context<serde_json::Value>,
-    ) -> Result<PipelineResult, PipelineError> {
+    ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
         // Schedule execution
         let execution_id = self
             .scheduler
             .schedule_workflow_execution(workflow_name, context)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to schedule workflow: {}", e),
             })?;
 
@@ -73,7 +74,7 @@ impl PipelineExecutor for DefaultRunner {
             // Check timeout
             if let Some(timeout) = self.config.pipeline_timeout() {
                 if start_time.elapsed() > timeout {
-                    return Err(PipelineError::Timeout {
+                    return Err(WorkflowExecutionError::Timeout {
                         timeout_seconds: timeout.as_secs(),
                     });
                 }
@@ -81,10 +82,10 @@ impl PipelineExecutor for DefaultRunner {
 
             // Check status
             let pipeline = dal
-                .pipeline_execution()
+                .workflow_execution()
                 .get_by_id(UniversalUuid(execution_id))
                 .await
-                .map_err(|e| PipelineError::ExecutionFailed {
+                .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                     message: format!("Failed to check execution status: {}", e),
                 })?;
 
@@ -106,7 +107,7 @@ impl PipelineExecutor for DefaultRunner {
     /// * `context` - Initial context for the workflow
     ///
     /// # Returns
-    /// * `Result<PipelineExecution, PipelineError>` - A handle to the execution or an error
+    /// * `Result<WorkflowExecution, WorkflowExecutionError>` - A handle to the execution or an error
     ///
     /// This method returns immediately with an execution handle that can be used
     /// to monitor the workflow's progress.
@@ -114,17 +115,17 @@ impl PipelineExecutor for DefaultRunner {
         &self,
         workflow_name: &str,
         context: Context<serde_json::Value>,
-    ) -> Result<PipelineExecution, PipelineError> {
+    ) -> Result<WorkflowExecution, WorkflowExecutionError> {
         // Schedule execution
         let execution_id = self
             .scheduler
             .schedule_workflow_execution(workflow_name, context)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to schedule workflow: {}", e),
             })?;
 
-        Ok(PipelineExecution::new(
+        Ok(WorkflowExecution::new(
             execution_id,
             workflow_name.to_string(),
             self.clone(),
@@ -139,7 +140,7 @@ impl PipelineExecutor for DefaultRunner {
     /// * `callback` - Callback for receiving status updates
     ///
     /// # Returns
-    /// * `Result<PipelineResult, PipelineError>` - The execution result or an error
+    /// * `Result<WorkflowExecutionResult, WorkflowExecutionError>` - The execution result or an error
     ///
     /// This method will block until completion but provides status updates
     /// through the callback interface.
@@ -148,13 +149,13 @@ impl PipelineExecutor for DefaultRunner {
         workflow_name: &str,
         context: Context<serde_json::Value>,
         callback: Box<dyn crate::executor::pipeline_executor::StatusCallback>,
-    ) -> Result<PipelineResult, PipelineError> {
+    ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
         // Start async execution
         let execution = self.execute_async(workflow_name, context).await?;
         let execution_id = execution.execution_id;
 
         // Poll for status changes and call callback
-        let mut last_status = PipelineStatus::Pending;
+        let mut last_status = WorkflowStatus::Pending;
         callback.on_status_change(last_status.clone());
 
         loop {
@@ -173,178 +174,180 @@ impl PipelineExecutor for DefaultRunner {
         }
     }
 
-    /// Gets the current status of a pipeline execution
+    /// Gets the current status of a workflow execution
     ///
     /// # Arguments
-    /// * `execution_id` - UUID of the pipeline execution
+    /// * `execution_id` - UUID of the workflow execution
     ///
     /// # Returns
-    /// * `Result<PipelineStatus, PipelineError>` - The current status or an error
+    /// * `Result<WorkflowStatus, WorkflowExecutionError>` - The current status or an error
     async fn get_execution_status(
         &self,
         execution_id: Uuid,
-    ) -> Result<PipelineStatus, PipelineError> {
+    ) -> Result<WorkflowStatus, WorkflowExecutionError> {
         let dal = DAL::new(self.database.clone());
         let pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(UniversalUuid(execution_id))
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get execution status: {}", e),
             })?;
 
         let status = match pipeline.status.as_str() {
-            "Pending" => PipelineStatus::Pending,
-            "Running" => PipelineStatus::Running,
-            "Completed" => PipelineStatus::Completed,
-            "Failed" => PipelineStatus::Failed,
-            "Cancelled" => PipelineStatus::Cancelled,
-            "Paused" => PipelineStatus::Paused,
-            _ => PipelineStatus::Failed,
+            "Pending" => WorkflowStatus::Pending,
+            "Running" => WorkflowStatus::Running,
+            "Completed" => WorkflowStatus::Completed,
+            "Failed" => WorkflowStatus::Failed,
+            "Cancelled" => WorkflowStatus::Cancelled,
+            "Paused" => WorkflowStatus::Paused,
+            _ => WorkflowStatus::Failed,
         };
 
         Ok(status)
     }
 
-    /// Gets the complete result of a pipeline execution
+    /// Gets the complete result of a workflow execution
     ///
     /// # Arguments
-    /// * `execution_id` - UUID of the pipeline execution
+    /// * `execution_id` - UUID of the workflow execution
     ///
     /// # Returns
-    /// * `Result<PipelineResult, PipelineError>` - The complete result or an error
+    /// * `Result<WorkflowExecutionResult, WorkflowExecutionError>` - The complete result or an error
     async fn get_execution_result(
         &self,
         execution_id: Uuid,
-    ) -> Result<PipelineResult, PipelineError> {
+    ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
         self.build_pipeline_result(execution_id).await
     }
 
-    /// Cancels an in-progress pipeline execution
+    /// Cancels an in-progress workflow execution
     ///
     /// # Arguments
-    /// * `execution_id` - UUID of the pipeline execution to cancel
+    /// * `execution_id` - UUID of the workflow execution to cancel
     ///
     /// # Returns
-    /// * `Result<(), PipelineError>` - Success or error status
-    async fn cancel_execution(&self, execution_id: Uuid) -> Result<(), PipelineError> {
+    /// * `Result<(), WorkflowExecutionError>` - Success or error status
+    async fn cancel_execution(&self, execution_id: Uuid) -> Result<(), WorkflowExecutionError> {
         // Implementation would mark execution as cancelled in database
         // and notify scheduler/executor to stop processing
         let dal = DAL::new(self.database.clone());
 
-        dal.pipeline_execution()
+        dal.workflow_execution()
             .cancel(execution_id.into())
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to cancel execution: {}", e),
             })?;
 
         Ok(())
     }
 
-    /// Pauses a running pipeline execution
+    /// Pauses a running workflow execution
     ///
     /// When paused, no new tasks will be scheduled, but in-flight tasks will
-    /// complete normally. The pipeline can be resumed later.
+    /// complete normally. The workflow can be resumed later.
     ///
     /// # Arguments
-    /// * `execution_id` - UUID of the pipeline execution to pause
+    /// * `execution_id` - UUID of the workflow execution to pause
     /// * `reason` - Optional reason for pausing the execution
     ///
     /// # Returns
-    /// * `Result<(), PipelineError>` - Success or error status
+    /// * `Result<(), WorkflowExecutionError>` - Success or error status
     async fn pause_execution(
         &self,
         execution_id: Uuid,
         reason: Option<&str>,
-    ) -> Result<(), PipelineError> {
+    ) -> Result<(), WorkflowExecutionError> {
         let dal = DAL::new(self.database.clone());
 
-        // Verify the pipeline is in a pausable state (Pending or Running)
+        // Verify the workflow is in a pausable state (Pending or Running)
         let pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(UniversalUuid(execution_id))
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get execution: {}", e),
             })?;
 
-        // Allow pausing both Pending and Running pipelines
+        // Allow pausing both Pending and Running workflows
         // Pending = waiting to start, Running = actively executing
         if pipeline.status != "Running" && pipeline.status != "Pending" {
-            return Err(PipelineError::ExecutionFailed {
+            return Err(WorkflowExecutionError::ExecutionFailed {
                 message: format!(
-                    "Cannot pause pipeline with status '{}'. Only 'Pending' or 'Running' pipelines can be paused.",
+                    "Cannot pause workflow with status '{}'. Only 'Pending' or 'Running' workflows can be paused.",
                     pipeline.status
                 ),
             });
         }
 
-        dal.pipeline_execution()
+        dal.workflow_execution()
             .pause(execution_id.into(), reason)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to pause execution: {}", e),
             })?;
 
         Ok(())
     }
 
-    /// Resumes a paused pipeline execution
+    /// Resumes a paused workflow execution
     ///
-    /// The scheduler will resume scheduling tasks for this pipeline on the next
+    /// The scheduler will resume scheduling tasks for this workflow on the next
     /// poll cycle.
     ///
     /// # Arguments
-    /// * `execution_id` - UUID of the pipeline execution to resume
+    /// * `execution_id` - UUID of the workflow execution to resume
     ///
     /// # Returns
-    /// * `Result<(), PipelineError>` - Success or error status
-    async fn resume_execution(&self, execution_id: Uuid) -> Result<(), PipelineError> {
+    /// * `Result<(), WorkflowExecutionError>` - Success or error status
+    async fn resume_execution(&self, execution_id: Uuid) -> Result<(), WorkflowExecutionError> {
         let dal = DAL::new(self.database.clone());
 
-        // Verify the pipeline is in a resumable state (Paused)
+        // Verify the workflow is in a resumable state (Paused)
         let pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(UniversalUuid(execution_id))
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get execution: {}", e),
             })?;
 
         if pipeline.status != "Paused" {
-            return Err(PipelineError::ExecutionFailed {
+            return Err(WorkflowExecutionError::ExecutionFailed {
                 message: format!(
-                    "Cannot resume pipeline with status '{}'. Only 'Paused' pipelines can be resumed.",
+                    "Cannot resume workflow with status '{}'. Only 'Paused' workflows can be resumed.",
                     pipeline.status
                 ),
             });
         }
 
-        dal.pipeline_execution()
+        dal.workflow_execution()
             .resume(execution_id.into())
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to resume execution: {}", e),
             })?;
 
         Ok(())
     }
 
-    /// Lists recent pipeline executions
+    /// Lists recent workflow executions
     ///
     /// # Returns
-    /// * `Result<Vec<PipelineResult>, PipelineError>` - List of recent executions or an error
+    /// * `Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>` - List of recent executions or an error
     ///
     /// Currently limited to the 100 most recent executions.
-    async fn list_executions(&self) -> Result<Vec<PipelineResult>, PipelineError> {
+    async fn list_executions(
+        &self,
+    ) -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError> {
         let dal = DAL::new(self.database.clone());
 
         let executions = dal
-            .pipeline_execution()
+            .workflow_execution()
             .list_recent(100)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to list executions: {}", e),
             })?;
 
@@ -361,8 +364,8 @@ impl PipelineExecutor for DefaultRunner {
     /// Shuts down the executor
     ///
     /// # Returns
-    /// * `Result<(), PipelineError>` - Success or error status
-    async fn shutdown(&self) -> Result<(), PipelineError> {
+    /// * `Result<(), WorkflowExecutionError>` - Success or error status
+    async fn shutdown(&self) -> Result<(), WorkflowExecutionError> {
         DefaultRunner::shutdown(self).await
     }
 }

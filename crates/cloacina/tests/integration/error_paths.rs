@@ -19,7 +19,7 @@
 //! Tests that invalid inputs produce the correct errors (not panics).
 
 use async_trait::async_trait;
-use cloacina::task_scheduler::{TriggerCondition, TriggerRule, ValueOperator};
+use cloacina::execution_planner::{TriggerCondition, TriggerRule, ValueOperator};
 use cloacina::*;
 use std::sync::Arc;
 

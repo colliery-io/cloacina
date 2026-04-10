@@ -76,8 +76,26 @@ pub struct TaskMetadata {
 }
 
 /// Package loader for extracting metadata from workflow library files.
+///
+/// Loaded libraries are cached to prevent dlclose. The `inventory` crate
+/// (used by fidius) builds a global linked list via `__attribute__((constructor))`.
+/// If a cdylib is dlclosed, the linked-list nodes are unmapped but the head
+/// pointer still references them. Loading a second cdylib then crashes when
+/// its constructors traverse the corrupted list (macOS sends SIGKILL).
+/// Keeping libraries alive avoids this entirely.
+/// Shared cache of plugin handles kept alive to prevent dlclose.
+///
+/// The `inventory` crate (used by fidius) builds a global intrusive linked list
+/// via `__attribute__((constructor))`. If a cdylib is dlclosed, the list nodes
+/// are unmapped but the head pointer still references them. Loading a second
+/// cdylib then crashes when its constructors traverse the corrupted list
+/// (macOS sends SIGKILL). Keeping handles alive avoids dlclose entirely.
+pub type PluginHandleCache = std::sync::Arc<std::sync::Mutex<Vec<fidius_host::PluginHandle>>>;
+
 pub struct PackageLoader {
     temp_dir: TempDir,
+    /// Shared cache — prevents dlclose of loaded libraries.
+    handle_cache: PluginHandleCache,
 }
 
 impl PackageLoader {
@@ -87,7 +105,27 @@ impl PackageLoader {
             error: e.to_string(),
         })?;
 
-        Ok(Self { temp_dir })
+        Ok(Self {
+            temp_dir,
+            handle_cache: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        })
+    }
+
+    /// Create a package loader with a shared handle cache.
+    pub fn with_handle_cache(cache: PluginHandleCache) -> Result<Self, LoaderError> {
+        let temp_dir = TempDir::new().map_err(|e| LoaderError::TempDirectory {
+            error: e.to_string(),
+        })?;
+
+        Ok(Self {
+            temp_dir,
+            handle_cache: cache,
+        })
+    }
+
+    /// Get the shared handle cache (for passing to TaskRegistrar).
+    pub fn handle_cache(&self) -> PluginHandleCache {
+        self.handle_cache.clone()
     }
 
     /// Generate graph data from task dependencies.
@@ -144,10 +182,11 @@ impl PackageLoader {
         package_data: &[u8],
     ) -> Result<PackageMetadata, LoaderError> {
         let library_extension = get_library_extension();
+        let unique_id = uuid::Uuid::new_v4();
         let temp_path = self
             .temp_dir
             .path()
-            .join(format!("workflow_package.{}", library_extension));
+            .join(format!("pkg_{}.{}", unique_id, library_extension));
         fs::write(&temp_path, package_data)
             .await
             .map_err(|e| LoaderError::FileSystem {
@@ -159,6 +198,8 @@ impl PackageLoader {
     }
 
     /// Extract metadata from a library file using the fidius-host plugin API.
+    ///
+    /// The loaded library is cached to prevent dlclose — see struct-level docs.
     async fn extract_metadata_from_so(
         &self,
         library_path: &Path,
@@ -188,6 +229,16 @@ impl PackageLoader {
             .map_err(|e| LoaderError::MetadataExtraction {
                 reason: format!("Failed to call get_task_metadata: {}", e),
             })?;
+
+        // Keep the handle alive — dropping it triggers dlclose which corrupts
+        // the inventory linked list (see struct-level docs).
+        // PluginHandle holds an Arc<Library> that keeps the dylib mapped.
+        // Keep the handle alive — dropping it triggers dlclose which corrupts
+        // the inventory linked list (see struct-level docs).
+        // PluginHandle holds an Arc<Library> that keeps the dylib mapped.
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
 
         self.convert_plugin_metadata_to_rust(ffi_metadata)
     }
@@ -254,6 +305,65 @@ impl PackageLoader {
         })
     }
 
+    /// Extract computation graph metadata from compiled library bytes.
+    ///
+    /// Calls `get_graph_metadata()` (method index 2) on the fidius plugin.
+    /// Returns `None` if the plugin doesn't support graph metadata (workflow-only packages).
+    pub async fn extract_graph_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Option<cloacina_workflow_plugin::GraphPackageMetadata>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self.temp_dir.path().join(format!(
+            "graph_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        // Method index 2 = get_graph_metadata (zero-arg)
+        let result = match handle
+            .call_method::<(), cloacina_workflow_plugin::GraphPackageMetadata>(2, &())
+        {
+            Ok(meta) => Ok(Some(meta)),
+            Err(e) => {
+                // Plugin doesn't support graph metadata — that's OK for workflow-only packages
+                tracing::debug!("get_graph_metadata not supported by plugin: {}", e);
+                Ok(None)
+            }
+        };
+
+        // Keep handle alive to prevent dlclose
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
+
+        result
+    }
+
     /// Get the temporary directory path for manual file operations.
     pub fn temp_dir(&self) -> &Path {
         self.temp_dir.path()
@@ -279,13 +389,16 @@ impl PackageLoader {
                 error: e.to_string(),
             })?;
 
-        // Load via fidius-host — if this succeeds the plugin is valid
-        fidius_host::loader::load_library(&temp_path).map_err(|e: fidius_host::LoadError| {
-            LoaderError::LibraryLoad {
+        // Load via fidius-host — if this succeeds the plugin is valid.
+        // Keep the loaded library alive to prevent dlclose.
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
                 path: temp_path.to_string_lossy().to_string(),
                 error: e.to_string(),
-            }
-        })?;
+            },
+        )?;
+        // Prevent dlclose by keeping the library handle alive
+        std::mem::forget(loaded);
 
         // Return the fidius registry symbol
         Ok(vec!["fidius_get_registry".to_string()])
@@ -350,7 +463,8 @@ mod tests {
         match result.unwrap_err() {
             LoaderError::LibraryLoad { path, error } => {
                 let library_extension = get_library_extension();
-                assert!(path.contains(&format!("workflow_package.{}", library_extension)));
+                assert!(path.contains(&format!(".{}", library_extension)));
+                assert!(path.contains("pkg_"));
                 assert!(!error.is_empty());
             }
             other => panic!("Expected LibraryLoad error, got: {:?}", other),

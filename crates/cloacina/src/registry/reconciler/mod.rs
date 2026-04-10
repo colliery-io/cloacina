@@ -41,6 +41,7 @@ use tokio::sync::watch;
 use tokio::time::{interval, Interval};
 use tracing::{debug, error, info, warn};
 
+use crate::computation_graph::scheduler::ReactiveScheduler;
 use crate::registry::error::RegistryError;
 use crate::registry::loader::package_loader::PackageLoader;
 use crate::registry::loader::task_registrar::TaskRegistrar;
@@ -124,6 +125,9 @@ pub(super) struct PackageState {
 
     /// Trigger names registered for this package
     pub(super) trigger_names: Vec<String>,
+
+    /// Computation graph name loaded for this package (if any)
+    pub(super) graph_name: Option<String>,
 }
 
 /// Status information about the reconciler
@@ -174,6 +178,10 @@ pub struct RegistryReconciler {
 
     /// Reconciliation interval timer
     interval: Interval,
+
+    /// Optional reactive scheduler for computation graph packages.
+    /// Shared reference so it can be set after construction.
+    reactive_scheduler: Arc<tokio::sync::RwLock<Option<Arc<ReactiveScheduler>>>>,
 }
 
 impl RegistryReconciler {
@@ -186,8 +194,10 @@ impl RegistryReconciler {
         let interval = interval(config.reconcile_interval);
 
         let package_loader = PackageLoader::new().map_err(RegistryError::Loader)?;
+        let shared_cache = package_loader.handle_cache();
 
-        let task_registrar = TaskRegistrar::new().map_err(RegistryError::Loader)?;
+        let task_registrar =
+            TaskRegistrar::with_handle_cache(shared_cache).map_err(RegistryError::Loader)?;
 
         Ok(Self {
             registry,
@@ -197,7 +207,26 @@ impl RegistryReconciler {
             task_registrar,
             shutdown_rx,
             interval,
+            reactive_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
         })
+    }
+
+    /// Set the reactive scheduler for computation graph package routing.
+    pub fn with_reactive_scheduler(self, scheduler: Arc<ReactiveScheduler>) -> Self {
+        // Use try_write since this is called during initialization (not async)
+        if let Ok(mut lock) = self.reactive_scheduler.try_write() {
+            *lock = Some(scheduler);
+        }
+        self
+    }
+
+    /// Replace the reactive scheduler slot with a shared reference from the runner.
+    /// This allows the runner to inject the scheduler after construction.
+    pub fn set_reactive_scheduler_slot(
+        &mut self,
+        slot: Arc<tokio::sync::RwLock<Option<Arc<ReactiveScheduler>>>>,
+    ) {
+        self.reactive_scheduler = slot;
     }
 
     /// Start the background reconciliation loop
@@ -335,12 +364,27 @@ impl RegistryReconciler {
         }
 
         // Load packages that are new in the database
-        for package_id in packages_to_load {
+        info!(
+            "Reconciler: {} package(s) to load: {:?}",
+            packages_to_load.len(),
+            packages_to_load
+        );
+        for (pkg_idx, package_id) in packages_to_load.iter().enumerate() {
+            info!(
+                "Reconciler: starting package {}/{} (id={})",
+                pkg_idx + 1,
+                packages_to_load.len(),
+                package_id
+            );
             // Find the package metadata in db_packages
-            if let Some(package_metadata) = db_packages.iter().find(|p| p.id == package_id) {
+            if let Some(package_metadata) = db_packages.iter().find(|p| p.id == *package_id) {
+                info!(
+                    "Reconciler: loading {} v{} (id={})",
+                    package_metadata.package_name, package_metadata.version, package_id
+                );
                 match self.load_package(package_metadata.clone()).await {
                     Ok(()) => {
-                        result.packages_loaded.push(package_id);
+                        result.packages_loaded.push(*package_id);
                         info!(
                             "Loaded package: {} v{}",
                             package_metadata.package_name, package_metadata.version
@@ -352,7 +396,7 @@ impl RegistryReconciler {
                             package_id, package_metadata.package_name, package_metadata.version, e
                         );
                         error!("{}", error_msg);
-                        result.packages_failed.push((package_id, error_msg));
+                        result.packages_failed.push((*package_id, error_msg));
 
                         if !self.config.continue_on_package_error {
                             return Err(e);
@@ -362,7 +406,7 @@ impl RegistryReconciler {
             } else {
                 let error_msg = format!("Package {} not found in database during load", package_id);
                 error!("{}", error_msg);
-                result.packages_failed.push((package_id, error_msg));
+                result.packages_failed.push((*package_id, error_msg));
             }
         }
 

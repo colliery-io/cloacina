@@ -55,7 +55,7 @@ async fn test_store_and_get_package_metadata() {
     // Store the package metadata
     let storage_type = workflow_registry_storage.storage_type();
     let _package_id = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata, storage_type)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type, None)
         .await
         .expect("Failed to store package metadata");
 
@@ -112,13 +112,13 @@ async fn test_store_duplicate_package_metadata() {
     // Store the package metadata first time - should succeed
     let storage_type = workflow_registry_storage.storage_type();
     let _package_id = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata, storage_type)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type, None)
         .await
         .expect("Failed to store package metadata first time");
 
     // Try to store the same package metadata again - should fail with PackageExists error
     let result = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata, storage_type)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type, None)
         .await;
 
     assert!(result.is_err());
@@ -180,7 +180,7 @@ async fn test_list_all_packages() {
 
         let storage_type = workflow_registry_storage.storage_type();
         workflow_packages_dal
-            .store_package_metadata(&registry_id, &test_metadata, storage_type)
+            .store_package_metadata(&registry_id, &test_metadata, storage_type, None)
             .await
             .expect("Failed to store test package");
     }
@@ -236,7 +236,7 @@ async fn test_delete_package_metadata() {
     // Store the package
     let storage_type = workflow_registry_storage.storage_type();
     let _package_id = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata, storage_type)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type, None)
         .await
         .expect("Failed to store package metadata");
 
@@ -364,7 +364,7 @@ async fn test_store_package_with_complex_metadata() {
     // Store the complex package
     let storage_type = workflow_registry_storage.storage_type();
     let _package_id = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata, storage_type)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type, None)
         .await
         .expect("Failed to store complex package metadata");
 
@@ -426,7 +426,12 @@ async fn test_store_package_with_invalid_uuid() {
 
     // Try to store with invalid UUID
     let result = workflow_packages_dal
-        .store_package_metadata("not-a-valid-uuid", &test_metadata, StorageType::Database)
+        .store_package_metadata(
+            "not-a-valid-uuid",
+            &test_metadata,
+            StorageType::Database,
+            None,
+        )
         .await;
 
     assert!(result.is_err());
@@ -475,7 +480,7 @@ async fn test_package_versioning() {
 
         let storage_type = workflow_registry_storage.storage_type();
         workflow_packages_dal
-            .store_package_metadata(&registry_id, &test_metadata, storage_type)
+            .store_package_metadata(&registry_id, &test_metadata, storage_type, None)
             .await
             .unwrap_or_else(|_| panic!("Failed to store version {}", version));
     }

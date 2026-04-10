@@ -261,4 +261,4 @@ for execution in history:
 - **[Context]({{< ref "/python-bindings/api-reference/context/" >}})** - Data passed from triggers to workflows
 - **[WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}})** - Define workflows that triggers activate
 - **[DefaultRunner]({{< ref "/python-bindings/api-reference/runner/" >}})** - Execute workflows and manage triggers
-- **[Tutorial: Event Triggers]({{< ref "/tutorials/09-event-triggers/" >}})** - Step-by-step trigger implementation guide
+- **[Tutorial: Event Triggers]({{< ref "/tutorials/workflows/service/09-event-triggers/" >}})** - Step-by-step trigger implementation guide

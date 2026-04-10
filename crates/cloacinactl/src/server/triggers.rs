@@ -18,19 +18,25 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use tracing::warn;
 
 use crate::commands::serve::AppState;
+use crate::server::auth::AuthenticatedKey;
+use crate::server::error::ApiError;
 
 /// GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
 pub async fn list_triggers(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let dal = cloacina::dal::DAL::new(state.database.clone());
 
     match dal.schedule().list(None, false, 100, 0).await {
@@ -60,11 +66,7 @@ pub async fn list_triggers(
         }
         Err(e) => {
             warn!("Failed to list triggers for tenant '{}': {}", tenant_id, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::internal(format!("{}", e)).into_response()
         }
     }
 }
@@ -72,20 +74,19 @@ pub async fn list_triggers(
 /// GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
 pub async fn get_trigger(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let dal = cloacina::dal::DAL::new(state.database.clone());
 
     // Find schedule by workflow name or trigger name
     let schedules = match dal.schedule().list(None, false, 100, 0).await {
         Ok(s) => s,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
-        }
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };
 
     let found = schedules
@@ -127,10 +128,7 @@ pub async fn get_trigger(
             }))
             .into_response()
         }
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("trigger '{}' not found", name)})),
-        )
+        None => ApiError::not_found("trigger_not_found", format!("trigger '{}' not found", name))
             .into_response(),
     }
 }

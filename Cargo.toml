@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/cloacina", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow"]
+members = ["crates/cloacina", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph"]
 exclude = ["examples/*"]
 resolver = "2"
 
@@ -24,3 +24,4 @@ cloacina-workflow = { version = "0.4.0", path = "crates/cloacina-workflow" }
 clap = { version = "4.0", features = ["derive", "env"] }
 anyhow = { version = "1.0" }
 toml = { version = "0.8" }
+bincode = { version = "1.3" }

@@ -126,6 +126,30 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
     module.add_class::<super::workflow_context::PyWorkflowContext>()?;
     module.add_class::<super::namespace::PyTaskNamespace>()?;
 
+    // Computation graph decorators and builder
+    module.add_function(wrap_pyfunction!(
+        super::computation_graph::passthrough_accumulator_decorator,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::computation_graph::stream_accumulator_decorator,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::computation_graph::polling_accumulator_decorator,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::computation_graph::batch_accumulator_decorator,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(super::computation_graph::node, &module)?)?;
+    module.add_class::<super::computation_graph::PyComputationGraphBuilder>()?;
+
+    // Variable registry
+    module.add_function(wrap_pyfunction!(py_var, &module)?)?;
+    module.add_function(wrap_pyfunction!(py_var_or, &module)?)?;
+
     // Register in sys.modules so `import cloaca` works
     sys_modules.set_item("cloaca", &module)?;
 
@@ -353,4 +377,103 @@ pub fn import_and_register_python_workflow_named(
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// Import a Python computation graph module and return the graph name.
+///
+/// The module is expected to use `ComputationGraphBuilder` + `@node` decorators.
+/// On `__exit__`, the builder registers the graph executor in `GRAPH_EXECUTORS`.
+/// This function imports the module (triggering registration) and returns the
+/// registered graph name so the reconciler can retrieve and wrap the executor.
+pub fn import_python_computation_graph(
+    workflow_dir: &Path,
+    vendor_dir: &Path,
+    entry_module: &str,
+    graph_name: &str,
+) -> Result<String, PythonLoaderError> {
+    validate_no_stdlib_shadowing(workflow_dir, vendor_dir)?;
+
+    let workflow_dir = workflow_dir.to_path_buf();
+    let vendor_dir = vendor_dir.to_path_buf();
+    let entry_module = entry_module.to_string();
+    let graph_name = graph_name.to_string();
+    let timeout = Duration::from_secs(IMPORT_TIMEOUT_SECS);
+
+    let handle = std::thread::spawn(move || -> Result<String, PythonLoaderError> {
+        Python::with_gil(|py| {
+            ensure_cloaca_module(py)?;
+
+            let sys = py.import("sys")?;
+            let path = sys.getattr("path")?;
+            path.call_method1(
+                "append",
+                (workflow_dir
+                    .to_str()
+                    .ok_or(PythonLoaderError::RuntimeError(
+                        "Invalid workflow_dir path".to_string(),
+                    ))?,),
+            )?;
+            if vendor_dir.exists() {
+                path.call_method1(
+                    "append",
+                    (vendor_dir.to_str().ok_or(PythonLoaderError::RuntimeError(
+                        "Invalid vendor_dir path".to_string(),
+                    ))?,),
+                )?;
+            }
+
+            // Import the module — ComputationGraphBuilder.__exit__ registers the executor
+            py.import(entry_module.as_str()).map_err(|e| {
+                PythonLoaderError::ImportError(format!(
+                    "Failed to import computation graph module '{}': {}",
+                    entry_module, e
+                ))
+            })?;
+
+            // Verify the graph was registered
+            let executor = crate::python::computation_graph::get_graph_executor(&graph_name);
+            if executor.is_none() {
+                return Err(PythonLoaderError::RegistrationError(format!(
+                    "Computation graph '{}' was not registered after importing '{}'. \
+                     Ensure the module uses ComputationGraphBuilder with matching graph name.",
+                    graph_name, entry_module
+                )));
+            }
+
+            tracing::info!("Python computation graph imported: '{}'", graph_name);
+
+            Ok(graph_name)
+        })
+    });
+
+    let start = std::time::Instant::now();
+    loop {
+        if handle.is_finished() {
+            let result = handle.join().map_err(|_| {
+                PythonLoaderError::RuntimeError("Python CG import thread panicked".to_string())
+            })??;
+            return Ok(result);
+        }
+        if start.elapsed() > timeout {
+            return Err(PythonLoaderError::RuntimeError(format!(
+                "Python CG import timed out after {}s",
+                timeout.as_secs()
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Python binding: `cloaca.var(name)` — resolve a `CLOACINA_VAR_{NAME}` env var.
+#[pyfunction]
+#[pyo3(name = "var")]
+fn py_var(name: &str) -> PyResult<String> {
+    crate::var(name).map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))
+}
+
+/// Python binding: `cloaca.var_or(name, default)` — resolve with a fallback.
+#[pyfunction]
+#[pyo3(name = "var_or")]
+fn py_var_or(name: &str, default: &str) -> String {
+    crate::var_or(name, default)
 }

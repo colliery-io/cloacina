@@ -20,13 +20,10 @@ check = angreal.command_group(name="check", about="commands for checking code qu
 
 
 def find_all_cargo_projects() -> List[Path]:
-    """Find all Cargo.toml files, excluding target directories."""
-    # Note: cloaca-backend is handled specially with generate/test/cleanup cycle
-    excluded_paths = set()
-
+    """Find all Cargo.toml files tracked by git."""
     try:
         result = subprocess.run(
-            ["find", ".", "-name", "Cargo.toml", "-not", "-path", "./target/*"],
+            ["git", "ls-files", "--", "*/Cargo.toml", "Cargo.toml"],
             capture_output=True,
             text=True,
             check=True,
@@ -36,14 +33,7 @@ def find_all_cargo_projects() -> List[Path]:
         paths = []
         for line in result.stdout.strip().split('\n'):
             if line:
-                cargo_path = Path(line)
-                project_path = PROJECT_ROOT / cargo_path.parent
-                relative_path = cargo_path.parent.as_posix().lstrip('./')
-
-                # Skip excluded paths
-                if relative_path in excluded_paths:
-                    continue
-
+                project_path = PROJECT_ROOT / Path(line).parent
                 paths.append(project_path)
 
         return sorted(paths)

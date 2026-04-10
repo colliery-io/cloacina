@@ -36,7 +36,8 @@ pub mod types;
 
 // Re-export the interface types for convenience
 pub use types::{
-    CloacinaMetadata, PackageTasksMetadata, TaskExecutionRequest, TaskExecutionResult,
+    AccumulatorDeclarationEntry, CloacinaMetadata, GraphExecutionRequest, GraphExecutionResult,
+    GraphPackageMetadata, PackageTasksMetadata, TaskExecutionRequest, TaskExecutionResult,
     TaskMetadataEntry, TriggerDefinition,
 };
 
@@ -75,11 +76,26 @@ pub use fidius::fidius_plugin_registry;
 #[fidius::plugin_interface(version = 1, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.
+    /// Method index 0.
     fn get_task_metadata(&self) -> Result<PackageTasksMetadata, PluginError>;
 
     /// Executes a task by name with the given context.
+    /// Method index 1.
     fn execute_task(
         &self,
         request: TaskExecutionRequest,
     ) -> Result<TaskExecutionResult, PluginError>;
+
+    /// Returns metadata about the computation graph in this package.
+    /// Method index 2. Only called when package_type includes "computation_graph".
+    /// Workflow-only plugins should return an error.
+    fn get_graph_metadata(&self) -> Result<GraphPackageMetadata, PluginError>;
+
+    /// Executes the computation graph with the given cache state.
+    /// Method index 3. Only called when package_type includes "computation_graph".
+    /// Workflow-only plugins should return an error.
+    fn execute_graph(
+        &self,
+        request: GraphExecutionRequest,
+    ) -> Result<GraphExecutionResult, PluginError>;
 }

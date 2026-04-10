@@ -50,6 +50,14 @@ pub enum ContextError {
     /// Key already exists when inserting
     #[error("Key already exists: {0}")]
     KeyExists(String),
+
+    /// Database operation failed (infrastructure error, not a key issue)
+    #[error("Database error: {0}")]
+    Database(String),
+
+    /// Connection pool exhausted or unavailable
+    #[error("Connection pool error: {0}")]
+    ConnectionPool(String),
 }
 
 /// Errors that can occur during task execution.

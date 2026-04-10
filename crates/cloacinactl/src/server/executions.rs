@@ -20,15 +20,17 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 use cloacina::Context;
 
 use crate::commands::serve::AppState;
+use crate::server::auth::AuthenticatedKey;
+use crate::server::error::ApiError;
 
 /// Request body for executing a workflow.
 #[derive(Deserialize)]
@@ -41,9 +43,17 @@ pub struct ExecuteRequest {
 /// POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
 pub async fn execute_workflow(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<ExecuteRequest>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+    if !auth.can_write() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
+
     let mut context = Context::new();
 
     // Merge provided context if any
@@ -77,11 +87,7 @@ pub async fn execute_workflow(
                 "Failed to execute workflow '{}' for tenant '{}': {}",
                 name, tenant_id, e
             );
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::bad_request("execution_failed", format!("{}", e)).into_response()
         }
     }
 }
@@ -89,18 +95,23 @@ pub async fn execute_workflow(
 /// GET /tenants/:tenant_id/executions — list pipeline executions.
 pub async fn list_executions(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let dal = cloacina::dal::DAL::new(state.database.clone());
 
-    match dal.pipeline_execution().get_active_executions().await {
+    match dal.workflow_execution().get_active_executions().await {
         Ok(executions) => {
             let items: Vec<_> = executions
                 .into_iter()
                 .map(|e| {
                     serde_json::json!({
                         "id": e.id.0.to_string(),
-                        "pipeline_name": e.pipeline_name,
+                        "workflow_name": e.pipeline_name,
                         "status": e.status,
                         "started_at": e.started_at.0.to_rfc3339(),
                         "completed_at": e.completed_at.map(|t| t.0.to_rfc3339()),
@@ -118,11 +129,7 @@ pub async fn list_executions(
                 "Failed to list executions for tenant '{}': {}",
                 tenant_id, e
             );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::internal(format!("{}", e)).into_response()
         }
     }
 }
@@ -130,16 +137,17 @@ pub async fn list_executions(
 /// GET /tenants/:tenant_id/executions/:id — get execution details.
 pub async fn get_execution(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid execution ID"})),
-            )
-                .into_response()
+            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response()
         }
     };
 
@@ -150,27 +158,24 @@ pub async fn get_execution(
             "status": format!("{:?}", status),
         }))
         .into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("{}", e)})),
-        )
-            .into_response(),
+        Err(e) => ApiError::not_found("execution_not_found", format!("{}", e)).into_response(),
     }
 }
 
 /// GET /tenants/:tenant_id/executions/:id/events — execution event log.
 pub async fn get_execution_events(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid execution ID"})),
-            )
-                .into_response()
+            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response()
         }
     };
 
@@ -198,10 +203,6 @@ pub async fn get_execution_events(
             }))
             .into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{}", e)})),
-        )
-            .into_response(),
+        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
     }
 }

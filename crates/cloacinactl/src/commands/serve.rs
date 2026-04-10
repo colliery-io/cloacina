@@ -23,12 +23,15 @@ use anyhow::{Context, Result};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use cloacina::computation_graph::registry::EndpointRegistry;
+use cloacina::computation_graph::scheduler::ReactiveScheduler;
 use cloacina::database::Database;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
+use cloacina::security::SecurityConfig;
 
 /// Shared application state accessible from all route handlers.
 #[derive(Clone)]
@@ -36,6 +39,13 @@ pub struct AppState {
     pub database: Database,
     pub runner: Arc<DefaultRunner>,
     pub key_cache: Arc<crate::server::auth::KeyCache>,
+    pub endpoint_registry: EndpointRegistry,
+    pub reactive_scheduler: Arc<ReactiveScheduler>,
+    pub security_config: SecurityConfig,
+    /// Short-lived WebSocket auth tickets (single-use, TTL-based).
+    pub ws_tickets: Arc<crate::server::auth::WsTicketStore>,
+    /// Prometheus metrics handle for rendering /metrics endpoint.
+    pub metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
 }
 
 /// Run the API server.
@@ -63,16 +73,81 @@ pub async fn run(
     let file_appender = rolling::daily(&logs_dir, "cloacina-server.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    tracing_subscriber::registry()
+    // Build the base subscriber with stderr + file layers
+    let subscriber = tracing_subscriber::registry()
         .with(filter)
         .with(fmt::layer().with_writer(std::io::stderr))
-        .with(fmt::layer().json().with_writer(non_blocking))
-        .init();
+        .with(fmt::layer().json().with_writer(non_blocking));
+
+    // Conditionally add OpenTelemetry tracing layer
+    #[cfg(feature = "telemetry")]
+    {
+        if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() {
+            use opentelemetry::trace::TracerProvider;
+            use opentelemetry_otlp::WithExportConfig;
+
+            let service_name =
+                std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "cloacina".to_string());
+
+            let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .build()
+                .context("Failed to create OTLP exporter")?;
+
+            let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_batch_exporter(otlp_exporter)
+                .with_resource(
+                    opentelemetry_sdk::Resource::builder()
+                        .with_service_name(service_name)
+                        .build(),
+                )
+                .build();
+
+            let tracer = provider.tracer("cloacina");
+            let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+            subscriber.with(otel_layer).init();
+            // Provider is kept alive by the global registry
+            opentelemetry::global::set_tracer_provider(provider);
+        } else {
+            subscriber.init();
+        }
+    }
+
+    #[cfg(not(feature = "telemetry"))]
+    {
+        subscriber.init();
+    }
 
     info!("Starting API server");
     info!("  Bind:     {}", bind);
     info!("  Database: {}", mask_db_url(&database_url));
     info!("  Home:     {}", home.display());
+    warn!("Server running without TLS -- use a TLS-terminating reverse proxy (nginx, Caddy, Envoy) in production");
+
+    // Initialize Prometheus metrics recorder
+    let metrics_builder = metrics_exporter_prometheus::PrometheusBuilder::new();
+    let metrics_handle = metrics_builder
+        .install_recorder()
+        .context("Failed to install Prometheus metrics recorder")?;
+
+    // Register metric descriptions
+    metrics::describe_counter!(
+        "cloacina_pipelines_total",
+        "Total pipeline executions by status"
+    );
+    metrics::describe_counter!("cloacina_tasks_total", "Total task executions by status");
+    metrics::describe_counter!(
+        "cloacina_api_requests_total",
+        "Total API requests by method, path, and status"
+    );
+    metrics::describe_histogram!(
+        "cloacina_pipeline_duration_seconds",
+        "Pipeline execution duration"
+    );
+    metrics::describe_histogram!("cloacina_task_duration_seconds", "Task execution duration");
+    metrics::describe_gauge!("cloacina_active_pipelines", "Currently active pipelines");
+    metrics::describe_gauge!("cloacina_active_tasks", "Currently active tasks");
 
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let runner_config = DefaultRunnerConfig::builder()
@@ -85,14 +160,37 @@ pub async fn run(
 
     info!("Connected to Postgres, migrations applied");
 
+    let endpoint_registry = EndpointRegistry::new();
+    let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
+    let reactive_scheduler = Arc::new(ReactiveScheduler::with_dal(
+        endpoint_registry.clone(),
+        unified_dal,
+    ));
+
+    // Wire reactive scheduler into the runner so the reconciler can route CG packages
+    runner
+        .set_reactive_scheduler(reactive_scheduler.clone())
+        .await;
+
     let state = AppState {
         database: runner.database().clone(),
         runner: Arc::new(runner),
         key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
+        endpoint_registry,
+        reactive_scheduler,
+        security_config: SecurityConfig::default(),
+        ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
+            std::time::Duration::from_secs(60),
+        )),
+        metrics_handle,
     };
 
     // Bootstrap: create initial admin key if none exist
     bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
+
+    // Keep references for shutdown
+    let scheduler_for_shutdown = state.reactive_scheduler.clone();
+    let runner_for_shutdown = state.runner.clone();
 
     // Build router
     let app = build_router(state);
@@ -112,10 +210,49 @@ pub async fn run(
     info!("  DEL  /auth/keys/:id — revoke key (auth required)");
     info!("");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+    // Shared shutdown signal — used by supervision loop and graceful shutdown.
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    // Start supervision loop — auto-restart crashed accumulator/reactor tasks
+    let _supervision_handle = scheduler_for_shutdown
+        .start_supervision(shutdown_rx.clone(), std::time::Duration::from_secs(5));
+
+    let scheduler_handle = {
+        let scheduler = scheduler_for_shutdown.clone();
+        let mut rx = shutdown_rx; // move, not clone — only consumer
+        tokio::spawn(async move {
+            let _ = rx.changed().await;
+            info!("Shutting down reactive scheduler...");
+            scheduler.shutdown_all().await;
+            info!("Reactive scheduler shutdown complete");
+        })
+    };
+
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        // Signal the reactive scheduler to shut down first
+        let _ = shutdown_tx.send(true);
+        // Wait for reactive scheduler to finish flushing/persisting
+        let _ = scheduler_handle.await;
+        // Shut down the workflow runner (scheduler loop, executor, stale claim sweeper)
+        info!("Shutting down workflow runner...");
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            runner_for_shutdown.shutdown(),
+        )
         .await
-        .context("Server error")?;
+        {
+            Ok(Ok(())) => info!("Workflow runner shutdown complete"),
+            Ok(Err(e)) => warn!("Workflow runner shutdown error: {}", e),
+            Err(_) => warn!("Workflow runner shutdown timed out after 30s"),
+        }
+    })
+    .await
+    .context("Server error")?;
 
     info!("API server shutdown complete");
     Ok(())
@@ -125,8 +262,37 @@ pub async fn run(
 ///
 /// Public routes (health/ready/metrics) have no auth.
 /// Authenticated routes use `route_layer` (not `layer`) so unmatched paths still 404.
+/// A request ID attached to each incoming request.
+#[derive(Clone, Debug)]
+pub struct RequestId(pub String);
+
+/// Middleware that generates a UUID request ID, creates a tracing span,
+/// and adds the X-Request-Id response header.
+async fn request_id_middleware(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let id = uuid::Uuid::new_v4().to_string();
+    request.extensions_mut().insert(RequestId(id.clone()));
+
+    let span = tracing::info_span!(
+        "request",
+        request_id = %id,
+        method = %request.method(),
+        path = %request.uri().path(),
+    );
+    let mut response = {
+        use tracing::Instrument;
+        next.run(request).instrument(span).await
+    };
+    if let Ok(val) = id.parse() {
+        response.headers_mut().insert("x-request-id", val);
+    }
+    response
+}
+
 fn build_router(state: AppState) -> Router {
-    use axum::{middleware, routing::delete, routing::post};
+    use axum::{extract::DefaultBodyLimit, middleware, routing::delete, routing::post};
 
     // Authenticated routes — behind auth middleware
     let auth_routes = Router::new()
@@ -137,12 +303,22 @@ fn build_router(state: AppState) -> Router {
             "/auth/keys/{key_id}",
             delete(crate::server::keys::revoke_key),
         )
+        // WebSocket ticket exchange (single-use, short-lived)
+        .route(
+            "/auth/ws-ticket",
+            post(crate::server::keys::create_ws_ticket),
+        )
         // Tenant management
         .route("/tenants", post(crate::server::tenants::create_tenant))
         .route("/tenants", get(crate::server::tenants::list_tenants))
         .route(
             "/tenants/{schema_name}",
             delete(crate::server::tenants::remove_tenant),
+        )
+        // Tenant-scoped key creation (admin-only)
+        .route(
+            "/tenants/{tenant_id}/keys",
+            post(crate::server::keys::create_tenant_key),
         )
         // Workflow packages (tenant-scoped)
         .route(
@@ -192,13 +368,47 @@ fn build_router(state: AppState) -> Router {
             crate::server::auth::require_auth,
         ));
 
+    // Reactive health routes — behind auth
+    let reactive_health_routes = Router::new()
+        .route(
+            "/v1/health/accumulators",
+            get(crate::server::health_reactive::list_accumulators),
+        )
+        .route(
+            "/v1/health/reactors",
+            get(crate::server::health_reactive::list_reactors),
+        )
+        .route(
+            "/v1/health/reactors/{name}",
+            get(crate::server::health_reactive::get_reactor),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::server::auth::require_auth,
+        ));
+
+    // WebSocket routes — auth handled in the handler (before upgrade)
+    let ws_routes = Router::new()
+        .route(
+            "/v1/ws/accumulator/{name}",
+            get(crate::server::ws::accumulator_ws),
+        )
+        .route("/v1/ws/reactor/{name}", get(crate::server::ws::reactor_ws));
+
     // Public routes — no auth
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
-        .merge(auth_routes)
+        // All authenticated routes under /v1/
+        .nest("/v1", auth_routes)
+        .merge(reactive_health_routes)
+        .merge(ws_routes)
         .fallback(fallback_404)
+        // Body size limit: 100MB (matches PackageValidator)
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
+        // Request ID + tracing span (outermost — wraps everything)
+        .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
 }
 
@@ -210,28 +420,45 @@ async fn health() -> impl IntoResponse {
 /// GET /ready — readiness check (verifies DB connection pool is healthy)
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // Verify we can acquire a connection from the pool
-    let is_ready = state.database.get_postgres_connection().await.is_ok();
+    let db_ready = state.database.get_postgres_connection().await.is_ok();
 
-    if is_ready {
+    // Check if any computation graphs have crashed
+    let graphs = state.reactive_scheduler.list_graphs().await;
+    let crashed_graphs: Vec<&str> = graphs
+        .iter()
+        .filter(|g| !g.running)
+        .map(|g| g.name.as_str())
+        .collect();
+
+    if db_ready && crashed_graphs.is_empty() {
         (StatusCode::OK, Json(serde_json::json!({"status": "ready"})))
-    } else {
+    } else if !db_ready {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({"status": "not ready", "reason": "database unreachable"})),
+        )
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "status": "not ready",
+                "reason": "crashed computation graphs",
+                "crashed_graphs": crashed_graphs,
+            })),
         )
     }
 }
 
 /// GET /metrics — Prometheus metrics (placeholder for now)
-async fn metrics() -> impl IntoResponse {
-    // TODO: Wire in prometheus metrics in a future task
+async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let body = state.metrics_handle.render();
     (
         StatusCode::OK,
         [(
             axum::http::header::CONTENT_TYPE,
-            "text/plain; version=0.0.4",
+            "text/plain; version=0.0.4; charset=utf-8",
         )],
-        "# HELP cloacina_up Server is running\n# TYPE cloacina_up gauge\ncloacina_up 1\n",
+        body,
     )
 }
 
@@ -297,7 +524,7 @@ async fn bootstrap_admin_key(
     };
 
     dal.api_keys()
-        .create_key(&hash, "bootstrap-admin")
+        .create_key(&hash, "bootstrap-admin", None, true, "admin")
         .await
         .context("Failed to create bootstrap admin key")?;
 
@@ -323,15 +550,9 @@ async fn bootstrap_admin_key(
 }
 
 /// Mask password in database URL for logging
+/// Re-export from cloacina::logging for backward compat in tests.
 fn mask_db_url(url: &str) -> String {
-    if let Some(at_pos) = url.find('@') {
-        if let Some(colon_pos) = url[..at_pos].rfind(':') {
-            let prefix = &url[..colon_pos + 1];
-            let suffix = &url[at_pos..];
-            return format!("{}****{}", prefix, suffix);
-        }
-    }
-    url.to_string()
+    cloacina::logging::mask_db_url(url)
 }
 
 #[cfg(test)]
@@ -355,10 +576,27 @@ mod tests {
             .await
             .expect("Failed to connect to test database");
 
+        // Create a test-scoped metrics handle (won't conflict with global recorder)
+        let test_metrics_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+            .install_recorder()
+            .unwrap_or_else(|_| {
+                // If a recorder is already installed (from another test), create a no-op handle
+                metrics_exporter_prometheus::PrometheusBuilder::new()
+                    .build_recorder()
+                    .handle()
+            });
+
         AppState {
             database: runner.database().clone(),
             runner: Arc::new(runner),
             key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
+            endpoint_registry: EndpointRegistry::new(),
+            reactive_scheduler: Arc::new(ReactiveScheduler::new(EndpointRegistry::new())),
+            security_config: SecurityConfig::default(),
+            ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
+                std::time::Duration::from_secs(60),
+            )),
+            metrics_handle: test_metrics_handle,
         }
     }
 
@@ -367,7 +605,7 @@ mod tests {
         let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
         let dal = cloacina::dal::DAL::new(state.database.clone());
         dal.api_keys()
-            .create_key(&hash, "test-key")
+            .create_key(&hash, "test-key", None, true, "admin")
             .await
             .expect("Failed to create test API key");
         plaintext
@@ -389,6 +627,38 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_slice(&body_bytes).unwrap_or(serde_json::json!({}));
         (status, body)
+    }
+
+    // ── Request ID middleware ─────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_request_id_header_present() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let request_id = response.headers().get("x-request-id");
+        assert!(
+            request_id.is_some(),
+            "Response should include X-Request-Id header"
+        );
+        let id_str = request_id.unwrap().to_str().unwrap();
+        assert!(
+            uuid::Uuid::parse_str(id_str).is_ok(),
+            "X-Request-Id should be a valid UUID, got: {}",
+            id_str
+        );
     }
 
     // ── Health / Ready / Metrics ──────────────────────────────────────
@@ -427,8 +697,14 @@ mod tests {
 
     #[tokio::test]
     #[serial]
-    async fn test_metrics_returns_200() {
+    async fn test_metrics_returns_prometheus_format() {
         let state = test_state().await;
+
+        // Record some test metrics so the output isn't empty
+        metrics::counter!("cloacina_pipelines_total", "status" => "completed").increment(3);
+        metrics::counter!("cloacina_tasks_total", "status" => "completed").increment(10);
+        metrics::counter!("cloacina_tasks_total", "status" => "failed").increment(2);
+
         let app = build_router(state);
 
         let response = app
@@ -442,6 +718,19 @@ mod tests {
             .expect("request failed");
 
         assert_eq!(response.status(), StatusCode::OK);
+
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            content_type.contains("text/plain"),
+            "Content-Type should be text/plain for Prometheus, got: {}",
+            content_type
+        );
+
         let body_bytes = response
             .into_body()
             .collect()
@@ -449,7 +738,18 @@ mod tests {
             .expect("failed to read body")
             .to_bytes();
         let text = String::from_utf8_lossy(&body_bytes);
-        assert!(text.contains("cloacina_up"));
+
+        // Verify Prometheus text format: HELP, TYPE, and metric lines
+        assert!(
+            text.contains("cloacina_pipelines_total"),
+            "Metrics should contain pipeline counters. Got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("cloacina_tasks_total"),
+            "Metrics should contain task counters. Got:\n{}",
+            text
+        );
     }
 
     // ── Auth middleware ───────────────────────────────────────────────
@@ -595,7 +895,7 @@ mod tests {
         let dal = cloacina::dal::DAL::new(state.database.clone());
         let info2 = dal
             .api_keys()
-            .create_key(&hash2, "to-revoke")
+            .create_key(&hash2, "to-revoke", None, false, "admin")
             .await
             .expect("create key");
 

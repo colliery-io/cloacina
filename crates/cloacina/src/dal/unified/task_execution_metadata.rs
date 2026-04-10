@@ -670,14 +670,14 @@ mod tests {
     use super::*;
     use crate::context::Context;
     use crate::database::Database;
-    use crate::models::pipeline_execution::NewPipelineExecution;
+    use crate::models::pipeline_execution::NewWorkflowExecution;
     use crate::models::task_execution::NewTaskExecution;
     use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
 
     #[cfg(feature = "sqlite")]
     async fn unique_dal() -> DAL {
         let url = format!(
-            "sqlite:///tmp/meta_test_{}.db?mode=rwc",
+            "file:meta_test_{}?mode=memory&cache=shared",
             uuid::Uuid::new_v4()
         );
         let db = Database::new(&url, "", 5);
@@ -694,8 +694,8 @@ mod tests {
         task_name: &str,
     ) -> (UniversalUuid, UniversalUuid) {
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "test_pipeline".into(),
                 pipeline_version: "1.0".into(),
                 status: "Running".into(),
@@ -985,8 +985,8 @@ mod tests {
     async fn test_get_dependency_metadata() {
         let dal = unique_dal().await;
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "dep_pipeline".into(),
                 pipeline_version: "1".into(),
                 status: "Running".into(),
@@ -1066,8 +1066,8 @@ mod tests {
     async fn test_get_dependency_metadata_with_contexts() {
         let dal = unique_dal().await;
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "ctx_dep_pipeline".into(),
                 pipeline_version: "1".into(),
                 status: "Running".into(),

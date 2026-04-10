@@ -17,8 +17,8 @@
 //! Integration tests for workflow pause/resume functionality.
 
 use async_trait::async_trait;
-use cloacina::executor::pipeline_executor::{PipelineExecution, PipelineStatus};
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::pipeline_executor::{WorkflowExecution, WorkflowStatus};
+use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::DefaultRunner;
 use cloacina::*;
 use serde_json::Value;
@@ -31,10 +31,10 @@ use crate::fixtures::get_or_init_fixture;
 /// Helper to wait for a specific pipeline status without consuming the execution handle.
 /// Useful when you need to keep using the handle after waiting (e.g., to call pause/resume).
 async fn wait_for_status(
-    execution: &PipelineExecution,
-    target: impl Fn(&PipelineStatus) -> bool,
+    execution: &WorkflowExecution,
+    target: impl Fn(&WorkflowStatus) -> bool,
     timeout: Duration,
-) -> Result<PipelineStatus, String> {
+) -> Result<WorkflowStatus, String> {
     let start = std::time::Instant::now();
     loop {
         let status = execution
@@ -56,9 +56,9 @@ async fn wait_for_status(
 
 /// Wait for the pipeline to reach a terminal state (Completed, Failed, or Cancelled)
 async fn wait_for_terminal(
-    execution: &PipelineExecution,
+    execution: &WorkflowExecution,
     timeout: Duration,
-) -> Result<PipelineStatus, String> {
+) -> Result<WorkflowStatus, String> {
     wait_for_status(execution, |s| s.is_terminal(), timeout).await
 }
 
@@ -217,12 +217,12 @@ async fn test_pause_running_pipeline() {
 
     // Verify the pipeline is paused
     let status = execution.get_status().await.unwrap();
-    assert_eq!(status, PipelineStatus::Paused, "Pipeline should be paused");
+    assert_eq!(status, WorkflowStatus::Paused, "Pipeline should be paused");
 
     // Verify via DAL that pause metadata is set
     let dal = cloacina::dal::DAL::new(database.clone());
     let pipeline = dal
-        .pipeline_execution()
+        .workflow_execution()
         .get_by_id(UniversalUuid(pipeline_id))
         .await
         .unwrap();
@@ -320,7 +320,7 @@ async fn test_resume_paused_pipeline() {
     // Pause the pipeline
     execution.pause(None).await.unwrap();
     let status = execution.get_status().await.unwrap();
-    assert_eq!(status, PipelineStatus::Paused);
+    assert_eq!(status, WorkflowStatus::Paused);
 
     // Resume the pipeline
     execution.resume().await.unwrap();
@@ -330,7 +330,7 @@ async fn test_resume_paused_pipeline() {
     // picked it up yet, or it may have already processed tasks
     let status = execution.get_status().await.unwrap();
     assert!(
-        status == PipelineStatus::Running || status == PipelineStatus::Pending,
+        status == WorkflowStatus::Running || status == WorkflowStatus::Pending,
         "Pipeline should be active after resume, got {:?}",
         status
     );
@@ -338,7 +338,7 @@ async fn test_resume_paused_pipeline() {
     // Verify via DAL that pause metadata is cleared
     let dal = cloacina::dal::DAL::new(database.clone());
     let pipeline = dal
-        .pipeline_execution()
+        .workflow_execution()
         .get_by_id(UniversalUuid(pipeline_id))
         .await
         .unwrap();
@@ -493,7 +493,7 @@ async fn test_resume_non_paused_pipeline_fails() {
     // We just need it to be non-Paused for the test
     wait_for_status(
         &execution,
-        |s| *s == PipelineStatus::Running || *s == PipelineStatus::Pending,
+        |s| *s == WorkflowStatus::Running || *s == WorkflowStatus::Pending,
         Duration::from_secs(5),
     )
     .await

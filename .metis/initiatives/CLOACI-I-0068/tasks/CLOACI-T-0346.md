@@ -1,4 +1,4 @@
- ---
+---
 id: t5-reconciler-and-package-loading
 level: task
 title: "T5: Reconciler and package loading tests"

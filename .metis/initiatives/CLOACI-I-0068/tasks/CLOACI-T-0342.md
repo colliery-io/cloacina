@@ -1,4 +1,4 @@
-s---
+---
 id: t1-python-bindings-test-suite-pyo3
 level: task
 title: "T1: Python bindings test suite (PyO3 runtime tests)"

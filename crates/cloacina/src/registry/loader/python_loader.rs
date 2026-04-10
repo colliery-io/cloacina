@@ -99,14 +99,19 @@ pub fn detect_package_kind(archive_data: &[u8]) -> Result<PackageKind, LoaderErr
     let pkg = &manifest.package;
     let meta = &manifest.metadata;
 
+    let wf_name = meta
+        .effective_workflow_name()
+        .unwrap_or("unknown")
+        .to_string();
+
     match meta.language.as_str() {
         "python" => Ok(PackageKind::Python {
-            workflow_name: meta.workflow_name.clone(),
+            workflow_name: wf_name,
             package_name: pkg.name.clone(),
             version: pkg.version.clone(),
         }),
         _ => Ok(PackageKind::Rust {
-            workflow_name: meta.workflow_name.clone(),
+            workflow_name: wf_name,
             package_name: pkg.name.clone(),
             version: pkg.version.clone(),
         }),
@@ -186,7 +191,11 @@ pub fn extract_python_package(
         entry_module,
         package_name: manifest.package.name,
         version: manifest.package.version,
-        workflow_name: manifest.metadata.workflow_name,
+        workflow_name: manifest
+            .metadata
+            .effective_workflow_name()
+            .unwrap_or("unknown")
+            .to_string(),
     })
 }
 

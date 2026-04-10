@@ -1,0 +1,14 @@
+[package]
+name = "packaged-graph-example"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+package_type = ["computation_graph"]
+graph_name = "market_maker"
+language = "rust"
+description = "Packaged market maker computation graph"
+reaction_mode = "when_any"
+input_strategy = "latest"

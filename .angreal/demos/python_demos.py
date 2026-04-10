@@ -20,11 +20,11 @@ from .demos_utils import (
 demos = angreal.command_group(name="demos", about="run Cloacina demonstration projects")
 
 
-def run_python_tutorial(tutorial_num, tutorial_file, backend="sqlite"):
+def run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite"):
     """Run a single Python tutorial with the specified backend."""
     project_root = PROJECT_ROOT
-    python_tutorials_dir = project_root / "examples" / "tutorials" / "python"
-    tutorial_path = python_tutorials_dir / tutorial_file
+    tutorial_path = project_root / tutorial_rel_path
+    python_tutorials_dir = tutorial_path.parent
 
     if not tutorial_path.exists():
         print(f"ERROR: Tutorial file not found: {tutorial_path}")
@@ -122,7 +122,7 @@ def run_python_tutorial(tutorial_num, tutorial_file, backend="sqlite"):
             shutil.rmtree(venv_path)
 
 
-def create_python_tutorial_command(tutorial_file):
+def create_python_tutorial_command(tutorial_file, tutorial_rel_path):
     """Create a command for a Python tutorial."""
     # Extract tutorial number from filename (e.g., 01_first_workflow.py)
     parts = tutorial_file.replace('.py', '').split('_')
@@ -173,7 +173,7 @@ def create_python_tutorial_command(tutorial_file):
             docker_up()
             backend = "postgres"
 
-        return run_python_tutorial(tutorial_num, tutorial_file, backend)
+        return run_python_tutorial(tutorial_num, tutorial_rel_path, backend)
 
     # Store the function with a unique name to avoid conflicts
     command.__name__ = f"python_tutorial_{tutorial_num}"
@@ -182,8 +182,8 @@ def create_python_tutorial_command(tutorial_file):
 
 # Create commands for all Python tutorials
 python_tutorial_commands = {}
-for tutorial_file in get_python_tutorial_files():
-    python_tutorial_commands[tutorial_file] = create_python_tutorial_command(tutorial_file)
+for tutorial_fname, tutorial_path in get_python_tutorial_files():
+    python_tutorial_commands[tutorial_fname] = create_python_tutorial_command(tutorial_fname, tutorial_path)
 
 
 # --------------------------------------------------------------------------
@@ -207,7 +207,7 @@ for tutorial_file in get_python_tutorial_files():
 def python_workflow_demo():
     """Run the Python workflow feature example end-to-end."""
     project_root = PROJECT_ROOT
-    example_dir = project_root / "examples" / "features" / "python-workflow"
+    example_dir = project_root / "examples" / "features" / "workflows" / "python-workflow"
     runner_script = example_dir / "run_pipeline.py"
 
     if not runner_script.exists():

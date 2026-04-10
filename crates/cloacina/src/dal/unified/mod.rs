@@ -45,6 +45,7 @@ use crate::database::{AnyPool, BackendType, Database};
 // Sub-modules for each entity type
 #[cfg(feature = "postgres")]
 pub mod api_keys;
+pub mod checkpoint;
 pub mod context;
 pub mod execution_event;
 pub mod models;
@@ -62,9 +63,10 @@ pub mod workflow_registry_storage;
 // Re-export DAL components
 #[cfg(feature = "postgres")]
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
+pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
 pub use execution_event::ExecutionEventDAL;
-pub use pipeline_execution::PipelineExecutionDAL;
+pub use pipeline_execution::WorkflowExecutionDAL;
 pub use recovery_event::RecoveryEventDAL;
 pub use schedule::ScheduleDAL;
 pub use schedule_execution::{ScheduleExecutionDAL, ScheduleExecutionStats};
@@ -80,79 +82,6 @@ pub use workflow_registry_storage::UnifiedRegistryStorage;
 /// This macro simplifies writing code that needs to execute different
 /// implementations based on the database backend.
 ///
-/// # Example
-///
-/// ```rust,ignore
-/// backend_dispatch!(self.database.backend(), {
-///     // PostgreSQL implementation
-///     postgres_specific_operation()
-/// }, {
-///     // SQLite implementation
-///     sqlite_specific_operation()
-/// })
-/// ```
-#[macro_export]
-macro_rules! backend_dispatch {
-    ($backend:expr, $pg_block:block, $sqlite_block:block) => {{
-        #[cfg(all(feature = "postgres", feature = "sqlite"))]
-        {
-            match $backend {
-                $crate::database::BackendType::Postgres => $pg_block,
-                $crate::database::BackendType::Sqlite => $sqlite_block,
-            }
-        }
-        #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
-        {
-            let _ = $backend;
-            $pg_block
-        }
-        #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-        {
-            let _ = $backend;
-            $sqlite_block
-        }
-    }};
-}
-
-/// Helper macro for matching on AnyConnection variants.
-///
-/// This macro simplifies pattern matching on connection types when
-/// executing backend-specific queries.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// connection_match!(conn, pg_conn => {
-///     // Use pg_conn for PostgreSQL operations
-///     diesel::select(1).get_result::<i32>(pg_conn)
-/// }, sqlite_conn => {
-///     // Use sqlite_conn for SQLite operations
-///     diesel::select(1).get_result::<i32>(sqlite_conn)
-/// })
-/// ```
-#[macro_export]
-macro_rules! connection_match {
-    ($conn:expr, $pg_var:ident => $pg_block:block, $sqlite_var:ident => $sqlite_block:block) => {{
-        #[cfg(all(feature = "postgres", feature = "sqlite"))]
-        {
-            match $conn {
-                $crate::database::AnyConnection::Postgres($pg_var) => $pg_block,
-                $crate::database::AnyConnection::Sqlite($sqlite_var) => $sqlite_block,
-            }
-        }
-        #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
-        {
-            let $pg_var = $conn;
-            $pg_block
-        }
-        #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-        {
-            let $sqlite_var = $conn;
-            $sqlite_block
-        }
-    }};
-}
-
 /// The unified Data Access Layer struct.
 ///
 /// This struct provides access to all database operations through a single
@@ -203,14 +132,19 @@ impl DAL {
         ApiKeyDAL::new(self)
     }
 
+    /// Returns a checkpoint DAL for computation graph state persistence.
+    pub fn checkpoint(&self) -> CheckpointDAL<'_> {
+        CheckpointDAL::new(self)
+    }
+
     /// Returns a context DAL for context operations.
     pub fn context(&self) -> ContextDAL<'_> {
         ContextDAL::new(self)
     }
 
-    /// Returns a pipeline execution DAL for pipeline operations.
-    pub fn pipeline_execution(&self) -> PipelineExecutionDAL<'_> {
-        PipelineExecutionDAL::new(self)
+    /// Returns a workflow execution DAL for workflow execution operations.
+    pub fn workflow_execution(&self) -> WorkflowExecutionDAL<'_> {
+        WorkflowExecutionDAL::new(self)
     }
 
     /// Returns a task execution DAL for task operations.

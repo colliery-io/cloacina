@@ -746,6 +746,22 @@ fn generate_packaged_registration(
                     }),
                 }
             }
+
+            fn get_graph_metadata(&self) -> Result<cloacina_workflow_plugin::GraphPackageMetadata, cloacina_workflow_plugin::PluginError> {
+                Err(cloacina_workflow_plugin::PluginError {
+                    code: "NOT_SUPPORTED".to_string(),
+                    message: "This is a workflow package, not a computation graph package".to_string(),
+                    details: None,
+                })
+            }
+
+            fn execute_graph(&self, _request: cloacina_workflow_plugin::GraphExecutionRequest) -> Result<cloacina_workflow_plugin::GraphExecutionResult, cloacina_workflow_plugin::PluginError> {
+                Err(cloacina_workflow_plugin::PluginError {
+                    code: "NOT_SUPPORTED".to_string(),
+                    message: "This is a workflow package, not a computation graph package".to_string(),
+                    details: None,
+                })
+            }
         }
 
         cloacina_workflow_plugin::fidius_plugin_registry!();

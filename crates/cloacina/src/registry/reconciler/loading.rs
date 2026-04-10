@@ -119,11 +119,16 @@ impl RegistryReconciler {
             == "rust"
         {
             // Rust path: compile cdylib, extract metadata via FFI, register
-            debug!(
-                "Compiling Rust source for package: {}",
+            info!(
+                "Step 4: Compiling Rust source for package: {}",
                 metadata.package_name
             );
             let lib_path = Self::compile_source_package(&source_dir).await?;
+            info!(
+                "Step 4: Compilation complete for {}: {}",
+                metadata.package_name,
+                lib_path.display()
+            );
 
             let library_data = tokio::fs::read(&lib_path).await.map_err(|e| {
                 RegistryError::RegistrationFailed {
@@ -134,10 +139,20 @@ impl RegistryReconciler {
                     ),
                 }
             })?;
+            info!(
+                "Step 5: Library read ({} bytes) for {}",
+                library_data.len(),
+                metadata.package_name
+            );
 
+            info!("Step 5a: Registering tasks for {}", metadata.package_name);
             let task_namespaces = self
                 .register_package_tasks(&metadata, &library_data)
                 .await?;
+            info!(
+                "Step 5b: Registering workflows for {}",
+                metadata.package_name
+            );
             let workflow_name = self
                 .register_package_workflows(&metadata, &library_data)
                 .await?;
@@ -145,8 +160,11 @@ impl RegistryReconciler {
                 self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
 
             (task_namespaces, workflow_name, trigger_names)
-        } else if cloacina_manifest.metadata.language == "python" {
-            // Python path: extract package, import module, register via PyO3
+        } else if cloacina_manifest.metadata.language == "python"
+            && !cloacina_manifest.metadata.has_computation_graph()
+        {
+            // Python workflow path: extract package, import module, register via PyO3
+            // (Python CG packages skip this — handled in step 7 below)
             debug!("Loading Python package: {}", metadata.package_name);
 
             // Ensure the Python interpreter is initialized (idempotent — safe to call multiple times)
@@ -218,6 +236,12 @@ impl RegistryReconciler {
             );
 
             (task_namespaces, workflow_name, trigger_names)
+        } else if cloacina_manifest.metadata.language == "python"
+            && cloacina_manifest.metadata.has_computation_graph()
+        {
+            // Python CG packages: no workflow tasks to register.
+            // The CG import happens in step 7 below.
+            (vec![], None, vec![])
         } else {
             return Err(RegistryError::RegistrationFailed {
                     message: format!(
@@ -227,12 +251,189 @@ impl RegistryReconciler {
                 });
         };
 
+        // --- Step 7: Computation graph routing ---
+        let graph_name = if cloacina_manifest.metadata.has_computation_graph() {
+            if cloacina_manifest.metadata.language == "rust" {
+                // Re-read the library to call get_graph_metadata (method index 2)
+                let lib_path = Self::compile_source_package(&source_dir).await?;
+                let library_data = tokio::fs::read(&lib_path).await.map_err(|e| {
+                    RegistryError::RegistrationFailed {
+                        message: format!("Failed to read library for graph metadata: {}", e),
+                    }
+                })?;
+
+                match self
+                    .package_loader
+                    .extract_graph_metadata(&library_data)
+                    .await
+                {
+                    Ok(Some(graph_meta)) => {
+                        info!(
+                            "Computation graph detected: {} (accumulators: {:?})",
+                            graph_meta.graph_name,
+                            graph_meta
+                                .accumulators
+                                .iter()
+                                .map(|a| &a.name)
+                                .collect::<Vec<_>>()
+                        );
+
+                        // Merge manifest accumulator configs into FFI defaults
+                        let mut graph_meta = graph_meta;
+                        for manifest_acc in &cloacina_manifest.metadata.accumulators {
+                            if let Some(ffi_acc) = graph_meta
+                                .accumulators
+                                .iter_mut()
+                                .find(|a| a.name == manifest_acc.name)
+                            {
+                                ffi_acc.accumulator_type = manifest_acc.accumulator_type.clone();
+                                ffi_acc.config = manifest_acc.config.clone();
+                            }
+                        }
+
+                        let scheduler_guard = self.reactive_scheduler.read().await;
+                        if let Some(ref scheduler) = *scheduler_guard {
+                            let decl =
+                                crate::computation_graph::packaging_bridge::build_declaration_from_ffi(
+                                    &graph_meta,
+                                    library_data.clone(),
+                                );
+                            if let Err(e) = scheduler.load_graph(decl).await {
+                                warn!(
+                                    "Failed to load computation graph '{}': {}",
+                                    graph_meta.graph_name, e
+                                );
+                            } else {
+                                info!(
+                                    "Computation graph '{}' loaded into ReactiveScheduler",
+                                    graph_meta.graph_name
+                                );
+                            }
+                        } else {
+                            warn!(
+                                "Computation graph '{}' detected but no ReactiveScheduler configured",
+                                graph_meta.graph_name
+                            );
+                        }
+
+                        Some(graph_meta.graph_name)
+                    }
+                    Ok(None) => {
+                        debug!(
+                            "Package claims computation_graph type but plugin doesn't support get_graph_metadata"
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        warn!("Failed to extract graph metadata: {}", e);
+                        None
+                    }
+                }
+            } else if cloacina_manifest.metadata.language == "python" {
+                // Python computation graph: import module, decorators register executor
+                if let (Some(ref graph_name), Some(ref entry_module)) = (
+                    &cloacina_manifest.metadata.graph_name,
+                    &cloacina_manifest.metadata.entry_module,
+                ) {
+                    let extracted = tokio::task::spawn_blocking({
+                        let archive_data = loaded_workflow.package_data.clone();
+                        let staging = work_dir.path().join("python-cg-staging");
+                        move || {
+                            std::fs::create_dir_all(&staging).map_err(|e| {
+                                RegistryError::RegistrationFailed {
+                                    message: format!("Failed to create staging dir: {}", e),
+                                }
+                            })?;
+                            crate::registry::loader::python_loader::extract_python_package(
+                                &archive_data,
+                                &staging,
+                            )
+                            .map_err(|e| {
+                                RegistryError::RegistrationFailed {
+                                    message: format!("Failed to extract Python CG package: {}", e),
+                                }
+                            })
+                        }
+                    })
+                    .await
+                    .map_err(|e| RegistryError::RegistrationFailed {
+                        message: format!(
+                            "spawn_blocking failed during Python CG extraction: {}",
+                            e
+                        ),
+                    })??;
+
+                    let gn = graph_name.clone();
+                    let em = entry_module.clone();
+                    let wd = extracted.workflow_dir.clone();
+                    let vd = extracted.vendor_dir.clone();
+
+                    let gn_for_decl = graph_name.clone();
+                    let tenant = self.config.default_tenant_id.clone();
+                    let acc_overrides = cloacina_manifest.metadata.accumulators.clone();
+
+                    tokio::task::spawn_blocking(move || {
+                        pyo3::prepare_freethreaded_python();
+                        crate::python::loader::import_python_computation_graph(&wd, &vd, &em, &gn)
+                            .map_err(|e| RegistryError::RegistrationFailed {
+                                message: format!("Python CG import failed: {}", e),
+                            })
+                    })
+                    .await
+                    .map_err(|e| RegistryError::RegistrationFailed {
+                        message: format!("spawn_blocking failed during Python CG import: {}", e),
+                    })??;
+
+                    // Build declaration from the registered Python executor and load into ReactiveScheduler
+                    if let Some(decl) =
+                        crate::python::computation_graph::build_python_graph_declaration(
+                            &gn_for_decl,
+                            Some(tenant),
+                            &acc_overrides,
+                        )
+                    {
+                        {
+                            let scheduler_guard = self.reactive_scheduler.read().await;
+                            if let Some(ref scheduler) = *scheduler_guard {
+                                if let Err(e) = scheduler.load_graph(decl).await {
+                                    warn!(
+                                        "Failed to load Python CG '{}' into ReactiveScheduler: {}",
+                                        gn_for_decl, e
+                                    );
+                                } else {
+                                    info!(
+                                        "Python computation graph '{}' loaded into ReactiveScheduler",
+                                        gn_for_decl
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    info!(
+                        "Python computation graph '{}' imported from '{}'",
+                        graph_name, entry_module
+                    );
+                    Some(graph_name.clone())
+                } else {
+                    warn!("Python computation graph package missing graph_name or entry_module");
+                    None
+                }
+            } else {
+                debug!("Unsupported language for computation graph");
+                None
+            }
+        } else {
+            None
+        };
+
         // Track the loaded package state
         let package_state = PackageState {
             metadata: metadata.clone(),
             task_namespaces,
             workflow_name,
             trigger_names,
+            graph_name,
         };
 
         let mut loaded_packages = self.loaded_packages.write().await;
@@ -271,6 +472,16 @@ impl RegistryReconciler {
         // Unregister triggers from global trigger registry
         if !package_state.trigger_names.is_empty() {
             self.unregister_package_triggers(&package_state.trigger_names);
+        }
+
+        // Unload computation graph from reactive scheduler
+        if let Some(graph_name) = &package_state.graph_name {
+            let scheduler_guard = self.reactive_scheduler.read().await;
+            if let Some(ref scheduler) = *scheduler_guard {
+                if let Err(e) = scheduler.unload_graph(graph_name).await {
+                    warn!("Failed to unload computation graph '{}': {}", graph_name, e);
+                }
+            }
         }
 
         info!(
@@ -708,13 +919,18 @@ mod tests {
         triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>,
     ) -> cloacina_workflow_plugin::CloacinaMetadata {
         cloacina_workflow_plugin::CloacinaMetadata {
-            workflow_name: "test-workflow".to_string(),
+            package_type: vec!["workflow".to_string()],
+            workflow_name: Some("test-workflow".to_string()),
+            graph_name: None,
             language: "python".to_string(),
             description: Some("Test".to_string()),
             author: None,
             requires_python: None,
             entry_module: Some("test.tasks".to_string()),
             triggers,
+            reaction_mode: None,
+            input_strategy: None,
+            accumulators: Vec::new(),
         }
     }
 

@@ -70,6 +70,7 @@ pub struct WorkflowPackage {
     pub storage_type: StorageType,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    pub tenant_id: Option<String>,
 }
 
 /// Model for creating new workflow package metadata entries (domain type).

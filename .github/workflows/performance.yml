@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test-type: [simple, pipeline, parallel]
+        test-type: [simple, pipeline, parallel, computation-graph-bench]
     runs-on: ubuntu-latest
 
     steps:

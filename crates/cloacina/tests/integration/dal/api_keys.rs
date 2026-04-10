@@ -32,7 +32,7 @@ mod postgres_tests {
         let (plaintext, hash) = generate_api_key();
         let info = dal
             .api_keys()
-            .create_key(&hash, "test-key")
+            .create_key(&hash, "test-key", None, false, "admin")
             .await
             .expect("Failed to create key");
 
@@ -78,7 +78,7 @@ mod postgres_tests {
 
         let (_, hash) = generate_api_key();
         dal.api_keys()
-            .create_key(&hash, "list-test-key")
+            .create_key(&hash, "list-test-key", None, false, "admin")
             .await
             .expect("Failed to create key");
 
@@ -103,7 +103,7 @@ mod postgres_tests {
         let (_, hash) = generate_api_key();
         let info = dal
             .api_keys()
-            .create_key(&hash, "revoke-test")
+            .create_key(&hash, "revoke-test", None, false, "admin")
             .await
             .expect("Failed to create key");
 
@@ -142,7 +142,7 @@ mod postgres_tests {
         // After creating at least one key, has_any_keys should be true
         let (_, hash) = generate_api_key();
         dal.api_keys()
-            .create_key(&hash, "has-any-test")
+            .create_key(&hash, "has-any-test", None, false, "admin")
             .await
             .expect("Failed to create key");
 

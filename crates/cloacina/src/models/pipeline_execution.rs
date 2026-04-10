@@ -14,17 +14,17 @@
  *  limitations under the License.
  */
 
-//! Pipeline Execution Models
+//! Workflow Execution Models
 //!
-//! This module defines domain structures for tracking pipeline executions.
+//! This module defines domain structures for tracking workflow executions.
 //! These are API-level types; backend-specific models handle database storage.
 
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use serde::{Deserialize, Serialize};
 
-/// Represents a pipeline execution (domain type).
+/// Represents a workflow execution record (domain type).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PipelineExecution {
+pub struct WorkflowExecutionRecord {
     pub id: UniversalUuid,
     pub pipeline_name: String,
     pub pipeline_version: String,
@@ -41,9 +41,9 @@ pub struct PipelineExecution {
     pub updated_at: UniversalTimestamp,
 }
 
-/// Structure for creating new pipeline executions (domain type).
+/// Structure for creating new workflow executions (domain type).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewPipelineExecution {
+pub struct NewWorkflowExecution {
     pub pipeline_name: String,
     pub pipeline_version: String,
     pub status: String,

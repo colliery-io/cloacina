@@ -16,7 +16,7 @@
 
 use crate::fixtures::get_or_init_fixture;
 use async_trait::async_trait;
-use cloacina::task_scheduler::TaskScheduler;
+use cloacina::execution_planner::TaskScheduler;
 use cloacina::*;
 use serial_test::serial;
 use std::sync::Arc;
@@ -86,7 +86,7 @@ async fn test_schedule_workflow_execution() {
     // Verify pipeline execution was created
     let dal = fixture.get_dal();
     let pipeline = dal
-        .pipeline_execution()
+        .workflow_execution()
         .get_by_id(UniversalUuid(execution_id))
         .await
         .expect("Failed to get pipeline execution");
@@ -162,7 +162,7 @@ async fn test_workflow_version_tracking() {
     // Verify version was stored correctly
     let dal = fixture.get_dal();
     let pipeline = dal
-        .pipeline_execution()
+        .workflow_execution()
         .get_by_id(UniversalUuid(execution_id))
         .await
         .expect("Failed to get pipeline execution");

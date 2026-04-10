@@ -15,7 +15,7 @@
  */
 
 use async_trait::async_trait;
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::*;
 use serde_json::Value;

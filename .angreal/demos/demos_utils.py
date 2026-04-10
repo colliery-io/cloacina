@@ -10,28 +10,52 @@ PROJECT_ROOT = Path(angreal.get_root()).parent
 
 
 def get_rust_tutorial_directories():
-    """Get all Rust tutorial directories from examples/tutorials/."""
+    """Get all Rust tutorial directories from examples/tutorials/.
+
+    Scans the hierarchical structure:
+      tutorials/workflows/library/01-basic-workflow/
+      tutorials/workflows/service/07-packaged-workflows/
+      tutorials/computation-graphs/library/01-computation-graph/
+      tutorials/computation-graphs/service/...
+
+    Returns (dir_name, relative_path) tuples.
+    """
     tutorials_dir = PROJECT_ROOT / "examples" / "tutorials"
     if not tutorials_dir.exists():
         return []
-    return [
-        d.name for d in tutorials_dir.iterdir()
-        if d.is_dir() and not d.name.startswith("python")
-    ]
+    results = []
+    for capability in ["workflows", "computation-graphs"]:
+        for mode in ["library", "service"]:
+            scan_dir = tutorials_dir / capability / mode
+            if scan_dir.exists():
+                for d in scan_dir.iterdir():
+                    if d.is_dir():
+                        rel_path = f"examples/tutorials/{capability}/{mode}/{d.name}"
+                        results.append((d.name, rel_path))
+    return results
 
 
 def get_rust_feature_directories():
-    """Get all Rust feature example directories from examples/features/."""
+    """Get all Rust feature example directories from examples/features/.
+
+    Scans the hierarchical structure:
+      features/workflows/cron-scheduling/
+      features/computation-graphs/continuous-scheduling/
+    """
     features_dir = PROJECT_ROOT / "examples" / "features"
     if not features_dir.exists():
         return []
-    # Exclude validation-failures as it has multiple binaries and is not meant to be executed directly
-    # Exclude packaged workflow examples as they are libraries, not runnable binaries
+    # Exclude examples that are libraries or not meant to be executed directly
     excluded = {"validation-failures", "complex-dag", "packaged-workflows", "simple-packaged", "packaged-triggers", "python-workflow"}
-    return [
-        d.name for d in features_dir.iterdir()
-        if d.is_dir() and d.name not in excluded
-    ]
+    results = []
+    for capability in ["workflows", "computation-graphs"]:
+        scan_dir = features_dir / capability
+        if scan_dir.exists():
+            for d in scan_dir.iterdir():
+                if d.is_dir() and d.name not in excluded:
+                    rel_path = f"examples/features/{capability}/{d.name}"
+                    results.append((d.name, rel_path))
+    return results
 
 
 def get_rust_performance_directories():
@@ -43,14 +67,22 @@ def get_rust_performance_directories():
 
 
 def get_python_tutorial_files():
-    """Get all Python tutorial files from examples/tutorials/python/."""
+    """Get all Python tutorial files from examples/tutorials/python/.
+
+    Scans the hierarchical structure:
+      tutorials/python/workflows/01_first_workflow.py
+      tutorials/python/computation-graphs/...
+    """
+    results = []
     python_dir = PROJECT_ROOT / "examples" / "tutorials" / "python"
-    if not python_dir.exists():
-        return []
-    return [
-        f.name for f in python_dir.iterdir()
-        if f.is_file() and f.suffix == ".py" and not f.name.startswith("_")
-    ]
+    for capability in ["workflows", "computation-graphs"]:
+        scan_dir = python_dir / capability
+        if scan_dir.exists():
+            for f in scan_dir.iterdir():
+                if f.is_file() and f.suffix == ".py" and not f.name.startswith("_"):
+                    rel_path = f"examples/tutorials/python/{capability}/{f.name}"
+                    results.append((f.name, rel_path))
+    return results
 
 
 def normalize_command_name(name):
@@ -83,26 +115,23 @@ def get_demo_path(command_name):
     # Python tutorials
     if command_name.startswith("python-tutorial-"):
         number = command_name.split("-")[-1]
-        for f in get_python_tutorial_files():
-            if f.startswith(f"{number}_"):
-                return f"examples/tutorials/python/{f}"
+        for fname, rel_path in get_python_tutorial_files():
+            if fname.startswith(f"{number}_"):
+                return rel_path
         return None
 
     # Rust tutorials
     if command_name.startswith("tutorial-"):
         number = command_name.split("-")[-1]
-        for d in get_rust_tutorial_directories():
-            if d.startswith(f"{number}-"):
-                return f"examples/tutorials/{d}"
+        for dname, rel_path in get_rust_tutorial_directories():
+            if dname.startswith(f"{number}-"):
+                return rel_path
         return None
 
     # Feature examples
-    features_dir = PROJECT_ROOT / "examples" / "features"
-    dir_name = command_name.replace('-', '_')
-    if (features_dir / command_name).exists():
-        return f"examples/features/{command_name}"
-    if (features_dir / dir_name).exists():
-        return f"examples/features/{dir_name}"
+    for dname, rel_path in get_rust_feature_directories():
+        if command_name == dname or command_name == dname.replace('_', '-'):
+            return rel_path
 
     # Performance examples
     perf_dir = PROJECT_ROOT / "examples" / "performance"
@@ -124,37 +153,37 @@ def get_demo_info(command_name):
     # Check if it's a Python tutorial
     if command_name.startswith("python-tutorial-"):
         number = command_name.split("-")[-1]
-        for f in get_python_tutorial_files():
-            if f.startswith(f"{number}_"):
+        for fname, rel_path in get_python_tutorial_files():
+            if fname.startswith(f"{number}_"):
                 return {
                     "type": "python-tutorial",
-                    "path": f"examples/tutorials/python/{f}",
+                    "path": rel_path,
                     "name": f"Python Tutorial {number}",
                     "needs_docker": False,
-                    "file": f
+                    "file": fname
                 }
         return None
 
     # Check if it's a Rust tutorial
     if command_name.startswith("tutorial-"):
         number = command_name.split("-")[-1]
-        for d in get_rust_tutorial_directories():
-            if d.startswith(f"{number}-"):
+        for dname, rel_path in get_rust_tutorial_directories():
+            if dname.startswith(f"{number}-"):
                 return {
                     "type": "rust-tutorial",
-                    "path": f"examples/tutorials/{d}",
+                    "path": rel_path,
                     "name": f"Rust Tutorial {number}",
                     "needs_docker": number == "06"  # Multi-tenancy needs PostgreSQL
                 }
         return None
 
     # Check feature examples
-    for d in get_rust_feature_directories():
-        if command_name == d or command_name == d.replace('_', '-'):
+    for dname, rel_path in get_rust_feature_directories():
+        if command_name == dname or command_name == dname.replace('_', '-'):
             return {
                 "type": "rust-feature",
-                "path": f"examples/features/{d}",
-                "name": f"{d.replace('-', ' ').replace('_', ' ').title()} Example",
+                "path": rel_path,
+                "name": f"{dname.replace('-', ' ').replace('_', ' ').title()} Example",
                 "needs_docker": True
             }
 

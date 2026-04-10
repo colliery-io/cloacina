@@ -24,10 +24,11 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
-use crate::executor::pipeline_executor::PipelineError;
+use crate::executor::pipeline_executor::WorkflowExecutionError;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
 use crate::Database;
+use crate::Runtime;
 use crate::TaskScheduler;
 
 use super::{DefaultRunner, RuntimeHandles};
@@ -458,6 +459,17 @@ impl DefaultRunnerConfigBuilder {
 
     /// Builds the configuration.
     pub fn build(self) -> DefaultRunnerConfig {
+        assert!(
+            self.config.max_concurrent_tasks > 0,
+            "max_concurrent_tasks must be > 0"
+        );
+        assert!(self.config.db_pool_size > 0, "db_pool_size must be > 0");
+        assert!(
+            self.config.stale_claim_threshold > self.config.heartbeat_interval,
+            "stale_claim_threshold ({:?}) must be greater than heartbeat_interval ({:?})",
+            self.config.stale_claim_threshold,
+            self.config.heartbeat_interval
+        );
         self.config
     }
 }
@@ -498,6 +510,7 @@ pub struct DefaultRunnerBuilder {
     pub(super) database_url: Option<String>,
     pub(super) schema: Option<String>,
     pub(super) config: DefaultRunnerConfig,
+    pub(super) runtime: Option<Runtime>,
 }
 
 impl Default for DefaultRunnerBuilder {
@@ -513,6 +526,7 @@ impl DefaultRunnerBuilder {
             database_url: None,
             schema: None,
             config: DefaultRunnerConfig::default(),
+            runtime: None,
         }
     }
 
@@ -537,10 +551,20 @@ impl DefaultRunnerBuilder {
         self
     }
 
+    /// Sets a scoped [`Runtime`] for this runner.
+    ///
+    /// When set, the runner (and all components it creates) will use this
+    /// runtime's registries instead of the process-global registries.
+    /// If not set, [`Runtime::from_global()`] is used as the default.
+    pub fn runtime(mut self, runtime: Runtime) -> Self {
+        self.runtime = Some(runtime);
+        self
+    }
+
     /// Validates the schema name contains only alphanumeric characters and underscores
-    pub(super) fn validate_schema_name(schema: &str) -> Result<(), PipelineError> {
+    pub(super) fn validate_schema_name(schema: &str) -> Result<(), WorkflowExecutionError> {
         if !schema.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Schema name must contain only alphanumeric characters and underscores"
                     .to_string(),
             });
@@ -549,12 +573,12 @@ impl DefaultRunnerBuilder {
     }
 
     /// Builds the DefaultRunner
-    pub async fn build(self) -> Result<DefaultRunner, PipelineError> {
-        let database_url = self
-            .database_url
-            .ok_or_else(|| PipelineError::Configuration {
-                message: "Database URL is required".to_string(),
-            })?;
+    pub async fn build(self) -> Result<DefaultRunner, WorkflowExecutionError> {
+        let database_url =
+            self.database_url
+                .ok_or_else(|| WorkflowExecutionError::Configuration {
+                    message: "Database URL is required".to_string(),
+                })?;
 
         if let Some(ref schema) = self.schema {
             Self::validate_schema_name(schema)?;
@@ -563,7 +587,7 @@ impl DefaultRunnerBuilder {
             if !database_url.starts_with("postgresql://")
                 && !database_url.starts_with("postgres://")
             {
-                return Err(PipelineError::Configuration {
+                return Err(WorkflowExecutionError::Configuration {
                     message: "Schema isolation is only supported with PostgreSQL. \
                              For SQLite multi-tenancy, use separate database files instead."
                         .to_string(),
@@ -583,18 +607,17 @@ impl DefaultRunnerBuilder {
         #[cfg(feature = "postgres")]
         {
             if let Some(ref schema) = self.schema {
-                database
-                    .setup_schema(schema)
-                    .await
-                    .map_err(|e| PipelineError::Configuration {
+                database.setup_schema(schema).await.map_err(|e| {
+                    WorkflowExecutionError::Configuration {
                         message: format!("Failed to set up schema '{}': {}", schema, e),
-                    })?;
+                    }
+                })?;
             } else {
                 // Run migrations in public schema
                 database
                     .run_migrations()
                     .await
-                    .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
+                    .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
             }
         }
 
@@ -604,16 +627,20 @@ impl DefaultRunnerBuilder {
             database
                 .run_migrations()
                 .await
-                .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
+                .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
         }
 
-        // Create scheduler with global workflow registry (always dynamic)
+        // Resolve runtime: use provided or snapshot from globals
+        let runtime = Arc::new(self.runtime.unwrap_or_else(Runtime::from_global));
+
+        // Create scheduler with the scoped runtime
         let scheduler = TaskScheduler::with_poll_interval(
             database.clone(),
             self.config.scheduler_poll_interval(),
         )
         .await
-        .map_err(|e| PipelineError::Executor(e.into()))?;
+        .map_err(|e| WorkflowExecutionError::Executor(e.into()))?
+        .with_runtime(runtime.clone());
 
         // Create task executor
         let executor_config = ExecutorConfig {
@@ -623,10 +650,14 @@ impl DefaultRunnerBuilder {
             heartbeat_interval: self.config.heartbeat_interval(),
         };
 
-        let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)
-            .map_err(|e| PipelineError::Configuration {
-                message: e.to_string(),
-            })?;
+        // Create executor with the scoped runtime — skip with_global_registry() since
+        // the runtime provides task lookups and the old TaskRegistry is unused.
+        let executor = ThreadTaskExecutor::with_runtime_and_registry(
+            database.clone(),
+            Arc::new(crate::TaskRegistry::new()),
+            runtime.clone(),
+            executor_config,
+        );
 
         // Configure dispatcher for push-based task execution
         let dal = crate::dal::DAL::new(database.clone());
@@ -643,6 +674,7 @@ impl DefaultRunnerBuilder {
         let scheduler = scheduler.with_dispatcher(Arc::new(dispatcher));
 
         let default_runner = DefaultRunner {
+            runtime,
             database,
             config: self.config.clone(),
             scheduler: Arc::new(scheduler),
@@ -658,6 +690,7 @@ impl DefaultRunnerBuilder {
             workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
             registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
             unified_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            reactive_scheduler: Arc::new(RwLock::new(None)), // Initially empty
         };
 
         // Start the background services immediately

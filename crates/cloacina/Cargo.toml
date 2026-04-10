@@ -17,11 +17,12 @@ name = "cloacina"
 crate-type = ["lib", "cdylib"]
 
 [features]
-default = ["macros", "postgres", "sqlite"]
+default = ["macros", "postgres", "sqlite", "kafka"]
 postgres = ["diesel/postgres", "diesel/uuid", "deadpool-diesel/postgres", "tokio-postgres"]
 sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool-diesel/sqlite", "libsqlite3-sys/bundled"]
 auth = ["postgres"]
 macros = ["cloacina-macros"]
+kafka = ["rdkafka"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
@@ -33,6 +34,7 @@ serde_json.workspace = true
 # Local dependencies
 cloacina-macros = { workspace = true, optional = true }
 cloacina-workflow = { workspace = true }
+cloacina-computation-graph = { path = "../cloacina-computation-graph" }
 cloacina-workflow-plugin = { version = "0.4.0", path = "../cloacina-workflow-plugin" }
 
 # External dependencies
@@ -50,6 +52,7 @@ fidius-host = "0.0.5"
 fidius-core = "0.0.5"
 libloading = { version = "0.8" }
 parking_lot = { version = "0.12" }
+rdkafka = { version = "0.39", features = ["tokio"], optional = true }
 petgraph = { version = "0.6" }
 rand = { version = "0.8" }
 serde = { version = "1.0", features = ["derive"] }
@@ -63,6 +66,7 @@ tokio-postgres = { version = "0.7", optional = true }
 futures = { version = "0.3" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+metrics = { version = "0.24" }
 tracing-test = { version = "0.2" }
 url = { version = "2.5" }
 urlencoding = { version = "2.1" }
@@ -76,6 +80,7 @@ hex = { version = "0.4" }
 pem = { version = "3.0" }
 toml = { version = "0.8" }
 anyhow = { version = "1.0" }
+bincode = { workspace = true }
 pyo3 = { version = "0.25", features = ["abi3-py39"] }
 pythonize = { version = "0.25" }
 

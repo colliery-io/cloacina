@@ -1,0 +1,42 @@
+---
+# Production deployment: cloacinactl serve + PostgreSQL
+#
+# Usage:
+#   docker compose -f docker/docker-compose.production.yml up -d
+#
+# Note: Use a TLS-terminating reverse proxy (Caddy, nginx) in front.
+# See docs/content/how-to-guides/service/production-deployment.md
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cloacina
+      POSTGRES_PASSWORD: cloacina
+      POSTGRES_DB: cloacina
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloacina"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cloacina:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["serve", "--database-url", "postgres://cloacina:cloacina@postgres:5432/cloacina", "--bind", "0.0.0.0:8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - cloacina-data:/var/lib/cloacina
+
+volumes:
+  pgdata:
+  cloacina-data:

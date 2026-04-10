@@ -18,7 +18,7 @@ from .demos_utils import (
 demos = angreal.command_group(name="demos", about="run Cloacina demonstration projects")
 
 
-def create_rust_tutorial_command(dir_name):
+def create_rust_tutorial_command(dir_name, rel_path):
     """Create a command for a Rust tutorial."""
     command_name = normalize_command_name(dir_name)
 
@@ -50,7 +50,7 @@ def create_rust_tutorial_command(dir_name):
         """Run the tutorial project."""
         return run_example_or_tutorial(
             PROJECT_ROOT,
-            f"examples/tutorials/{dir_name}",
+            rel_path,
             display_name
         )
 
@@ -58,7 +58,7 @@ def create_rust_tutorial_command(dir_name):
     return command
 
 
-def create_rust_feature_command(dir_name):
+def create_rust_feature_command(dir_name, rel_path):
     """Create a command for a Rust feature example."""
     command_name = dir_name.replace('_', '-')
     display_name = f"{dir_name.replace('-', ' ').replace('_', ' ').title()} Example"
@@ -81,7 +81,7 @@ def create_rust_feature_command(dir_name):
         """Run the feature example."""
         return run_example_or_tutorial(
             PROJECT_ROOT,
-            f"examples/features/{dir_name}",
+            rel_path,
             display_name
         )
 
@@ -122,13 +122,13 @@ def create_rust_performance_command(dir_name):
 
 # Create commands for all Rust tutorials
 rust_tutorial_commands = {}
-for tutorial_dir in get_rust_tutorial_directories():
-    rust_tutorial_commands[tutorial_dir] = create_rust_tutorial_command(tutorial_dir)
+for tutorial_name, tutorial_path in get_rust_tutorial_directories():
+    rust_tutorial_commands[tutorial_name] = create_rust_tutorial_command(tutorial_name, tutorial_path)
 
 # Create commands for all Rust feature examples
 rust_feature_commands = {}
-for feature_dir in get_rust_feature_directories():
-    rust_feature_commands[feature_dir] = create_rust_feature_command(feature_dir)
+for feature_name, feature_path in get_rust_feature_directories():
+    rust_feature_commands[feature_name] = create_rust_feature_command(feature_name, feature_path)
 
 # Create commands for all Rust performance examples
 rust_performance_commands = {}

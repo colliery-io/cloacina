@@ -84,10 +84,11 @@ pub async fn get_or_init_postgres_fixture() -> Arc<Mutex<TestFixture>> {
             let schema = get_test_schema();
 
             // Use Database::new_with_schema for schema isolation
+            // Pool size 10 + longer timeout to avoid exhaustion during long serial test runs
             let db = Database::new_with_schema(
                 "postgres://cloacina:cloacina@localhost:5432",
                 "cloacina",
-                5,
+                10,
                 Some(&schema),
             );
 

@@ -60,7 +60,7 @@ impl PackageFixture {
             .expect("Should have parent directory (crates)")
             .parent()
             .expect("Should have parent directory (project root)");
-        let project_path = workspace_root.join("examples/features/packaged-workflows");
+        let project_path = workspace_root.join("examples/features/workflows/packaged-workflows");
 
         if !project_path.exists() {
             panic!("Project path does not exist: {}", project_path.display());

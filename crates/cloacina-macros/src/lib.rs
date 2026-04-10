@@ -44,6 +44,7 @@
 //! }
 //! ```
 
+pub(crate) mod computation_graph;
 pub(crate) mod packaged_workflow;
 mod registry;
 pub(crate) mod tasks;
@@ -104,4 +105,118 @@ pub fn workflow(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn trigger(args: TokenStream, input: TokenStream) -> TokenStream {
     trigger_attr::trigger_attr(args, input)
+}
+
+/// Define a computation graph as a module containing async node functions.
+///
+/// The topology is declared in the macro attribute. Nodes are pure async functions
+/// within the module. The macro compiles the topology into a single async function
+/// with nested match arms for enum routing.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// #[computation_graph(
+///     react = when_any(alpha, beta),
+///     graph = {
+///         decision(alpha, beta) => {
+///             Signal -> output_handler,
+///             NoAction -> audit_logger,
+///         },
+///     }
+/// )]
+/// mod my_strategy {
+///     async fn decision(alpha: Option<&AlphaData>, beta: Option<&BetaData>) -> DecisionOutcome { ... }
+///     async fn output_handler(signal: &Signal) -> OutputConfirmation { ... }
+///     async fn audit_logger(reason: &NoActionReason) -> AuditRecord { ... }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn computation_graph(args: TokenStream, input: TokenStream) -> TokenStream {
+    computation_graph::computation_graph_attr(args, input)
+}
+
+/// Define a passthrough accumulator (socket-only, no event loop).
+///
+/// ```rust,ignore
+/// #[passthrough_accumulator]
+/// fn beta(event: PricingUpdate) -> BetaData {
+///     BetaData { estimate: event.mid_price }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn passthrough_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::passthrough_accumulator_impl(
+        args.into(),
+        input.into(),
+    ) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Define a stream-backed accumulator.
+///
+/// ```rust,ignore
+/// #[stream_accumulator(type = "kafka", topic = "market.orderbook")]
+/// fn alpha(event: OrderBookUpdate) -> AlphaData {
+///     AlphaData { top_high: event.best_ask, top_low: event.best_bid }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn stream_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::stream_accumulator_impl(args.into(), input.into())
+    {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Define a batch accumulator (buffers events, flushes on timer or size threshold).
+///
+/// ```rust,ignore
+/// #[batch_accumulator(flush_interval = "1s", max_buffer_size = 100)]
+/// fn aggregate_fills(events: Vec<FillEvent>) -> Option<AggregatedFills> {
+///     if events.is_empty() { return None; }
+///     Some(AggregatedFills { total: events.len(), volume: events.iter().map(|e| e.qty).sum() })
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn batch_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::batch_accumulator_impl(args.into(), input.into()) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Define a polling accumulator (timer-based, queries pull-based sources).
+///
+/// ```rust,ignore
+/// #[polling_accumulator(interval = "5s")]
+/// async fn config_source() -> Option<ConfigData> {
+///     let data = fetch_config().await;
+///     if data.changed() { Some(data) } else { None }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn polling_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::polling_accumulator_impl(args.into(), input.into())
+    {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Define a state accumulator (bounded history buffer with DAL persistence).
+///
+/// ```rust,ignore
+/// #[state_accumulator(capacity = 10)]
+/// fn previous_outputs() -> VecDeque<DecisionOutput>;
+/// ```
+#[proc_macro_attribute]
+pub fn state_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::state_accumulator_impl(args.into(), input.into()) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }

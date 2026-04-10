@@ -182,7 +182,7 @@ mod tests {
     #[cfg(feature = "sqlite")]
     async fn unique_dal() -> DAL {
         let url = format!(
-            "sqlite:///tmp/sched_exec_test_{}.db?mode=rwc",
+            "file:sched_exec_test_{}?mode=memory&cache=shared",
             uuid::Uuid::new_v4()
         );
         let db = Database::new(&url, "", 5);
@@ -413,10 +413,10 @@ mod tests {
         assert!(exec.pipeline_execution_id.is_none());
 
         // Create a real pipeline so the FK constraint is satisfied
-        use crate::models::pipeline_execution::NewPipelineExecution;
+        use crate::models::pipeline_execution::NewWorkflowExecution;
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "fk-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -559,10 +559,10 @@ mod tests {
             .unwrap();
 
         // Link one to a real pipeline (FK constraint requires it to exist)
-        use crate::models::pipeline_execution::NewPipelineExecution;
+        use crate::models::pipeline_execution::NewWorkflowExecution;
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "stats-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Completed".to_string(),

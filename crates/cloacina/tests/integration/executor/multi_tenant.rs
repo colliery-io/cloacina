@@ -20,10 +20,9 @@ mod postgres_multi_tenant_tests {
     use cloacina::context::Context;
     use cloacina::dal::DAL;
     use cloacina::database::universal_types::UniversalUuid;
-    use cloacina::executor::PipelineExecutor;
+    use cloacina::executor::WorkflowExecutor;
     use cloacina::runner::DefaultRunner;
     use cloacina::*;
-    use cloacina::{register_task_constructor, register_workflow_constructor};
     use serde_json::Value;
     use std::env;
     use std::sync::Arc;
@@ -36,8 +35,8 @@ mod postgres_multi_tenant_tests {
         Ok(())
     }
 
-    /// Helper to create and register a workflow for a specific tenant schema
-    fn setup_tenant_workflow(tenant_schema: &str) -> Workflow {
+    /// Helper to create a workflow and register it on a scoped runtime
+    fn setup_tenant_workflow(tenant_schema: &str, runtime: &cloacina::Runtime) -> Workflow {
         let workflow_name = format!("isolation_test_{}", tenant_schema);
 
         let workflow = Workflow::builder(&workflow_name)
@@ -48,17 +47,18 @@ mod postgres_multi_tenant_tests {
             .build()
             .unwrap();
 
-        // Register task constructor
+        // Register task on scoped runtime
         let namespace = TaskNamespace::new(
             workflow.tenant(),
             workflow.package(),
             workflow.name(),
             "tenant_marker_task",
         );
-        register_task_constructor(namespace, || Arc::new(tenant_marker_task_task()));
+        let task = Arc::new(tenant_marker_task_task());
+        runtime.register_task(namespace, move || task.clone());
 
-        // Register workflow constructor
-        register_workflow_constructor(workflow.name().to_string(), {
+        // Register workflow on scoped runtime
+        runtime.register_workflow(workflow.name().to_string(), {
             let workflow = workflow.clone();
             move || workflow.clone()
         });
@@ -73,13 +73,24 @@ mod postgres_multi_tenant_tests {
             "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
         });
 
-        // Create two runners with different schemas
-        let runner_a = DefaultRunner::with_schema(&database_url, "tenant_iso_a").await?;
-        let runner_b = DefaultRunner::with_schema(&database_url, "tenant_iso_b").await?;
+        // Setup workflows BEFORE creating runners (runtime snapshot must capture them)
+        let runtime = cloacina::Runtime::new();
+        let workflow_a = setup_tenant_workflow("tenant_iso_a", &runtime);
+        let workflow_b = setup_tenant_workflow("tenant_iso_b", &runtime);
 
-        // Setup workflows for each tenant
-        let workflow_a = setup_tenant_workflow("tenant_iso_a");
-        let workflow_b = setup_tenant_workflow("tenant_iso_b");
+        // Create two runners with different schemas sharing the same runtime
+        let runner_a = DefaultRunner::builder()
+            .database_url(&database_url)
+            .schema("tenant_iso_a")
+            .runtime(runtime.clone())
+            .build()
+            .await?;
+        let runner_b = DefaultRunner::builder()
+            .database_url(&database_url)
+            .schema("tenant_iso_b")
+            .runtime(runtime)
+            .build()
+            .await?;
 
         // Execute workflow in tenant A
         let context_a = Context::new();
@@ -94,7 +105,7 @@ mod postgres_multi_tenant_tests {
         let dal_b = DAL::new(runner_b.database().clone());
 
         // Verify tenant A can see their execution
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
         assert!(
             executions_a
                 .iter()
@@ -103,7 +114,7 @@ mod postgres_multi_tenant_tests {
         );
 
         // Verify tenant B cannot see tenant A's execution (isolation)
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
         assert!(
             !executions_b
                 .iter()
@@ -120,8 +131,8 @@ mod postgres_multi_tenant_tests {
         execution_b.wait_for_completion().await?;
 
         // Refresh execution lists
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
 
         // Verify tenant A still only sees their execution
         assert!(
@@ -165,13 +176,24 @@ mod postgres_multi_tenant_tests {
             "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
         });
 
-        // Create two runners with different schemas
-        let runner_a = DefaultRunner::with_schema(&database_url, "tenant_indep_a").await?;
-        let runner_b = DefaultRunner::with_schema(&database_url, "tenant_indep_b").await?;
+        // Setup workflows BEFORE creating runners
+        let runtime = cloacina::Runtime::new();
+        let workflow_a = setup_tenant_workflow("tenant_indep_a", &runtime);
+        let workflow_b = setup_tenant_workflow("tenant_indep_b", &runtime);
 
-        // Setup workflows
-        let workflow_a = setup_tenant_workflow("tenant_indep_a");
-        let workflow_b = setup_tenant_workflow("tenant_indep_b");
+        // Create two runners with different schemas sharing the same runtime
+        let runner_a = DefaultRunner::builder()
+            .database_url(&database_url)
+            .schema("tenant_indep_a")
+            .runtime(runtime.clone())
+            .build()
+            .await?;
+        let runner_b = DefaultRunner::builder()
+            .database_url(&database_url)
+            .schema("tenant_indep_b")
+            .runtime(runtime)
+            .build()
+            .await?;
 
         // Execute in both tenants simultaneously
         let context_a = Context::new();
@@ -205,8 +227,8 @@ mod postgres_multi_tenant_tests {
         let dal_a = DAL::new(runner_a.database().clone());
         let dal_b = DAL::new(runner_b.database().clone());
 
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
 
         // Each tenant should have their workflow execution
         let tenant_a_workflows: Vec<_> = executions_a
@@ -268,7 +290,10 @@ mod postgres_multi_tenant_tests {
             .build()
             .await;
 
-        assert!(matches!(result, Err(PipelineError::Configuration { .. })));
+        assert!(matches!(
+            result,
+            Err(WorkflowExecutionError::Configuration { .. })
+        ));
     }
 
     /// Test builder pattern for multi-tenant setup
@@ -293,10 +318,9 @@ mod sqlite_multi_tenant_tests {
     use cloacina::context::Context;
     use cloacina::dal::DAL;
     use cloacina::database::universal_types::UniversalUuid;
-    use cloacina::executor::PipelineExecutor;
+    use cloacina::executor::WorkflowExecutor;
     use cloacina::runner::DefaultRunner;
     use cloacina::*;
-    use cloacina::{register_task_constructor, register_workflow_constructor};
     use serde_json::Value;
     use std::sync::Arc;
 
@@ -307,8 +331,8 @@ mod sqlite_multi_tenant_tests {
         Ok(())
     }
 
-    /// Helper to create and register a workflow for SQLite tests
-    fn setup_sqlite_workflow(db_name: &str) -> Workflow {
+    /// Helper to create a workflow and register it on a scoped runtime
+    fn setup_sqlite_workflow(db_name: &str, runtime: &cloacina::Runtime) -> Workflow {
         let workflow_name = format!("sqlite_isolation_{}", db_name);
 
         let workflow = Workflow::builder(&workflow_name)
@@ -318,17 +342,16 @@ mod sqlite_multi_tenant_tests {
             .build()
             .unwrap();
 
-        // Register task constructor
         let namespace = TaskNamespace::new(
             workflow.tenant(),
             workflow.package(),
             workflow.name(),
             "sqlite_tenant_task",
         );
-        register_task_constructor(namespace, || Arc::new(sqlite_tenant_task_task()));
+        let task = Arc::new(sqlite_tenant_task_task());
+        runtime.register_task(namespace, move || task.clone());
 
-        // Register workflow constructor
-        register_workflow_constructor(workflow.name().to_string(), {
+        runtime.register_workflow(workflow.name().to_string(), {
             let workflow = workflow.clone();
             move || workflow.clone()
         });
@@ -343,13 +366,24 @@ mod sqlite_multi_tenant_tests {
         let db_a = tmp.path().join("tenant_a.db");
         let db_b = tmp.path().join("tenant_b.db");
 
-        // Create two executors with different database files
-        let runner_a = DefaultRunner::new(&format!("sqlite://{}", db_a.display())).await?;
-        let runner_b = DefaultRunner::new(&format!("sqlite://{}", db_b.display())).await?;
+        // Setup workflows BEFORE creating runners
+        let runtime = cloacina::Runtime::new();
+        let workflow_a = setup_sqlite_workflow("a", &runtime);
+        let workflow_b = setup_sqlite_workflow("b", &runtime);
 
-        // Setup workflows
-        let workflow_a = setup_sqlite_workflow("a");
-        let workflow_b = setup_sqlite_workflow("b");
+        // Create two executors with different database files
+        let url_a = format!("sqlite://{}", db_a.display());
+        let url_b = format!("sqlite://{}", db_b.display());
+        let runner_a = DefaultRunner::builder()
+            .database_url(&url_a)
+            .runtime(runtime.clone())
+            .build()
+            .await?;
+        let runner_b = DefaultRunner::builder()
+            .database_url(&url_b)
+            .runtime(runtime)
+            .build()
+            .await?;
 
         // Execute workflow in tenant A
         let context_a = Context::new();
@@ -364,7 +398,7 @@ mod sqlite_multi_tenant_tests {
         let dal_b = DAL::new(runner_b.database().clone());
 
         // Verify tenant A sees their execution
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
         assert!(
             executions_a
                 .iter()
@@ -373,7 +407,7 @@ mod sqlite_multi_tenant_tests {
         );
 
         // Verify tenant B has no executions (separate database file = isolation)
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
         assert!(
             !executions_b
                 .iter()
@@ -390,8 +424,8 @@ mod sqlite_multi_tenant_tests {
         execution_b.wait_for_completion().await?;
 
         // Verify isolation after both execute
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
 
         // Tenant A only sees A's execution
         assert!(executions_a

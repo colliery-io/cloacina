@@ -48,7 +48,7 @@ use crate::dispatcher::{
 };
 use crate::error::ExecutorError;
 use crate::retry::{RetryCondition, RetryPolicy};
-use crate::task::get_task;
+use crate::Runtime;
 use crate::{parse_namespace, Context, Database, Task, TaskRegistry};
 use async_trait::async_trait;
 
@@ -75,6 +75,8 @@ pub struct ThreadTaskExecutor {
     dal: DAL,
     /// Registry of available task implementations
     task_registry: Arc<TaskRegistry>,
+    /// Scoped runtime for task lookup (used in dispatcher execute path)
+    runtime: Arc<Runtime>,
     /// Unique identifier for this executor instance
     instance_id: UniversalUuid,
     /// Configuration parameters for executor behavior
@@ -102,6 +104,16 @@ impl ThreadTaskExecutor {
         task_registry: Arc<TaskRegistry>,
         config: ExecutorConfig,
     ) -> Self {
+        Self::with_runtime_and_registry(database, task_registry, Arc::new(Runtime::new()), config)
+    }
+
+    /// Creates a new ThreadTaskExecutor with a specific runtime.
+    pub fn with_runtime_and_registry(
+        database: Database,
+        task_registry: Arc<TaskRegistry>,
+        runtime: Arc<Runtime>,
+        config: ExecutorConfig,
+    ) -> Self {
         let dal = DAL::new(database.clone());
         let max_concurrent = config.max_concurrent_tasks;
 
@@ -109,12 +121,19 @@ impl ThreadTaskExecutor {
             database,
             dal,
             task_registry,
+            runtime,
             instance_id: UniversalUuid::new_v4(),
             config,
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
             total_executed: AtomicU64::new(0),
             total_failed: AtomicU64::new(0),
         }
+    }
+
+    /// Sets the runtime for this executor, replacing the default.
+    pub fn with_runtime(mut self, runtime: Arc<Runtime>) -> Self {
+        self.runtime = runtime;
+        self
     }
 
     /// Creates a TaskExecutor using the global task registry.
@@ -195,7 +214,7 @@ impl ThreadTaskExecutor {
         if dependencies.is_empty() {
             if let Ok(pipeline_execution) = self
                 .dal
-                .pipeline_execution()
+                .workflow_execution()
                 .get_by_id(claimed_task.pipeline_execution_id)
                 .await
             {
@@ -377,16 +396,18 @@ impl ThreadTaskExecutor {
                 self.complete_task_transaction(&claimed_task, result_context)
                     .await?;
 
+                metrics::counter!("cloacina_tasks_total", "status" => "completed").increment(1);
                 info!("Task completed successfully: {}", claimed_task.task_name);
             }
             Err(error) => {
-                // Get task retry policy to determine if we should retry
-                let namespace = parse_namespace(&claimed_task.task_name).map_err(|e| {
-                    ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e))
-                })?;
-                let task = get_task(&namespace)
-                    .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
-                let retry_policy = task.retry_policy();
+                // Get task retry policy to determine if we should retry.
+                // If the task namespace can't be parsed or the task isn't found
+                // in the registry, default to no retries (mark as permanently failed).
+                let retry_policy = parse_namespace(&claimed_task.task_name)
+                    .ok()
+                    .and_then(|ns| self.runtime.get_task(&ns))
+                    .map(|task| task.retry_policy())
+                    .unwrap_or_default();
 
                 // Check if we should retry this task
                 if self
@@ -403,6 +424,7 @@ impl ThreadTaskExecutor {
                     // Mark task as permanently failed
                     self.mark_task_failed(claimed_task.task_execution_id, &error)
                         .await?;
+                    metrics::counter!("cloacina_tasks_total", "status" => "failed").increment(1);
                     error!(
                         "Task failed permanently: {} - {}",
                         claimed_task.task_name, error
@@ -484,28 +506,42 @@ impl ThreadTaskExecutor {
         Ok(())
     }
 
-    /// Completes a task by saving its context and marking it as completed in a single transaction.
+    /// Completes a task by saving its context and marking it as completed.
     ///
-    /// This method groups the context save and status update operations into a single
-    /// atomic transaction, ensuring consistency and reducing database roundtrips.
+    /// These two operations (context save + status update) are performed sequentially.
+    /// If context save succeeds but mark_completed fails, the error is logged at
+    /// ERROR level with the context_id so the inconsistency can be diagnosed. The
+    /// stale claim sweeper will eventually reset the task to Ready, but the context
+    /// is already persisted and will not be lost.
     ///
     /// # Arguments
     /// * `claimed_task` - The task to complete
     /// * `context` - The execution context to save
     ///
     /// # Returns
-    /// Result indicating success or failure of the transaction
+    /// Result indicating success or failure of the operation
     async fn complete_task_transaction(
         &self,
         claimed_task: &ClaimedTask,
         context: Context<serde_json::Value>,
     ) -> Result<(), ExecutorError> {
-        // Save context and update metadata
+        // Save context and update metadata first (idempotent via upsert)
         self.save_task_context(claimed_task, context).await?;
 
-        // Mark task as completed
-        self.mark_task_completed(claimed_task.task_execution_id)
-            .await?;
+        // Mark task as completed — if this fails after context save, log critically
+        if let Err(e) = self
+            .mark_task_completed(claimed_task.task_execution_id)
+            .await
+        {
+            error!(
+                task_id = %claimed_task.task_execution_id,
+                task_name = %claimed_task.task_name,
+                pipeline_id = %claimed_task.pipeline_execution_id,
+                error = %e,
+                "CRITICAL: Context saved but mark_completed failed — task may be re-executed by stale claim sweeper"
+            );
+            return Err(e);
+        }
 
         Ok(())
     }
@@ -667,6 +703,7 @@ impl Clone for ThreadTaskExecutor {
             database: self.database.clone(),
             dal: self.dal.clone(),
             task_registry: Arc::clone(&self.task_registry),
+            runtime: Arc::clone(&self.runtime),
             instance_id: self.instance_id,
             config: self.config.clone(),
             // Shared semaphore — clones coordinate on the same concurrency limit
@@ -786,7 +823,7 @@ impl TaskExecutor for ThreadTaskExecutor {
             }
         };
 
-        let task = match get_task(&namespace) {
+        let task = match self.runtime.get_task(&namespace) {
             Some(t) => t,
             None => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
@@ -1205,4 +1242,50 @@ mod tests {
             assert_eq!(exec.semaphore().available_permits(), 8);
         }
     } // mod sqlite_tests
+
+    // -----------------------------------------------------------------------
+    // Runtime isolation tests (deadlock prevention)
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_new_uses_empty_runtime_not_from_global() {
+        // ThreadTaskExecutor::new() must NOT call Runtime::from_global() — that
+        // was the cause of the deadlock when #[ctor] constructors blocked.
+        // Verify the runtime is empty (use_globals = false, no workflows).
+        let db = Database::new("sqlite://:memory:", "test", 1);
+        let config = ExecutorConfig::default();
+        let exec = ThreadTaskExecutor::new(db, Arc::new(TaskRegistry::new()), config);
+
+        // The runtime should be isolated (Runtime::new(), not from_global())
+        assert!(
+            exec.runtime.workflow_names().is_empty(),
+            "new() executor should have an empty runtime with no workflows"
+        );
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_with_runtime_and_registry_uses_provided_runtime() {
+        let db = Database::new("sqlite://:memory:", "test", 1);
+        let config = ExecutorConfig::default();
+
+        // Create a runtime with a workflow
+        let runtime = Arc::new(Runtime::new());
+        let wf = crate::workflow::Workflow::new("test_wf");
+        runtime.register_workflow("test_wf".to_string(), move || wf.clone());
+
+        let exec = ThreadTaskExecutor::with_runtime_and_registry(
+            db,
+            Arc::new(TaskRegistry::new()),
+            runtime,
+            config,
+        );
+
+        // Executor should see the workflow via the provided runtime
+        assert!(
+            exec.runtime.get_workflow("test_wf").is_some(),
+            "Executor should use the provided runtime"
+        );
+    }
 }

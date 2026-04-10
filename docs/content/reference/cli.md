@@ -244,4 +244,4 @@ The `~/.cloacina/` directory (configurable via `--home`) contains:
 
 - [HTTP API Reference]({{< ref "http-api" >}}) -- endpoints exposed by `cloacinactl serve`
 - [Configuration Reference]({{< ref "configuration" >}}) -- `DefaultRunnerConfig` details
-- [Cron Scheduling Architecture]({{< ref "/explanation/cron-scheduling" >}}) -- how the daemon processes cron schedules
+- [Cron Scheduling Architecture]({{< ref "/explanation/workflows/cron-scheduling" >}}) -- how the daemon processes cron schedules

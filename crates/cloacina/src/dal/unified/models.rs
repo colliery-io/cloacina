@@ -20,9 +20,10 @@
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
 use crate::database::schema::unified::{
-    contexts, execution_events, key_trust_acls, package_signatures, pipeline_executions,
-    recovery_events, schedule_executions, schedules, signing_keys, task_execution_metadata,
-    task_executions, task_outbox, trusted_keys, workflow_packages, workflow_registry,
+    accumulator_boundaries, accumulator_checkpoints, contexts, execution_events, key_trust_acls,
+    package_signatures, pipeline_executions, reactor_state, recovery_events, schedule_executions,
+    schedules, signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions,
+    task_outbox, trusted_keys, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -59,7 +60,7 @@ pub struct NewUnifiedDbContext {
 
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = pipeline_executions)]
-pub struct UnifiedPipelineExecution {
+pub struct UnifiedWorkflowExecution {
     pub id: UniversalUuid,
     pub pipeline_name: String,
     pub pipeline_version: String,
@@ -78,7 +79,7 @@ pub struct UnifiedPipelineExecution {
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = pipeline_executions)]
-pub struct NewUnifiedPipelineExecution {
+pub struct NewUnifiedWorkflowExecution {
     pub id: UniversalUuid,
     pub pipeline_name: String,
     pub pipeline_version: String,
@@ -359,6 +360,7 @@ pub struct UnifiedWorkflowPackage {
     pub storage_type: String,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -374,6 +376,7 @@ pub struct NewUnifiedWorkflowPackage {
     pub storage_type: String,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    pub tenant_id: Option<String>,
 }
 
 // ============================================================================
@@ -489,7 +492,7 @@ use crate::models::context::DbContext;
 use crate::models::execution_event::ExecutionEvent;
 use crate::models::key_trust_acl::KeyTrustAcl;
 use crate::models::package_signature::PackageSignature;
-use crate::models::pipeline_execution::PipelineExecution;
+use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::recovery_event::RecoveryEvent;
 use crate::models::schedule::{Schedule, ScheduleExecution};
 use crate::models::signing_key::SigningKey;
@@ -510,9 +513,9 @@ impl From<UnifiedDbContext> for DbContext {
     }
 }
 
-impl From<UnifiedPipelineExecution> for PipelineExecution {
-    fn from(u: UnifiedPipelineExecution) -> Self {
-        PipelineExecution {
+impl From<UnifiedWorkflowExecution> for WorkflowExecutionRecord {
+    fn from(u: UnifiedWorkflowExecution) -> Self {
+        WorkflowExecutionRecord {
             id: u.id,
             pipeline_name: u.pipeline_name,
             pipeline_version: u.pipeline_version,
@@ -625,6 +628,7 @@ impl From<UnifiedWorkflowPackage> for WorkflowPackage {
             storage_type: u.storage_type.parse().unwrap(),
             created_at: u.created_at,
             updated_at: u.updated_at,
+            tenant_id: u.tenant_id,
         }
     }
 }
@@ -721,4 +725,102 @@ impl From<UnifiedScheduleExecution> for ScheduleExecution {
             updated_at: u.updated_at,
         }
     }
+}
+
+// ============================================================================
+// Computation Graph State Models
+// ============================================================================
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = accumulator_checkpoints)]
+pub struct UnifiedAccumulatorCheckpoint {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub checkpoint_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = accumulator_checkpoints)]
+pub struct NewUnifiedAccumulatorCheckpoint {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub checkpoint_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = accumulator_boundaries)]
+pub struct UnifiedAccumulatorBoundary {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub boundary_data: UniversalBinary,
+    pub sequence_number: i64,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = accumulator_boundaries)]
+pub struct NewUnifiedAccumulatorBoundary {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub boundary_data: UniversalBinary,
+    pub sequence_number: i64,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = reactor_state)]
+pub struct UnifiedReactorState {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub cache_data: UniversalBinary,
+    pub dirty_flags: UniversalBinary,
+    pub sequential_queue: Option<UniversalBinary>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = reactor_state)]
+pub struct NewUnifiedReactorState {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub cache_data: UniversalBinary,
+    pub dirty_flags: UniversalBinary,
+    pub sequential_queue: Option<UniversalBinary>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = state_accumulator_buffers)]
+pub struct UnifiedStateAccumulatorBuffer {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub buffer_data: UniversalBinary,
+    pub capacity: i32,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = state_accumulator_buffers)]
+pub struct NewUnifiedStateAccumulatorBuffer {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub buffer_data: UniversalBinary,
+    pub capacity: i32,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
 }

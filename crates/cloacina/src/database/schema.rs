@@ -173,6 +173,7 @@ mod unified_schema {
             storage_type -> Text,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            tenant_id -> Nullable<Text>,
         }
     }
 
@@ -284,6 +285,69 @@ mod unified_schema {
         }
     }
 
+    // =========================================================================
+    // Computation Graph State Tables
+    // =========================================================================
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        accumulator_checkpoints (id) {
+            id -> DbUuid,
+            graph_name -> Text,
+            accumulator_name -> Text,
+            checkpoint_data -> DbBinary,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        accumulator_boundaries (id) {
+            id -> DbUuid,
+            graph_name -> Text,
+            accumulator_name -> Text,
+            boundary_data -> DbBinary,
+            sequence_number -> BigInt,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        reactor_state (id) {
+            id -> DbUuid,
+            graph_name -> Text,
+            cache_data -> DbBinary,
+            dirty_flags -> DbBinary,
+            sequential_queue -> Nullable<DbBinary>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        state_accumulator_buffers (id) {
+            id -> DbUuid,
+            graph_name -> Text,
+            accumulator_name -> Text,
+            buffer_data -> DbBinary,
+            capacity -> Integer,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -298,15 +362,19 @@ mod unified_schema {
     diesel::joinable!(schedule_executions -> pipeline_executions (pipeline_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
+        accumulator_boundaries,
+        accumulator_checkpoints,
         contexts,
         execution_events,
         key_trust_acls,
         package_signatures,
         pipeline_executions,
+        reactor_state,
         recovery_events,
         schedule_executions,
         schedules,
         signing_keys,
+        state_accumulator_buffers,
         task_executions,
         task_execution_metadata,
         task_outbox,
@@ -440,6 +508,7 @@ mod postgres_schema {
             storage_type -> Varchar,
             created_at -> Timestamp,
             updated_at -> Timestamp,
+            tenant_id -> Nullable<Text>,
         }
     }
 
@@ -523,6 +592,54 @@ mod postgres_schema {
         }
     }
 
+    // Computation Graph State Tables
+    diesel::table! {
+        accumulator_checkpoints (id) {
+            id -> Uuid,
+            graph_name -> Text,
+            accumulator_name -> Text,
+            checkpoint_data -> Bytea,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        accumulator_boundaries (id) {
+            id -> Uuid,
+            graph_name -> Text,
+            accumulator_name -> Text,
+            boundary_data -> Bytea,
+            sequence_number -> Int8,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        reactor_state (id) {
+            id -> Uuid,
+            graph_name -> Text,
+            cache_data -> Bytea,
+            dirty_flags -> Bytea,
+            sequential_queue -> Nullable<Bytea>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        state_accumulator_buffers (id) {
+            id -> Uuid,
+            graph_name -> Text,
+            accumulator_name -> Text,
+            buffer_data -> Bytea,
+            capacity -> Int4,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
     #[cfg(feature = "auth")]
     diesel::table! {
         auth_tokens (token_id) {
@@ -578,6 +695,8 @@ mod postgres_schema {
             permissions -> Text,
             created_at -> Timestamptz,
             revoked_at -> Nullable<Timestamptz>,
+            tenant_id -> Nullable<Text>,
+            is_admin -> Bool,
         }
     }
 
@@ -587,16 +706,20 @@ mod postgres_schema {
 
     #[cfg(not(feature = "auth"))]
     diesel::allow_tables_to_appear_in_same_query!(
+        accumulator_boundaries,
+        accumulator_checkpoints,
         api_keys,
         contexts,
         execution_events,
         key_trust_acls,
         package_signatures,
         pipeline_executions,
+        reactor_state,
         recovery_events,
         schedule_executions,
         schedules,
         signing_keys,
+        state_accumulator_buffers,
         task_executions,
         task_execution_metadata,
         task_outbox,
@@ -607,6 +730,8 @@ mod postgres_schema {
 
     #[cfg(feature = "auth")]
     diesel::allow_tables_to_appear_in_same_query!(
+        accumulator_boundaries,
+        accumulator_checkpoints,
         auth_audit_log,
         auth_tokens,
         contexts,
@@ -614,10 +739,12 @@ mod postgres_schema {
         key_trust_acls,
         package_signatures,
         pipeline_executions,
+        reactor_state,
         recovery_events,
         schedule_executions,
         schedules,
         signing_keys,
+        state_accumulator_buffers,
         task_executions,
         task_execution_metadata,
         task_outbox,
@@ -747,6 +874,7 @@ mod sqlite_schema {
             storage_type -> Text,
             created_at -> Text,
             updated_at -> Text,
+            tenant_id -> Nullable<Text>,
         }
     }
 
@@ -830,6 +958,54 @@ mod sqlite_schema {
         }
     }
 
+    // Computation Graph State Tables
+    diesel::table! {
+        accumulator_checkpoints (id) {
+            id -> Binary,
+            graph_name -> Text,
+            accumulator_name -> Text,
+            checkpoint_data -> Binary,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        accumulator_boundaries (id) {
+            id -> Binary,
+            graph_name -> Text,
+            accumulator_name -> Text,
+            boundary_data -> Binary,
+            sequence_number -> BigInt,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        reactor_state (id) {
+            id -> Binary,
+            graph_name -> Text,
+            cache_data -> Binary,
+            dirty_flags -> Binary,
+            sequential_queue -> Nullable<Binary>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        state_accumulator_buffers (id) {
+            id -> Binary,
+            graph_name -> Text,
+            accumulator_name -> Text,
+            buffer_data -> Binary,
+            capacity -> Integer,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -844,15 +1020,19 @@ mod sqlite_schema {
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
+        accumulator_boundaries,
+        accumulator_checkpoints,
         contexts,
         execution_events,
         key_trust_acls,
         package_signatures,
         pipeline_executions,
+        reactor_state,
         recovery_events,
         schedule_executions,
         schedules,
         signing_keys,
+        state_accumulator_buffers,
         task_executions,
         task_execution_metadata,
         task_outbox,

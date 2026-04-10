@@ -86,6 +86,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             storage_type: storage_type.as_str().to_string(),
             created_at: now,
             updated_at: now,
+            tenant_id: None,
         };
 
         let package_name_for_error = package_metadata.package_name.clone();
@@ -144,6 +145,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             storage_type: storage_type.as_str().to_string(),
             created_at: now,
             updated_at: now,
+            tenant_id: None,
         };
 
         conn.interact(move |conn| {
@@ -649,7 +651,10 @@ mod tests {
 
     #[cfg(feature = "sqlite")]
     async fn create_test_registry() -> WorkflowRegistryImpl<UnifiedRegistryStorage> {
-        let url = format!("sqlite:///tmp/wfreg_test_{}.db?mode=rwc", Uuid::new_v4());
+        let url = format!(
+            "file:wfreg_test_{}?mode=memory&cache=shared",
+            Uuid::new_v4()
+        );
         let db = Database::new(&url, "", 5);
         db.run_migrations()
             .await

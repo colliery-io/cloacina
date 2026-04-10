@@ -24,7 +24,7 @@ use uuid::Uuid;
 ///
 /// This is a fidius source package (bzip2 tar + package.toml) packed from
 /// the pre-built packaged-workflows example source directory.
-/// The example must exist in examples/features/packaged-workflows.
+/// The example must exist in examples/features/workflows/packaged-workflows.
 static MOCK_PACKAGE: OnceLock<Vec<u8>> = OnceLock::new();
 
 /// Get the cached mock package, packing it from the example source directory.
@@ -50,7 +50,7 @@ fn create_source_package() -> Vec<u8> {
         .expect("Should have parent directory (crates)")
         .parent()
         .expect("Should have parent directory (project root)");
-    let project_path = workspace_root.join("examples/features/packaged-workflows");
+    let project_path = workspace_root.join("examples/features/workflows/packaged-workflows");
 
     if !project_path.exists() {
         panic!("Project path does not exist: {}", project_path.display());

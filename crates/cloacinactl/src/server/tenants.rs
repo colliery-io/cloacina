@@ -23,7 +23,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use tracing::{info, warn};
@@ -31,6 +31,8 @@ use tracing::{info, warn};
 use cloacina::database::{DatabaseAdmin, TenantConfig};
 
 use crate::commands::serve::AppState;
+use crate::server::auth::AuthenticatedKey;
+use crate::server::error::ApiError;
 
 /// Request body for creating a tenant.
 #[derive(Deserialize)]
@@ -45,10 +47,16 @@ pub struct CreateTenantRequest {
 }
 
 /// POST /tenants — create a new tenant (Postgres schema + user + migrations).
+/// Admin-only: only is_admin keys can create tenants.
 pub async fn create_tenant(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Json(body): Json<CreateTenantRequest>,
 ) -> impl IntoResponse {
+    if !auth.is_admin {
+        return AuthenticatedKey::admin_required_response().into_response();
+    }
+
     let admin = DatabaseAdmin::new(state.database.clone());
     let config = TenantConfig {
         schema_name: body.schema_name.clone(),
@@ -59,33 +67,37 @@ pub async fn create_tenant(
     match admin.create_tenant(config).await {
         Ok(credentials) => {
             info!("Created tenant: {}", body.schema_name);
+            // Note: password and connection_string intentionally excluded from
+            // response to prevent credential leakage (SEC-08). The caller should
+            // supply their own password via the request body, or retrieve it
+            // through a secure channel.
             (
                 StatusCode::CREATED,
                 Json(serde_json::json!({
                     "schema_name": credentials.schema_name,
                     "username": credentials.username,
-                    "password": credentials.password,
-                    "connection_string": credentials.connection_string,
                 })),
             )
                 .into_response()
         }
         Err(e) => {
             warn!("Failed to create tenant '{}': {}", body.schema_name, e);
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::bad_request("tenant_creation_failed", format!("{}", e)).into_response()
         }
     }
 }
 
 /// DELETE /tenants/:schema_name — remove a tenant (drop schema + user).
+/// Admin-only: only is_admin keys can remove tenants.
 pub async fn remove_tenant(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(schema_name): Path<String>,
 ) -> impl IntoResponse {
+    if !auth.is_admin {
+        return AuthenticatedKey::admin_required_response().into_response();
+    }
+
     let admin = DatabaseAdmin::new(state.database.clone());
 
     // Use schema_name as both schema and username (convention)
@@ -97,17 +109,20 @@ pub async fn remove_tenant(
         }
         Err(e) => {
             warn!("Failed to remove tenant '{}': {}", schema_name, e);
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::bad_request("tenant_removal_failed", format!("{}", e)).into_response()
         }
     }
 }
 
 /// GET /tenants — list tenant schemas.
-pub async fn list_tenants(State(state): State<AppState>) -> impl IntoResponse {
+/// Requires admin role — only admins can enumerate tenants.
+pub async fn list_tenants(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+) -> impl IntoResponse {
+    if !auth.is_admin {
+        return AuthenticatedKey::admin_required_response().into_response();
+    }
     let admin = DatabaseAdmin::new(state.database.clone());
 
     match admin.list_tenant_schemas().await {
@@ -120,11 +135,7 @@ pub async fn list_tenants(State(state): State<AppState>) -> impl IntoResponse {
         }
         Err(e) => {
             warn!("Failed to list tenants: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::internal(format!("failed to list tenants: {}", e)).into_response()
         }
     }
 }

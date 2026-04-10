@@ -502,8 +502,8 @@ impl TaskRegistry {
         for (namespace, task) in &self.tasks {
             for dependency_namespace in task.dependencies() {
                 if !self.tasks.contains_key(dependency_namespace) {
-                    return Err(ValidationError::MissingDependencyOld {
-                        task_id: namespace.to_string(),
+                    return Err(ValidationError::MissingDependency {
+                        task: namespace.to_string(),
                         dependency: dependency_namespace.to_string(),
                     });
                 }
@@ -517,7 +517,7 @@ impl TaskRegistry {
         for namespace in self.tasks.keys() {
             if !visited.get(namespace).unwrap_or(&false) {
                 if let Err(cycle) = self.check_cycles(namespace, &mut visited, &mut rec_stack) {
-                    return Err(ValidationError::CircularDependency { cycle });
+                    return Err(ValidationError::CyclicDependency { cycle: vec![cycle] });
                 }
             }
         }
@@ -814,7 +814,7 @@ mod tests {
         // Should fail due to missing dependency
         assert!(matches!(
             registry.validate_dependencies(),
-            Err(ValidationError::MissingDependencyOld { .. })
+            Err(ValidationError::MissingDependency { .. })
         ));
     }
 
@@ -835,7 +835,7 @@ mod tests {
 
         assert!(matches!(
             registry.validate_dependencies(),
-            Err(ValidationError::CircularDependency { .. })
+            Err(ValidationError::CyclicDependency { .. })
         ));
     }
 

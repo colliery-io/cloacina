@@ -28,7 +28,7 @@ use crate::fixtures::get_all_fixtures;
 use cloacina::dal::DAL;
 use cloacina::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use cloacina::models::execution_event::{ExecutionEventType, NewExecutionEvent};
-use cloacina::models::pipeline_execution::NewPipelineExecution;
+use cloacina::models::pipeline_execution::NewWorkflowExecution;
 use cloacina::models::task_execution::NewTaskExecution;
 use serde_json::json;
 use std::collections::HashSet;
@@ -59,8 +59,8 @@ async fn test_dal_emits_events_on_state_transitions() {
 
         // Create a pipeline
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "event-emission-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -212,8 +212,8 @@ async fn test_events_queryable_by_pipeline() {
 
         // Create two pipelines
         let pipeline1 = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "pipeline-1".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -223,8 +223,8 @@ async fn test_events_queryable_by_pipeline() {
             .expect("Failed to create pipeline1");
 
         let pipeline2 = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "pipeline-2".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -318,8 +318,8 @@ async fn test_events_queryable_by_task() {
         let dal = DAL::new(database.clone());
 
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "task-query-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -417,8 +417,8 @@ async fn test_events_queryable_by_type() {
         let dal = DAL::new(database.clone());
 
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "type-query-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -505,8 +505,8 @@ async fn test_outbox_empty_after_claiming() {
         let dal = DAL::new(database.clone());
 
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "outbox-empty-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -604,8 +604,8 @@ async fn test_concurrent_claiming_no_duplicates() {
         let dal = DAL::new(database.clone());
 
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "concurrent-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -738,8 +738,8 @@ async fn test_event_count_and_deletion() {
         let dal = DAL::new(database.clone());
 
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "retention-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -829,8 +829,8 @@ async fn test_get_recent_events() {
         let dal = DAL::new(database.clone());
 
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "recent-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -900,8 +900,8 @@ async fn test_manual_event_with_data() {
         let dal = DAL::new(database.clone());
 
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "event-data-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),

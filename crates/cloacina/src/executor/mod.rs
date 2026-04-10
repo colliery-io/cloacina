@@ -32,7 +32,7 @@
 //! ## Components
 //!
 //! - `ThreadTaskExecutor`: Default executor implementing the `TaskExecutor` trait
-//! - `PipelineExecutor`: Handles pipeline execution results and status tracking
+//! - `WorkflowExecutor`: Handles workflow execution results and status tracking
 //!
 //! ## Configuration
 //!
@@ -51,7 +51,8 @@ pub mod thread_task_executor;
 pub mod types;
 
 pub use pipeline_executor::{
-    PipelineError, PipelineExecution, PipelineExecutor, PipelineResult, PipelineStatus, TaskResult,
+    StatusCallback, TaskResult, WorkflowExecution, WorkflowExecutionError, WorkflowExecutionResult,
+    WorkflowExecutor, WorkflowStatus,
 };
 pub use slot_token::SlotToken;
 pub use task_handle::{return_task_handle, take_task_handle, with_task_handle, TaskHandle};

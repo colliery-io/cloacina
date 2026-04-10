@@ -34,6 +34,8 @@ pub struct ApiKeyInfo {
     pub permissions: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub revoked: bool,
+    pub tenant_id: Option<String>,
+    pub is_admin: bool,
 }
 
 /// DAL for API key operations. Postgres only.
@@ -53,8 +55,11 @@ impl<'a> ApiKeyDAL<'a> {
         &self,
         key_hash: &str,
         name: &str,
+        tenant_id: Option<&str>,
+        is_admin: bool,
+        role: &str,
     ) -> Result<ApiKeyInfo, ValidationError> {
-        crud::create_key(self.dal, key_hash, name).await
+        crud::create_key(self.dal, key_hash, name, tenant_id, is_admin, role).await
     }
 
     /// Validate a key hash — returns key info if found and not revoked.

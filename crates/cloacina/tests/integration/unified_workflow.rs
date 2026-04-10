@@ -16,7 +16,7 @@
 
 //! Integration test for the unified #[workflow] macro (embedded mode).
 
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, trigger, workflow, Context, TaskError};
 use serde_json::json;

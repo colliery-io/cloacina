@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tutorial: ["01", "02", "03", "04", "05", "06"]
+        tutorial: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full
@@ -95,14 +95,14 @@ jobs:
           key: ${{ runner.os }}-examples-build-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
 
       - name: Docker Compose Cache
-        if: matrix.tutorial == '06'
+        if: contains(fromJSON('["06"]'), matrix.tutorial)
         uses: actions/cache@v4
         with:
           path: ~/.docker
           key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
 
-      - name: Start PostgreSQL services
-        if: matrix.tutorial == '06'
+      - name: Start backing services
+        if: contains(fromJSON('["06"]'), matrix.tutorial)
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
           compose-file: ".angreal/docker-compose.yaml"
@@ -125,7 +125,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials", "registry-execution"]
+        example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials", "registry-execution", "continuous-scheduling", "packaged-graph"]
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full
@@ -192,7 +192,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # SQLite tutorials (01-04, 06) - tutorial 05 requires PostgreSQL
+          # SQLite tutorials (01-04, 06-11) - tutorial 05 requires PostgreSQL
           - tutorial: "01"
             backend: sqlite
           - tutorial: "02"
@@ -203,7 +203,17 @@ jobs:
             backend: sqlite
           - tutorial: "06"
             backend: sqlite
-          # PostgreSQL tutorials (01-06, including 05 which requires postgres)
+          - tutorial: "07"
+            backend: sqlite
+          - tutorial: "08"
+            backend: sqlite
+          - tutorial: "09"
+            backend: sqlite
+          - tutorial: "10"
+            backend: sqlite
+          - tutorial: "11"
+            backend: sqlite
+          # PostgreSQL tutorials (01-11, including 05 which requires postgres)
           - tutorial: "01"
             backend: postgres
           - tutorial: "02"
@@ -215,6 +225,16 @@ jobs:
           - tutorial: "05"
             backend: postgres
           - tutorial: "06"
+            backend: postgres
+          - tutorial: "07"
+            backend: postgres
+          - tutorial: "08"
+            backend: postgres
+          - tutorial: "09"
+            backend: postgres
+          - tutorial: "10"
+            backend: postgres
+          - tutorial: "11"
             backend: postgres
     runs-on: ubuntu-latest
     env:

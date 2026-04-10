@@ -590,4 +590,4 @@ Unmatched routes return:
 
 - [CLI Reference]({{< ref "cli" >}}) -- `cloacinactl serve` flags and bootstrap key behavior
 - [DatabaseAdmin API]({{< ref "database-admin" >}}) -- tenant provisioning internals
-- [Multi-Tenancy Architecture]({{< ref "/explanation/multi-tenancy" >}}) -- schema isolation design
+- [Multi-Tenancy Architecture]({{< ref "/explanation/platform/multi-tenancy" >}}) -- schema isolation design

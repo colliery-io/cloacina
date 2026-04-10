@@ -51,56 +51,62 @@ enum RuntimeMessage {
         workflow_name: String,
         context: crate::Context<serde_json::Value>,
         response_tx: oneshot::Sender<
-            Result<crate::executor::PipelineResult, crate::executor::PipelineError>,
+            Result<
+                crate::executor::WorkflowExecutionResult,
+                crate::executor::WorkflowExecutionError,
+            >,
         >,
     },
     RegisterCronWorkflow {
         workflow_name: String,
         cron_expression: String,
         timezone: String,
-        response_tx: oneshot::Sender<Result<String, crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<String, crate::executor::WorkflowExecutionError>>,
     },
     ListCronSchedules {
         enabled_only: bool,
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::Schedule>, crate::executor::PipelineError>,
+            Result<Vec<crate::models::schedule::Schedule>, crate::executor::WorkflowExecutionError>,
         >,
     },
     SetCronScheduleEnabled {
         schedule_id: String,
         enabled: bool,
-        response_tx: oneshot::Sender<Result<(), crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
     },
     DeleteCronSchedule {
         schedule_id: String,
-        response_tx: oneshot::Sender<Result<(), crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
     },
     GetCronSchedule {
         schedule_id: String,
         response_tx: oneshot::Sender<
-            Result<crate::models::schedule::Schedule, crate::executor::PipelineError>,
+            Result<crate::models::schedule::Schedule, crate::executor::WorkflowExecutionError>,
         >,
     },
     UpdateCronSchedule {
         schedule_id: String,
         cron_expression: String,
         timezone: String,
-        response_tx: oneshot::Sender<Result<(), crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
     },
     GetCronExecutionHistory {
         schedule_id: String,
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::ScheduleExecution>, crate::executor::PipelineError>,
+            Result<
+                Vec<crate::models::schedule::ScheduleExecution>,
+                crate::executor::WorkflowExecutionError,
+            >,
         >,
     },
     GetCronExecutionStats {
         since: chrono::DateTime<chrono::Utc>,
         response_tx: oneshot::Sender<
-            Result<crate::dal::ScheduleExecutionStats, crate::executor::PipelineError>,
+            Result<crate::dal::ScheduleExecutionStats, crate::executor::WorkflowExecutionError>,
         >,
     },
     // Trigger management messages
@@ -109,26 +115,32 @@ enum RuntimeMessage {
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::Schedule>, crate::executor::PipelineError>,
+            Result<Vec<crate::models::schedule::Schedule>, crate::executor::WorkflowExecutionError>,
         >,
     },
     GetTriggerSchedule {
         trigger_name: String,
         response_tx: oneshot::Sender<
-            Result<Option<crate::models::schedule::Schedule>, crate::executor::PipelineError>,
+            Result<
+                Option<crate::models::schedule::Schedule>,
+                crate::executor::WorkflowExecutionError,
+            >,
         >,
     },
     SetTriggerEnabled {
         trigger_name: String,
         enabled: bool,
-        response_tx: oneshot::Sender<Result<(), crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
     },
     GetTriggerExecutionHistory {
         trigger_name: String,
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::ScheduleExecution>, crate::executor::PipelineError>,
+            Result<
+                Vec<crate::models::schedule::ScheduleExecution>,
+                crate::executor::WorkflowExecutionError,
+            >,
         >,
     },
     Shutdown,
@@ -210,14 +222,14 @@ impl Drop for AsyncRuntimeHandle {
     }
 }
 
-/// Python wrapper for PipelineResult
-#[pyclass(name = "PipelineResult")]
-pub struct PyPipelineResult {
-    inner: crate::executor::PipelineResult,
+/// Python wrapper for WorkflowExecutionResult
+#[pyclass(name = "WorkflowResult")]
+pub struct PyWorkflowResult {
+    inner: crate::executor::WorkflowExecutionResult,
 }
 
 #[pymethods]
-impl PyPipelineResult {
+impl PyWorkflowResult {
     /// Get the execution status
     #[getter]
     pub fn status(&self) -> String {
@@ -253,7 +265,7 @@ impl PyPipelineResult {
     /// String representation
     pub fn __repr__(&self) -> String {
         format!(
-            "PipelineResult(status={}, error={})",
+            "WorkflowResult(status={}, error={})",
             self.status(),
             self.error_message().unwrap_or("None")
         )
@@ -279,49 +291,36 @@ impl PyDefaultRunner {
         // Spawn a dedicated thread for the async runtime
         let thread_handle = thread::spawn(move || {
             // Initialize logging in this thread
-            eprintln!("THREAD: Initializing async runtime thread for DefaultRunner");
-            eprintln!("THREAD: Checking RUST_LOG: {:?}", std::env::var("RUST_LOG"));
 
             // Try to initialize tracing
             use tracing::{debug, info};
             let _guard = tracing_subscriber::fmt()
                 .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                        eprintln!("THREAD: No RUST_LOG found, using info level");
-                        tracing_subscriber::EnvFilter::new("info")
-                    }),
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
                 )
                 .try_init();
 
-            eprintln!("THREAD: Tracing initialized");
             info!("Background thread started with tracing");
 
             // Create the tokio runtime in the dedicated thread
-            eprintln!("THREAD: Creating tokio runtime");
             debug!("Creating tokio runtime");
             let rt = Runtime::new().expect("Failed to create tokio runtime");
-            eprintln!("THREAD: Tokio runtime created successfully");
             info!("Tokio runtime created successfully");
 
             // Create the DefaultRunner within the async context
             let runner = rt.block_on(async {
-                eprintln!(
-                    "THREAD: Creating DefaultRunner with database_url: {}",
-                    database_url
+                info!(
+                    "Creating DefaultRunner with database_url: {}",
+                    crate::logging::mask_db_url(&database_url)
                 );
-                info!("Creating DefaultRunner with database_url: {}", database_url);
-                eprintln!("THREAD: About to call crate::DefaultRunner::new()");
                 debug!("About to call crate::DefaultRunner::new()");
                 let runner = crate::DefaultRunner::new(&database_url)
                     .await
                     .expect("Failed to create DefaultRunner");
-                eprintln!(
-                    "THREAD: DefaultRunner created successfully, background services running"
-                );
                 info!("DefaultRunner created successfully, background services running");
                 runner
             });
-            eprintln!("THREAD: DefaultRunner creation completed");
             info!("DefaultRunner creation completed");
 
             let runner = Arc::new(runner);
@@ -335,27 +334,15 @@ impl PyDefaultRunner {
                             context,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received execute request for workflow: {}",
-                                workflow_name
-                            );
-                            eprintln!("THREAD: Spawning execution task");
-
                             let runner_clone = runner.clone();
                             // Spawn the execution as a separate task to avoid blocking the message loop
                             tokio::spawn(async move {
-                                eprintln!("TASK: About to call runner.execute()");
-
                                 // Execute the workflow in the async runtime
-                                use crate::executor::PipelineExecutor;
+                                use crate::executor::WorkflowExecutor;
                                 let result = runner_clone.execute(&workflow_name, context).await;
-
-                                eprintln!("TASK: runner.execute() returned: {:?}", result.is_ok());
-                                eprintln!("TASK: Sending response back to Python thread");
 
                                 // Send response back to the calling thread
                                 let _ = response_tx.send(result);
-                                eprintln!("TASK: Response sent successfully");
                             });
                         }
                         RuntimeMessage::RegisterCronWorkflow {
@@ -364,11 +351,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received register cron workflow request for: {}",
-                                workflow_name
-                            );
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -389,8 +371,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list cron schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -404,8 +384,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set cron schedule enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -415,7 +393,7 @@ impl PyDefaultRunner {
                                             .set_cron_schedule_enabled(universal_uuid, enabled)
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -426,8 +404,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received delete cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -435,7 +411,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.delete_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -446,8 +422,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -455,7 +429,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.get_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -468,8 +442,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received update cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -483,7 +455,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -496,8 +468,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -511,7 +481,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -519,8 +489,6 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
-                            eprintln!("THREAD: Received get cron execution stats request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone.get_cron_execution_stats(since).await;
@@ -534,8 +502,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list trigger schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -547,7 +513,7 @@ impl PyDefaultRunner {
                                         .await
                                 };
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -557,15 +523,13 @@ impl PyDefaultRunner {
                             trigger_name,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
                                 let result =
                                     dal.schedule().get_by_trigger_name(&trigger_name).await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -576,8 +540,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set trigger enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = async {
@@ -608,7 +570,7 @@ impl PyDefaultRunner {
                                 }
                                 .await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -620,8 +582,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -632,7 +592,7 @@ impl PyDefaultRunner {
                                         .get_by_trigger_name(&trigger_name)
                                         .await
                                         .map_err(|e| {
-                                            crate::executor::PipelineError::Configuration {
+                                            crate::executor::WorkflowExecutionError::Configuration {
                                                 message: e.to_string(),
                                             }
                                         })?;
@@ -641,7 +601,7 @@ impl PyDefaultRunner {
                                             .list_by_schedule(schedule.id, limit, offset)
                                             .await
                                             .map_err(|e| {
-                                                crate::executor::PipelineError::Configuration {
+                                                crate::executor::WorkflowExecutionError::Configuration {
                                                     message: e.to_string(),
                                                 }
                                             })
@@ -654,14 +614,11 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::Shutdown => {
-                            eprintln!("THREAD: Received shutdown signal");
                             break;
                         }
                     }
                 }
             });
-
-            eprintln!("THREAD: Runtime thread shutting down");
         });
 
         Ok(PyDefaultRunner {
@@ -687,15 +644,12 @@ impl PyDefaultRunner {
         // Spawn a dedicated thread for the async runtime
         let thread_handle = thread::spawn(move || {
             // Initialize logging in this thread
-            eprintln!("THREAD: Initializing logging in background thread");
             if std::env::var("RUST_LOG").is_ok() {
-                eprintln!("THREAD: RUST_LOG found: {:?}", std::env::var("RUST_LOG"));
                 // Try to initialize tracing in this thread
                 let _ = tracing_subscriber::fmt()
                     .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
                     .try_init();
             } else {
-                eprintln!("THREAD: No RUST_LOG environment variable found");
             }
 
             // Create the tokio runtime in the dedicated thread
@@ -719,27 +673,15 @@ impl PyDefaultRunner {
                             context,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received execute request for workflow: {}",
-                                workflow_name
-                            );
-                            eprintln!("THREAD: Spawning execution task");
-
                             let runner_clone = runner.clone();
                             // Spawn the execution as a separate task to avoid blocking the message loop
                             tokio::spawn(async move {
-                                eprintln!("TASK: About to call runner.execute()");
-
                                 // Execute the workflow in the async runtime
-                                use crate::executor::PipelineExecutor;
+                                use crate::executor::WorkflowExecutor;
                                 let result = runner_clone.execute(&workflow_name, context).await;
-
-                                eprintln!("TASK: runner.execute() returned: {:?}", result.is_ok());
-                                eprintln!("TASK: Sending response back to Python thread");
 
                                 // Send response back to the calling thread
                                 let _ = response_tx.send(result);
-                                eprintln!("TASK: Response sent successfully");
                             });
                         }
                         RuntimeMessage::RegisterCronWorkflow {
@@ -748,11 +690,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received register cron workflow request for: {}",
-                                workflow_name
-                            );
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -773,8 +710,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list cron schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -788,8 +723,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set cron schedule enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -799,7 +732,7 @@ impl PyDefaultRunner {
                                             .set_cron_schedule_enabled(universal_uuid, enabled)
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -810,8 +743,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received delete cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -819,7 +750,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.delete_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -830,8 +761,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -839,7 +768,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.get_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -852,8 +781,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received update cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -867,7 +794,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -880,8 +807,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -895,7 +820,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -903,8 +828,6 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
-                            eprintln!("THREAD: Received get cron execution stats request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone.get_cron_execution_stats(since).await;
@@ -918,8 +841,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list trigger schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -931,7 +852,7 @@ impl PyDefaultRunner {
                                         .await
                                 };
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -941,15 +862,13 @@ impl PyDefaultRunner {
                             trigger_name,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
                                 let result =
                                     dal.schedule().get_by_trigger_name(&trigger_name).await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -960,8 +879,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set trigger enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = async {
@@ -992,7 +909,7 @@ impl PyDefaultRunner {
                                 }
                                 .await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -1004,8 +921,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -1016,7 +931,7 @@ impl PyDefaultRunner {
                                         .get_by_trigger_name(&trigger_name)
                                         .await
                                         .map_err(|e| {
-                                            crate::executor::PipelineError::Configuration {
+                                            crate::executor::WorkflowExecutionError::Configuration {
                                                 message: e.to_string(),
                                             }
                                         })?;
@@ -1025,7 +940,7 @@ impl PyDefaultRunner {
                                             .list_by_schedule(schedule.id, limit, offset)
                                             .await
                                             .map_err(|e| {
-                                                crate::executor::PipelineError::Configuration {
+                                                crate::executor::WorkflowExecutionError::Configuration {
                                                     message: e.to_string(),
                                                 }
                                             })
@@ -1038,14 +953,11 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::Shutdown => {
-                            eprintln!("THREAD: Received shutdown signal");
                             break;
                         }
                     }
                 }
             });
-
-            eprintln!("THREAD: Runtime thread shutting down");
         });
 
         Ok(PyDefaultRunner {
@@ -1131,33 +1043,21 @@ impl PyDefaultRunner {
 
         // If we got here, the creation succeeded, so spawn the background thread
         let thread_handle = thread::spawn(move || {
-            eprintln!(
-                "THREAD: Starting async runtime thread for schema: {}",
-                schema
-            );
             info!("Starting async runtime thread for schema: {}", schema);
 
             // Create a new Tokio runtime
             let rt = Runtime::new().expect("Failed to create Tokio runtime");
-            eprintln!(
-                "THREAD: Tokio runtime created successfully for schema: {}",
-                schema
-            );
             info!("Tokio runtime created successfully for schema: {}", schema);
 
             // Create the DefaultRunner with schema within the async context
             let runner = rt.block_on(async {
-                eprintln!("THREAD: Creating DefaultRunner with schema: {} and database_url: {}", schema, database_url);
-                info!("Creating DefaultRunner with schema: {} and database_url: {}", schema, database_url);
-                eprintln!("THREAD: About to call crate::DefaultRunner::with_schema()");
+                info!("Creating DefaultRunner with schema: {} and database_url: {}", schema, crate::logging::mask_db_url(&database_url));
                 debug!("About to call crate::DefaultRunner::with_schema()");
                 let runner = crate::DefaultRunner::with_schema(&database_url, &schema).await
                     .expect("Failed to create DefaultRunner with schema - this should not fail since we tested it above");
-                eprintln!("THREAD: DefaultRunner with schema created successfully, background services running");
                 info!("DefaultRunner with schema created successfully, background services running");
                 runner
             });
-            eprintln!("THREAD: DefaultRunner with schema creation completed");
             info!("DefaultRunner with schema creation completed");
 
             let runner = Arc::new(runner);
@@ -1171,24 +1071,12 @@ impl PyDefaultRunner {
                             context,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received execute request for workflow: {}",
-                                workflow_name
-                            );
-                            eprintln!("THREAD: Spawning execution task");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
-                                eprintln!("TASK: About to call runner.execute()");
-
-                                use crate::executor::PipelineExecutor;
+                                use crate::executor::WorkflowExecutor;
                                 let result = runner_clone.execute(&workflow_name, context).await;
 
-                                eprintln!("TASK: runner.execute() returned: {:?}", result.is_ok());
-                                eprintln!("TASK: Sending response back to Python thread");
-
                                 let _ = response_tx.send(result);
-                                eprintln!("TASK: Response sent successfully");
                             });
                         }
                         RuntimeMessage::RegisterCronWorkflow {
@@ -1197,11 +1085,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received register cron workflow request for: {}",
-                                workflow_name
-                            );
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -1222,8 +1105,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list cron schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -1237,8 +1118,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set cron schedule enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1248,7 +1127,7 @@ impl PyDefaultRunner {
                                             .set_cron_schedule_enabled(universal_uuid, enabled)
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1259,8 +1138,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received delete cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1268,7 +1145,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.delete_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1279,8 +1156,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1288,7 +1163,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.get_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1301,8 +1176,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received update cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1316,7 +1189,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1329,8 +1202,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1344,7 +1215,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1352,8 +1223,6 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
-                            eprintln!("THREAD: Received get cron execution stats request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone.get_cron_execution_stats(since).await;
@@ -1367,8 +1236,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list trigger schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -1380,7 +1247,7 @@ impl PyDefaultRunner {
                                         .await
                                 };
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -1390,15 +1257,13 @@ impl PyDefaultRunner {
                             trigger_name,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
                                 let result =
                                     dal.schedule().get_by_trigger_name(&trigger_name).await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -1409,8 +1274,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set trigger enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = async {
@@ -1441,7 +1304,7 @@ impl PyDefaultRunner {
                                 }
                                 .await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -1453,8 +1316,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -1465,7 +1326,7 @@ impl PyDefaultRunner {
                                         .get_by_trigger_name(&trigger_name)
                                         .await
                                         .map_err(|e| {
-                                            crate::executor::PipelineError::Configuration {
+                                            crate::executor::WorkflowExecutionError::Configuration {
                                                 message: e.to_string(),
                                             }
                                         })?;
@@ -1474,7 +1335,7 @@ impl PyDefaultRunner {
                                             .list_by_schedule(schedule.id, limit, offset)
                                             .await
                                             .map_err(|e| {
-                                                crate::executor::PipelineError::Configuration {
+                                                crate::executor::WorkflowExecutionError::Configuration {
                                                     message: e.to_string(),
                                                 }
                                             })
@@ -1487,9 +1348,6 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::Shutdown => {
-                            eprintln!(
-                                "THREAD: Received shutdown message, breaking from event loop"
-                            );
                             info!("Received shutdown message, breaking from event loop");
                             break;
                         }
@@ -1497,7 +1355,6 @@ impl PyDefaultRunner {
                 }
             });
 
-            eprintln!("THREAD: Event loop finished, thread ending");
             info!("Event loop finished, thread ending");
         });
 
@@ -1516,14 +1373,9 @@ impl PyDefaultRunner {
         workflow_name: &str,
         context: &PyContext,
         py: Python,
-    ) -> PyResult<PyPipelineResult> {
+    ) -> PyResult<PyWorkflowResult> {
         let rust_context = context.clone_inner();
         let workflow_name = workflow_name.to_string();
-
-        eprintln!(
-            "THREADS: Python execute() called for workflow: {}",
-            workflow_name
-        );
 
         // Create a oneshot channel for the response
         let (response_tx, response_rx) = oneshot::channel();
@@ -1537,7 +1389,6 @@ impl PyDefaultRunner {
 
         // Send message without holding the GIL
         let result = py.allow_threads(|| {
-            eprintln!("THREADS: Sending execute message to runtime thread");
             self.runtime_handle
                 .lock()
                 .unwrap()
@@ -1545,18 +1396,15 @@ impl PyDefaultRunner {
                 .send(message)
                 .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
 
-            eprintln!("THREADS: Waiting for response from runtime thread");
             // Wait for the response
             let result = response_rx.blocking_recv().map_err(|_| {
                 PyValueError::new_err("Failed to receive response from runtime thread")
             })?;
 
-            eprintln!("THREADS: Received response from runtime thread");
             result.map_err(|e| PyValueError::new_err(format!("Workflow execution failed: {}", e)))
         })?;
 
-        eprintln!("THREADS: Execution completed successfully");
-        Ok(PyPipelineResult::from_result(result))
+        Ok(PyWorkflowResult::from_result(result))
     }
 
     /// Start the runner (task scheduler and executor)
@@ -2287,9 +2135,9 @@ impl PyDefaultRunner {
     }
 }
 
-impl PyPipelineResult {
-    pub fn from_result(result: crate::executor::PipelineResult) -> Self {
-        PyPipelineResult { inner: result }
+impl PyWorkflowResult {
+    pub fn from_result(result: crate::executor::WorkflowExecutionResult) -> Self {
+        PyWorkflowResult { inner: result }
     }
 }
 
@@ -2297,17 +2145,19 @@ impl PyPipelineResult {
 #[cfg(feature = "sqlite")]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     const TEST_PG_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
 
     fn unique_sqlite_url() -> String {
         format!(
-            "sqlite:///tmp/cloacina_runner_test_{}.db?mode=rwc",
+            "file:cloacina_runner_test_{}?mode=memory&cache=shared",
             uuid::Uuid::new_v4()
         )
     }
 
     #[test]
+    #[serial]
     fn test_runner_repr() {
         pyo3::prepare_freethreaded_python();
         // Create runner with SQLite (lighter weight, no Postgres needed)
@@ -2319,6 +2169,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_start_returns_not_implemented() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2327,6 +2178,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_stop_returns_not_implemented() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2335,6 +2187,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_shutdown() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2344,6 +2197,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_context_manager() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
@@ -2361,6 +2215,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_list_cron_schedules_empty() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2374,6 +2229,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_list_trigger_schedules_empty() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2387,6 +2243,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_trigger_schedule_not_found() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2400,6 +2257,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_register_cron_workflow() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2423,6 +2281,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_list_cron_schedules_after_register() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2449,6 +2308,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_cron_schedule() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2474,6 +2334,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_set_cron_schedule_enabled() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2503,6 +2364,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_delete_cron_schedule() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2530,6 +2392,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_update_cron_schedule() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2558,6 +2421,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_cron_execution_history_empty() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2582,6 +2446,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_cron_execution_stats() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2598,6 +2463,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_set_cron_schedule_enabled_invalid_id() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2611,6 +2477,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_set_trigger_enabled() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2626,6 +2493,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_trigger_execution_history() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2641,15 +2509,16 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pipeline_result_completed() {
         pyo3::prepare_freethreaded_python();
         let mut ctx = crate::Context::new();
         ctx.insert("result".to_string(), serde_json::json!("done"))
             .unwrap();
-        let result = crate::executor::PipelineResult {
+        let result = crate::executor::WorkflowExecutionResult {
             execution_id: uuid::Uuid::new_v4(),
             workflow_name: "test-wf".to_string(),
-            status: crate::executor::PipelineStatus::Completed,
+            status: crate::executor::WorkflowStatus::Completed,
             start_time: chrono::Utc::now(),
             end_time: Some(chrono::Utc::now()),
             duration: Some(std::time::Duration::from_secs(1)),
@@ -2657,7 +2526,7 @@ mod tests {
             task_results: vec![],
             error_message: None,
         };
-        let py_result = PyPipelineResult::from_result(result);
+        let py_result = PyWorkflowResult::from_result(result);
 
         assert_eq!(py_result.status(), "Completed");
         assert!(!py_result.start_time().is_empty());
@@ -2675,12 +2544,13 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pipeline_result_failed() {
         pyo3::prepare_freethreaded_python();
-        let result = crate::executor::PipelineResult {
+        let result = crate::executor::WorkflowExecutionResult {
             execution_id: uuid::Uuid::new_v4(),
             workflow_name: "fail-wf".to_string(),
-            status: crate::executor::PipelineStatus::Failed,
+            status: crate::executor::WorkflowStatus::Failed,
             start_time: chrono::Utc::now(),
             end_time: None,
             duration: None,
@@ -2688,7 +2558,7 @@ mod tests {
             task_results: vec![],
             error_message: Some("something broke".to_string()),
         };
-        let py_result = PyPipelineResult::from_result(result);
+        let py_result = PyWorkflowResult::from_result(result);
 
         assert_eq!(py_result.status(), "Failed");
         assert!(py_result.end_time().is_none());
@@ -2697,6 +2567,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_execute_nonexistent_workflow() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2714,6 +2585,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_execute_registered_workflow() {
         pyo3::prepare_freethreaded_python();
 
@@ -2767,6 +2639,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_cron_execution_stats_invalid_date() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2780,6 +2653,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_list_cron_schedules_enabled_only() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2818,6 +2692,7 @@ mod tests {
     // ── with_schema validation tests ─────────────────────────────────
 
     #[test]
+    #[serial]
     fn test_with_schema_rejects_sqlite() {
         pyo3::prepare_freethreaded_python();
         let result = PyDefaultRunner::with_schema("sqlite:///tmp/test.db", "tenant_a");
@@ -2825,6 +2700,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_with_schema_rejects_empty_schema() {
         pyo3::prepare_freethreaded_python();
         let result = PyDefaultRunner::with_schema(
@@ -2835,6 +2711,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_with_schema_rejects_invalid_chars() {
         pyo3::prepare_freethreaded_python();
         let result = PyDefaultRunner::with_schema(
@@ -2845,6 +2722,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_shutdown_error_display() {
         let err = ShutdownError::ChannelClosed;
         assert!(format!("{}", err).contains("channel closed"));
