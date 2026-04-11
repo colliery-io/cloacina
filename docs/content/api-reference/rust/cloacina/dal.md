@@ -1,0 +1,8 @@
+# cloacina::dal <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">Rust</span>
+
+
+Data Access Layer with runtime backend selection
+
+This module provides storage-specific DAL implementations:
+- unified: Runtime backend selection (PostgreSQL or SQLite)
+- filesystem_dal: For filesystem-based storage operations

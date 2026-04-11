@@ -52,3 +52,4 @@ dist/
 test-quick/
 .claude/*
 run_demos.sh
+docs/content/api-reference/_nav.yml

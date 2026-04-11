@@ -1,0 +1,19 @@
+[project]
+name = "cloacina"
+version_from = "cargo"
+
+[output]
+format = "markdown"
+path = "docs/content/api-reference"
+template = "mkdocs-material"
+
+[rust]
+crates = [
+    "crates/cloacina",
+    "crates/cloacina-computation-graph",
+    "crates/cloacina-workflow",
+]
+
+[python]
+package = "cloaca"
+source = "crates/cloacina/src/python"

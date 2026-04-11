@@ -30,27 +30,35 @@ enableRobotsTXT = true
   [[menu.main]]
     name = "Quick Start"
     url = "/quick-start/"
+    weight = 5
+  [[menu.main]]
+    name = "Workflows"
+    url = "/workflows/"
     weight = 10
   [[menu.main]]
-    name = "Cloaca"
-    url = "/python-bindings/"
-    weight = 15
-  [[menu.main]]
-    name = "Tutorials"
-    url = "/tutorials/"
+    name = "Computation Graphs"
+    url = "/computation-graphs/"
     weight = 20
   [[menu.main]]
-    name = "How-to Guides"
-    url = "/how-to-guides/"
+    name = "Python (Cloaca)"
+    url = "/python/"
+    weight = 15
+  [[menu.main]]
+    name = "Platform"
+    url = "/platform/"
     weight = 30
   [[menu.main]]
-    name = "Reference"
-    url = "/reference/"
-    weight = 40
+    name = "API Reference"
+    url = "/api-reference/"
+    weight = 35
   [[menu.main]]
-    name = "Explanation"
-    url = "/explanation/"
+    name = "Glossary"
+    url = "/glossary/"
     weight = 50
+  [[menu.main]]
+    name = "Troubleshooting"
+    url = "/troubleshooting/"
+    weight = 51
   [[menu.main]]
     name = "Contributing"
     url = "/contributing/"
