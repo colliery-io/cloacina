@@ -101,6 +101,8 @@ The server accepts both **binary** (opcode `0x82`) and **text** (opcode `0x81`) 
 - In debug builds: JSON-serialized `serde_json::Value`
 - In release builds: bincode-serialized data matching the accumulator's boundary type
 
+Production servers use release builds (bincode). When testing against a debug server, send JSON.
+
 The payload bytes are forwarded as-is to the accumulator's deserialization layer. The accumulator attempts to deserialize the payload into its declared boundary type (e.g., `OrderBook`). Field names must exactly match the Rust struct's `serde` field names (snake_case by default).
 
 **Example JSON payload (debug mode):**
@@ -275,7 +277,7 @@ For enhanced security, exchange a long-lived API key for a short-lived, single-u
 **Step 1:** Request a ticket via REST (requires existing Bearer auth):
 
 ```http
-POST /auth/ws-ticket HTTP/1.1
+POST /v1/auth/ws-ticket HTTP/1.1
 Authorization: Bearer clk_a1b2c3d4...
 ```
 
@@ -326,6 +328,8 @@ Rate limiting is **not currently enforced at the WebSocket layer**. The server a
 Clients sending faster than the graph can execute will experience silent message loss (accumulator) or increased latency (reactor commands queue in the channel).
 
 The `ApiError::too_many_requests` constructor exists in the error module, indicating rate limiting may be added in future versions at the HTTP upgrade layer.
+
+Until native rate limiting is implemented, use a reverse proxy (nginx, envoy) to enforce connection and message rate limits on WebSocket endpoints.
 
 ---
 

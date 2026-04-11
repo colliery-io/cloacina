@@ -236,7 +236,7 @@ thread 'tokio-runtime-worker' panicked at 'index out of bounds: ...'
 **Cause:**
 
 By default, Cloacina executes tasks on blocking threads via `spawn_blocking` and catches panics with `std::panic::catch_unwind`. However, this only works if:
-- The task's `execute` method is `UnwindSafe`.
+- The task's `execute` method is `UnwindSafe` (a Rust safety guarantee ensuring data remains valid after a panic).
 - The panic occurs in Rust code (FFI panics are undefined behavior).
 - The panic does not corrupt shared state held across the unwind boundary.
 
@@ -371,12 +371,12 @@ Tasks that perform long-running operations (large data transfers, external API c
        .build();
    ```
 
-4. **Better approach — break long tasks into smaller steps.** Use checkpointing to save intermediate state:
+4. **Better approach — break long tasks into smaller steps.** Save intermediate results to context keys so progress is recoverable:
    ```rust
    async fn execute(&self, ctx: &mut Context<Value>) -> Result<(), TaskError> {
-       for chunk in data.chunks(1000) {
-           process_chunk(chunk)?;
-           ctx.checkpoint()?;  // Save progress
+       for (i, chunk) in data.chunks(1000).enumerate() {
+           let result = process_chunk(chunk)?;
+           ctx.insert(format!("chunk_{i}"), result)?;  // Save progress to context
        }
        Ok(())
    }
@@ -819,7 +819,7 @@ or immediate crash on `import cloaca` without any Python traceback.
 This is typically caused by:
 
 1. **Python version mismatch:** The wheel was built with `abi3-py39` (stable ABI for Python 3.9+). Using Python 3.8 or earlier will fail.
-2. **OpenSSL/libpq conflicts:** When the PostgreSQL feature is enabled, the shared library links against system OpenSSL. If the Python environment has a different OpenSSL in its rpath, symbol conflicts cause SIGSEGV.
+2. **OpenSSL/libpq conflicts:** When the PostgreSQL feature is enabled, the shared library links against system OpenSSL. If the Python environment has a different OpenSSL in its runtime library path (rpath), symbol conflicts cause SIGSEGV.
 3. **Fork safety with OpenSSL:** Importing `cloaca` after `fork()` (e.g., in multiprocessing) can trigger SIGSEGV due to OpenSSL's unsafe atexit handler. See [diesel#3441](https://github.com/diesel-rs/diesel/issues/3441).
 
 **Solution:**

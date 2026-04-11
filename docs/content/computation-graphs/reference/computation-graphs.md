@@ -272,7 +272,7 @@ pub async fn decision(
 
 ### Blocking Nodes
 
-Annotate a node with `#[node(blocking)]` to run it on `spawn_blocking`. Use this for CPU-intensive work that would block the async runtime:
+Annotate a node with `#[node(blocking)]` to run it on `spawn_blocking`. Use this for CPU-intensive work that would block the async runtime. The async runtime uses a small pool of worker threads. CPU-intensive synchronous code on these threads blocks other async tasks. `#[node(blocking)]` moves the node to a separate blocking thread pool, keeping the async runtime responsive.
 
 ```rust
 #[node(blocking)]
@@ -708,7 +708,7 @@ The reactor reports its health via a `watch` channel:
 External Events ──────────────→ Accumulator ──→ BoundarySender
                                                       │
                     boundary_tx                        │
-                  ←──────────���────────────────────────┘
+                  <-------------------------------------+
                   │
                   ▼
               Reactor (boundary_rx)
@@ -750,7 +750,7 @@ socket_tx.send(serialize(&my_event).unwrap()).await.unwrap();
 
 ## Global Registry
 
-The global registry stores computation graph constructors for embedded-mode auto-discovery. Graphs register themselves at program startup via `#[ctor]`.
+The global registry stores computation graph constructors for embedded-mode auto-discovery. Graphs register themselves at program startup via `#[ctor]`. `#[ctor]` runs the annotated function automatically at program startup, before `main()`, ensuring graphs are registered without explicit initialization.
 
 ### Registration
 

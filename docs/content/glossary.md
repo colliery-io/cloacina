@@ -72,7 +72,7 @@ The component that routes ready tasks from the scheduler to executor slots. The 
 
 ### Entry Node
 
-A computation graph node that reads from the InputCache rather than receiving output from another node. Entry nodes receive `Option<&T>`, where `None` indicates no data has been received yet for that source. They serve as the ingress points for external data into the graph.
+A computation graph node that reads from the InputCache rather than receiving output from another node. Entry nodes receive optional data — in Rust: `Option<&T>`, in Python: the value or `None` — where the absent case indicates no data has been received yet for that source. They serve as the ingress points for external data into the graph.
 
 ### Execution
 
@@ -84,11 +84,11 @@ The background service that spawns async tasks and manages concurrency limits us
 
 ### FFI
 
-Foreign Function Interface. The mechanism for loading packaged workflows as dynamic libraries at runtime. Cloacina uses a C ABI boundary (via fidius) to call into compiled workflow packages without requiring the host and plugin to share the same Rust compiler version. See [FFI System]({{< ref "/platform/explanation/ffi-system" >}}).
+Foreign Function Interface. The mechanism for loading packaged workflows as dynamic libraries at runtime. Cloacina uses a C ABI (Application Binary Interface) boundary via fidius to call into compiled workflow packages without requiring the host and plugin to share the same Rust compiler version. See [FFI System]({{< ref "/platform/explanation/ffi-system" >}}).
 
 ### fidius
 
-The binary serialization and packaging library used internally by Cloacina. fidius transforms Rust traits into stable C ABI plugins, handling serialization across the FFI boundary. It uses JSON encoding in debug builds and bincode in release builds. See [FFI System]({{< ref "/platform/explanation/ffi-system" >}}).
+The binary serialization and packaging library used internally by Cloacina. fidius transforms Rust traits into stable C ABI plugins, handling serialization across the FFI boundary. It uses JSON encoding in debug builds for readability and bincode (a compact binary format) in release builds for performance. See [FFI System]({{< ref "/platform/explanation/ffi-system" >}}).
 
 ### GraphResult
 
@@ -110,9 +110,13 @@ Running isolated workflow environments within a single Cloacina deployment. Impl
 
 A function within a computation graph that transforms data from its inputs to an output. Nodes are connected by directed edges forming a topology. Each node executes once per graph firing, receiving the outputs of its predecessors as input parameters.
 
+### Pipeline
+
+In some code paths, metric names (e.g., `cloacina_pipelines_total`), and internal APIs, "pipeline" is used as a synonym for a workflow execution. The documentation uses "workflow" as the standard term. If you encounter "pipeline" in logs, metrics, or configuration fields, read it as "workflow execution."
+
 ### Package (.cloacina)
 
-A distributable workflow artifact containing compiled code (as a dynamic library) and metadata. Packages are uploaded to the runner's registry and loaded at runtime by the reconciler. They enable shipping workflows independently of the host application. See [Package Format]({{< ref "/platform/explanation/package-format" >}}).
+A distributable workflow artifact containing compiled code (as a platform-specific shared library — .so on Linux, .dylib on macOS) and metadata. Packages are uploaded to the runner's registry and loaded at runtime by the reconciler. They enable shipping workflows independently of the host application. See [Package Format]({{< ref "/platform/explanation/package-format" >}}).
 
 ### Reactor
 

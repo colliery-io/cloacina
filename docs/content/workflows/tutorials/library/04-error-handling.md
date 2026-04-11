@@ -69,71 +69,9 @@ Note: Use `version = "0.1.0"` when available on crates.io.
 
 Cloacina supports both PostgreSQL and SQLite backends. The backend is selected automatically at runtime based on your connection URL - no feature flags needed.
 
-## Understanding Error Handling in Cloacina
+## Error Handling at a Glance
 
-In Cloacina, error handling is primarily focused on retries, trigger rules, and callbacks. When a task fails, you can configure:
-
-1. **Retry Configuration**:
-   - `retry_attempts`: Number of times to retry a failed task (default: 3)
-   - `retry_delay_ms`: Initial delay between retries in milliseconds (default: 1000)
-   - `retry_max_delay_ms`: Maximum delay between retries in milliseconds (default: 30000)
-   - `retry_backoff`: Backoff strategy: "fixed", "linear", or "exponential" (default: "exponential")
-   - `retry_jitter`: Whether to add random variation to retry delays (default: true)
-
-2. **Trigger Rules**:
-   Trigger rules allow you to define complex conditions for task execution using a combination of:
-   - Task outcomes: `task_success()`, `task_failed()`
-   - Context values: `context_value()`
-   - Logical operators: `all()`, `any()`
-   - Comparison operators: `equals`, `greater_than`, `less_than`
-
-   For example:
-   ```rust
-   #[task(
-       id = "high_quality_processing",
-       dependencies = ["validate_data"],
-       trigger_rules = all(
-           task_success("validate_data"),
-           context_value("data_quality_score", greater_than, 80)
-       )
-   )]
-   ```
-
-   This task will only run if:
-   1. The `validate_data` task succeeded
-   2. The context value `data_quality_score` is greater than 80
-
-3. **Callbacks**:
-   Callbacks are functions that get invoked automatically when a task succeeds or fails. They're useful for alerting, monitoring, logging, and cleanup. Callbacks are resolved at compile time - just reference any async function that matches the expected signature.
-
-   - `on_success`: Called when a task completes successfully
-   - `on_failure`: Called when a task fails (after all retries are exhausted)
-
-   For example:
-   ```rust
-   #[task(
-       id = "critical_task",
-       dependencies = [],
-       on_success = log_completion,
-       on_failure = alert_team
-   )]
-   ```
-
-   Key points about callbacks:
-   - Callback failures do not fail the task or workflow (errors are logged but isolated)
-   - The `on_failure` callback receives the error for analysis
-   - Callbacks are async and non-blocking
-
-When a task fails:
-1. The system will retry the task up to the specified number of attempts
-2. Between each retry, it will wait for the specified delay, which increases according to the backoff strategy:
-   - Fixed: Same delay for every retry
-   - Linear: Delay increases linearly with each attempt
-   - Exponential: Delay increases exponentially with each attempt
-3. The delay is capped at the maximum delay
-4. If jitter is enabled, a random variation of ±25% is added to the delay to help spread out concurrent retry attempts
-5. If all retries are exhausted and the task still fails, the `on_failure` callback is invoked (if configured)
-6. If the task succeeds (either on the first attempt or after retries), the `on_success` callback is invoked (if configured)
+Cloacina gives you three tools for building resilient workflows: **retry policies** that automatically re-attempt failed tasks with configurable backoff, **trigger rules** that control whether a task runs based on upstream outcomes or runtime context values, and **callbacks** that hook into task success or failure events for alerting and cleanup. Rather than memorize every option up front, you will see each of these in action as we build the example below.
 
 ## Building a Resilient Pipeline
 
@@ -802,6 +740,7 @@ To continue your Cloacina journey, explore:
 
 ## Related Resources
 
+- [Macro Reference]({{< ref "/workflows/reference/macros" >}}) - Complete reference for all retry options, trigger rule forms, callback signatures, and backoff strategies
 - [API Documentation]({{< ref "/platform/reference/" >}}) - Core API documentation
 - [Quick Start Guide]({{< ref "/quick-start/" >}}) - Getting started with Cloacina
 

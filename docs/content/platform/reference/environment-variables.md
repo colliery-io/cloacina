@@ -55,7 +55,7 @@ The bind address (`--bind`, default `0.0.0.0:8080`) is CLI-only and does not hav
 
 ## Cloacina Variables (User-Defined Runtime Variables)
 
-Cloacina provides an Airflow-style variable system for injecting external configuration, secrets, and connection strings into workflows at runtime. All user-defined variables follow the naming convention:
+Cloacina provides a variable injection system for passing configuration to workflows at runtime, used for external configuration, secrets, and connection strings. All user-defined variables follow the naming convention:
 
 ```
 CLOACINA_VAR_{NAME}
@@ -136,7 +136,7 @@ OpenTelemetry tracing is available when `cloacinactl` is compiled with the `tele
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint. When set, enables the OpenTelemetry tracing layer. Uses gRPC (tonic). | None (OTEL disabled) | `http://localhost:4317` | Server | No |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint. When set, enables the OpenTelemetry tracing layer. Uses gRPC via tonic. HTTP/protobuf export is not currently supported. | None (OTEL disabled) | `http://localhost:4317` | Server | No |
 | `OTEL_SERVICE_NAME` | Service name reported in traces. | `cloacina` | `cloacina-production` | Server | No |
 
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is **not** set, no OpenTelemetry overhead is incurred; the subscriber runs without the OTEL layer.
@@ -145,7 +145,7 @@ When `OTEL_EXPORTER_OTLP_ENDPOINT` is **not** set, no OpenTelemetry overhead is 
 
 The server exposes a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the server is running. Metrics include:
 
-- `cloacina_pipelines_total` (counter, by status)
+- `cloacina_pipelines_total` (counter, by status) -- Metrics use "pipeline" as the internal name for workflow executions.
 - `cloacina_tasks_total` (counter, by status)
 - `cloacina_api_requests_total` (counter, by method/path/status)
 - `cloacina_pipeline_duration_seconds` (histogram)

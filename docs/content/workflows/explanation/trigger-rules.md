@@ -43,85 +43,21 @@ pub async fn process(context: &mut Context<serde_json::Value>) -> Result<(), Tas
 ## Rule Types
 
 Trigger rules are built from **conditions** --- individual predicates that inspect the state of
-the workflow at evaluation time. There are two families of conditions: task status conditions
-and context value conditions.
+the workflow at evaluation time. There are two families of conditions: **task status conditions**
+(inspecting whether an upstream task completed, failed, or was skipped) and **context value
+conditions** (evaluating values stored in the shared workflow context).
 
-### Task Status Conditions
+Task status conditions use the form `task_success("task_id")`, `task_failed("task_id")`, or
+`task_skipped("task_id")`. The referenced task must also appear in the `dependencies` array,
+since trigger rules only evaluate after all declared dependencies reach a terminal state.
 
-These conditions inspect the terminal state of another task in the same workflow execution.
+Context value conditions use the form `context_value("key", operator, value)`, where `operator`
+is one of the comparison operators (`equals`, `not_equals`, `greater_than`, `less_than`,
+`contains`, `not_contains`, `exists`, `not_exists`). Numeric operators compare values as 64-bit
+floats; `contains` works on both strings (substring match) and arrays (element membership).
 
-| Condition | Syntax | Evaluates to `true` when... |
-|-----------|--------|----------------------------|
-| Task Success | `task_success("task_id")` | The named task completed successfully |
-| Task Failed | `task_failed("task_id")` | The named task failed (after all retries exhausted) |
-| Task Skipped | `task_skipped("task_id")` | The named task was skipped |
-
-The `task_id` string must match the `id` attribute of another task in the workflow. The
-referenced task must also be listed in the `dependencies` array — trigger rules only
-evaluate after all declared dependencies reach a terminal state.
-
-```rust
-// This task runs only when fetch_data has FAILED
-#[task(
-    id = "cached_data",
-    dependencies = ["fetch_data"],
-    trigger_rules = task_failed("fetch_data")
-)]
-pub async fn cached_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    info!("Using cached data as fallback");
-    // ...
-    Ok(())
-}
-```
-
-### Context Value Conditions
-
-These conditions evaluate values stored in the workflow context --- the shared key-value store
-that tasks read from and write to during execution. Context value conditions use a
-three-argument form:
-
-```
-context_value("key", operator, value)
-```
-
-Where `key` is the context key to look up, `operator` is one of the comparison operators,
-and `value` is the expected value to compare against.
-
-#### Operators
-
-| Operator | Syntax | Description |
-|----------|--------|-------------|
-| Equals | `equals` | Exact equality (`==`) |
-| Not Equals | `not_equals` | Inequality (`!=`) |
-| Greater Than | `greater_than` | Numeric greater-than (`>`) |
-| Less Than | `less_than` | Numeric less-than (`<`) |
-| Contains | `contains` | Substring check for strings, element check for arrays |
-| Not Contains | `not_contains` | Negation of Contains |
-| Exists | `exists` | Key is present in context (value argument is ignored) |
-| Not Exists | `not_exists` | Key is absent from context (value argument is ignored) |
-
-Numeric operators (`greater_than`, `less_than`) compare values as 64-bit floats. If either
-value is not numeric, the condition evaluates to `false`. The `contains` operator works on
-both strings (substring match) and arrays (element membership).
-
-```rust
-// Runs only when process_data succeeded AND quality score exceeds 80
-#[task(
-    id = "high_quality_processing",
-    dependencies = ["process_data"],
-    trigger_rules = all(
-        task_success("process_data"),
-        context_value("data_quality_score", greater_than, 80)
-    )
-)]
-pub async fn high_quality_processing(
-    context: &mut Context<serde_json::Value>,
-) -> Result<(), TaskError> {
-    info!("Processing high quality data");
-    // ...
-    Ok(())
-}
-```
+For the full syntax tables and operator details, see the
+[Macro Reference]({{< ref "/workflows/reference/macros" >}}).
 
 ## Combinators
 
@@ -228,15 +164,11 @@ This means that if a task in the middle of a chain is skipped, downstream tasks 
 be skipped unless they have trigger rules that explicitly handle the skip case (e.g., using
 `task_skipped("upstream")` or `any(...)` with alternative conditions).
 
-### Terminal State Summary
+### Terminal States and Context Availability
 
-| Dependency State | `task_success` | `task_failed` | `task_skipped` |
-|-----------------|----------------|---------------|----------------|
-| Completed | `true` | `false` | `false` |
-| Failed | `false` | `true` | `false` |
-| Skipped | `false` | `false` | `true` |
-
-### Context Availability
+Each terminal state (`Completed`, `Failed`, `Skipped`) maps to exactly one `true` condition
+among `task_success`, `task_failed`, and `task_skipped`. See the
+[Macro Reference]({{< ref "/workflows/reference/macros" >}}) for the full truth table.
 
 When a `context_value` condition is evaluated, the context is loaded from the task's
 dependencies:
@@ -293,282 +225,31 @@ pub async fn cached_data(context: &mut Context<serde_json::Value>) -> Result<(),
 }
 ```
 
-## Design Patterns
+## Common Patterns
 
-### Fallback Pattern
+The following patterns illustrate the key use cases for trigger rules. For implementation
+details and working code, see
+[Tutorial 04: Error Handling]({{< ref "/workflows/tutorials/library/04-error-handling" >}}).
 
-The most common trigger rule pattern: a primary task attempts an operation, and if it fails
-(after retries), a fallback task provides an alternative path forward.
+- **Fallback** -- Use `task_failed("primary")` to activate a backup task when the primary
+  path fails after retries. Both tasks write to the same context key so downstream consumers
+  are agnostic to which path ran.
 
-```rust
-// Primary: fetch from external API
-#[task(
-    id = "fetch_data",
-    dependencies = [],
-    retry_attempts = 3,
-    retry_delay_ms = 1000,
-    retry_backoff = "exponential",
-    on_failure = on_data_fetch_failure
-)]
-pub async fn fetch_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    info!("Attempting to fetch data from external source");
-    // ... network call that might fail
-    context.insert("raw_data", data)?;
-    Ok(())
-}
+- **Conditional branching** -- Use `context_value` conditions to route execution based on
+  runtime data (e.g., a quality score). Pair mutually exclusive `all(...)` rules on sibling
+  tasks to create distinct processing paths. Be deliberate about boundary values to ensure
+  exactly one branch fires.
 
-// Fallback: load from local cache when API is unavailable
-#[task(
-    id = "cached_data",
-    dependencies = ["fetch_data"],
-    trigger_rules = task_failed("fetch_data")
-)]
-pub async fn cached_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    info!("Using cached data as fallback");
-    let cached_data = load_from_cache().await?;
-    context.insert("raw_data", cached_data)?;
-    Ok(())
-}
-```
+- **Error notification** -- Use `all(task_failed("A"), task_failed("B"))` to fire an alerting
+  task only when every recovery path has been exhausted, signaling a critical system issue.
 
-Downstream tasks that depend on both `fetch_data` and `cached_data` will receive the `raw_data`
-context key regardless of which path was taken, because both tasks write to the same key.
+- **Branch convergence** -- Use `any(task_success("branch_a"), task_success("branch_b"))` to
+  converge multiple conditional branches into a single downstream task that runs as long as
+  at least one path succeeded.
 
-### Conditional Branching
-
-Use context values to route execution down different paths based on runtime data:
-
-```rust
-// Processing step writes a quality score to context
-#[task(
-    id = "process_data",
-    dependencies = ["fetch_data", "cached_data"]
-)]
-pub async fn process_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    // Calculate quality score and write to context
-    context.insert("data_quality_score", json!(avg_quality))?;
-    Ok(())
-}
-
-// High-quality path: expensive processing for good data
-#[task(
-    id = "high_quality_processing",
-    dependencies = ["process_data"],
-    trigger_rules = all(
-        task_success("process_data"),
-        context_value("data_quality_score", greater_than, 80)
-    )
-)]
-pub async fn high_quality_processing(
-    context: &mut Context<serde_json::Value>,
-) -> Result<(), TaskError> {
-    info!("Processing high quality data");
-    // Advanced validation, premium processing...
-    Ok(())
-}
-
-// Low-quality path: basic processing for poor data
-#[task(
-    id = "low_quality_processing",
-    dependencies = ["process_data"],
-    trigger_rules = all(
-        task_success("process_data"),
-        context_value("data_quality_score", less_than, 81)
-    )
-)]
-pub async fn low_quality_processing(
-    context: &mut Context<serde_json::Value>,
-) -> Result<(), TaskError> {
-    info!("Processing low quality data");
-    // Basic validation only...
-    Ok(())
-}
-```
-
-Note the overlapping boundary (>80 vs <81): this ensures exactly one branch is taken for
-any integer quality score. For floating-point scores, you may need to handle the boundary
-case explicitly.
-
-### Error Notification
-
-A notification task that fires only when critical operations fail, useful for alerting:
-
-```rust
-#[task(
-    id = "failure_notification",
-    dependencies = ["fetch_data", "cached_data"],
-    trigger_rules = all(
-        task_failed("fetch_data"),
-        task_failed("cached_data")
-    )
-)]
-pub async fn failure_notification(
-    context: &mut Context<serde_json::Value>,
-) -> Result<(), TaskError> {
-    error!("Critical failure: Both fetch and cache operations failed");
-    context.insert("failure_notification", json!({
-        "status": "critical_failure",
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "message": "Both data sources failed",
-        "alert_level": "high"
-    }))?;
-    Ok(())
-}
-```
-
-This task only runs when **both** the primary fetch and the cache fallback have failed, indicating
-a critical system issue that requires operator attention.
-
-### Convergent Final Report
-
-Use `any(...)` to converge multiple conditional branches into a single final task:
-
-```rust
-#[task(
-    id = "final_report",
-    dependencies = ["high_quality_processing", "low_quality_processing"],
-    trigger_rules = any(
-        task_success("high_quality_processing"),
-        task_success("low_quality_processing")
-    ),
-    on_success = on_task_success
-)]
-pub async fn final_report(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    info!("Generating final execution report");
-    // This runs regardless of which quality path was taken,
-    // as long as one of them succeeded.
-    Ok(())
-}
-```
-
-### Always-Run Cleanup
-
-For tasks that must run regardless of upstream outcomes (logging, resource release, temporary
-file cleanup), use dependencies to ensure ordering but rely on the implicit evaluation
-behavior:
-
-```rust
-#[task(
-    id = "cleanup",
-    dependencies = ["processing"],
-    trigger_rules = any(
-        task_success("processing"),
-        task_failed("processing"),
-        task_skipped("processing")
-    )
-)]
-pub async fn cleanup(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    // Runs no matter what happened to "processing"
-    release_resources().await?;
-    Ok(())
-}
-```
-
-By listing all three terminal states in an `any(...)`, the cleanup task runs regardless of
-the outcome. This is effectively equivalent to `always` but scoped to a specific dependency
-relationship.
-
-## Complete Example: Resilient Pipeline
-
-The following is the full workflow from [Tutorial 04: Error Handling](/tutorials/workflows/library/04-error-handling/), demonstrating how trigger rules compose to create a resilient
-data pipeline with fallbacks, conditional branching, and error notification:
-
-```rust
-#[workflow(
-    name = "resilient_pipeline",
-    description = "Pipeline demonstrating error handling patterns"
-)]
-pub mod resilient_pipeline {
-    // Task 1: Fetch from external source with retries
-    #[task(
-        id = "fetch_data",
-        dependencies = [],
-        retry_attempts = 3,
-        retry_delay_ms = 1000,
-        retry_backoff = "exponential",
-        on_failure = on_data_fetch_failure
-    )]
-    pub async fn fetch_data(ctx: &mut Context<Value>) -> Result<(), TaskError> { /* ... */ }
-
-    // Task 2: Fallback to cache (only when fetch fails)
-    #[task(
-        id = "cached_data",
-        dependencies = ["fetch_data"],
-        trigger_rules = task_failed("fetch_data")
-    )]
-    pub async fn cached_data(ctx: &mut Context<Value>) -> Result<(), TaskError> { /* ... */ }
-
-    // Task 3: Process whatever data we got
-    #[task(
-        id = "process_data",
-        dependencies = ["fetch_data", "cached_data"],
-        on_success = on_task_success,
-        on_failure = on_task_failure
-    )]
-    pub async fn process_data(ctx: &mut Context<Value>) -> Result<(), TaskError> { /* ... */ }
-
-    // Task 4: High-quality path (quality > 80)
-    #[task(
-        id = "high_quality_processing",
-        dependencies = ["process_data"],
-        trigger_rules = all(
-            task_success("process_data"),
-            context_value("data_quality_score", greater_than, 80)
-        )
-    )]
-    pub async fn high_quality_processing(ctx: &mut Context<Value>) -> Result<(), TaskError> { /* ... */ }
-
-    // Task 5: Low-quality path (quality < 81)
-    #[task(
-        id = "low_quality_processing",
-        dependencies = ["process_data"],
-        trigger_rules = all(
-            task_success("process_data"),
-            context_value("data_quality_score", less_than, 81)
-        )
-    )]
-    pub async fn low_quality_processing(ctx: &mut Context<Value>) -> Result<(), TaskError> { /* ... */ }
-
-    // Task 6: Alert on total failure
-    #[task(
-        id = "failure_notification",
-        dependencies = ["fetch_data", "cached_data"],
-        trigger_rules = all(
-            task_failed("fetch_data"),
-            task_failed("cached_data")
-        )
-    )]
-    pub async fn failure_notification(ctx: &mut Context<Value>) -> Result<(), TaskError> { /* ... */ }
-
-    // Task 7: Final report (converges branches)
-    #[task(
-        id = "final_report",
-        dependencies = ["high_quality_processing", "low_quality_processing"],
-        trigger_rules = any(
-            task_success("high_quality_processing"),
-            task_success("low_quality_processing")
-        ),
-        on_success = on_task_success
-    )]
-    pub async fn final_report(ctx: &mut Context<Value>) -> Result<(), TaskError> { /* ... */ }
-}
-```
-
-The execution flow looks like:
-
-```
-fetch_data (retries 3x)
-    |
-    +-- [success] --> process_data --> [quality > 80] --> high_quality_processing --> final_report
-    |                      |
-    |                      +---------> [quality < 81] --> low_quality_processing  --> final_report
-    |
-    +-- [failure] --> cached_data
-    |                    |
-    |                    +-- [success] --> process_data --> ...
-    |                    |
-    |                    +-- [failure] --> failure_notification
-```
+- **Always-run cleanup** -- Use `any(task_success("X"), task_failed("X"), task_skipped("X"))`
+  to ensure a task runs regardless of the upstream outcome. This is useful for resource
+  release, logging, or temporary file cleanup.
 
 ## Operational Considerations
 
@@ -626,10 +307,10 @@ Trigger rule evaluation: All(2 conditions) (task: high_quality_processing)
 Trigger rule result: All -> true (all conditions passed)
 ```
 
-## API Reference
+## Further Reading
 
-{{< api-link path="cloacina::execution_planner::TriggerRule" type="enum" display="TriggerRule" >}}
-
-{{< api-link path="cloacina::execution_planner::TriggerCondition" type="enum" display="TriggerCondition" >}}
-
-{{< api-link path="cloacina::execution_planner::ValueOperator" type="enum" display="ValueOperator" >}}
+- [Tutorial 04: Error Handling]({{< ref "/workflows/tutorials/library/04-error-handling" >}}) -- step-by-step walkthrough building a resilient pipeline with fallbacks, conditional branching, and error notification
+- [Macro Reference]({{< ref "/workflows/reference/macros" >}}) -- full syntax tables for `trigger_rules`, condition types, operators, and combinators
+- {{< api-link path="cloacina::execution_planner::TriggerRule" type="enum" display="TriggerRule" >}} -- Rust API docs
+- {{< api-link path="cloacina::execution_planner::TriggerCondition" type="enum" display="TriggerCondition" >}}
+- {{< api-link path="cloacina::execution_planner::ValueOperator" type="enum" display="ValueOperator" >}}

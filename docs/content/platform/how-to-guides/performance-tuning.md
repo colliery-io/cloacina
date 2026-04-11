@@ -336,7 +336,7 @@ let config = DefaultRunnerConfig::builder()
 
 ## 7. Computation Graph Performance
 
-Computation graphs run as long-lived reactive pipelines separate from the workflow scheduler. Their performance characteristics differ from request-response workflows.
+Computation graphs run as long-lived reactive pipelines separate from the workflow scheduler. Their performance characteristics differ from request-response workflows. Workflows are batch-oriented with database-backed state; computation graphs are streaming with in-memory state. Workflow tuning focuses on database throughput; CG tuning focuses on channel capacity and reactor latency.
 
 ### Boundary channel capacity
 
@@ -551,6 +551,8 @@ work_mem = 64MB                    # per-operation sort/hash memory
 ```
 
 ### Connection pooling with PgBouncer
+
+PgBouncer is a lightweight PostgreSQL connection pooler that sits between your application and PostgreSQL, multiplexing many client connections over fewer server connections.
 
 For deployments with multiple runner instances, place PgBouncer between runners and PostgreSQL:
 

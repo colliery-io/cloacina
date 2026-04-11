@@ -163,197 +163,40 @@ The protocol is:
 
 If the user function drops the handle (unlikely but possible), `with_task_handle` returns `None` and the executor handles cleanup gracefully -- the semaphore permit was already freed when the handle was dropped.
 
-## Complete Example
+## Deferral in Practice
 
-The following is the full deferred-tasks example from the repository. It demonstrates a two-task pipeline where the first task defers until simulated external data arrives, then the second task processes that data.
+A typical deferred pipeline has two phases: a task calls `defer_until` with a condition closure
+and a poll interval, releasing its slot while the condition is periodically checked. Once the
+condition returns `true`, the slot is reclaimed and the task continues execution with all
+local state intact. Downstream tasks see no difference -- they simply receive context written
+by the deferred task as usual.
 
-```rust
-use cloacina::executor::WorkflowExecutor;
-use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError, TaskHandle};
-use serde_json::json;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use tracing::info;
+The condition closure has the signature `Fn() -> impl Future<Output = bool>` and is called
+repeatedly at the poll interval until it returns `true`.
 
-#[workflow(
-    name = "deferred_pipeline",
-    description = "Pipeline demonstrating deferred task execution"
-)]
-pub mod deferred_pipeline {
-    use super::*;
+For a complete working example, see
+[Tutorial 10: Task Deferral]({{< ref "/workflows/tutorials/service/10-task-deferral" >}}).
 
-    /// Waits for external data by deferring until a condition is met.
-    #[task(id = "wait_for_data", dependencies = [])]
-    pub async fn wait_for_data(
-        context: &mut Context<serde_json::Value>,
-        handle: &mut TaskHandle,
-    ) -> Result<(), TaskError> {
-        info!("wait_for_data: Starting — will defer until data is ready");
+## When to Use Deferral
 
-        // Simulate an external readiness check.
-        // In production this would call an API, check a file, etc.
-        let poll_count = Arc::new(AtomicUsize::new(0));
-        let pc = poll_count.clone();
+The following scenarios are the primary use cases for `defer_until`. Each represents a
+situation where holding a concurrency slot during a long wait would waste executor capacity.
 
-        handle
-            .defer_until(
-                move || {
-                    let pc = pc.clone();
-                    async move {
-                        let n = pc.fetch_add(1, Ordering::SeqCst);
-                        info!("wait_for_data: polling external source (attempt {})", n + 1);
-                        // Simulate: data becomes ready after 3 polls
-                        n >= 2
-                    }
-                },
-                Duration::from_millis(500),
-            )
-            .await
-            .map_err(|e| TaskError::ExecutionFailed {
-                message: format!("defer_until failed: {e}"),
-                task_id: "wait_for_data".into(),
-                timestamp: chrono::Utc::now(),
-            })?;
+- **External API polling** -- A task submits a job to an external service and must wait for
+  it to complete. Deferral frees the slot while periodically checking the job status endpoint,
+  typically on a 10-30 second interval.
 
-        info!(
-            "wait_for_data: Data is ready after {} polls — slot reclaimed",
-            poll_count.load(Ordering::SeqCst)
-        );
+- **File watching** -- A task waits for another system to produce an output file (e.g., an
+  ETL upload or a rendered report). A short poll interval (1-5 seconds) balances
+  responsiveness against filesystem overhead.
 
-        // Write the "received" data into context for downstream tasks
-        context.insert("external_data", json!({"status": "ready", "records": 42}))?;
-        Ok(())
-    }
+- **Human-in-the-loop** -- A task pauses until a human performs an action such as clicking
+  an approval button or updating a database flag. Poll intervals of 10-30 seconds are typical
+  since human response times are measured in minutes.
 
-    /// Processes data that was fetched by the deferred task.
-    #[task(id = "process_data", dependencies = ["wait_for_data"])]
-    pub async fn process_data(
-        context: &mut Context<serde_json::Value>,
-    ) -> Result<(), TaskError> {
-        let data = context
-            .get("external_data")
-            .ok_or_else(|| TaskError::ExecutionFailed {
-                message: "external_data not found in context".into(),
-                task_id: "process_data".into(),
-                timestamp: chrono::Utc::now(),
-            })?
-            .clone();
-
-        info!("process_data: Processing external data: {}", data);
-
-        let records = data.get("records").and_then(|v| v.as_u64()).unwrap_or(0);
-        context.insert("processed_count", json!(records))?;
-        context.insert("processing_complete", json!(true))?;
-
-        info!("process_data: Processed {} records", records);
-        Ok(())
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("deferred_tasks=info,cloacina=info")
-        .init();
-
-    let runner =
-        DefaultRunner::with_config("sqlite://deferred-tasks.db", DefaultRunnerConfig::default())
-            .await?;
-
-    let result = runner.execute("deferred_pipeline", Context::new()).await?;
-
-    println!("Status: {:?}", result.status);
-    println!("Processed: {} records",
-        result.final_context.get("processed_count").unwrap());
-
-    runner.shutdown().await?;
-    Ok(())
-}
-```
-
-The condition closure is `Fn() -> impl Future<Output = bool>` -- callable multiple times until it returns `true`. After `defer_until` returns, the task continues with its slot re-held. `process_data` is a standard task with no handle.
-
-## Design Patterns
-
-### External API Polling
-
-Defer until an external service signals readiness:
-
-```rust
-handle.defer_until(
-    || async {
-        let resp = reqwest::get("https://api.example.com/job/123/status")
-            .await
-            .ok();
-        resp.map(|r| r.status().is_success()).unwrap_or(false)
-    },
-    Duration::from_secs(30),
-).await?;
-```
-
-### File Watching
-
-Defer until an expected file appears on disk:
-
-```rust
-handle.defer_until(
-    || async { std::path::Path::new("/data/input.csv").exists() },
-    Duration::from_secs(5),
-).await?;
-```
-
-### Human-in-the-Loop
-
-Defer until a human sets an approval flag in the database:
-
-```rust
-let db = db_pool.clone();
-let job_id = job_id.clone();
-
-handle.defer_until(
-    move || {
-        let db = db.clone();
-        let job_id = job_id.clone();
-        async move {
-            sqlx::query_scalar::<_, bool>(
-                "SELECT approved FROM approvals WHERE job_id = $1"
-            )
-            .bind(&job_id)
-            .fetch_optional(&*db)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or(false)
-        }
-    },
-    Duration::from_secs(10),
-).await?;
-```
-
-### Rate Limiting / Backoff
-
-Defer for a fixed duration before retrying. Unlike `tokio::time::sleep`, this releases the slot during the wait:
-
-```rust
-let ready = Arc::new(AtomicBool::new(false));
-let ready_clone = ready.clone();
-
-// Signal readiness after the backoff period
-tokio::spawn(async move {
-    tokio::time::sleep(Duration::from_secs(60)).await;
-    ready_clone.store(true, Ordering::SeqCst);
-});
-
-handle.defer_until(
-    move || {
-        let ready = ready.clone();
-        async move { ready.load(Ordering::SeqCst) }
-    },
-    Duration::from_secs(5),
-).await?;
-```
+- **Rate limiting / backoff** -- A task needs to wait before retrying a rate-limited operation.
+  Unlike `tokio::time::sleep`, deferral releases the slot so other tasks can use it during
+  the backoff window.
 
 ## Comparison with Alternatives
 
