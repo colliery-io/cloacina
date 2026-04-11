@@ -274,7 +274,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // Build the package using the library function directly
     let workspace_root = find_workspace_root()?;
-    let project_path = workspace_root.join("examples/features/simple-packaged");
+    let project_path = workspace_root.join("examples/features/workflows/simple-packaged");
 
     let temp_dir = TempDir::new()?;
     let output_path = temp_dir.path().join("package.cloacina");

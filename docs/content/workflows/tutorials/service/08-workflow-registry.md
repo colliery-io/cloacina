@@ -219,7 +219,7 @@ You should see output similar to this:
 🚀 Cloacina Registry Execution Demo
 
 📦 Building workflow package...
-Packaging workflow project: "/path/to/cloacina/examples/features/simple-packaged"
+Packaging workflow project: "/path/to/cloacina/examples/features/workflows/simple-packaged"
 ✅ Package built: 1065567 bytes
 
 📋 Setting up shared storage and database...
