@@ -57,7 +57,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina = { version = "0.4.0", features = ["macros", "sqlite"] }
+cloacina = { version = "0.5.0", features = ["macros", "sqlite"] }
 async-trait = "0.1"
 serde_json = "1.0"
 ctor = "0.2"
@@ -79,19 +79,19 @@ packaged = []
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina-macros = "0.4.0"
-cloacina-workflow = { version = "0.4.0", features = ["packaged"] }
-cloacina-workflow-plugin = "0.4.0"
+cloacina-macros = "0.5.0"
+cloacina-workflow = { version = "0.5.0", features = ["packaged"] }
+cloacina-workflow-plugin = "0.5.0"
 async-trait = "0.1"
 serde_json = "1.0"
 ctor = "0.2"
 
 [build-dependencies]
-cloacina-build = "0.4.0"
+cloacina-build = "0.5.0"
 
 # Optional: keep cloacina for local testing
 [dev-dependencies]
-cloacina = { version = "0.4.0", default-features = false, features = ["macros", "sqlite"] }
+cloacina = { version = "0.5.0", default-features = false, features = ["macros", "sqlite"] }
 ```
 
 Key changes:

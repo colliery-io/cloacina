@@ -35,7 +35,7 @@ serde_json.workspace = true
 cloacina-macros = { workspace = true, optional = true }
 cloacina-workflow = { workspace = true }
 cloacina-computation-graph = { path = "../cloacina-computation-graph" }
-cloacina-workflow-plugin = { version = "0.4.0", path = "../cloacina-workflow-plugin" }
+cloacina-workflow-plugin = { version = "0.5.0", path = "../cloacina-workflow-plugin" }
 
 # External dependencies
 chrono = { version = "0.4", features = ["serde"] }
@@ -85,7 +85,7 @@ pyo3 = { version = "0.25", features = ["abi3-py39"] }
 pythonize = { version = "0.25" }
 
 [build-dependencies]
-cloacina-build = { version = "0.4.0", path = "../cloacina-build" }
+cloacina-build = { version = "0.5.0", path = "../cloacina-build" }
 
 [dev-dependencies]
 # ctor is needed for tests that use the workflow macro (generates #[ctor::ctor] for auto-registration)
