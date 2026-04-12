@@ -7,7 +7,7 @@ created_at: 2026-04-03T13:19:23.316966+00:00
 updated_at: 2026-04-03T17:48:15.718404+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -25,6 +25,8 @@ initiative_id: CLOACI-I-0068
 
 ## Objective
 Add integration tests for schedule and schedule_execution DAL CRUD operations, and the cron_api runner methods. Currently schedule/crud.rs is at 21% and schedule_execution/crud.rs at 24%.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

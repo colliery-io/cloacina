@@ -7,7 +7,7 @@ created_at: 2026-04-10T12:45:34.098057+00:00
 updated_at: 2026-04-10T13:06:01.631790+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -34,6 +34,8 @@ The embedded `cloaca` Python module (registered in `loader.rs` for server-side u
 **Fix:** Added `passthrough_accumulator`, `stream_accumulator`, `polling_accumulator`, `batch_accumulator`, `node`, `ComputationGraphBuilder`, `var`, `var_or` to the module.
 
 **Existing test coverage:** `test_ensure_cloaca_module_registers_in_sys_modules` — already updated with assertions for all new exports.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

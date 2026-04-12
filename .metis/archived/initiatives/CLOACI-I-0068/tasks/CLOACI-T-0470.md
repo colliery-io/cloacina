@@ -7,7 +7,7 @@ created_at: 2026-04-10T12:45:35.437647+00:00
 updated_at: 2026-04-10T13:06:55.943142+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -34,6 +34,8 @@ The `build_router` function in `serve.rs` uses `axum::serve(listener, app)` whic
 **Fix:** Added `into_make_service_with_connect_info`. Rate limiter removed entirely (infrastructure concern, not app concern).
 
 **Note:** The existing `angreal cloacina server-soak` test covers this path, but there's no fast unit/integration test. This task adds one to `serve.rs` tests.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -7,7 +7,7 @@ created_at: 2026-04-09T16:59:32.426583+00:00
 updated_at: 2026-04-09T17:41:16.021525+00:00
 parent: CLOACI-I-0091
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -31,6 +31,8 @@ initiative_id: CLOACI-I-0091
 The payoff: update integration tests to create per-test `Runtime` instances with isolated registries, then remove `#[serial]` annotations. This enables parallel test execution and faster CI.
 
 **Effort**: 2-3 days
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -7,7 +7,7 @@ created_at: 2026-04-10T12:45:37.327796+00:00
 updated_at: 2026-04-10T13:09:18.677050+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -32,6 +32,8 @@ When `Runtime::from_global()` was a snapshot, tasks/workflows registered in the 
 
 **Bug:** `Runtime::from_global()` snapshotted global registries once at startup. Later registrations (by reconciler) were invisible.
 **Fix:** `from_global()` now sets `use_globals = true` — `get_task()`/`get_workflow()`/`get_trigger()` check local maps first, then fall back to global registries live. `Runtime::new()` remains isolated (no fallback) for test use.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

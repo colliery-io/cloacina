@@ -7,7 +7,7 @@ created_at: 2026-04-10T12:45:38.365194+00:00
 updated_at: 2026-04-10T13:12:03.464416+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -32,6 +32,8 @@ initiative_id: CLOACI-I-0068
 
 **Bug:** `with_global_registry()` called every constructor in the global task registry. The `task_registry` field it populated was never used (executor uses `self.runtime.get_task()` since the Runtime wiring). The call was both unnecessary and dangerous.
 **Fix:** Both `build()` paths now create the executor with `ThreadTaskExecutor::with_runtime_and_registry(db, empty_registry, runtime, config)` — no global iteration. `ThreadTaskExecutor::new()` defaults to `Runtime::new()` instead of `Runtime::from_global()`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

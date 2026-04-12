@@ -7,7 +7,7 @@ created_at: 2026-04-03T13:09:22.676306+00:00
 updated_at: 2026-04-03T17:33:28.373+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -25,6 +25,8 @@ initiative_id: CLOACI-I-0068
 
 ## Objective
 Add tests for the security module. db_key_manager.rs is at 5% (748 missed lines) — the entire key trust chain is untested. package_signer.rs is at 41%, verification.rs at 68%.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

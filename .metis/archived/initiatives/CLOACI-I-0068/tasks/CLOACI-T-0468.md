@@ -4,14 +4,14 @@ level: task
 title: "Integration test: Python CG package reconciler routing (workflow vs CG path)"
 short_code: "CLOACI-T-0468"
 created_at: 2026-04-10T12:45:32.135745+00:00
-updated_at: 2026-04-10T12:45:32.135745+00:00
+updated_at: 2026-04-11T01:45:23.733745+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -32,6 +32,12 @@ Reconciler must route Python CG packages through the CG loading path, not the wo
 
 **Bug:** `loading.rs` sent all Python packages through `import_and_register_python_workflow` before CG routing. Python CG packages failed before reaching step 7.
 **Fix:** Guard with `!has_computation_graph()`. Python CG packages now skip to CG route → `import_python_computation_graph` → `build_python_graph_declaration` → `load_graph`.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

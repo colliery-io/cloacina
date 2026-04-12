@@ -7,7 +7,7 @@ created_at: 2026-04-03T13:19:21.975943+00:00
 updated_at: 2026-04-03T16:52:25.400322+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -25,6 +25,8 @@ initiative_id: CLOACI-I-0068
 
 ## Objective
 Add PyO3 runtime tests for the Python binding layer. Currently 0% coverage on bindings/runner.rs (1,626 lines), bindings/context.rs (242), bindings/admin.rs (106), bindings/retry.rs (161), python/workflow.rs (219), python/context.rs (141), python/namespace.rs (70).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

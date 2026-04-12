@@ -7,7 +7,7 @@ created_at: 2026-04-03T13:09:25.400850+00:00
 updated_at: 2026-04-03T13:09:25.400850+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -25,6 +25,8 @@ initiative_id: CLOACI-I-0068
 
 ## Objective
 Add tests for the reconciler loading pipeline and extraction module. loading.rs is at 18% (337 missed) and extraction.rs is at 0% (148 missed). These handle detecting, extracting, compiling, and registering workflow packages.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 - [ ] extraction.rs: test extract_source_package, detect_language, validate_manifest

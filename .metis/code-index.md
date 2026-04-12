@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-10T19:52:20Z | 425 files | JavaScript, Python, Rust
+> Generated: 2026-04-12T20:57:38Z | 425 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1594,14 +1594,14 @@
 - pub `get_active_executions` function L236-244 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
 - pub `update_status` function L292-302 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
 - pub `mark_completed` function L366-372 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Marks a pipeline execution as completed.
-- pub `get_last_version` function L468-477 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
-- pub `mark_failed` function L539-549 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a pipeline execution as failed with an error reason.
-- pub `increment_recovery_attempts` function L659-668 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
-- pub `cancel` function L728-734 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
-- pub `pause` function L743-753 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — Pauses a running pipeline execution.
-- pub `resume` function L869-875 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Resumes a paused pipeline execution.
-- pub `update_final_context` function L1023-1034 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
-- pub `list_recent` function L1092-1101 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+- pub `get_last_version` function L482-491 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+- pub `mark_failed` function L553-563 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a pipeline execution as failed with an error reason.
+- pub `increment_recovery_attempts` function L687-696 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+- pub `cancel` function L756-762 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+- pub `pause` function L771-781 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — Pauses a running pipeline execution.
+- pub `resume` function L897-903 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Resumes a paused pipeline execution.
+- pub `update_final_context` function L1051-1062 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+- pub `list_recent` function L1120-1129 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
 -  `create_postgres` function L60-120 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
 -  `create_sqlite` function L123-183 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
 -  `get_by_id_postgres` function L197-214 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
@@ -1610,24 +1610,24 @@
 -  `get_active_executions_sqlite` function L270-290 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
 -  `update_status_postgres` function L305-331 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
 -  `update_status_sqlite` function L334-360 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_completed_postgres` function L375-419 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `mark_completed_sqlite` function L422-466 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `get_last_version_postgres` function L480-505 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
--  `get_last_version_sqlite` function L508-533 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
--  `mark_failed_postgres` function L552-603 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_failed_sqlite` function L606-657 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `increment_recovery_attempts_postgres` function L671-697 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `increment_recovery_attempts_sqlite` function L700-726 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `pause_postgres` function L756-807 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
--  `pause_sqlite` function L810-861 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
--  `resume_postgres` function L878-923 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `resume_sqlite` function L926-971 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `cancel_postgres` function L974-996 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `cancel_sqlite` function L999-1021 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `update_final_context_postgres` function L1037-1062 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
--  `update_final_context_sqlite` function L1065-1090 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
--  `list_recent_postgres` function L1104-1126 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
--  `list_recent_sqlite` function L1129-1151 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `mark_completed_postgres` function L375-426 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_completed_sqlite` function L429-480 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `get_last_version_postgres` function L494-519 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+-  `get_last_version_sqlite` function L522-547 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+-  `mark_failed_postgres` function L566-624 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_failed_sqlite` function L627-685 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `increment_recovery_attempts_postgres` function L699-725 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `increment_recovery_attempts_sqlite` function L728-754 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `pause_postgres` function L784-835 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
+-  `pause_sqlite` function L838-889 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
+-  `resume_postgres` function L906-951 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `resume_sqlite` function L954-999 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `cancel_postgres` function L1002-1024 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `cancel_sqlite` function L1027-1049 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `update_final_context_postgres` function L1065-1090 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+-  `update_final_context_sqlite` function L1093-1118 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+-  `list_recent_postgres` function L1132-1154 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `list_recent_sqlite` function L1157-1179 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
 
 #### crates/cloacina/src/dal/unified/recovery_event.rs
 
@@ -2308,38 +2308,38 @@
 - pub `with_defaults` function L72-74 — `(dal: DAL) -> Self` — Creates a dispatcher with default routing (all tasks go to "default" executor).
 - pub `router` function L77-79 — `(&self) -> &Router` — Gets a reference to the router for inspection.
 - pub `dal` function L82-84 — `(&self) -> &DAL` — Gets a reference to the DAL.
--  `DefaultDispatcher` type L61-139 — `= DefaultDispatcher` — configurable glob patterns.
--  `handle_result` function L87-138 — `( &self, event: &TaskReadyEvent, result: super::types::ExecutionResult, ) -> Res...` — Handles the execution result by updating database state.
--  `DefaultDispatcher` type L142-191 — `impl Dispatcher for DefaultDispatcher` — configurable glob patterns.
--  `dispatch` function L143-171 — `(&self, event: TaskReadyEvent) -> Result<(), DispatchError>` — configurable glob patterns.
--  `register_executor` function L173-181 — `(&self, key: &str, executor: Arc<dyn TaskExecutor>)` — configurable glob patterns.
--  `has_capacity` function L183-186 — `(&self) -> bool` — configurable glob patterns.
--  `resolve_executor_key` function L188-190 — `(&self, task_name: &str) -> String` — configurable glob patterns.
--  `tests` module L194-391 — `-` — configurable glob patterns.
--  `MockExecutor` struct L202-206 — `{ name: String, has_capacity: AtomicBool, execute_count: AtomicUsize }` — Mock executor for testing
--  `MockExecutor` type L208-221 — `= MockExecutor` — configurable glob patterns.
--  `new` function L209-215 — `(name: &str) -> Self` — configurable glob patterns.
--  `execution_count` function L218-220 — `(&self) -> usize` — configurable glob patterns.
--  `MockExecutor` type L224-250 — `impl TaskExecutor for MockExecutor` — configurable glob patterns.
--  `execute` function L225-231 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — configurable glob patterns.
--  `has_capacity` function L233-235 — `(&self) -> bool` — configurable glob patterns.
--  `metrics` function L237-245 — `(&self) -> ExecutorMetrics` — configurable glob patterns.
--  `name` function L247-249 — `(&self) -> &str` — configurable glob patterns.
--  `create_test_event` function L253-260 — `(task_name: &str) -> TaskReadyEvent` — configurable glob patterns.
--  `test_register_executor` function L263-269 — `()` — configurable glob patterns.
--  `test_resolve_executor_key` function L272-280 — `()` — configurable glob patterns.
--  `test_routing_config_default` function L283-287 — `()` — configurable glob patterns.
--  `test_routing_config_with_multiple_rules` function L290-299 — `()` — configurable glob patterns.
--  `test_mock_executor_has_capacity` function L302-308 — `()` — configurable glob patterns.
--  `test_mock_executor_metrics` function L311-316 — `()` — configurable glob patterns.
--  `test_mock_executor_name` function L319-322 — `()` — configurable glob patterns.
--  `test_mock_executor_execute_increments_count` function L325-336 — `()` — configurable glob patterns.
--  `test_task_ready_event_creation` function L339-343 — `()` — configurable glob patterns.
--  `test_execution_result_success` function L346-352 — `()` — configurable glob patterns.
--  `test_execution_result_failure` function L355-360 — `()` — configurable glob patterns.
--  `test_execution_result_retry` function L363-368 — `()` — configurable glob patterns.
--  `test_executor_metrics_available_capacity` function L371-380 — `()` — configurable glob patterns.
--  `test_executor_metrics_at_capacity` function L383-390 — `()` — configurable glob patterns.
+-  `DefaultDispatcher` type L61-133 — `= DefaultDispatcher` — configurable glob patterns.
+-  `handle_result` function L89-132 — `( &self, event: &TaskReadyEvent, result: super::types::ExecutionResult, ) -> Res...` — Logs the execution result.
+-  `DefaultDispatcher` type L136-185 — `impl Dispatcher for DefaultDispatcher` — configurable glob patterns.
+-  `dispatch` function L137-165 — `(&self, event: TaskReadyEvent) -> Result<(), DispatchError>` — configurable glob patterns.
+-  `register_executor` function L167-175 — `(&self, key: &str, executor: Arc<dyn TaskExecutor>)` — configurable glob patterns.
+-  `has_capacity` function L177-180 — `(&self) -> bool` — configurable glob patterns.
+-  `resolve_executor_key` function L182-184 — `(&self, task_name: &str) -> String` — configurable glob patterns.
+-  `tests` module L188-385 — `-` — configurable glob patterns.
+-  `MockExecutor` struct L196-200 — `{ name: String, has_capacity: AtomicBool, execute_count: AtomicUsize }` — Mock executor for testing
+-  `MockExecutor` type L202-215 — `= MockExecutor` — configurable glob patterns.
+-  `new` function L203-209 — `(name: &str) -> Self` — configurable glob patterns.
+-  `execution_count` function L212-214 — `(&self) -> usize` — configurable glob patterns.
+-  `MockExecutor` type L218-244 — `impl TaskExecutor for MockExecutor` — configurable glob patterns.
+-  `execute` function L219-225 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — configurable glob patterns.
+-  `has_capacity` function L227-229 — `(&self) -> bool` — configurable glob patterns.
+-  `metrics` function L231-239 — `(&self) -> ExecutorMetrics` — configurable glob patterns.
+-  `name` function L241-243 — `(&self) -> &str` — configurable glob patterns.
+-  `create_test_event` function L247-254 — `(task_name: &str) -> TaskReadyEvent` — configurable glob patterns.
+-  `test_register_executor` function L257-263 — `()` — configurable glob patterns.
+-  `test_resolve_executor_key` function L266-274 — `()` — configurable glob patterns.
+-  `test_routing_config_default` function L277-281 — `()` — configurable glob patterns.
+-  `test_routing_config_with_multiple_rules` function L284-293 — `()` — configurable glob patterns.
+-  `test_mock_executor_has_capacity` function L296-302 — `()` — configurable glob patterns.
+-  `test_mock_executor_metrics` function L305-310 — `()` — configurable glob patterns.
+-  `test_mock_executor_name` function L313-316 — `()` — configurable glob patterns.
+-  `test_mock_executor_execute_increments_count` function L319-330 — `()` — configurable glob patterns.
+-  `test_task_ready_event_creation` function L333-337 — `()` — configurable glob patterns.
+-  `test_execution_result_success` function L340-346 — `()` — configurable glob patterns.
+-  `test_execution_result_failure` function L349-354 — `()` — configurable glob patterns.
+-  `test_execution_result_retry` function L357-362 — `()` — configurable glob patterns.
+-  `test_executor_metrics_available_capacity` function L365-374 — `()` — configurable glob patterns.
+-  `test_executor_metrics_at_capacity` function L377-384 — `()` — configurable glob patterns.
 
 #### crates/cloacina/src/dispatcher/mod.rs
 
@@ -2521,8 +2521,8 @@
 -  `CIRCUIT_OPEN_THRESHOLD` variable L44 — `: u32` — Number of consecutive errors before logging a circuit-open warning.
 -  `process_pipelines_batch` function L210-261 — `( &self, active_executions: Vec<WorkflowExecutionRecord>, ) -> Result<(), Valida...` — Processes multiple pipelines in batch for better performance.
 -  `dispatch_ready_tasks` function L268-296 — `(&self) -> Result<(), ValidationError>` — Dispatches all Ready tasks to the executor.
--  `complete_pipeline` function L299-352 — `( &self, execution: &WorkflowExecutionRecord, ) -> Result<(), ValidationError>` — Completes a pipeline by updating its final context and marking it as completed.
--  `update_pipeline_final_context` function L359-416 — `( &self, pipeline_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the pipeline's final context when it completes.
+-  `complete_pipeline` function L303-372 — `( &self, execution: &WorkflowExecutionRecord, ) -> Result<(), ValidationError>` — Completes a pipeline by updating its final context and marking it as completed.
+-  `update_pipeline_final_context` function L379-436 — `( &self, pipeline_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the pipeline's final context when it completes.
 
 #### crates/cloacina/src/execution_planner/stale_claim_sweeper.rs
 
@@ -2679,40 +2679,40 @@
 -  `schedule_task_retry` function L670-697 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
 -  `ThreadTaskExecutor` type L700-715 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
 -  `clone` function L701-714 — `(&self) -> Self` — to the executor based on routing rules.
--  `ThreadTaskExecutor` type L722-1004 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
--  `execute` function L723-983 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
--  `has_capacity` function L985-987 — `(&self) -> bool` — to the executor based on routing rules.
--  `metrics` function L989-999 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
--  `name` function L1001-1003 — `(&self) -> &str` — to the executor based on routing rules.
--  `tests` module L1007-1291 — `-` — to the executor based on routing rules.
--  `test_merge_primitives_latest_wins` function L1016-1021 — `()` — to the executor based on routing rules.
--  `test_merge_string_latest_wins` function L1024-1029 — `()` — to the executor based on routing rules.
--  `test_merge_different_types_latest_wins` function L1032-1037 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_deduplicates` function L1040-1045 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_no_overlap` function L1048-1053 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_complete_overlap` function L1056-1061 — `()` — to the executor based on routing rules.
--  `test_merge_objects_no_conflict` function L1064-1069 — `()` — to the executor based on routing rules.
--  `test_merge_objects_conflicting_keys` function L1072-1077 — `()` — to the executor based on routing rules.
--  `test_merge_objects_recursive` function L1080-1085 — `()` — to the executor based on routing rules.
--  `test_merge_nested_arrays_in_objects` function L1088-1093 — `()` — to the executor based on routing rules.
--  `test_merge_null_latest_wins` function L1096-1101 — `()` — to the executor based on routing rules.
--  `test_merge_bool_latest_wins` function L1104-1109 — `()` — to the executor based on routing rules.
--  `sqlite_tests` module L1115-1244 — `-` — to the executor based on routing rules.
--  `test_executor` function L1118-1123 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
--  `test_is_transient_timeout` function L1126-1129 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_not_found` function L1132-1135 — `()` — to the executor based on routing rules.
--  `test_is_transient_connection_pool` function L1138-1142 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_with_timeout_msg` function L1145-1154 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_permanent` function L1157-1166 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_network` function L1169-1178 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_unavailable` function L1181-1190 — `()` — to the executor based on routing rules.
--  `test_executor_has_capacity_initially` function L1197-1200 — `()` — to the executor based on routing rules.
--  `test_executor_metrics_initial` function L1203-1210 — `()` — to the executor based on routing rules.
--  `test_executor_name` function L1213-1216 — `()` — to the executor based on routing rules.
--  `test_executor_clone_shares_semaphore` function L1219-1227 — `()` — to the executor based on routing rules.
--  `test_executor_custom_config` function L1230-1243 — `()` — to the executor based on routing rules.
--  `test_new_uses_empty_runtime_not_from_global` function L1252-1265 — `()` — to the executor based on routing rules.
--  `test_with_runtime_and_registry_uses_provided_runtime` function L1269-1290 — `()` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L722-1026 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
+-  `execute` function L723-1005 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
+-  `has_capacity` function L1007-1009 — `(&self) -> bool` — to the executor based on routing rules.
+-  `metrics` function L1011-1021 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
+-  `name` function L1023-1025 — `(&self) -> &str` — to the executor based on routing rules.
+-  `tests` module L1029-1313 — `-` — to the executor based on routing rules.
+-  `test_merge_primitives_latest_wins` function L1038-1043 — `()` — to the executor based on routing rules.
+-  `test_merge_string_latest_wins` function L1046-1051 — `()` — to the executor based on routing rules.
+-  `test_merge_different_types_latest_wins` function L1054-1059 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_deduplicates` function L1062-1067 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_no_overlap` function L1070-1075 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_complete_overlap` function L1078-1083 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_no_conflict` function L1086-1091 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_conflicting_keys` function L1094-1099 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_recursive` function L1102-1107 — `()` — to the executor based on routing rules.
+-  `test_merge_nested_arrays_in_objects` function L1110-1115 — `()` — to the executor based on routing rules.
+-  `test_merge_null_latest_wins` function L1118-1123 — `()` — to the executor based on routing rules.
+-  `test_merge_bool_latest_wins` function L1126-1131 — `()` — to the executor based on routing rules.
+-  `sqlite_tests` module L1137-1266 — `-` — to the executor based on routing rules.
+-  `test_executor` function L1140-1145 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
+-  `test_is_transient_timeout` function L1148-1151 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_not_found` function L1154-1157 — `()` — to the executor based on routing rules.
+-  `test_is_transient_connection_pool` function L1160-1164 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_with_timeout_msg` function L1167-1176 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_permanent` function L1179-1188 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_network` function L1191-1200 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_unavailable` function L1203-1212 — `()` — to the executor based on routing rules.
+-  `test_executor_has_capacity_initially` function L1219-1222 — `()` — to the executor based on routing rules.
+-  `test_executor_metrics_initial` function L1225-1232 — `()` — to the executor based on routing rules.
+-  `test_executor_name` function L1235-1238 — `()` — to the executor based on routing rules.
+-  `test_executor_clone_shares_semaphore` function L1241-1249 — `()` — to the executor based on routing rules.
+-  `test_executor_custom_config` function L1252-1265 — `()` — to the executor based on routing rules.
+-  `test_new_uses_empty_runtime_not_from_global` function L1274-1287 — `()` — to the executor based on routing rules.
+-  `test_with_runtime_and_registry_uses_provided_runtime` function L1291-1312 — `()` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 
@@ -6509,16 +6509,16 @@
 - pub `can_write` function L240-242 — `(&self) -> bool` — Check if this key has at least write permission.
 - pub `can_admin` function L246-248 — `(&self) -> bool` — Check if this key has admin role within its tenant.
 - pub `insufficient_role_response` function L251-253 — `() -> ApiError` — Returns a 403 response for insufficient role.
-- pub `WsTicketStore` struct L270-273 — `{ tickets: Mutex<HashMap<String, WsTicket>>, ttl: Duration }` — Thread-safe store for WebSocket auth tickets.
-- pub `new` function L277-282 — `(ttl: Duration) -> Self` — Create a new ticket store with the given TTL (e.g., 60 seconds).
-- pub `issue` function L286-295 — `(&self, auth: AuthenticatedKey) -> String` — Issue a new ticket for the given authenticated key.
-- pub `consume` function L299-307 — `(&self, ticket: &str) -> Option<AuthenticatedKey>` — Consume a ticket — returns the authenticated key if valid and not expired.
+- pub `WsTicketStore` struct L273-277 — `{ tickets: Mutex<HashMap<String, WsTicket>>, ttl: Duration, max_capacity: usize ...` — Thread-safe store for WebSocket auth tickets.
+- pub `new` function L281-287 — `(ttl: Duration) -> Self` — Create a new ticket store with the given TTL (e.g., 60 seconds).
+- pub `issue` function L294-319 — `(&self, auth: AuthenticatedKey) -> String` — Issue a new ticket for the given authenticated key.
+- pub `consume` function L323-331 — `(&self, ticket: &str) -> Option<AuthenticatedKey>` — Consume a ticket — returns the authenticated key if valid and not expired.
 -  `CachedEntry` struct L52-55 — `{ info: ApiKeyInfo, inserted_at: Instant }` — A cached entry with TTL tracking.
 -  `KeyCache` type L63-117 — `= KeyCache` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
 -  `extract_bearer_token` function L198-205 — `(request: &Request) -> Option<&str>` — Extract the Bearer token from the Authorization header.
 -  `AuthenticatedKey` type L211-254 — `= AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
 -  `WsTicket` struct L264-267 — `{ auth: AuthenticatedKey, expires_at: Instant }` — A single-use, time-limited ticket for WebSocket authentication.
--  `WsTicketStore` type L275-308 — `= WsTicketStore` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `WsTicketStore` type L279-332 — `= WsTicketStore` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
 
 #### crates/cloacinactl/src/server/error.rs
 
@@ -6596,14 +6596,16 @@
 
 #### crates/cloacinactl/src/server/ws.rs
 
-- pub `WsAuthQuery` struct L47-49 — `{ token: Option<String> }` — Query parameter for passing the auth token on WebSocket upgrade.
-- pub `accumulator_ws` function L70-115 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for accumulator endpoints.
-- pub `reactor_ws` function L122-167 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for reactor endpoints.
--  `extract_ws_token` function L52-63 — `(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<String>` — Extract the auth token from either the Authorization header or query param.
--  `handle_accumulator_socket` function L173-244 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted accumulator WebSocket connection.
--  `handle_reactor_socket` function L251-310 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
--  `command_to_op` function L313-322 — `(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp` — Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
--  `process_reactor_command` function L325-402 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
+- pub `WsAuthQuery` struct L50-52 — `{ token: Option<String> }` — Query parameter for passing a single-use ticket on WebSocket upgrade.
+- pub `accumulator_ws` function L99-144 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for accumulator endpoints.
+- pub `reactor_ws` function L151-196 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for reactor endpoints.
+-  `WsTokenSource` enum L55-60 — `Header | QueryTicket` — Where the auth credential came from — determines validation strategy.
+-  `extract_ws_token` function L63-74 — `(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<WsTokenSource>` — Extract the auth token from either the Authorization header or query param.
+-  `authenticate_ws` function L77-92 — `(state: &AppState, source: WsTokenSource) -> Result<AuthenticatedKey, ApiError>` — Authenticate a WebSocket upgrade request using the appropriate strategy.
+-  `handle_accumulator_socket` function L202-273 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted accumulator WebSocket connection.
+-  `handle_reactor_socket` function L280-339 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
+-  `command_to_op` function L342-351 — `(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp` — Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
+-  `process_reactor_command` function L354-431 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
 
 ### docs/themes/hugo-geekdoc/static/js
 
@@ -8920,8 +8922,8 @@
 #### examples/features/workflows/multi-tenant/src/main.rs
 
 -  `main` function L28-50 — `() -> Result<(), Box<dyn std::error::Error>>` — with PostgreSQL schema-based isolation.
--  `demonstrate_multi_tenant_setup` function L52-82 — `(database_url: &str) -> Result<(), PipelineError>` — with PostgreSQL schema-based isolation.
--  `demonstrate_recovery_scenarios` function L85-123 — `(database_url: &str) -> Result<(), PipelineError>` — Demonstrates recovery scenarios for multi-tenant systems
+-  `demonstrate_multi_tenant_setup` function L52-82 — `(database_url: &str) -> Result<(), WorkflowExecutionError>` — with PostgreSQL schema-based isolation.
+-  `demonstrate_recovery_scenarios` function L85-123 — `(database_url: &str) -> Result<(), WorkflowExecutionError>` — Demonstrates recovery scenarios for multi-tenant systems
 
 ### examples/features/workflows/packaged-triggers
 
@@ -9003,9 +9005,9 @@
 
 #### examples/features/workflows/registry-execution/src/main.rs
 
--  `main` function L52-271 — `() -> Result<(), Box<dyn std::error::Error>>`
--  `build_package` function L273-285 — `() -> Result<Vec<u8>, Box<dyn std::error::Error>>`
--  `find_workspace_root` function L287-300 — `() -> Result<PathBuf, Box<dyn std::error::Error>>`
+-  `main` function L53-272 — `() -> Result<(), Box<dyn std::error::Error>>`
+-  `build_package` function L274-286 — `() -> Result<Vec<u8>, Box<dyn std::error::Error>>`
+-  `find_workspace_root` function L288-301 — `() -> Result<PathBuf, Box<dyn std::error::Error>>`
 
 ### examples/features/workflows/simple-packaged
 
@@ -9167,7 +9169,7 @@
 - pub `process_batch_3` function L110-125 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
 - pub `merge_results` function L132-155 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
 -  `Args` struct L31-39 — `{ iterations: usize, concurrency: usize }` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
--  `main` function L159-248 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
+-  `main` function L159-245 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
 
 ### examples/performance/pipeline
 
@@ -9188,7 +9190,7 @@
 - pub `transform_numbers` function L66-80 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
 - pub `load_numbers` function L87-97 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
 -  `Args` struct L31-39 — `{ iterations: usize, concurrency: usize }` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
--  `main` function L101-190 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
+-  `main` function L101-187 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
 
 ### examples/performance/simple
 
@@ -9207,7 +9209,7 @@
 - pub `simple_workflow` module L45-58 — `-` — Based on tutorial-01, this measures throughput of simple single-task workflows.
 - pub `hello_world` function L53-57 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-01, this measures throughput of simple single-task workflows.
 -  `Args` struct L31-39 — `{ iterations: usize, concurrency: usize }` — Based on tutorial-01, this measures throughput of simple single-task workflows.
--  `main` function L61-147 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-01, this measures throughput of simple single-task workflows.
+-  `main` function L61-144 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-01, this measures throughput of simple single-task workflows.
 
 ### examples/tutorials/computation-graphs/library/07-computation-graph
 

@@ -7,7 +7,7 @@ created_at: 2026-04-03T13:09:27.283964+00:00
 updated_at: 2026-04-03T18:23:16.603819+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -25,6 +25,8 @@ initiative_id: CLOACI-I-0068
 
 ## Objective
 Improve coverage for workflow operations and the DB-backed workflow registry. workflow/mod.rs is at 74%, registry/workflow_registry/database.rs at 53%, dal/workflow_packages.rs at 36%.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

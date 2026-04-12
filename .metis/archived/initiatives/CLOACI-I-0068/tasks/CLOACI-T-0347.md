@@ -7,7 +7,7 @@ created_at: 2026-04-03T13:09:26.355338+00:00
 updated_at: 2026-04-03T18:16:42.156414+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -25,6 +25,8 @@ initiative_id: CLOACI-I-0068
 
 ## Objective
 Improve coverage for executor and scheduler modules. thread_task_executor.rs is at 52%, scheduler.rs at 52%, executor/types.rs at 0%.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

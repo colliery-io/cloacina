@@ -7,7 +7,7 @@ created_at: 2026-04-03T13:19:24.088141+00:00
 updated_at: 2026-04-03T18:42:14.250861+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0068
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

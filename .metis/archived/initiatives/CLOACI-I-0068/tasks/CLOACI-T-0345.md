@@ -7,7 +7,7 @@ created_at: 2026-04-03T13:09:24.011538+00:00
 updated_at: 2026-04-03T18:07:56.983958+00:00
 parent: CLOACI-I-0068
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -25,6 +25,8 @@ initiative_id: CLOACI-I-0068
 
 ## Objective
 Add tests for task_outbox.rs (14% coverage, 247 missed) and task_execution_metadata.rs (45%, 325 missed). The outbox is the dispatch queue for ready tasks — critical for correctness. Metadata stores per-task context IDs.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
