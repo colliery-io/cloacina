@@ -815,9 +815,15 @@ impl TaskExecutor for ThreadTaskExecutor {
             Ok(ns) => ns,
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
+                let error_msg = format!("Invalid namespace: {}", e);
+                let _ = self
+                    .dal
+                    .task_execution()
+                    .mark_failed(event.task_execution_id, &error_msg)
+                    .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
-                    format!("Invalid namespace: {}", e),
+                    error_msg,
                     start.elapsed(),
                 ));
             }
@@ -827,9 +833,15 @@ impl TaskExecutor for ThreadTaskExecutor {
             Some(t) => t,
             None => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
+                let error_msg = format!("Task not found: {}", claimed_task.task_name);
+                let _ = self
+                    .dal
+                    .task_execution()
+                    .mark_failed(event.task_execution_id, &error_msg)
+                    .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
-                    format!("Task not found: {}", claimed_task.task_name),
+                    error_msg,
                     start.elapsed(),
                 ));
             }
@@ -841,9 +853,15 @@ impl TaskExecutor for ThreadTaskExecutor {
             Ok(ctx) => ctx,
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
+                let error_msg = format!("Context build failed: {}", e);
+                let _ = self
+                    .dal
+                    .task_execution()
+                    .mark_failed(event.task_execution_id, &error_msg)
+                    .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
-                    format!("Context build failed: {}", e),
+                    error_msg,
                     start.elapsed(),
                 ));
             }
@@ -921,9 +939,16 @@ impl TaskExecutor for ThreadTaskExecutor {
                     }
                     Err(e) => {
                         self.total_failed.fetch_add(1, Ordering::SeqCst);
+                        let error_msg = format!("Failed to save context: {}", e);
+                        // Mark failed in DB — executor owns all state transitions
+                        let _ = self
+                            .dal
+                            .task_execution()
+                            .mark_failed(event.task_execution_id, &error_msg)
+                            .await;
                         Ok(ExecutionResult::failure(
                             event.task_execution_id,
-                            format!("Failed to save context: {}", e),
+                            error_msg,
                             duration,
                         ))
                     }
@@ -954,6 +979,12 @@ impl TaskExecutor for ThreadTaskExecutor {
                     ))
                 } else {
                     self.total_failed.fetch_add(1, Ordering::SeqCst);
+                    // Mark failed in DB — executor owns all state transitions
+                    let _ = self
+                        .dal
+                        .task_execution()
+                        .mark_failed(event.task_execution_id, &error.to_string())
+                        .await;
                     Ok(ExecutionResult::failure(
                         event.task_execution_id,
                         error.to_string(),

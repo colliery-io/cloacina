@@ -267,9 +267,13 @@ struct WsTicket {
 }
 
 /// Thread-safe store for WebSocket auth tickets.
+///
+/// Bounded to prevent memory exhaustion from repeated `POST /auth/ws-ticket`
+/// calls without consumption. Expired tickets are lazily evicted on `issue()`.
 pub struct WsTicketStore {
     tickets: Mutex<HashMap<String, WsTicket>>,
     ttl: Duration,
+    max_capacity: usize,
 }
 
 impl WsTicketStore {
@@ -278,11 +282,15 @@ impl WsTicketStore {
         Self {
             tickets: Mutex::new(HashMap::new()),
             ttl,
+            max_capacity: 1024,
         }
     }
 
     /// Issue a new ticket for the given authenticated key.
     /// Returns the ticket string (UUID).
+    ///
+    /// Evicts expired tickets before inserting. If the store is still at
+    /// capacity after eviction, the oldest ticket is removed.
     pub async fn issue(&self, auth: AuthenticatedKey) -> String {
         let ticket = uuid::Uuid::new_v4().to_string();
         let entry = WsTicket {
@@ -290,6 +298,22 @@ impl WsTicketStore {
             expires_at: Instant::now() + self.ttl,
         };
         let mut store = self.tickets.lock().await;
+
+        // Evict expired tickets
+        let now = Instant::now();
+        store.retain(|_, v| v.expires_at > now);
+
+        // If still at capacity, drop the oldest entry
+        if store.len() >= self.max_capacity {
+            if let Some(oldest_key) = store
+                .iter()
+                .min_by_key(|(_, v)| v.expires_at)
+                .map(|(k, _)| k.clone())
+            {
+                store.remove(&oldest_key);
+            }
+        }
+
         store.insert(ticket.clone(), entry);
         ticket
     }

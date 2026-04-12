@@ -386,28 +386,35 @@ impl<'a> WorkflowExecutionDAL<'a> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
-                // Update pipeline status
-                diesel::update(pipeline_executions::table.find(id))
-                    .set((
-                        pipeline_executions::status.eq("Completed"),
-                        pipeline_executions::completed_at.eq(Some(now)),
-                        pipeline_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
+                // Only transition from Running to Completed — prevents duplicate
+                // PipelineCompleted events when two scheduler ticks race.
+                let rows = diesel::update(
+                    pipeline_executions::table
+                        .find(id)
+                        .filter(pipeline_executions::status.ne_all(vec!["Completed", "Failed"])),
+                )
+                .set((
+                    pipeline_executions::status.eq("Completed"),
+                    pipeline_executions::completed_at.eq(Some(now)),
+                    pipeline_executions::updated_at.eq(now),
+                ))
+                .execute(conn)?;
 
-                // Insert execution event
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: id,
-                    task_execution_id: None,
-                    event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
-                    event_data: None,
-                    worker_id: None,
-                    created_at: now,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
+                // Only insert event if we actually transitioned
+                if rows > 0 {
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        pipeline_execution_id: id,
+                        task_execution_id: None,
+                        event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
+                        event_data: None,
+                        worker_id: None,
+                        created_at: now,
+                    };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+                }
 
                 Ok(())
             })
@@ -433,28 +440,35 @@ impl<'a> WorkflowExecutionDAL<'a> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
-                // Update pipeline status
-                diesel::update(pipeline_executions::table.find(id))
-                    .set((
-                        pipeline_executions::status.eq("Completed"),
-                        pipeline_executions::completed_at.eq(Some(now)),
-                        pipeline_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
+                // Only transition from Running to Completed — prevents duplicate
+                // PipelineCompleted events when two scheduler ticks race.
+                let rows = diesel::update(
+                    pipeline_executions::table
+                        .find(id)
+                        .filter(pipeline_executions::status.ne_all(vec!["Completed", "Failed"])),
+                )
+                .set((
+                    pipeline_executions::status.eq("Completed"),
+                    pipeline_executions::completed_at.eq(Some(now)),
+                    pipeline_executions::updated_at.eq(now),
+                ))
+                .execute(conn)?;
 
-                // Insert execution event
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: id,
-                    task_execution_id: None,
-                    event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
-                    event_data: None,
-                    worker_id: None,
-                    created_at: now,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
+                // Only insert event if we actually transitioned
+                if rows > 0 {
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        pipeline_execution_id: id,
+                        task_execution_id: None,
+                        event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
+                        event_data: None,
+                        worker_id: None,
+                        created_at: now,
+                    };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+                }
 
                 Ok(())
             })
@@ -568,30 +582,37 @@ impl<'a> WorkflowExecutionDAL<'a> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
-                // Update pipeline status
-                diesel::update(pipeline_executions::table.find(id))
-                    .set((
-                        pipeline_executions::status.eq("Failed"),
-                        pipeline_executions::completed_at.eq(Some(now)),
-                        pipeline_executions::error_details.eq(&reason),
-                        pipeline_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
+                // Only transition from Running to Failed — prevents duplicate
+                // PipelineFailed events when two scheduler ticks race.
+                let rows = diesel::update(
+                    pipeline_executions::table
+                        .find(id)
+                        .filter(pipeline_executions::status.ne_all(vec!["Completed", "Failed"])),
+                )
+                .set((
+                    pipeline_executions::status.eq("Failed"),
+                    pipeline_executions::completed_at.eq(Some(now)),
+                    pipeline_executions::error_details.eq(&reason),
+                    pipeline_executions::updated_at.eq(now),
+                ))
+                .execute(conn)?;
 
-                // Insert execution event with error details
-                let event_data = serde_json::json!({ "reason": reason }).to_string();
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: id,
-                    task_execution_id: None,
-                    event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
-                    event_data: Some(event_data),
-                    worker_id: None,
-                    created_at: now,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
+                // Only insert event if we actually transitioned
+                if rows > 0 {
+                    let event_data = serde_json::json!({ "reason": reason }).to_string();
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        pipeline_execution_id: id,
+                        task_execution_id: None,
+                        event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
+                        event_data: Some(event_data),
+                        worker_id: None,
+                        created_at: now,
+                    };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+                }
 
                 Ok(())
             })
@@ -622,30 +643,37 @@ impl<'a> WorkflowExecutionDAL<'a> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
-                // Update pipeline status
-                diesel::update(pipeline_executions::table.find(id))
-                    .set((
-                        pipeline_executions::status.eq("Failed"),
-                        pipeline_executions::completed_at.eq(Some(now)),
-                        pipeline_executions::error_details.eq(&reason),
-                        pipeline_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
+                // Only transition from Running to Failed — prevents duplicate
+                // PipelineFailed events when two scheduler ticks race.
+                let rows = diesel::update(
+                    pipeline_executions::table
+                        .find(id)
+                        .filter(pipeline_executions::status.ne_all(vec!["Completed", "Failed"])),
+                )
+                .set((
+                    pipeline_executions::status.eq("Failed"),
+                    pipeline_executions::completed_at.eq(Some(now)),
+                    pipeline_executions::error_details.eq(&reason),
+                    pipeline_executions::updated_at.eq(now),
+                ))
+                .execute(conn)?;
 
-                // Insert execution event with error details
-                let event_data = serde_json::json!({ "reason": reason }).to_string();
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: id,
-                    task_execution_id: None,
-                    event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
-                    event_data: Some(event_data),
-                    worker_id: None,
-                    created_at: now,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
+                // Only insert event if we actually transitioned
+                if rows > 0 {
+                    let event_data = serde_json::json!({ "reason": reason }).to_string();
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        pipeline_execution_id: id,
+                        task_execution_id: None,
+                        event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
+                        event_data: Some(event_data),
+                        worker_id: None,
+                        created_at: now,
+                    };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+                }
 
                 Ok(())
             })

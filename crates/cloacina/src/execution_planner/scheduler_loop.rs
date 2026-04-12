@@ -296,10 +296,30 @@ impl<'a> SchedulerLoop<'a> {
     }
 
     /// Completes a pipeline by updating its final context and marking it as completed.
+    ///
+    /// Guards against the race where two scheduler ticks both see the pipeline
+    /// as complete and both try to finalise it. Only the first caller (whose
+    /// pipeline is still "Running") will proceed; subsequent calls return early.
     async fn complete_pipeline(
         &self,
         execution: &WorkflowExecutionRecord,
     ) -> Result<(), ValidationError> {
+        // Guard: only proceed if the pipeline is still running.
+        // This prevents duplicate PipelineCompleted events when two scheduler
+        // ticks race through check_pipeline_completion concurrently.
+        let current = self
+            .dal
+            .workflow_execution()
+            .get_by_id(execution.id)
+            .await?;
+        if current.status == "Completed" || current.status == "Failed" {
+            debug!(
+                "Pipeline {} already in status '{}', skipping completion",
+                execution.id, current.status
+            );
+            return Ok(());
+        }
+
         // Get task summary for logging
         let all_tasks = self
             .dal

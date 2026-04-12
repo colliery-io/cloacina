@@ -38,28 +38,59 @@ use super::auth::{validate_token, AuthenticatedKey};
 use crate::commands::serve::AppState;
 use crate::server::error::ApiError;
 
-/// Query parameter for passing the auth token on WebSocket upgrade.
+/// Query parameter for passing a single-use ticket on WebSocket upgrade.
 ///
 /// WebSocket clients can't set custom headers on the upgrade request in
-/// browsers, so we accept the token as a query parameter as well:
-/// `ws://host/v1/ws/accumulator/alpha?token=<pak>`
+/// browsers, so we accept a **ticket** (not an API key) as a query parameter:
+/// `ws://host/v1/ws/accumulator/alpha?token=<ticket>`
+///
+/// Tickets are obtained via `POST /auth/ws-ticket` and are single-use with
+/// a short TTL. Raw API keys are NOT accepted in query parameters.
 #[derive(Deserialize)]
 pub struct WsAuthQuery {
     pub token: Option<String>,
 }
 
+/// Where the auth credential came from — determines validation strategy.
+enum WsTokenSource {
+    /// Bearer token from Authorization header — validated as API key.
+    Header(String),
+    /// Single-use ticket from query parameter — consumed from WsTicketStore.
+    QueryTicket(String),
+}
+
 /// Extract the auth token from either the Authorization header or query param.
-fn extract_ws_token(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<String> {
-    // Prefer header
+fn extract_ws_token(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<WsTokenSource> {
+    // Prefer header — accepts Bearer API keys
     if let Some(val) = headers.get(axum::http::header::AUTHORIZATION) {
         if let Ok(s) = val.to_str() {
             if let Some(token) = s.strip_prefix("Bearer ") {
-                return Some(token.to_string());
+                return Some(WsTokenSource::Header(token.to_string()));
             }
         }
     }
-    // Fall back to query param
-    query.token.clone()
+    // Query param — treated as a single-use ticket, NOT a raw API key
+    query
+        .token
+        .as_ref()
+        .map(|t| WsTokenSource::QueryTicket(t.clone()))
+}
+
+/// Authenticate a WebSocket upgrade request using the appropriate strategy.
+async fn authenticate_ws(
+    state: &AppState,
+    source: WsTokenSource,
+) -> Result<AuthenticatedKey, ApiError> {
+    match source {
+        WsTokenSource::Header(token) => validate_token(state, &token)
+            .await
+            .map_err(|_| ApiError::unauthorized("invalid bearer token")),
+        WsTokenSource::QueryTicket(ticket) => state
+            .ws_tickets
+            .consume(&ticket)
+            .await
+            .ok_or_else(|| ApiError::unauthorized("invalid or expired WebSocket ticket")),
+    }
 }
 
 /// WebSocket handler for accumulator endpoints.
@@ -74,16 +105,16 @@ pub async fn accumulator_ws(
     ws: WebSocketUpgrade,
     request: axum::extract::Request,
 ) -> Response {
-    let token = match extract_ws_token(request.headers(), &query) {
-        Some(t) => t,
+    let source = match extract_ws_token(request.headers(), &query) {
+        Some(s) => s,
         None => {
             return ApiError::unauthorized("missing auth token").into_response();
         }
     };
 
-    let auth = match validate_token(&state, &token).await {
+    let auth = match authenticate_ws(&state, source).await {
         Ok(a) => a,
-        Err(resp) => return resp.into_response(),
+        Err(e) => return e.into_response(),
     };
 
     // Per-endpoint authorization check
@@ -126,16 +157,16 @@ pub async fn reactor_ws(
     ws: WebSocketUpgrade,
     request: axum::extract::Request,
 ) -> Response {
-    let token = match extract_ws_token(request.headers(), &query) {
-        Some(t) => t,
+    let source = match extract_ws_token(request.headers(), &query) {
+        Some(s) => s,
         None => {
             return ApiError::unauthorized("missing auth token").into_response();
         }
     };
 
-    let auth = match validate_token(&state, &token).await {
+    let auth = match authenticate_ws(&state, source).await {
         Ok(a) => a,
-        Err(resp) => return resp.into_response(),
+        Err(e) => return e.into_response(),
     };
 
     // Per-endpoint authorization check
