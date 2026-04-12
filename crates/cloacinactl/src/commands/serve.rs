@@ -33,6 +33,61 @@ use cloacina::database::Database;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::security::SecurityConfig;
 
+/// Cached per-tenant database connections for schema isolation.
+///
+/// Each tenant gets a small connection pool scoped to their PostgreSQL schema.
+/// Lazily populated on first request for a given tenant.
+pub struct TenantDatabaseCache {
+    databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>,
+    database_url: String,
+}
+
+impl TenantDatabaseCache {
+    pub fn new(database_url: String) -> Self {
+        Self {
+            databases: tokio::sync::RwLock::new(std::collections::HashMap::new()),
+            database_url,
+        }
+    }
+
+    /// Get or create a schema-scoped Database for the given tenant.
+    ///
+    /// Returns the admin (public schema) database if tenant_id is "public".
+    pub async fn resolve(
+        &self,
+        tenant_id: &str,
+        admin_db: &Database,
+    ) -> Result<Database, cloacina::database::connection::DatabaseError> {
+        if tenant_id == "public" {
+            return Ok(admin_db.clone());
+        }
+
+        // Fast path: check read lock
+        {
+            let cache = self.databases.read().await;
+            if let Some(db) = cache.get(tenant_id) {
+                return Ok(db.clone());
+            }
+        }
+
+        // Slow path: create and cache
+        let db = Database::try_new_with_schema(
+            &self.database_url,
+            "cloacina",
+            2, // small pool per tenant
+            Some(tenant_id),
+        )?;
+
+        let mut cache = self.databases.write().await;
+        // Double-check after acquiring write lock
+        if let Some(existing) = cache.get(tenant_id) {
+            return Ok(existing.clone());
+        }
+        cache.insert(tenant_id.to_string(), db.clone());
+        Ok(db)
+    }
+}
+
 /// Shared application state accessible from all route handlers.
 #[derive(Clone)]
 pub struct AppState {
@@ -46,6 +101,8 @@ pub struct AppState {
     pub ws_tickets: Arc<crate::server::auth::WsTicketStore>,
     /// Prometheus metrics handle for rendering /metrics endpoint.
     pub metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
+    /// Per-tenant database connection cache for schema isolation.
+    pub tenant_databases: Arc<TenantDatabaseCache>,
 }
 
 /// Run the API server.
@@ -183,6 +240,7 @@ pub async fn run(
             std::time::Duration::from_secs(60),
         )),
         metrics_handle,
+        tenant_databases: Arc::new(TenantDatabaseCache::new(database_url.clone())),
     };
 
     // Bootstrap: create initial admin key if none exist

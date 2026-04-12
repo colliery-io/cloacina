@@ -75,8 +75,18 @@ pub async fn upload_workflow(
     }
 
     // Register via WorkflowRegistry
-    let storage = UnifiedRegistryStorage::new(state.database.clone());
-    let mut registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
+    let tenant_db: cloacina::database::Database = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let mut registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
         Err(e) => {
             warn!("Failed to create registry: {}", e);
@@ -119,8 +129,18 @@ pub async fn list_workflows(
         return AuthenticatedKey::forbidden_response().into_response();
     }
 
-    let storage = UnifiedRegistryStorage::new(state.database.clone());
-    let registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
+    let tenant_db: cloacina::database::Database = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
         Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };
@@ -163,8 +183,18 @@ pub async fn get_workflow(
         return AuthenticatedKey::forbidden_response().into_response();
     }
 
-    let storage = UnifiedRegistryStorage::new(state.database.clone());
-    let registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
+    let tenant_db: cloacina::database::Database = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
         Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };
@@ -207,8 +237,18 @@ pub async fn delete_workflow(
         return AuthenticatedKey::insufficient_role_response().into_response();
     }
 
-    let storage = UnifiedRegistryStorage::new(state.database.clone());
-    let mut registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
+    let tenant_db: cloacina::database::Database = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let mut registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
         Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };

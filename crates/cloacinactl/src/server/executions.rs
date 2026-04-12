@@ -41,6 +41,12 @@ pub struct ExecuteRequest {
 }
 
 /// POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+///
+/// NOTE: Execution is scheduled through the shared DefaultRunner, which uses
+/// its own database connection. In per-tenant deployments (recommended), the
+/// runner IS scoped to the tenant. In multi-tenant deployments, executions
+/// land in the runner's schema. Full multi-tenant execute_workflow requires
+/// per-tenant runners or a runner that accepts a Database override.
 pub async fn execute_workflow(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -102,7 +108,17 @@ pub async fn list_executions(
         return AuthenticatedKey::forbidden_response().into_response();
     }
 
-    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db);
 
     match dal.workflow_execution().get_active_executions().await {
         Ok(executions) => {
@@ -151,13 +167,37 @@ pub async fn get_execution(
         }
     };
 
-    match state.runner.get_execution_status(id).await {
-        Ok(status) => Json(serde_json::json!({
-            "tenant_id": tenant_id,
-            "execution_id": exec_id,
-            "status": format!("{:?}", status),
-        }))
-        .into_response(),
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db);
+    let universal_id = cloacina::database::universal_types::UniversalUuid(id);
+
+    match dal.workflow_execution().get_by_id(universal_id).await {
+        Ok(pipeline) => {
+            let status = match pipeline.status.as_str() {
+                "Pending" => "Pending",
+                "Running" => "Running",
+                "Completed" => "Completed",
+                "Failed" => "Failed",
+                "Cancelled" => "Cancelled",
+                "Paused" => "Paused",
+                other => other,
+            };
+            Json(serde_json::json!({
+                "tenant_id": tenant_id,
+                "execution_id": exec_id,
+                "status": status,
+            }))
+            .into_response()
+        }
         Err(e) => ApiError::not_found("execution_not_found", format!("{}", e)).into_response(),
     }
 }
@@ -179,7 +219,17 @@ pub async fn get_execution_events(
         }
     };
 
-    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db);
     let universal_id = cloacina::database::universal_types::UniversalUuid(id);
 
     match dal.execution_event().list_by_pipeline(universal_id).await {
