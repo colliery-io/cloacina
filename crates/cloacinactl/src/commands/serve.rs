@@ -112,6 +112,7 @@ pub async fn run(
     database_url: String,
     verbose: bool,
     bootstrap_key: Option<String>,
+    require_signatures: bool,
 ) -> Result<()> {
     // Set up logging (file + stderr, same as daemon)
     std::fs::create_dir_all(&home)
@@ -235,7 +236,10 @@ pub async fn run(
         key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
         endpoint_registry,
         reactive_scheduler,
-        security_config: SecurityConfig::default(),
+        security_config: SecurityConfig {
+            require_signatures,
+            ..SecurityConfig::default()
+        },
         ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
             std::time::Duration::from_secs(60),
         )),
