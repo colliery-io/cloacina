@@ -469,9 +469,24 @@ fn build_router(state: AppState) -> Router {
         .fallback(fallback_404)
         // Body size limit: 100MB (matches PackageValidator)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
+        // API request metrics (counts by method and status)
+        .layer(middleware::from_fn(api_request_metrics))
         // Request ID + tracing span (outermost — wraps everything)
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
+}
+
+/// Middleware that counts API requests by method and status code.
+async fn api_request_metrics(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = request.method().to_string();
+    let response = next.run(request).await;
+    let status = response.status().as_u16().to_string();
+    metrics::counter!("cloacina_api_requests_total", "method" => method, "status" => status)
+        .increment(1);
+    response
 }
 
 /// GET /health — liveness check (no auth, no DB)

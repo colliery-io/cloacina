@@ -871,6 +871,8 @@ impl TaskExecutor for ThreadTaskExecutor {
             }
         };
 
+        metrics::gauge!("cloacina_active_tasks").increment(1.0);
+
         // Execute the task — if it requires a handle, wrap execution with
         // task-local storage so the macro-generated code can access it.
         let execution_result = if task.requires_handle() {
@@ -918,6 +920,8 @@ impl TaskExecutor for ThreadTaskExecutor {
             self.execute_with_timeout(task.as_ref(), context).await
         };
         let duration = start.elapsed();
+        metrics::histogram!("cloacina_task_duration_seconds").record(duration.as_secs_f64());
+        metrics::gauge!("cloacina_active_tasks").decrement(1.0);
 
         // Stop heartbeat and release claim after execution (success or failure)
         if let Some(handle) = heartbeat_handle {

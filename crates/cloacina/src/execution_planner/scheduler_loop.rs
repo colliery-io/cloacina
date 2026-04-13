@@ -368,6 +368,13 @@ impl<'a> SchedulerLoop<'a> {
             );
         }
 
+        // Record pipeline duration and decrement active gauge
+        let duration = chrono::Utc::now() - execution.started_at.0;
+        if let Ok(secs) = duration.to_std() {
+            metrics::histogram!("cloacina_pipeline_duration_seconds").record(secs.as_secs_f64());
+        }
+        metrics::gauge!("cloacina_active_pipelines").decrement(1.0);
+
         Ok(())
     }
 

@@ -432,6 +432,7 @@ impl TaskScheduler {
             .await?
         );
 
+        metrics::gauge!("cloacina_active_pipelines").increment(1.0);
         info!("Workflow execution scheduled: {}", pipeline_id);
         Ok(pipeline_id.into())
     }
