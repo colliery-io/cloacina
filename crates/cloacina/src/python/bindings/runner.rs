@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -288,6 +288,9 @@ impl PyDefaultRunner {
         // Create a channel for communicating with the async runtime thread
         let (tx, mut rx) = mpsc::unbounded_channel::<RuntimeMessage>();
 
+        // Oneshot channel to report init success/failure back to the constructor
+        let (init_tx, init_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+
         // Spawn a dedicated thread for the async runtime
         let thread_handle = thread::spawn(move || {
             // Initialize logging in this thread
@@ -315,12 +318,21 @@ impl PyDefaultRunner {
                     crate::logging::mask_db_url(&database_url)
                 );
                 debug!("About to call crate::DefaultRunner::new()");
-                let runner = crate::DefaultRunner::new(&database_url)
-                    .await
-                    .expect("Failed to create DefaultRunner");
-                info!("DefaultRunner created successfully, background services running");
-                runner
+                crate::DefaultRunner::new(&database_url).await
             });
+
+            let runner = match runner {
+                Ok(r) => {
+                    info!("DefaultRunner created successfully, background services running");
+                    let _ = init_tx.send(Ok(()));
+                    r
+                }
+                Err(e) => {
+                    let msg = format!("Failed to create DefaultRunner: {}", e);
+                    let _ = init_tx.send(Err(msg));
+                    return; // thread exits — init_rx receives the error
+                }
+            };
             info!("DefaultRunner creation completed");
 
             let runner = Arc::new(runner);
@@ -621,6 +633,17 @@ impl PyDefaultRunner {
             });
         });
 
+        // Wait for init to complete — propagate errors instead of panicking
+        match init_rx.blocking_recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(msg)) => return Err(PyRuntimeError::new_err(msg)),
+            Err(_) => {
+                return Err(PyRuntimeError::new_err(
+                    "Runtime thread died during initialization",
+                ))
+            }
+        }
+
         Ok(PyDefaultRunner {
             runtime_handle: Mutex::new(AsyncRuntimeHandle {
                 tx,
@@ -640,6 +663,7 @@ impl PyDefaultRunner {
 
         // Create a channel for communicating with the async runtime thread
         let (tx, mut rx) = mpsc::unbounded_channel::<RuntimeMessage>();
+        let (init_tx, init_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
 
         // Spawn a dedicated thread for the async runtime
         let thread_handle = thread::spawn(move || {
@@ -649,7 +673,6 @@ impl PyDefaultRunner {
                 let _ = tracing_subscriber::fmt()
                     .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
                     .try_init();
-            } else {
             }
 
             // Create the tokio runtime in the dedicated thread
@@ -657,10 +680,19 @@ impl PyDefaultRunner {
 
             // Create the DefaultRunner within the async context
             let runner = rt.block_on(async {
-                crate::DefaultRunner::with_config(&database_url, rust_config)
-                    .await
-                    .expect("Failed to create DefaultRunner")
+                crate::DefaultRunner::with_config(&database_url, rust_config).await
             });
+
+            let runner = match runner {
+                Ok(r) => {
+                    let _ = init_tx.send(Ok(()));
+                    r
+                }
+                Err(e) => {
+                    let _ = init_tx.send(Err(format!("Failed to create DefaultRunner: {}", e)));
+                    return;
+                }
+            };
 
             let runner = Arc::new(runner);
 
@@ -959,6 +991,17 @@ impl PyDefaultRunner {
                 }
             });
         });
+
+        // Wait for init to complete — propagate errors instead of panicking
+        match init_rx.blocking_recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(msg)) => return Err(PyRuntimeError::new_err(msg)),
+            Err(_) => {
+                return Err(PyRuntimeError::new_err(
+                    "Runtime thread died during initialization",
+                ))
+            }
+        }
 
         Ok(PyDefaultRunner {
             runtime_handle: Mutex::new(AsyncRuntimeHandle {
@@ -1405,26 +1448,6 @@ impl PyDefaultRunner {
         })?;
 
         Ok(PyWorkflowResult::from_result(result))
-    }
-
-    /// Start the runner (task scheduler and executor)
-    pub fn start(&self) -> PyResult<()> {
-        // Start the runner in background
-        // For now, return an error indicating this limitation
-        Err(PyValueError::new_err(
-            "Runner startup requires async runtime support. \
-             This will be implemented in a future update.",
-        ))
-    }
-
-    /// Stop the runner
-    pub fn stop(&self) -> PyResult<()> {
-        // Stop the runner
-        // For now, return an error indicating this limitation
-        Err(PyValueError::new_err(
-            "Runner shutdown requires async runtime support. \
-             This will be implemented in a future update.",
-        ))
     }
 
     /// Shutdown the runner and cleanup resources
@@ -2166,24 +2189,6 @@ mod tests {
             runner.__repr__(),
             "DefaultRunner(thread_separated_async_runtime)"
         );
-    }
-
-    #[test]
-    #[serial]
-    fn test_runner_start_returns_not_implemented() {
-        pyo3::prepare_freethreaded_python();
-        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
-        let result = runner.start();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    #[serial]
-    fn test_runner_stop_returns_not_implemented() {
-        pyo3::prepare_freethreaded_python();
-        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
-        let result = runner.stop();
-        assert!(result.is_err());
     }
 
     #[test]
