@@ -191,7 +191,28 @@ pub async fn run(
         .context("Failed to create DefaultRunner")?;
     info!("DefaultRunner initialized with SQLite backend");
 
-    // 5. Create FilesystemWorkflowRegistry
+    // 5. Start health socket and pulse
+    let health_state = Arc::new(super::health::SharedDaemonState::new());
+    let (health_shutdown_tx, health_shutdown_rx) = watch::channel(false);
+
+    let socket_path = home.join("daemon.sock");
+    let health_socket_handle = tokio::spawn(super::health::run_health_socket(
+        socket_path,
+        runner.dal().clone(),
+        health_state.clone(),
+        "sqlite".to_string(),
+        health_shutdown_rx.clone(),
+    ));
+
+    let health_pulse_handle = tokio::spawn(super::health::run_health_pulse(
+        runner.dal().clone(),
+        health_state.clone(),
+        "sqlite".to_string(),
+        Duration::from_secs(60),
+        health_shutdown_rx,
+    ));
+
+    // 6. Create FilesystemWorkflowRegistry
     let registry = Arc::new(FilesystemWorkflowRegistry::new(all_watch_dirs.clone()));
     let registry_for_triggers = registry.clone();
 
@@ -218,6 +239,10 @@ pub async fn run(
                 result.packages_unloaded.len(),
                 result.packages_failed.len()
             );
+            health_state.set_packages_loaded(result.packages_loaded.len());
+            health_state
+                .set_last_reconciliation(chrono::Utc::now())
+                .await;
             register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
         }
         Err(e) => {
@@ -269,6 +294,8 @@ pub async fn run(
                 debug!("Filesystem change detected — reconciling");
                 match reconciler.reconcile().await {
                     Ok(result) => {
+                        health_state.set_packages_loaded(result.packages_loaded.len());
+                        health_state.set_last_reconciliation(chrono::Utc::now()).await;
                         handle_reconcile(&runner, &registry_for_triggers, &result, "Reconciliation").await;
                     }
                     Err(e) => {
@@ -282,6 +309,8 @@ pub async fn run(
                 debug!("Periodic reconciliation tick");
                 match reconciler.reconcile().await {
                     Ok(result) => {
+                        health_state.set_packages_loaded(result.packages_loaded.len());
+                        health_state.set_last_reconciliation(chrono::Utc::now()).await;
                         handle_reconcile(&runner, &registry_for_triggers, &result, "Periodic reconciliation").await;
                     }
                     Err(e) => {
@@ -320,6 +349,8 @@ pub async fn run(
                 info!("Triggering reconciliation after config reload...");
                 match reconciler.reconcile().await {
                     Ok(result) => {
+                        health_state.set_packages_loaded(result.packages_loaded.len());
+                        health_state.set_last_reconciliation(chrono::Utc::now()).await;
                         handle_reconcile(&runner, &registry_for_triggers, &result, "Post-reload reconciliation").await;
                     }
                     Err(e) => {
@@ -331,6 +362,11 @@ pub async fn run(
             }
         }
     }
+
+    // Stop health socket and pulse
+    let _ = health_shutdown_tx.send(true);
+    health_socket_handle.abort();
+    health_pulse_handle.abort();
 
     // Graceful shutdown with timeout and force-exit on second signal
     let shutdown_timeout = Duration::from_secs(daemon_cfg.shutdown_timeout_s);

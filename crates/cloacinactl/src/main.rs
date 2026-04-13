@@ -89,6 +89,9 @@ enum Commands {
         #[command(subcommand)]
         command: AdminCommands,
     },
+
+    /// Show the status of the running daemon
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -181,6 +184,10 @@ async fn main() -> Result<()> {
                 commands::config::run_list(&config_path)?;
             }
         },
+
+        Commands::Status => {
+            commands::status::run(cli.home).await?;
+        }
 
         Commands::Admin { command } => {
             // Standard stderr logging for admin commands
