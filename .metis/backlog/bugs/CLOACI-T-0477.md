@@ -4,15 +4,15 @@ level: task
 title: "Fix silent dependency context loading failures in executor"
 short_code: "CLOACI-T-0477"
 created_at: 2026-04-11T13:50:36.342354+00:00
-updated_at: 2026-04-11T13:50:36.342354+00:00
-parent:
+updated_at: 2026-04-13T00:03:34.758085+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,6 +40,10 @@ COR-002 (from architecture review `review/10-recommendations.md` REC-005)
 ### Impact Assessment
 - **Affected Users**: Any workflow with task dependencies where a transient DB error occurs during context loading
 - **Expected vs Actual**: Task should fail with a clear error when dependency context can't be loaded. Actual: task runs with empty context, produces wrong results, failure only logged at `debug` level.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

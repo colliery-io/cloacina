@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-12T23:36:36Z | 425 files | JavaScript, Python, Rust
+> Generated: 2026-04-13T00:08:09Z | 425 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1089,19 +1089,19 @@
 - pub `ContextError` enum L132-153 — `Serialization | KeyNotFound | TypeMismatch | KeyExists | Database | ConnectionPo...` — Errors that can occur during context operations.
 - pub `RegistrationError` enum L175-184 — `DuplicateTaskId | InvalidTaskId | RegistrationFailed` — Errors that can occur during task registration.
 - pub `ValidationError` enum L191-249 — `CyclicDependency | MissingDependency | DuplicateTaskId | EmptyWorkflow | Invalid...` — Errors that can occur during Workflow and dependency validation.
-- pub `ExecutorError` enum L265-298 — `Database | ConnectionPool | TaskNotFound | TaskExecution | Context | TaskTimeout...` — Errors that can occur during task execution.
-- pub `WorkflowError` enum L310-334 — `DuplicateTask | TaskNotFound | InvalidDependency | CyclicDependency | Unreachabl...` — Errors that can occur during workflow construction and management.
-- pub `SubgraphError` enum L341-347 — `TaskNotFound | UnsupportedOperation` — Errors that can occur when creating Workflow subgraphs.
+- pub `ExecutorError` enum L265-301 — `Database | ConnectionPool | TaskNotFound | TaskExecution | Context | TaskTimeout...` — Errors that can occur during task execution.
+- pub `WorkflowError` enum L313-337 — `DuplicateTask | TaskNotFound | InvalidDependency | CyclicDependency | Unreachabl...` — Errors that can occur during workflow construction and management.
+- pub `SubgraphError` enum L344-350 — `TaskNotFound | UnsupportedOperation` — Errors that can occur when creating Workflow subgraphs.
 -  `ContextError` type L155-168 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
 -  `from` function L156-167 — `(err: cloacina_workflow::ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
 -  `ValidationError` type L251-255 — `= ValidationError` — relevant context information to aid in troubleshooting and recovery.
 -  `from` function L252-254 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
 -  `ContextError` type L257-261 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
 -  `from` function L258-260 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `ExecutorError` type L300-304 — `= ExecutorError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L301-303 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `TaskError` type L350-373 — `= TaskError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L351-372 — `(error: ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `ExecutorError` type L303-307 — `= ExecutorError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L304-306 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `TaskError` type L353-376 — `= TaskError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L354-375 — `(error: ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
 
 #### crates/cloacina/src/graph.rs
 
@@ -2665,54 +2665,54 @@
 - pub `with_runtime` function L134-137 — `(mut self, runtime: Arc<Runtime>) -> Self` — Sets the runtime for this executor, replacing the default.
 - pub `with_global_registry` function L150-164 — `( database: Database, config: ExecutorConfig, ) -> Result<Self, crate::error::Re...` — Creates a TaskExecutor using the global task registry.
 - pub `semaphore` function L170-172 — `(&self) -> &Arc<Semaphore>` — Returns a reference to the concurrency semaphore.
--  `ThreadTaskExecutor` type L92-698 — `= ThreadTaskExecutor` — to the executor based on routing rules.
--  `build_task_context` function L182-303 — `( &self, claimed_task: &ClaimedTask, dependencies: &[crate::task::TaskNamespace]...` — Builds the execution context for a task by loading its dependencies.
--  `merge_context_values` function L317-352 — `( existing: &serde_json::Value, new: &serde_json::Value, ) -> serde_json::Value` — Merges two context values using smart merging strategy.
--  `execute_with_timeout` function L362-371 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, ) -> Result<Conte...` — Executes a task with timeout protection.
--  `handle_task_result` function L388-437 — `( &self, claimed_task: ClaimedTask, result: Result<Context<serde_json::Value>, E...` — Handles the result of task execution.
--  `save_task_context` function L447-477 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Saves the task's execution context to the database.
--  `mark_task_completed` function L486-507 — `( &self, task_execution_id: UniversalUuid, ) -> Result<(), ExecutorError>` — Marks a task as completed in the database.
--  `complete_task_transaction` function L523-547 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Completes a task by saving its context and marking it as completed.
--  `mark_task_failed` function L558-581 — `( &self, task_execution_id: UniversalUuid, error: &ExecutorError, ) -> Result<()...` — Marks a task as failed in the database.
--  `should_retry_task` function L597-634 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried.
--  `is_transient_error` function L643-660 — `(&self, error: &ExecutorError) -> bool` — Determines if an error is transient and potentially retryable.
--  `schedule_task_retry` function L670-697 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
--  `ThreadTaskExecutor` type L700-715 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
--  `clone` function L701-714 — `(&self) -> Self` — to the executor based on routing rules.
--  `ThreadTaskExecutor` type L722-1035 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
--  `execute` function L723-1014 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
--  `has_capacity` function L1016-1018 — `(&self) -> bool` — to the executor based on routing rules.
--  `metrics` function L1020-1030 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
--  `name` function L1032-1034 — `(&self) -> &str` — to the executor based on routing rules.
--  `tests` module L1038-1322 — `-` — to the executor based on routing rules.
--  `test_merge_primitives_latest_wins` function L1047-1052 — `()` — to the executor based on routing rules.
--  `test_merge_string_latest_wins` function L1055-1060 — `()` — to the executor based on routing rules.
--  `test_merge_different_types_latest_wins` function L1063-1068 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_deduplicates` function L1071-1076 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_no_overlap` function L1079-1084 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_complete_overlap` function L1087-1092 — `()` — to the executor based on routing rules.
--  `test_merge_objects_no_conflict` function L1095-1100 — `()` — to the executor based on routing rules.
--  `test_merge_objects_conflicting_keys` function L1103-1108 — `()` — to the executor based on routing rules.
--  `test_merge_objects_recursive` function L1111-1116 — `()` — to the executor based on routing rules.
--  `test_merge_nested_arrays_in_objects` function L1119-1124 — `()` — to the executor based on routing rules.
--  `test_merge_null_latest_wins` function L1127-1132 — `()` — to the executor based on routing rules.
--  `test_merge_bool_latest_wins` function L1135-1140 — `()` — to the executor based on routing rules.
--  `sqlite_tests` module L1146-1275 — `-` — to the executor based on routing rules.
--  `test_executor` function L1149-1154 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
--  `test_is_transient_timeout` function L1157-1160 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_not_found` function L1163-1166 — `()` — to the executor based on routing rules.
--  `test_is_transient_connection_pool` function L1169-1173 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_with_timeout_msg` function L1176-1185 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_permanent` function L1188-1197 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_network` function L1200-1209 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_unavailable` function L1212-1221 — `()` — to the executor based on routing rules.
--  `test_executor_has_capacity_initially` function L1228-1231 — `()` — to the executor based on routing rules.
--  `test_executor_metrics_initial` function L1234-1241 — `()` — to the executor based on routing rules.
--  `test_executor_name` function L1244-1247 — `()` — to the executor based on routing rules.
--  `test_executor_clone_shares_semaphore` function L1250-1258 — `()` — to the executor based on routing rules.
--  `test_executor_custom_config` function L1261-1274 — `()` — to the executor based on routing rules.
--  `test_new_uses_empty_runtime_not_from_global` function L1283-1296 — `()` — to the executor based on routing rules.
--  `test_with_runtime_and_registry_uses_provided_runtime` function L1300-1321 — `()` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L92-702 — `= ThreadTaskExecutor` — to the executor based on routing rules.
+-  `build_task_context` function L182-307 — `( &self, claimed_task: &ClaimedTask, dependencies: &[crate::task::TaskNamespace]...` — Builds the execution context for a task by loading its dependencies.
+-  `merge_context_values` function L321-356 — `( existing: &serde_json::Value, new: &serde_json::Value, ) -> serde_json::Value` — Merges two context values using smart merging strategy.
+-  `execute_with_timeout` function L366-375 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, ) -> Result<Conte...` — Executes a task with timeout protection.
+-  `handle_task_result` function L392-441 — `( &self, claimed_task: ClaimedTask, result: Result<Context<serde_json::Value>, E...` — Handles the result of task execution.
+-  `save_task_context` function L451-481 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Saves the task's execution context to the database.
+-  `mark_task_completed` function L490-511 — `( &self, task_execution_id: UniversalUuid, ) -> Result<(), ExecutorError>` — Marks a task as completed in the database.
+-  `complete_task_transaction` function L527-551 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Completes a task by saving its context and marking it as completed.
+-  `mark_task_failed` function L562-585 — `( &self, task_execution_id: UniversalUuid, error: &ExecutorError, ) -> Result<()...` — Marks a task as failed in the database.
+-  `should_retry_task` function L601-638 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried.
+-  `is_transient_error` function L647-664 — `(&self, error: &ExecutorError) -> bool` — Determines if an error is transient and potentially retryable.
+-  `schedule_task_retry` function L674-701 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
+-  `ThreadTaskExecutor` type L704-719 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
+-  `clone` function L705-718 — `(&self) -> Self` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L726-1039 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
+-  `execute` function L727-1018 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
+-  `has_capacity` function L1020-1022 — `(&self) -> bool` — to the executor based on routing rules.
+-  `metrics` function L1024-1034 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
+-  `name` function L1036-1038 — `(&self) -> &str` — to the executor based on routing rules.
+-  `tests` module L1042-1326 — `-` — to the executor based on routing rules.
+-  `test_merge_primitives_latest_wins` function L1051-1056 — `()` — to the executor based on routing rules.
+-  `test_merge_string_latest_wins` function L1059-1064 — `()` — to the executor based on routing rules.
+-  `test_merge_different_types_latest_wins` function L1067-1072 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_deduplicates` function L1075-1080 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_no_overlap` function L1083-1088 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_complete_overlap` function L1091-1096 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_no_conflict` function L1099-1104 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_conflicting_keys` function L1107-1112 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_recursive` function L1115-1120 — `()` — to the executor based on routing rules.
+-  `test_merge_nested_arrays_in_objects` function L1123-1128 — `()` — to the executor based on routing rules.
+-  `test_merge_null_latest_wins` function L1131-1136 — `()` — to the executor based on routing rules.
+-  `test_merge_bool_latest_wins` function L1139-1144 — `()` — to the executor based on routing rules.
+-  `sqlite_tests` module L1150-1279 — `-` — to the executor based on routing rules.
+-  `test_executor` function L1153-1158 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
+-  `test_is_transient_timeout` function L1161-1164 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_not_found` function L1167-1170 — `()` — to the executor based on routing rules.
+-  `test_is_transient_connection_pool` function L1173-1177 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_with_timeout_msg` function L1180-1189 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_permanent` function L1192-1201 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_network` function L1204-1213 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_unavailable` function L1216-1225 — `()` — to the executor based on routing rules.
+-  `test_executor_has_capacity_initially` function L1232-1235 — `()` — to the executor based on routing rules.
+-  `test_executor_metrics_initial` function L1238-1245 — `()` — to the executor based on routing rules.
+-  `test_executor_name` function L1248-1251 — `()` — to the executor based on routing rules.
+-  `test_executor_clone_shares_semaphore` function L1254-1262 — `()` — to the executor based on routing rules.
+-  `test_executor_custom_config` function L1265-1278 — `()` — to the executor based on routing rules.
+-  `test_new_uses_empty_runtime_not_from_global` function L1287-1300 — `()` — to the executor based on routing rules.
+-  `test_with_runtime_and_registry_uses_provided_runtime` function L1304-1325 — `()` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 
@@ -6400,61 +6400,61 @@
 - pub `new` function L46-51 — `(database_url: String) -> Self` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
 - pub `resolve` function L56-88 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
 - pub `AppState` struct L93-106 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::server::...` — Shared application state accessible from all route handlers.
-- pub `run` function L109-317 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
-- pub `RequestId` struct L325 — `-` — Build the axum router with all routes.
+- pub `run` function L109-321 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+- pub `RequestId` struct L329 — `-` — Build the axum router with all routes.
 -  `TenantDatabaseCache` type L45-89 — `= TenantDatabaseCache` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `request_id_middleware` function L329-350 — `( mut request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L352-471 — `(state: AppState) -> Router` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `health` function L474-476 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L479-508 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L511-521 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
--  `fallback_404` function L524-529 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L532-554 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L560-608 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L612-614 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L617-1520 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L625 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_state` function L628-659 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `create_test_api_key` function L662-670 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L673-688 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L694-720 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L726-738 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L742-754 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L758-811 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_no_token_returns_401` function L817-829 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L833-846 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L850-863 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L867-880 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L886-904 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L908-924 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L928-943 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L947-972 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L976-991 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L995-1009 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L1015-1041 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_tenants` function L1045-1059 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L1063-1079 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L1083-1120 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L1124-1139 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L1145-1159 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L1163-1176 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L1180-1204 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L1208-1232 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `fixture_path` function L1235-1240 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L1243-1254 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L1257-1267 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L1271-1297 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L1301-1327 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L1331-1351 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1357-1371 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1375-1388 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1392-1406 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1410-1423 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1427-1442 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1446-1464 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1470-1484 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1488-1501 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1507-1519 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `request_id_middleware` function L333-354 — `( mut request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::...` — Middleware that generates a UUID request ID, creates a tracing span,
+-  `build_router` function L356-475 — `(state: AppState) -> Router` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `health` function L478-480 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L483-512 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L515-525 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
+-  `fallback_404` function L528-533 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L536-558 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L564-612 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L616-618 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L621-1524 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L629 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_state` function L632-663 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `create_test_api_key` function L666-674 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L677-692 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L698-724 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L730-742 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L746-758 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L762-815 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_no_token_returns_401` function L821-833 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L837-850 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L854-867 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L871-884 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L890-908 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L912-928 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L932-947 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L951-976 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L980-995 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L999-1013 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L1019-1045 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L1049-1063 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L1067-1083 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L1087-1124 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L1128-1143 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L1149-1163 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L1167-1180 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L1184-1208 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L1212-1236 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `fixture_path` function L1239-1244 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L1247-1258 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L1261-1271 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L1275-1301 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L1305-1331 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1335-1355 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1361-1375 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1379-1392 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1396-1410 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1414-1427 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1431-1446 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1450-1468 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1474-1488 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1492-1505 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1511-1523 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
@@ -6485,11 +6485,11 @@
 -  `commands` module L24 — `-` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
 -  `server` module L25 — `-` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
 -  `Cli` struct L31-42 — `{ verbose: bool, home: PathBuf, command: Commands }` — cloacinactl — Cloacina task orchestration engine
--  `Commands` enum L45-86 — `Daemon | Serve | Config | Admin` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `ConfigCommands` enum L89-107 — `Get | Set | List` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `AdminCommands` enum L110-125 — `CleanupEvents` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `default_home` function L128-132 — `() -> PathBuf` — Default home directory (~/.cloacina/).
--  `main` function L135-199 — `() -> Result<()>` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `Commands` enum L45-92 — `Daemon | Serve | Config | Admin` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `ConfigCommands` enum L95-113 — `Get | Set | List` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `AdminCommands` enum L116-131 — `CleanupEvents` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `default_home` function L134-138 — `() -> PathBuf` — Default home directory (~/.cloacina/).
+-  `main` function L141-214 — `() -> Result<()>` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
 
 ### crates/cloacinactl/src/server
 
@@ -6533,10 +6533,9 @@
 - pub `forbidden` function L65-67 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
 - pub `unauthorized` function L69-71 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
 - pub `internal` function L73-75 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
-- pub `too_many_requests` function L77-79 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
--  `ApiError` type L45-80 — `= ApiError` — error responses with request correlation IDs.
--  `ApiError` type L82-90 — `impl IntoResponse for ApiError` — error responses with request correlation IDs.
--  `into_response` function L83-89 — `(self) -> Response` — error responses with request correlation IDs.
+-  `ApiError` type L45-76 — `= ApiError` — error responses with request correlation IDs.
+-  `ApiError` type L78-86 — `impl IntoResponse for ApiError` — error responses with request correlation IDs.
+-  `into_response` function L79-85 — `(self) -> Response` — error responses with request correlation IDs.
 
 #### crates/cloacinactl/src/server/executions.rs
 
