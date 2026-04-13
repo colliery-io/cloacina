@@ -109,7 +109,6 @@ enum RuntimeMessage {
             Result<crate::dal::ScheduleExecutionStats, crate::executor::WorkflowExecutionError>,
         >,
     },
-    // Trigger management messages
     ListTriggerSchedules {
         enabled_only: bool,
         limit: i64,
@@ -154,9 +153,6 @@ struct AsyncRuntimeHandle {
 
 impl AsyncRuntimeHandle {
     /// Shutdown the runtime thread and wait for it to complete
-    ///
-    /// This method sends a shutdown signal to the runtime thread and waits
-    /// for it to complete with a timeout. Errors are logged and returned.
     fn shutdown(&mut self) -> Result<(), ShutdownError> {
         let start = std::time::Instant::now();
         debug!("Initiating async runtime shutdown");
@@ -164,21 +160,17 @@ impl AsyncRuntimeHandle {
         // Send shutdown signal
         if let Err(e) = self.tx.send(RuntimeMessage::Shutdown) {
             error!("Failed to send shutdown signal to runtime thread: {:?}", e);
-            // Continue anyway - thread might already be dead
         }
 
         // Wait for thread to finish with timeout
         if let Some(handle) = self.thread_handle.take() {
-            // Use a channel to implement timeout on join
             let (done_tx, done_rx) = std::sync::mpsc::channel();
 
-            // Spawn a helper thread to do the blocking join
             let join_thread = thread::spawn(move || {
                 let result = handle.join();
                 let _ = done_tx.send(result);
             });
 
-            // Wait for completion with timeout
             match done_rx.recv_timeout(SHUTDOWN_TIMEOUT) {
                 Ok(Ok(())) => {
                     debug!(
@@ -196,12 +188,10 @@ impl AsyncRuntimeHandle {
                         timeout_secs = SHUTDOWN_TIMEOUT.as_secs(),
                         "Async runtime shutdown timed out - thread may be stuck"
                     );
-                    // Detach the join thread - we can't wait forever
                     drop(join_thread);
                     Err(ShutdownError::Timeout(SHUTDOWN_TIMEOUT.as_secs()))
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    // Join thread finished but channel was dropped - treat as panic
                     error!("Join thread disconnected unexpectedly");
                     Err(ShutdownError::ThreadPanic)
                 }
@@ -215,7 +205,6 @@ impl AsyncRuntimeHandle {
 
 impl Drop for AsyncRuntimeHandle {
     fn drop(&mut self) {
-        // Ensure shutdown on drop, logging any errors
         if let Err(e) = self.shutdown() {
             warn!("Error during AsyncRuntimeHandle drop: {}", e);
         }
@@ -230,39 +219,32 @@ pub struct PyWorkflowResult {
 
 #[pymethods]
 impl PyWorkflowResult {
-    /// Get the execution status
     #[getter]
     pub fn status(&self) -> String {
         format!("{:?}", self.inner.status)
     }
 
-    /// Get execution start time as ISO string
     #[getter]
     pub fn start_time(&self) -> String {
         self.inner.start_time.to_rfc3339()
     }
 
-    /// Get execution end time as ISO string
     #[getter]
     pub fn end_time(&self) -> Option<String> {
         self.inner.end_time.map(|t| t.to_rfc3339())
     }
 
-    /// Get the final context
     #[getter]
     pub fn final_context(&self) -> PyContext {
-        // Create a new context by cloning the data without the dependency loader
         let new_context = self.inner.final_context.clone_data();
         PyContext::from_rust_context(new_context)
     }
 
-    /// Get error message if execution failed
     #[getter]
     pub fn error_message(&self) -> Option<&str> {
         self.inner.error_message.as_deref()
     }
 
-    /// String representation
     pub fn __repr__(&self) -> String {
         format!(
             "WorkflowResult(status={}, error={})",
@@ -272,10 +254,465 @@ impl PyWorkflowResult {
     }
 }
 
+impl PyWorkflowResult {
+    pub fn from_result(result: crate::executor::WorkflowExecutionResult) -> Self {
+        PyWorkflowResult { inner: result }
+    }
+}
+
+// ============================================================================
+// Internal helpers — event loop, constructor, dict conversion
+// ============================================================================
+
+/// Parse a schedule ID string into a UniversalUuid.
+fn parse_schedule_id(
+    schedule_id: &str,
+) -> Result<crate::database::universal_types::UniversalUuid, crate::executor::WorkflowExecutionError>
+{
+    schedule_id
+        .parse::<uuid::Uuid>()
+        .map(crate::UniversalUuid::from)
+        .map_err(|e| crate::executor::WorkflowExecutionError::Configuration {
+            message: format!("Invalid schedule ID: {}", e),
+        })
+}
+
+/// Convert a cron Schedule to a Python dict.
+fn schedule_to_cron_dict(
+    schedule: crate::models::schedule::Schedule,
+    py: Python,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new(py);
+    dict.set_item("id", schedule.id.to_string())?;
+    dict.set_item("workflow_name", &schedule.workflow_name)?;
+    dict.set_item(
+        "cron_expression",
+        schedule.cron_expression.as_deref().unwrap_or(""),
+    )?;
+    dict.set_item("timezone", schedule.timezone.as_deref().unwrap_or("UTC"))?;
+    dict.set_item("enabled", schedule.enabled.is_true())?;
+    dict.set_item(
+        "catchup_policy",
+        schedule.catchup_policy.as_deref().unwrap_or("skip"),
+    )?;
+    dict.set_item("next_run_at", schedule.next_run_at.map(|t| t.to_string()))?;
+    dict.set_item("last_run_at", schedule.last_run_at.map(|t| t.to_string()))?;
+    dict.set_item("created_at", schedule.created_at.to_string())?;
+    dict.set_item("updated_at", schedule.updated_at.to_string())?;
+    Ok(dict.into())
+}
+
+/// Convert a trigger Schedule to a Python dict.
+fn schedule_to_trigger_dict(
+    schedule: crate::models::schedule::Schedule,
+    py: Python,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new(py);
+    dict.set_item("id", schedule.id.to_string())?;
+    dict.set_item(
+        "trigger_name",
+        schedule.trigger_name.as_deref().unwrap_or(""),
+    )?;
+    dict.set_item("workflow_name", &schedule.workflow_name)?;
+    dict.set_item("poll_interval_ms", schedule.poll_interval_ms.unwrap_or(0))?;
+    dict.set_item("allow_concurrent", schedule.allows_concurrent())?;
+    dict.set_item("enabled", schedule.enabled.is_true())?;
+    dict.set_item("last_poll_at", schedule.last_poll_at.map(|t| t.to_string()))?;
+    dict.set_item("created_at", schedule.created_at.to_string())?;
+    dict.set_item("updated_at", schedule.updated_at.to_string())?;
+    Ok(dict.into())
+}
+
+/// Convert a cron ScheduleExecution to a Python dict.
+fn cron_execution_to_dict(
+    execution: crate::models::schedule::ScheduleExecution,
+    py: Python,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new(py);
+    dict.set_item("id", execution.id.to_string())?;
+    dict.set_item("schedule_id", execution.schedule_id.to_string())?;
+    dict.set_item(
+        "scheduled_time",
+        execution.scheduled_time.map(|t| t.to_string()),
+    )?;
+    dict.set_item("claimed_at", execution.claimed_at.map(|t| t.to_string()))?;
+    dict.set_item(
+        "pipeline_execution_id",
+        execution.pipeline_execution_id.map(|id| id.to_string()),
+    )?;
+    dict.set_item("created_at", execution.created_at.to_string())?;
+    dict.set_item("updated_at", execution.updated_at.to_string())?;
+    Ok(dict.into())
+}
+
+/// Convert a trigger ScheduleExecution to a Python dict.
+fn trigger_execution_to_dict(
+    execution: crate::models::schedule::ScheduleExecution,
+    py: Python,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new(py);
+    dict.set_item("id", execution.id.to_string())?;
+    dict.set_item("schedule_id", execution.schedule_id.to_string())?;
+    dict.set_item("context_hash", execution.context_hash.as_deref())?;
+    dict.set_item(
+        "pipeline_execution_id",
+        execution.pipeline_execution_id.map(|id| id.to_string()),
+    )?;
+    dict.set_item("started_at", execution.started_at.to_string())?;
+    dict.set_item(
+        "completed_at",
+        execution.completed_at.map(|t| t.to_string()),
+    )?;
+    dict.set_item("created_at", execution.created_at.to_string())?;
+    Ok(dict.into())
+}
+
+/// The single event loop that dispatches RuntimeMessages to the DefaultRunner.
+///
+/// Previously this ~300-line match block was copy-pasted into each constructor.
+async fn run_event_loop(
+    runner: Arc<crate::DefaultRunner>,
+    mut rx: mpsc::UnboundedReceiver<RuntimeMessage>,
+) {
+    use crate::executor::WorkflowExecutor;
+
+    while let Some(message) = rx.recv().await {
+        match message {
+            RuntimeMessage::Execute {
+                workflow_name,
+                context,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = runner.execute(&workflow_name, context).await;
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::RegisterCronWorkflow {
+                workflow_name,
+                cron_expression,
+                timezone,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = runner
+                        .register_cron_workflow(&workflow_name, &cron_expression, &timezone)
+                        .await
+                        .map(|uuid| uuid.to_string());
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::ListCronSchedules {
+                enabled_only,
+                limit,
+                offset,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = runner
+                        .list_cron_schedules(enabled_only, limit, offset)
+                        .await;
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::SetCronScheduleEnabled {
+                schedule_id,
+                enabled,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = match parse_schedule_id(&schedule_id) {
+                        Ok(id) => runner.set_cron_schedule_enabled(id, enabled).await,
+                        Err(e) => Err(e),
+                    };
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::DeleteCronSchedule {
+                schedule_id,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = match parse_schedule_id(&schedule_id) {
+                        Ok(id) => runner.delete_cron_schedule(id).await,
+                        Err(e) => Err(e),
+                    };
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::GetCronSchedule {
+                schedule_id,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = match parse_schedule_id(&schedule_id) {
+                        Ok(id) => runner.get_cron_schedule(id).await,
+                        Err(e) => Err(e),
+                    };
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::UpdateCronSchedule {
+                schedule_id,
+                cron_expression,
+                timezone,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = match parse_schedule_id(&schedule_id) {
+                        Ok(id) => {
+                            runner
+                                .update_cron_schedule(id, Some(&cron_expression), Some(&timezone))
+                                .await
+                        }
+                        Err(e) => Err(e),
+                    };
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::GetCronExecutionHistory {
+                schedule_id,
+                limit,
+                offset,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = match parse_schedule_id(&schedule_id) {
+                        Ok(id) => runner.get_cron_execution_history(id, limit, offset).await,
+                        Err(e) => Err(e),
+                    };
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = runner.get_cron_execution_stats(since).await;
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::ListTriggerSchedules {
+                enabled_only,
+                limit,
+                offset,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let dal = runner.dal();
+                    let result = if enabled_only {
+                        dal.schedule().get_enabled_triggers().await
+                    } else {
+                        dal.schedule()
+                            .list(Some("trigger"), false, limit, offset)
+                            .await
+                    };
+                    let _ = response_tx.send(result.map_err(|e| {
+                        crate::executor::WorkflowExecutionError::Configuration {
+                            message: e.to_string(),
+                        }
+                    }));
+                });
+            }
+            RuntimeMessage::GetTriggerSchedule {
+                trigger_name,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let dal = runner.dal();
+                    let result = dal.schedule().get_by_trigger_name(&trigger_name).await;
+                    let _ = response_tx.send(result.map_err(|e| {
+                        crate::executor::WorkflowExecutionError::Configuration {
+                            message: e.to_string(),
+                        }
+                    }));
+                });
+            }
+            RuntimeMessage::SetTriggerEnabled {
+                trigger_name,
+                enabled,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = async {
+                        if let Some(scheduler) = runner.unified_scheduler().await {
+                            if enabled {
+                                scheduler.enable_trigger(&trigger_name).await
+                            } else {
+                                scheduler.disable_trigger(&trigger_name).await
+                            }
+                        } else {
+                            let dal = runner.dal();
+                            if let Some(schedule) =
+                                dal.schedule().get_by_trigger_name(&trigger_name).await?
+                            {
+                                if enabled {
+                                    dal.schedule().enable(schedule.id).await
+                                } else {
+                                    dal.schedule().disable(schedule.id).await
+                                }
+                            } else {
+                                Ok(())
+                            }
+                        }
+                    }
+                    .await;
+                    let _ = response_tx.send(result.map_err(|e| {
+                        crate::executor::WorkflowExecutionError::Configuration {
+                            message: e.to_string(),
+                        }
+                    }));
+                });
+            }
+            RuntimeMessage::GetTriggerExecutionHistory {
+                trigger_name,
+                limit,
+                offset,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let dal = runner.dal();
+                    let result = async {
+                        let schedule_opt = dal
+                            .schedule()
+                            .get_by_trigger_name(&trigger_name)
+                            .await
+                            .map_err(|e| {
+                                crate::executor::WorkflowExecutionError::Configuration {
+                                    message: e.to_string(),
+                                }
+                            })?;
+                        if let Some(schedule) = schedule_opt {
+                            dal.schedule_execution()
+                                .list_by_schedule(schedule.id, limit, offset)
+                                .await
+                                .map_err(|e| {
+                                    crate::executor::WorkflowExecutionError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                })
+                        } else {
+                            Ok(vec![])
+                        }
+                    }
+                    .await;
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::Shutdown => {
+                info!("Received shutdown signal");
+                break;
+            }
+        }
+    }
+}
+
+/// Spawn a background thread running a Tokio runtime with a DefaultRunner
+/// and wire it to an mpsc event loop.
+///
+/// `create_runner` is called inside the thread with a reference to the Tokio
+/// runtime so it can block_on async DefaultRunner constructors.
+fn spawn_runtime<F>(create_runner: F) -> PyResult<PyDefaultRunner>
+where
+    F: FnOnce(&Runtime) -> Result<crate::DefaultRunner, crate::executor::WorkflowExecutionError>
+        + Send
+        + 'static,
+{
+    let (tx, rx) = mpsc::unbounded_channel::<RuntimeMessage>();
+    let (init_tx, init_rx) = oneshot::channel::<Result<(), String>>();
+
+    let thread_handle = thread::spawn(move || {
+        // Idempotent — only the first call in the process succeeds
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+            )
+            .try_init();
+
+        let rt = Runtime::new().expect("Failed to create tokio runtime");
+
+        let runner = match create_runner(&rt) {
+            Ok(r) => {
+                info!("DefaultRunner created successfully, background services running");
+                let _ = init_tx.send(Ok(()));
+                r
+            }
+            Err(e) => {
+                let _ = init_tx.send(Err(format!("Failed to create DefaultRunner: {}", e)));
+                return;
+            }
+        };
+
+        let runner = Arc::new(runner);
+        rt.block_on(run_event_loop(runner, rx));
+    });
+
+    // Wait for init — propagate errors instead of panicking
+    match init_rx.blocking_recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(msg)) => return Err(PyRuntimeError::new_err(msg)),
+        Err(_) => {
+            return Err(PyRuntimeError::new_err(
+                "Runtime thread died during initialization",
+            ))
+        }
+    }
+
+    Ok(PyDefaultRunner {
+        runtime_handle: Mutex::new(AsyncRuntimeHandle {
+            tx,
+            thread_handle: Some(thread_handle),
+        }),
+    })
+}
+
+// ============================================================================
+// PyDefaultRunner
+// ============================================================================
+
 /// Python wrapper for DefaultRunner
 #[pyclass(name = "DefaultRunner")]
 pub struct PyDefaultRunner {
     runtime_handle: Mutex<AsyncRuntimeHandle>,
+}
+
+/// Internal (non-Python) helpers.
+impl PyDefaultRunner {
+    /// Send a message to the runtime thread and block until a response arrives.
+    ///
+    /// Releases the GIL while waiting so Python threads can proceed.
+    fn send_and_recv<T: Send>(
+        &self,
+        message: RuntimeMessage,
+        response_rx: oneshot::Receiver<Result<T, crate::executor::WorkflowExecutionError>>,
+        py: Python,
+        error_context: &str,
+    ) -> PyResult<T> {
+        py.allow_threads(|| {
+            self.runtime_handle
+                .lock()
+                .unwrap()
+                .tx
+                .send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+            let result = response_rx.blocking_recv().map_err(|_| {
+                PyValueError::new_err("Failed to receive response from runtime thread")
+            })?;
+            result.map_err(|e| PyValueError::new_err(format!("{}: {}", error_context, e)))
+        })
+    }
 }
 
 #[pymethods]
@@ -284,371 +721,12 @@ impl PyDefaultRunner {
     #[new]
     pub fn new(database_url: &str) -> PyResult<Self> {
         let database_url = database_url.to_string();
-
-        // Create a channel for communicating with the async runtime thread
-        let (tx, mut rx) = mpsc::unbounded_channel::<RuntimeMessage>();
-
-        // Oneshot channel to report init success/failure back to the constructor
-        let (init_tx, init_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
-
-        // Spawn a dedicated thread for the async runtime
-        let thread_handle = thread::spawn(move || {
-            // Initialize logging in this thread
-
-            // Try to initialize tracing
-            use tracing::{debug, info};
-            let _guard = tracing_subscriber::fmt()
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-                )
-                .try_init();
-
-            info!("Background thread started with tracing");
-
-            // Create the tokio runtime in the dedicated thread
-            debug!("Creating tokio runtime");
-            let rt = Runtime::new().expect("Failed to create tokio runtime");
-            info!("Tokio runtime created successfully");
-
-            // Create the DefaultRunner within the async context
-            let runner = rt.block_on(async {
-                info!(
-                    "Creating DefaultRunner with database_url: {}",
-                    crate::logging::mask_db_url(&database_url)
-                );
-                debug!("About to call crate::DefaultRunner::new()");
-                crate::DefaultRunner::new(&database_url).await
-            });
-
-            let runner = match runner {
-                Ok(r) => {
-                    info!("DefaultRunner created successfully, background services running");
-                    let _ = init_tx.send(Ok(()));
-                    r
-                }
-                Err(e) => {
-                    let msg = format!("Failed to create DefaultRunner: {}", e);
-                    let _ = init_tx.send(Err(msg));
-                    return; // thread exits — init_rx receives the error
-                }
-            };
-            info!("DefaultRunner creation completed");
-
-            let runner = Arc::new(runner);
-
-            // Event loop for processing messages - spawn tasks instead of blocking
-            rt.block_on(async {
-                while let Some(message) = rx.recv().await {
-                    match message {
-                        RuntimeMessage::Execute {
-                            workflow_name,
-                            context,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            // Spawn the execution as a separate task to avoid blocking the message loop
-                            tokio::spawn(async move {
-                                // Execute the workflow in the async runtime
-                                use crate::executor::WorkflowExecutor;
-                                let result = runner_clone.execute(&workflow_name, context).await;
-
-                                // Send response back to the calling thread
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::RegisterCronWorkflow {
-                            workflow_name,
-                            cron_expression,
-                            timezone,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = runner_clone
-                                    .register_cron_workflow(
-                                        &workflow_name,
-                                        &cron_expression,
-                                        &timezone,
-                                    )
-                                    .await
-                                    .map(|uuid| uuid.to_string());
-
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::ListCronSchedules {
-                            enabled_only,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = runner_clone
-                                    .list_cron_schedules(enabled_only, limit, offset)
-                                    .await;
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::SetCronScheduleEnabled {
-                            schedule_id,
-                            enabled,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone
-                                            .set_cron_schedule_enabled(universal_uuid, enabled)
-                                            .await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::DeleteCronSchedule {
-                            schedule_id,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone.delete_cron_schedule(universal_uuid).await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::GetCronSchedule {
-                            schedule_id,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone.get_cron_schedule(universal_uuid).await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::UpdateCronSchedule {
-                            schedule_id,
-                            cron_expression,
-                            timezone,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone
-                                            .update_cron_schedule(
-                                                universal_uuid,
-                                                Some(&cron_expression),
-                                                Some(&timezone),
-                                            )
-                                            .await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::GetCronExecutionHistory {
-                            schedule_id,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone
-                                            .get_cron_execution_history(
-                                                universal_uuid,
-                                                limit,
-                                                offset,
-                                            )
-                                            .await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = runner_clone.get_cron_execution_stats(since).await;
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        // Trigger management messages
-                        RuntimeMessage::ListTriggerSchedules {
-                            enabled_only,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let dal = runner_clone.dal();
-                                let result = if enabled_only {
-                                    dal.schedule().get_enabled_triggers().await
-                                } else {
-                                    dal.schedule()
-                                        .list(Some("trigger"), false, limit, offset)
-                                        .await
-                                };
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
-                                        message: e.to_string(),
-                                    }
-                                }));
-                            });
-                        }
-                        RuntimeMessage::GetTriggerSchedule {
-                            trigger_name,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let dal = runner_clone.dal();
-                                let result =
-                                    dal.schedule().get_by_trigger_name(&trigger_name).await;
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
-                                        message: e.to_string(),
-                                    }
-                                }));
-                            });
-                        }
-                        RuntimeMessage::SetTriggerEnabled {
-                            trigger_name,
-                            enabled,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = async {
-                                    if let Some(scheduler) = runner_clone.unified_scheduler().await
-                                    {
-                                        if enabled {
-                                            scheduler.enable_trigger(&trigger_name).await
-                                        } else {
-                                            scheduler.disable_trigger(&trigger_name).await
-                                        }
-                                    } else {
-                                        // No unified scheduler, use DAL directly
-                                        let dal = runner_clone.dal();
-                                        if let Some(schedule) = dal
-                                            .schedule()
-                                            .get_by_trigger_name(&trigger_name)
-                                            .await?
-                                        {
-                                            if enabled {
-                                                dal.schedule().enable(schedule.id).await
-                                            } else {
-                                                dal.schedule().disable(schedule.id).await
-                                            }
-                                        } else {
-                                            Ok(())
-                                        }
-                                    }
-                                }
-                                .await;
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
-                                        message: e.to_string(),
-                                    }
-                                }));
-                            });
-                        }
-                        RuntimeMessage::GetTriggerExecutionHistory {
-                            trigger_name,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let dal = runner_clone.dal();
-                                let result = async {
-                                    // Look up schedule by trigger name, then list executions
-                                    let schedule_opt = dal
-                                        .schedule()
-                                        .get_by_trigger_name(&trigger_name)
-                                        .await
-                                        .map_err(|e| {
-                                            crate::executor::WorkflowExecutionError::Configuration {
-                                                message: e.to_string(),
-                                            }
-                                        })?;
-                                    if let Some(schedule) = schedule_opt {
-                                        dal.schedule_execution()
-                                            .list_by_schedule(schedule.id, limit, offset)
-                                            .await
-                                            .map_err(|e| {
-                                                crate::executor::WorkflowExecutionError::Configuration {
-                                                    message: e.to_string(),
-                                                }
-                                            })
-                                    } else {
-                                        Ok(vec![])
-                                    }
-                                }
-                                .await;
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::Shutdown => {
-                            break;
-                        }
-                    }
-                }
-            });
-        });
-
-        // Wait for init to complete — propagate errors instead of panicking
-        match init_rx.blocking_recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(msg)) => return Err(PyRuntimeError::new_err(msg)),
-            Err(_) => {
-                return Err(PyRuntimeError::new_err(
-                    "Runtime thread died during initialization",
-                ))
-            }
-        }
-
-        Ok(PyDefaultRunner {
-            runtime_handle: Mutex::new(AsyncRuntimeHandle {
-                tx,
-                thread_handle: Some(thread_handle),
-            }),
+        spawn_runtime(move |rt| {
+            info!(
+                "Creating DefaultRunner with database_url: {}",
+                crate::logging::mask_db_url(&database_url)
+            );
+            rt.block_on(crate::DefaultRunner::new(&database_url))
         })
     }
 
@@ -660,388 +738,24 @@ impl PyDefaultRunner {
     ) -> PyResult<PyDefaultRunner> {
         let database_url = database_url.to_string();
         let rust_config = config.to_rust_config();
-
-        // Create a channel for communicating with the async runtime thread
-        let (tx, mut rx) = mpsc::unbounded_channel::<RuntimeMessage>();
-        let (init_tx, init_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
-
-        // Spawn a dedicated thread for the async runtime
-        let thread_handle = thread::spawn(move || {
-            // Initialize logging in this thread
-            if std::env::var("RUST_LOG").is_ok() {
-                // Try to initialize tracing in this thread
-                let _ = tracing_subscriber::fmt()
-                    .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-                    .try_init();
-            }
-
-            // Create the tokio runtime in the dedicated thread
-            let rt = Runtime::new().expect("Failed to create tokio runtime");
-
-            // Create the DefaultRunner within the async context
-            let runner = rt.block_on(async {
-                crate::DefaultRunner::with_config(&database_url, rust_config).await
-            });
-
-            let runner = match runner {
-                Ok(r) => {
-                    let _ = init_tx.send(Ok(()));
-                    r
-                }
-                Err(e) => {
-                    let _ = init_tx.send(Err(format!("Failed to create DefaultRunner: {}", e)));
-                    return;
-                }
-            };
-
-            let runner = Arc::new(runner);
-
-            // Event loop for processing messages - spawn tasks instead of blocking
-            rt.block_on(async {
-                while let Some(message) = rx.recv().await {
-                    match message {
-                        RuntimeMessage::Execute {
-                            workflow_name,
-                            context,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            // Spawn the execution as a separate task to avoid blocking the message loop
-                            tokio::spawn(async move {
-                                // Execute the workflow in the async runtime
-                                use crate::executor::WorkflowExecutor;
-                                let result = runner_clone.execute(&workflow_name, context).await;
-
-                                // Send response back to the calling thread
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::RegisterCronWorkflow {
-                            workflow_name,
-                            cron_expression,
-                            timezone,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = runner_clone
-                                    .register_cron_workflow(
-                                        &workflow_name,
-                                        &cron_expression,
-                                        &timezone,
-                                    )
-                                    .await
-                                    .map(|uuid| uuid.to_string());
-
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::ListCronSchedules {
-                            enabled_only,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = runner_clone
-                                    .list_cron_schedules(enabled_only, limit, offset)
-                                    .await;
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::SetCronScheduleEnabled {
-                            schedule_id,
-                            enabled,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone
-                                            .set_cron_schedule_enabled(universal_uuid, enabled)
-                                            .await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::DeleteCronSchedule {
-                            schedule_id,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone.delete_cron_schedule(universal_uuid).await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::GetCronSchedule {
-                            schedule_id,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone.get_cron_schedule(universal_uuid).await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::UpdateCronSchedule {
-                            schedule_id,
-                            cron_expression,
-                            timezone,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone
-                                            .update_cron_schedule(
-                                                universal_uuid,
-                                                Some(&cron_expression),
-                                                Some(&timezone),
-                                            )
-                                            .await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::GetCronExecutionHistory {
-                            schedule_id,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone
-                                            .get_cron_execution_history(
-                                                universal_uuid,
-                                                limit,
-                                                offset,
-                                            )
-                                            .await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = runner_clone.get_cron_execution_stats(since).await;
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        // Trigger management messages
-                        RuntimeMessage::ListTriggerSchedules {
-                            enabled_only,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let dal = runner_clone.dal();
-                                let result = if enabled_only {
-                                    dal.schedule().get_enabled_triggers().await
-                                } else {
-                                    dal.schedule()
-                                        .list(Some("trigger"), false, limit, offset)
-                                        .await
-                                };
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
-                                        message: e.to_string(),
-                                    }
-                                }));
-                            });
-                        }
-                        RuntimeMessage::GetTriggerSchedule {
-                            trigger_name,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let dal = runner_clone.dal();
-                                let result =
-                                    dal.schedule().get_by_trigger_name(&trigger_name).await;
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
-                                        message: e.to_string(),
-                                    }
-                                }));
-                            });
-                        }
-                        RuntimeMessage::SetTriggerEnabled {
-                            trigger_name,
-                            enabled,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = async {
-                                    if let Some(scheduler) = runner_clone.unified_scheduler().await
-                                    {
-                                        if enabled {
-                                            scheduler.enable_trigger(&trigger_name).await
-                                        } else {
-                                            scheduler.disable_trigger(&trigger_name).await
-                                        }
-                                    } else {
-                                        // No unified scheduler, use DAL directly
-                                        let dal = runner_clone.dal();
-                                        if let Some(schedule) = dal
-                                            .schedule()
-                                            .get_by_trigger_name(&trigger_name)
-                                            .await?
-                                        {
-                                            if enabled {
-                                                dal.schedule().enable(schedule.id).await
-                                            } else {
-                                                dal.schedule().disable(schedule.id).await
-                                            }
-                                        } else {
-                                            Ok(())
-                                        }
-                                    }
-                                }
-                                .await;
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
-                                        message: e.to_string(),
-                                    }
-                                }));
-                            });
-                        }
-                        RuntimeMessage::GetTriggerExecutionHistory {
-                            trigger_name,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let dal = runner_clone.dal();
-                                let result = async {
-                                    // Look up schedule by trigger name, then list executions
-                                    let schedule_opt = dal
-                                        .schedule()
-                                        .get_by_trigger_name(&trigger_name)
-                                        .await
-                                        .map_err(|e| {
-                                            crate::executor::WorkflowExecutionError::Configuration {
-                                                message: e.to_string(),
-                                            }
-                                        })?;
-                                    if let Some(schedule) = schedule_opt {
-                                        dal.schedule_execution()
-                                            .list_by_schedule(schedule.id, limit, offset)
-                                            .await
-                                            .map_err(|e| {
-                                                crate::executor::WorkflowExecutionError::Configuration {
-                                                    message: e.to_string(),
-                                                }
-                                            })
-                                    } else {
-                                        Ok(vec![])
-                                    }
-                                }
-                                .await;
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::Shutdown => {
-                            break;
-                        }
-                    }
-                }
-            });
-        });
-
-        // Wait for init to complete — propagate errors instead of panicking
-        match init_rx.blocking_recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(msg)) => return Err(PyRuntimeError::new_err(msg)),
-            Err(_) => {
-                return Err(PyRuntimeError::new_err(
-                    "Runtime thread died during initialization",
-                ))
-            }
-        }
-
-        Ok(PyDefaultRunner {
-            runtime_handle: Mutex::new(AsyncRuntimeHandle {
-                tx,
-                thread_handle: Some(thread_handle),
-            }),
+        spawn_runtime(move |rt| {
+            rt.block_on(crate::DefaultRunner::with_config(
+                &database_url,
+                rust_config,
+            ))
         })
     }
 
     /// Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
     ///
-    /// This method enables multi-tenant deployments by using PostgreSQL schemas
-    /// for complete data isolation between tenants. Each tenant gets their own
-    /// schema with independent tables, migrations, and data.
-    ///
-    /// Note: This method requires a PostgreSQL database. SQLite does not support
-    /// database schemas.
+    /// Each tenant gets their own schema with independent tables, migrations,
+    /// and data. Requires a PostgreSQL database.
     ///
     /// # Arguments
     /// * `database_url` - PostgreSQL connection string
     /// * `schema` - Schema name for tenant isolation (alphanumeric + underscores only)
-    ///
-    /// # Returns
-    /// A new DefaultRunner instance configured for the specified tenant schema
-    ///
-    /// # Example
-    /// ```python
-    /// # Create tenant-specific runners
-    /// tenant_a = DefaultRunner.with_schema(
-    ///     "postgresql://user:pass@localhost/db",
-    ///     "tenant_acme"
-    /// )
-    /// tenant_b = DefaultRunner.with_schema(
-    ///     "postgresql://user:pass@localhost/db",
-    ///     "tenant_globex"
-    /// )
-    /// ```
     #[staticmethod]
     pub fn with_schema(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner> {
-        // Runtime check for PostgreSQL - schema-based multi-tenancy requires PostgreSQL
         if !database_url.starts_with("postgres://") && !database_url.starts_with("postgresql://") {
             return Err(PyValueError::new_err(
                 "Schema-based multi-tenancy requires PostgreSQL. \
@@ -1049,14 +763,9 @@ impl PyDefaultRunner {
                  Use a PostgreSQL URL like 'postgres://user:pass@host/db'",
             ));
         }
-
-        info!("Creating DefaultRunner with PostgreSQL schema: {}", schema);
-
-        // Validate schema name format
         if schema.is_empty() {
             return Err(PyValueError::new_err("Schema name cannot be empty"));
         }
-
         if !schema.chars().all(|c| c.is_alphanumeric() || c == '_') {
             return Err(PyValueError::new_err(
                 "Schema name must contain only alphanumeric characters and underscores",
@@ -1065,348 +774,13 @@ impl PyDefaultRunner {
 
         let database_url = database_url.to_string();
         let schema = schema.to_string();
-
-        // Create channel for communication with the async thread
-        let (tx, mut rx) = mpsc::unbounded_channel::<RuntimeMessage>();
-
-        // Try to create the DefaultRunner first to catch errors early
-        let database_url_clone = database_url.clone();
-        let schema_clone = schema.clone();
-
-        // Test the connection and schema creation in a temporary runtime
-        let rt = Runtime::new()
-            .map_err(|e| PyValueError::new_err(format!("Failed to create Tokio runtime: {}", e)))?;
-        let _runner = rt
-            .block_on(async {
-                crate::DefaultRunner::with_schema(&database_url_clone, &schema_clone).await
-            })
-            .map_err(|e| {
-                PyValueError::new_err(format!("Failed to create DefaultRunner with schema: {}", e))
-            })?;
-
-        // If we got here, the creation succeeded, so spawn the background thread
-        let thread_handle = thread::spawn(move || {
-            info!("Starting async runtime thread for schema: {}", schema);
-
-            // Create a new Tokio runtime
-            let rt = Runtime::new().expect("Failed to create Tokio runtime");
-            info!("Tokio runtime created successfully for schema: {}", schema);
-
-            // Create the DefaultRunner with schema within the async context
-            let runner = rt.block_on(async {
-                info!("Creating DefaultRunner with schema: {} and database_url: {}", schema, crate::logging::mask_db_url(&database_url));
-                debug!("About to call crate::DefaultRunner::with_schema()");
-                let runner = crate::DefaultRunner::with_schema(&database_url, &schema).await
-                    .expect("Failed to create DefaultRunner with schema - this should not fail since we tested it above");
-                info!("DefaultRunner with schema created successfully, background services running");
-                runner
-            });
-            info!("DefaultRunner with schema creation completed");
-
-            let runner = Arc::new(runner);
-
-            // Event loop for processing messages - identical to standard runner
-            rt.block_on(async {
-                while let Some(message) = rx.recv().await {
-                    match message {
-                        RuntimeMessage::Execute {
-                            workflow_name,
-                            context,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                use crate::executor::WorkflowExecutor;
-                                let result = runner_clone.execute(&workflow_name, context).await;
-
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::RegisterCronWorkflow {
-                            workflow_name,
-                            cron_expression,
-                            timezone,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = runner_clone
-                                    .register_cron_workflow(
-                                        &workflow_name,
-                                        &cron_expression,
-                                        &timezone,
-                                    )
-                                    .await
-                                    .map(|uuid| uuid.to_string());
-
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::ListCronSchedules {
-                            enabled_only,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = runner_clone
-                                    .list_cron_schedules(enabled_only, limit, offset)
-                                    .await;
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::SetCronScheduleEnabled {
-                            schedule_id,
-                            enabled,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone
-                                            .set_cron_schedule_enabled(universal_uuid, enabled)
-                                            .await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::DeleteCronSchedule {
-                            schedule_id,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone.delete_cron_schedule(universal_uuid).await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::GetCronSchedule {
-                            schedule_id,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone.get_cron_schedule(universal_uuid).await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::UpdateCronSchedule {
-                            schedule_id,
-                            cron_expression,
-                            timezone,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone
-                                            .update_cron_schedule(
-                                                universal_uuid,
-                                                Some(&cron_expression),
-                                                Some(&timezone),
-                                            )
-                                            .await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::GetCronExecutionHistory {
-                            schedule_id,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = match schedule_id.parse::<uuid::Uuid>() {
-                                    Ok(uuid) => {
-                                        let universal_uuid = crate::UniversalUuid::from(uuid);
-                                        runner_clone
-                                            .get_cron_execution_history(
-                                                universal_uuid,
-                                                limit,
-                                                offset,
-                                            )
-                                            .await
-                                    }
-                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
-                                        message: format!("Invalid schedule ID: {}", e),
-                                    }),
-                                };
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = runner_clone.get_cron_execution_stats(since).await;
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        // Trigger management messages
-                        RuntimeMessage::ListTriggerSchedules {
-                            enabled_only,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let dal = runner_clone.dal();
-                                let result = if enabled_only {
-                                    dal.schedule().get_enabled_triggers().await
-                                } else {
-                                    dal.schedule()
-                                        .list(Some("trigger"), false, limit, offset)
-                                        .await
-                                };
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
-                                        message: e.to_string(),
-                                    }
-                                }));
-                            });
-                        }
-                        RuntimeMessage::GetTriggerSchedule {
-                            trigger_name,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let dal = runner_clone.dal();
-                                let result =
-                                    dal.schedule().get_by_trigger_name(&trigger_name).await;
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
-                                        message: e.to_string(),
-                                    }
-                                }));
-                            });
-                        }
-                        RuntimeMessage::SetTriggerEnabled {
-                            trigger_name,
-                            enabled,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let result = async {
-                                    if let Some(scheduler) = runner_clone.unified_scheduler().await
-                                    {
-                                        if enabled {
-                                            scheduler.enable_trigger(&trigger_name).await
-                                        } else {
-                                            scheduler.disable_trigger(&trigger_name).await
-                                        }
-                                    } else {
-                                        // No unified scheduler, use DAL directly
-                                        let dal = runner_clone.dal();
-                                        if let Some(schedule) = dal
-                                            .schedule()
-                                            .get_by_trigger_name(&trigger_name)
-                                            .await?
-                                        {
-                                            if enabled {
-                                                dal.schedule().enable(schedule.id).await
-                                            } else {
-                                                dal.schedule().disable(schedule.id).await
-                                            }
-                                        } else {
-                                            Ok(())
-                                        }
-                                    }
-                                }
-                                .await;
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
-                                        message: e.to_string(),
-                                    }
-                                }));
-                            });
-                        }
-                        RuntimeMessage::GetTriggerExecutionHistory {
-                            trigger_name,
-                            limit,
-                            offset,
-                            response_tx,
-                        } => {
-                            let runner_clone = runner.clone();
-                            tokio::spawn(async move {
-                                let dal = runner_clone.dal();
-                                let result = async {
-                                    // Look up schedule by trigger name, then list executions
-                                    let schedule_opt = dal
-                                        .schedule()
-                                        .get_by_trigger_name(&trigger_name)
-                                        .await
-                                        .map_err(|e| {
-                                            crate::executor::WorkflowExecutionError::Configuration {
-                                                message: e.to_string(),
-                                            }
-                                        })?;
-                                    if let Some(schedule) = schedule_opt {
-                                        dal.schedule_execution()
-                                            .list_by_schedule(schedule.id, limit, offset)
-                                            .await
-                                            .map_err(|e| {
-                                                crate::executor::WorkflowExecutionError::Configuration {
-                                                    message: e.to_string(),
-                                                }
-                                            })
-                                    } else {
-                                        Ok(vec![])
-                                    }
-                                }
-                                .await;
-                                let _ = response_tx.send(result);
-                            });
-                        }
-                        RuntimeMessage::Shutdown => {
-                            info!("Received shutdown message, breaking from event loop");
-                            break;
-                        }
-                    }
-                }
-            });
-
-            info!("Event loop finished, thread ending");
-        });
-
-        // Return the Python wrapper
-        Ok(PyDefaultRunner {
-            runtime_handle: Mutex::new(AsyncRuntimeHandle {
-                tx,
-                thread_handle: Some(thread_handle),
-            }),
+        spawn_runtime(move |rt| {
+            info!(
+                "Creating DefaultRunner with schema: {} and database_url: {}",
+                schema,
+                crate::logging::mask_db_url(&database_url)
+            );
+            rt.block_on(crate::DefaultRunner::with_schema(&database_url, &schema))
         })
     }
 
@@ -1417,53 +791,20 @@ impl PyDefaultRunner {
         context: &PyContext,
         py: Python,
     ) -> PyResult<PyWorkflowResult> {
-        let rust_context = context.clone_inner();
-        let workflow_name = workflow_name.to_string();
-
-        // Create a oneshot channel for the response
         let (response_tx, response_rx) = oneshot::channel();
-
-        // Send the execute message to the async runtime thread
         let message = RuntimeMessage::Execute {
-            workflow_name: workflow_name.clone(),
-            context: rust_context,
+            workflow_name: workflow_name.to_string(),
+            context: context.clone_inner(),
             response_tx,
         };
-
-        // Send message without holding the GIL
-        let result = py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            // Wait for the response
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            result.map_err(|e| PyValueError::new_err(format!("Workflow execution failed: {}", e)))
-        })?;
-
+        let result = self.send_and_recv(message, response_rx, py, "Workflow execution failed")?;
         Ok(PyWorkflowResult::from_result(result))
     }
 
     /// Shutdown the runner and cleanup resources
-    ///
-    /// This method sends a shutdown signal to the async runtime thread and waits
-    /// for it to complete (with a 5-second timeout). Errors during shutdown are
-    /// raised as Python exceptions.
-    ///
-    /// # Raises
-    /// * `ValueError` - If shutdown fails (timeout, thread panic, or channel error)
     pub fn shutdown(&self, py: Python) -> PyResult<()> {
         info!("Starting async runtime shutdown from Python");
-
-        // Release the GIL while waiting for the thread to complete
         let result = py.allow_threads(|| self.runtime_handle.lock().unwrap().shutdown());
-
         match result {
             Ok(()) => {
                 info!("Async runtime shutdown completed successfully");
@@ -1479,24 +820,19 @@ impl PyDefaultRunner {
         }
     }
 
+    // ========================================================================
+    // Cron Management
+    // ========================================================================
+
     /// Register a cron workflow for automatic execution at scheduled times
     ///
     /// # Arguments
     /// * `workflow_name` - Name of the workflow to execute
-    /// * `cron_expression` - Standard cron expression (e.g., "0 2 * * *" for daily at 2 AM)
-    /// * `timezone` - Timezone for cron interpretation (e.g., "UTC", "America/New_York")
+    /// * `cron_expression` - Standard cron expression (e.g., "0 2 * * *")
+    /// * `timezone` - Timezone for cron interpretation (e.g., "UTC")
     ///
     /// # Returns
     /// * Schedule ID as a string
-    ///
-    /// # Examples
-    /// ```python
-    /// # Daily backup at 2 AM UTC
-    /// schedule_id = runner.register_cron_workflow("backup_workflow", "0 2 * * *", "UTC")
-    ///
-    /// # Business hours processing (9 AM - 5 PM, weekdays, Eastern Time)
-    /// schedule_id = runner.register_cron_workflow("business_workflow", "0 9-17 * * 1-5", "America/New_York")
-    /// ```
     pub fn register_cron_workflow(
         &self,
         workflow_name: String,
@@ -1505,30 +841,13 @@ impl PyDefaultRunner {
         py: Python,
     ) -> PyResult<String> {
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::RegisterCronWorkflow {
             workflow_name,
             cron_expression,
             timezone,
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to register cron workflow: {}", e))
-            })
-        })
+        self.send_and_recv(message, response_rx, py, "Failed to register cron workflow")
     }
 
     /// List all cron schedules
@@ -1537,9 +856,6 @@ impl PyDefaultRunner {
     /// * `enabled_only` - If True, only return enabled schedules
     /// * `limit` - Maximum number of schedules to return (default: 100)
     /// * `offset` - Number of schedules to skip (default: 0)
-    ///
-    /// # Returns
-    /// * List of dictionaries containing schedule information
     pub fn list_cron_schedules(
         &self,
         enabled_only: Option<bool>,
@@ -1547,71 +863,22 @@ impl PyDefaultRunner {
         offset: Option<i64>,
         py: Python,
     ) -> PyResult<Vec<PyObject>> {
-        let enabled_only = enabled_only.unwrap_or(false);
-        let limit = limit.unwrap_or(100);
-        let offset = offset.unwrap_or(0);
-
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::ListCronSchedules {
-            enabled_only,
-            limit,
-            offset,
+            enabled_only: enabled_only.unwrap_or(false),
+            limit: limit.unwrap_or(100),
+            offset: offset.unwrap_or(0),
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            let schedules = result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to list cron schedules: {}", e))
-            })?;
-
-            // Convert schedules to Python dictionaries
-            let py_schedules: Result<Vec<PyObject>, PyErr> = schedules
-                .into_iter()
-                .map(|schedule| {
-                    Python::with_gil(|py| {
-                        let dict = pyo3::types::PyDict::new(py);
-                        dict.set_item("id", schedule.id.to_string())?;
-                        dict.set_item("workflow_name", &schedule.workflow_name)?;
-                        dict.set_item(
-                            "cron_expression",
-                            schedule.cron_expression.as_deref().unwrap_or(""),
-                        )?;
-                        dict.set_item("timezone", schedule.timezone.as_deref().unwrap_or("UTC"))?;
-                        dict.set_item("enabled", schedule.enabled.is_true())?;
-                        dict.set_item(
-                            "catchup_policy",
-                            schedule.catchup_policy.as_deref().unwrap_or("skip"),
-                        )?;
-                        dict.set_item("next_run_at", schedule.next_run_at.map(|t| t.to_string()))?;
-                        dict.set_item("last_run_at", schedule.last_run_at.map(|t| t.to_string()))?;
-                        dict.set_item("created_at", schedule.created_at.to_string())?;
-                        dict.set_item("updated_at", schedule.updated_at.to_string())?;
-                        Ok(dict.into())
-                    })
-                })
-                .collect();
-
-            py_schedules
-        })
+        let schedules =
+            self.send_and_recv(message, response_rx, py, "Failed to list cron schedules")?;
+        schedules
+            .into_iter()
+            .map(|s| schedule_to_cron_dict(s, py))
+            .collect()
     }
 
     /// Enable or disable a cron schedule
-    ///
-    /// # Arguments
-    /// * `schedule_id` - Schedule ID to modify
-    /// * `enabled` - True to enable, False to disable
     pub fn set_cron_schedule_enabled(
         &self,
         schedule_id: String,
@@ -1619,122 +886,37 @@ impl PyDefaultRunner {
         py: Python,
     ) -> PyResult<()> {
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::SetCronScheduleEnabled {
             schedule_id,
             enabled,
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to update cron schedule: {}", e))
-            })
-        })
+        self.send_and_recv(message, response_rx, py, "Failed to update cron schedule")
     }
 
     /// Delete a cron schedule
-    ///
-    /// # Arguments
-    /// * `schedule_id` - Schedule ID to delete
     pub fn delete_cron_schedule(&self, schedule_id: String, py: Python) -> PyResult<()> {
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::DeleteCronSchedule {
             schedule_id,
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to delete cron schedule: {}", e))
-            })
-        })
+        self.send_and_recv(message, response_rx, py, "Failed to delete cron schedule")
     }
 
     /// Get details of a specific cron schedule
-    ///
-    /// # Arguments
-    /// * `schedule_id` - Schedule ID to retrieve
-    ///
-    /// # Returns
-    /// * Dictionary containing schedule information
     pub fn get_cron_schedule(&self, schedule_id: String, py: Python) -> PyResult<PyObject> {
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::GetCronSchedule {
             schedule_id,
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            let schedule = result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to get cron schedule: {}", e))
-            })?;
-
-            // Convert schedule to Python dictionary
-            Python::with_gil(|py| {
-                let dict = pyo3::types::PyDict::new(py);
-                dict.set_item("id", schedule.id.to_string())?;
-                dict.set_item("workflow_name", &schedule.workflow_name)?;
-                dict.set_item(
-                    "cron_expression",
-                    schedule.cron_expression.as_deref().unwrap_or(""),
-                )?;
-                dict.set_item("timezone", schedule.timezone.as_deref().unwrap_or("UTC"))?;
-                dict.set_item("enabled", schedule.enabled.is_true())?;
-                dict.set_item(
-                    "catchup_policy",
-                    schedule.catchup_policy.as_deref().unwrap_or("skip"),
-                )?;
-                dict.set_item("next_run_at", schedule.next_run_at.map(|t| t.to_string()))?;
-                dict.set_item("last_run_at", schedule.last_run_at.map(|t| t.to_string()))?;
-                dict.set_item("created_at", schedule.created_at.to_string())?;
-                dict.set_item("updated_at", schedule.updated_at.to_string())?;
-                Ok(dict.into())
-            })
-        })
+        let schedule =
+            self.send_and_recv(message, response_rx, py, "Failed to get cron schedule")?;
+        schedule_to_cron_dict(schedule, py)
     }
 
     /// Update a cron schedule's expression and timezone
-    ///
-    /// # Arguments
-    /// * `schedule_id` - Schedule ID to update
-    /// * `cron_expression` - New cron expression
-    /// * `timezone` - New timezone
     pub fn update_cron_schedule(
         &self,
         schedule_id: String,
@@ -1743,41 +925,16 @@ impl PyDefaultRunner {
         py: Python,
     ) -> PyResult<()> {
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::UpdateCronSchedule {
             schedule_id,
             cron_expression,
             timezone,
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to update cron schedule: {}", e))
-            })
-        })
+        self.send_and_recv(message, response_rx, py, "Failed to update cron schedule")
     }
 
     /// Get execution history for a specific cron schedule
-    ///
-    /// # Arguments
-    /// * `schedule_id` - Schedule ID to get history for
-    /// * `limit` - Maximum number of executions to return (default: 100)
-    /// * `offset` - Number of executions to skip (default: 0)
-    ///
-    /// # Returns
-    /// * List of dictionaries containing execution information
     pub fn get_cron_execution_history(
         &self,
         schedule_id: String,
@@ -1785,123 +942,59 @@ impl PyDefaultRunner {
         offset: Option<i64>,
         py: Python,
     ) -> PyResult<Vec<PyObject>> {
-        let limit = limit.unwrap_or(100);
-        let offset = offset.unwrap_or(0);
-
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::GetCronExecutionHistory {
             schedule_id,
-            limit,
-            offset,
+            limit: limit.unwrap_or(100),
+            offset: offset.unwrap_or(0),
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            let executions = result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to get cron execution history: {}", e))
-            })?;
-
-            // Convert executions to Python dictionaries
-            let py_executions: Result<Vec<PyObject>, PyErr> = executions
-                .into_iter()
-                .map(|execution| {
-                    Python::with_gil(|py| {
-                        let dict = pyo3::types::PyDict::new(py);
-                        dict.set_item("id", execution.id.to_string())?;
-                        dict.set_item("schedule_id", execution.schedule_id.to_string())?;
-                        dict.set_item(
-                            "scheduled_time",
-                            execution.scheduled_time.map(|t| t.to_string()),
-                        )?;
-                        dict.set_item("claimed_at", execution.claimed_at.map(|t| t.to_string()))?;
-                        dict.set_item(
-                            "pipeline_execution_id",
-                            execution.pipeline_execution_id.map(|id| id.to_string()),
-                        )?;
-                        dict.set_item("created_at", execution.created_at.to_string())?;
-                        dict.set_item("updated_at", execution.updated_at.to_string())?;
-                        Ok(dict.into())
-                    })
-                })
-                .collect();
-
-            py_executions
-        })
+        let executions = self.send_and_recv(
+            message,
+            response_rx,
+            py,
+            "Failed to get cron execution history",
+        )?;
+        executions
+            .into_iter()
+            .map(|e| cron_execution_to_dict(e, py))
+            .collect()
     }
 
     /// Get execution statistics for cron schedules
     ///
     /// # Arguments
     /// * `since` - Start time for statistics collection (ISO 8601 string)
-    ///
-    /// # Returns
-    /// * Dictionary containing execution statistics
     pub fn get_cron_execution_stats(&self, since: String, py: Python) -> PyResult<PyObject> {
-        // Parse the since string as ISO 8601 datetime
         let since_dt = chrono::DateTime::parse_from_rfc3339(&since)
             .map_err(|e| PyValueError::new_err(format!("Invalid datetime format: {}", e)))?
             .with_timezone(&chrono::Utc);
 
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::GetCronExecutionStats {
             since: since_dt,
             response_tx,
         };
+        let stats = self.send_and_recv(
+            message,
+            response_rx,
+            py,
+            "Failed to get cron execution stats",
+        )?;
 
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            let stats = result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to get cron execution stats: {}", e))
-            })?;
-
-            // Convert stats to Python dictionary
-            Python::with_gil(|py| {
-                let dict = pyo3::types::PyDict::new(py);
-                dict.set_item("total_executions", stats.total_executions)?;
-                dict.set_item("successful_executions", stats.successful_executions)?;
-                dict.set_item("lost_executions", stats.lost_executions)?;
-                dict.set_item("success_rate", stats.success_rate)?;
-                Ok(dict.into())
-            })
-        })
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("total_executions", stats.total_executions)?;
+        dict.set_item("successful_executions", stats.successful_executions)?;
+        dict.set_item("lost_executions", stats.lost_executions)?;
+        dict.set_item("success_rate", stats.success_rate)?;
+        Ok(dict.into())
     }
 
     // ========================================================================
-    // Trigger Management Methods
+    // Trigger Management
     // ========================================================================
 
     /// List all trigger schedules
-    ///
-    /// # Arguments
-    /// * `enabled_only` - If True, only return enabled triggers
-    /// * `limit` - Maximum number of triggers to return (default: 100)
-    /// * `offset` - Number of triggers to skip (default: 0)
-    ///
-    /// # Returns
-    /// * List of dictionaries containing trigger schedule information
     #[pyo3(signature = (enabled_only=None, limit=None, offset=None))]
     pub fn list_trigger_schedules(
         &self,
@@ -1910,128 +1003,41 @@ impl PyDefaultRunner {
         offset: Option<i64>,
         py: Python,
     ) -> PyResult<Vec<PyObject>> {
-        let enabled_only = enabled_only.unwrap_or(false);
-        let limit = limit.unwrap_or(100);
-        let offset = offset.unwrap_or(0);
-
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::ListTriggerSchedules {
-            enabled_only,
-            limit,
-            offset,
+            enabled_only: enabled_only.unwrap_or(false),
+            limit: limit.unwrap_or(100),
+            offset: offset.unwrap_or(0),
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            let schedules = result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to list trigger schedules: {}", e))
-            })?;
-
-            // Convert schedules to Python dictionaries
-            let py_schedules: Result<Vec<PyObject>, PyErr> = schedules
-                .into_iter()
-                .map(|schedule| {
-                    Python::with_gil(|py| {
-                        let dict = pyo3::types::PyDict::new(py);
-                        dict.set_item("id", schedule.id.to_string())?;
-                        dict.set_item(
-                            "trigger_name",
-                            schedule.trigger_name.as_deref().unwrap_or(""),
-                        )?;
-                        dict.set_item("workflow_name", &schedule.workflow_name)?;
-                        dict.set_item("poll_interval_ms", schedule.poll_interval_ms.unwrap_or(0))?;
-                        dict.set_item("allow_concurrent", schedule.allows_concurrent())?;
-                        dict.set_item("enabled", schedule.enabled.is_true())?;
-                        dict.set_item(
-                            "last_poll_at",
-                            schedule.last_poll_at.map(|t| t.to_string()),
-                        )?;
-                        dict.set_item("created_at", schedule.created_at.to_string())?;
-                        dict.set_item("updated_at", schedule.updated_at.to_string())?;
-                        Ok(dict.into())
-                    })
-                })
-                .collect();
-
-            py_schedules
-        })
+        let schedules =
+            self.send_and_recv(message, response_rx, py, "Failed to list trigger schedules")?;
+        schedules
+            .into_iter()
+            .map(|s| schedule_to_trigger_dict(s, py))
+            .collect()
     }
 
     /// Get details of a specific trigger schedule
-    ///
-    /// # Arguments
-    /// * `trigger_name` - Name of the trigger to retrieve
-    ///
-    /// # Returns
-    /// * Dictionary containing trigger schedule information, or None if not found
     pub fn get_trigger_schedule(
         &self,
         trigger_name: String,
         py: Python,
     ) -> PyResult<Option<PyObject>> {
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::GetTriggerSchedule {
             trigger_name,
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            let schedule_opt = result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to get trigger schedule: {}", e))
-            })?;
-
-            // Convert schedule to Python dictionary if present
-            match schedule_opt {
-                Some(schedule) => Python::with_gil(|py| {
-                    let dict = pyo3::types::PyDict::new(py);
-                    dict.set_item("id", schedule.id.to_string())?;
-                    dict.set_item(
-                        "trigger_name",
-                        schedule.trigger_name.as_deref().unwrap_or(""),
-                    )?;
-                    dict.set_item("workflow_name", &schedule.workflow_name)?;
-                    dict.set_item("poll_interval_ms", schedule.poll_interval_ms.unwrap_or(0))?;
-                    dict.set_item("allow_concurrent", schedule.allows_concurrent())?;
-                    dict.set_item("enabled", schedule.enabled.is_true())?;
-                    dict.set_item("last_poll_at", schedule.last_poll_at.map(|t| t.to_string()))?;
-                    dict.set_item("created_at", schedule.created_at.to_string())?;
-                    dict.set_item("updated_at", schedule.updated_at.to_string())?;
-                    Ok(Some(dict.into()))
-                }),
-                None => Ok(None),
-            }
-        })
+        let schedule_opt =
+            self.send_and_recv(message, response_rx, py, "Failed to get trigger schedule")?;
+        match schedule_opt {
+            Some(schedule) => Ok(Some(schedule_to_trigger_dict(schedule, py)?)),
+            None => Ok(None),
+        }
     }
 
     /// Enable or disable a trigger
-    ///
-    /// # Arguments
-    /// * `trigger_name` - Name of the trigger to modify
-    /// * `enabled` - True to enable, False to disable
     pub fn set_trigger_enabled(
         &self,
         trigger_name: String,
@@ -2039,38 +1045,15 @@ impl PyDefaultRunner {
         py: Python,
     ) -> PyResult<()> {
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::SetTriggerEnabled {
             trigger_name,
             enabled,
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            result.map_err(|e| PyValueError::new_err(format!("Failed to update trigger: {}", e)))
-        })
+        self.send_and_recv(message, response_rx, py, "Failed to update trigger")
     }
 
     /// Get execution history for a specific trigger
-    ///
-    /// # Arguments
-    /// * `trigger_name` - Name of the trigger to get history for
-    /// * `limit` - Maximum number of executions to return (default: 100)
-    /// * `offset` - Number of executions to skip (default: 0)
-    ///
-    /// # Returns
-    /// * List of dictionaries containing execution information
     #[pyo3(signature = (trigger_name, limit=None, offset=None))]
     pub fn get_trigger_execution_history(
         &self,
@@ -2079,73 +1062,37 @@ impl PyDefaultRunner {
         offset: Option<i64>,
         py: Python,
     ) -> PyResult<Vec<PyObject>> {
-        let limit = limit.unwrap_or(100);
-        let offset = offset.unwrap_or(0);
-
         let (response_tx, response_rx) = oneshot::channel();
-
         let message = RuntimeMessage::GetTriggerExecutionHistory {
             trigger_name,
-            limit,
-            offset,
+            limit: limit.unwrap_or(100),
+            offset: offset.unwrap_or(0),
             response_tx,
         };
-
-        py.allow_threads(|| {
-            self.runtime_handle
-                .lock()
-                .unwrap()
-                .tx
-                .send(message)
-                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
-
-            let result = response_rx.blocking_recv().map_err(|_| {
-                PyValueError::new_err("Failed to receive response from runtime thread")
-            })?;
-
-            let executions = result.map_err(|e| {
-                PyValueError::new_err(format!("Failed to get trigger execution history: {}", e))
-            })?;
-
-            // Convert executions to Python dictionaries
-            let py_executions: Result<Vec<PyObject>, PyErr> = executions
-                .into_iter()
-                .map(|execution| {
-                    Python::with_gil(|py| {
-                        let dict = pyo3::types::PyDict::new(py);
-                        dict.set_item("id", execution.id.to_string())?;
-                        dict.set_item("schedule_id", execution.schedule_id.to_string())?;
-                        dict.set_item("context_hash", execution.context_hash.as_deref())?;
-                        dict.set_item(
-                            "pipeline_execution_id",
-                            execution.pipeline_execution_id.map(|id| id.to_string()),
-                        )?;
-                        dict.set_item("started_at", execution.started_at.to_string())?;
-                        dict.set_item(
-                            "completed_at",
-                            execution.completed_at.map(|t| t.to_string()),
-                        )?;
-                        dict.set_item("created_at", execution.created_at.to_string())?;
-                        Ok(dict.into())
-                    })
-                })
-                .collect();
-
-            py_executions
-        })
+        let executions = self.send_and_recv(
+            message,
+            response_rx,
+            py,
+            "Failed to get trigger execution history",
+        )?;
+        executions
+            .into_iter()
+            .map(|e| trigger_execution_to_dict(e, py))
+            .collect()
     }
 
-    /// String representation
+    // ========================================================================
+    // Lifecycle
+    // ========================================================================
+
     pub fn __repr__(&self) -> String {
         "DefaultRunner(thread_separated_async_runtime)".to_string()
     }
 
-    /// Context manager entry
     pub fn __enter__(slf: PyRef<Self>) -> PyRef<Self> {
         slf
     }
 
-    /// Context manager exit - automatically shutdown
     pub fn __exit__(
         &self,
         py: Python,
@@ -2155,12 +1102,6 @@ impl PyDefaultRunner {
     ) -> PyResult<bool> {
         self.shutdown(py)?;
         Ok(false) // Don't suppress exceptions
-    }
-}
-
-impl PyWorkflowResult {
-    pub fn from_result(result: crate::executor::WorkflowExecutionResult) -> Self {
-        PyWorkflowResult { inner: result }
     }
 }
 
@@ -2183,7 +1124,6 @@ mod tests {
     #[serial]
     fn test_runner_repr() {
         pyo3::prepare_freethreaded_python();
-        // Create runner with SQLite (lighter weight, no Postgres needed)
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
         assert_eq!(
             runner.__repr__(),
@@ -2207,13 +1147,11 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
             let runner = Py::new(py, PyDefaultRunner::new(&unique_sqlite_url()).unwrap()).unwrap();
-            // __enter__ returns self
             let entered = PyDefaultRunner::__enter__(runner.borrow(py));
             assert_eq!(
                 entered.__repr__(),
                 "DefaultRunner(thread_separated_async_runtime)"
             );
-            // __exit__ shuts down
             let result = runner.borrow(py).__exit__(py, None, None, None);
             assert!(result.is_ok());
         });
@@ -2254,7 +1192,6 @@ mod tests {
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
         Python::with_gil(|py| {
             let result = runner.get_trigger_schedule("nonexistent".to_string(), py);
-            // Should return Ok(None) or Ok with empty result
             assert!(result.is_ok());
             assert!(result.unwrap().is_none());
             runner.shutdown(py).unwrap();
@@ -2268,7 +1205,6 @@ mod tests {
         let url = unique_sqlite_url();
         let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
         Python::with_gil(|py| {
-            // Register a cron workflow — should return a schedule ID string
             let schedule_id = runner
                 .register_cron_workflow(
                     "test-cron-wf".to_string(),
@@ -2278,9 +1214,7 @@ mod tests {
                 )
                 .expect("register_cron_workflow should succeed");
             assert!(!schedule_id.is_empty());
-            // Should be a valid UUID
             assert!(uuid::Uuid::parse_str(&schedule_id).is_ok());
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2292,7 +1226,6 @@ mod tests {
         let url = unique_sqlite_url();
         let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
         Python::with_gil(|py| {
-            // Register a workflow
             runner
                 .register_cron_workflow(
                     "list-test-wf".to_string(),
@@ -2302,12 +1235,10 @@ mod tests {
                 )
                 .unwrap();
 
-            // List should now have one schedule
             let schedules = runner
                 .list_cron_schedules(None, None, None, py)
                 .expect("list should succeed");
             assert_eq!(schedules.len(), 1);
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2331,9 +1262,7 @@ mod tests {
             let schedule_obj = runner
                 .get_cron_schedule(schedule_id, py)
                 .expect("get should succeed");
-            // Should be a PyDict
             assert!(!schedule_obj.is_none(py));
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2354,16 +1283,12 @@ mod tests {
                 )
                 .unwrap();
 
-            // Disable
             runner
                 .set_cron_schedule_enabled(schedule_id.clone(), false, py)
                 .expect("disable should succeed");
-
-            // Re-enable
             runner
                 .set_cron_schedule_enabled(schedule_id, true, py)
                 .expect("enable should succeed");
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2388,10 +1313,8 @@ mod tests {
                 .delete_cron_schedule(schedule_id, py)
                 .expect("delete should succeed");
 
-            // List should now be empty
             let schedules = runner.list_cron_schedules(None, None, None, py).unwrap();
             assert!(schedules.is_empty());
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2420,7 +1343,6 @@ mod tests {
                     py,
                 )
                 .expect("update should succeed");
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2445,7 +1367,6 @@ mod tests {
                 .get_cron_execution_history(schedule_id, None, None, py)
                 .expect("history should succeed");
             assert!(history.is_empty());
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2462,7 +1383,6 @@ mod tests {
                 .get_cron_execution_stats(since.to_rfc3339(), py)
                 .expect("stats should succeed");
             assert!(!stats.is_none(py));
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2476,7 +1396,6 @@ mod tests {
         Python::with_gil(|py| {
             let result = runner.set_cron_schedule_enabled("not-a-uuid".to_string(), false, py);
             assert!(result.is_err());
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2488,11 +1407,8 @@ mod tests {
         let url = unique_sqlite_url();
         let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
         Python::with_gil(|py| {
-            // Enabling a nonexistent trigger — should error or succeed gracefully
             let result = runner.set_trigger_enabled("nonexistent".to_string(), true, py);
-            // Either way, runner shouldn't crash
             let _ = result;
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2506,9 +1422,7 @@ mod tests {
         Python::with_gil(|py| {
             let history =
                 runner.get_trigger_execution_history("nonexistent".to_string(), None, None, py);
-            // Should return empty or error, not crash
             let _ = history;
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2584,7 +1498,6 @@ mod tests {
                 result.is_err(),
                 "Execute of nonexistent workflow should error"
             );
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2594,7 +1507,6 @@ mod tests {
     fn test_runner_execute_registered_workflow() {
         pyo3::prepare_freethreaded_python();
 
-        // Register a simple workflow
         use async_trait::async_trait;
         use std::sync::Arc;
 
@@ -2636,9 +1548,7 @@ mod tests {
             assert!(result.is_ok(), "Execute should succeed: {:?}", result.err());
 
             let pipeline_result = result.unwrap();
-            // Should have a status (may be Completed or Pending depending on timing)
             assert!(!pipeline_result.status().is_empty());
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2652,7 +1562,6 @@ mod tests {
         Python::with_gil(|py| {
             let result = runner.get_cron_execution_stats("not-a-date".to_string(), py);
             assert!(result.is_err(), "Invalid date should error");
-
             runner.shutdown(py).unwrap();
         });
     }
@@ -2664,7 +1573,6 @@ mod tests {
         let url = unique_sqlite_url();
         let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
         Python::with_gil(|py| {
-            // Register a schedule and disable it
             let id = runner
                 .register_cron_workflow(
                     "filter-test".to_string(),
@@ -2675,7 +1583,6 @@ mod tests {
                 .unwrap();
             runner.set_cron_schedule_enabled(id, false, py).unwrap();
 
-            // List with enabled_only=true should return empty
             let enabled = runner
                 .list_cron_schedules(Some(true), None, None, py)
                 .unwrap();
@@ -2684,12 +1591,10 @@ mod tests {
                 "disabled schedule should be filtered out"
             );
 
-            // List without filter should return one
             let all = runner
                 .list_cron_schedules(Some(false), None, None, py)
                 .unwrap();
             assert_eq!(all.len(), 1);
-
             runner.shutdown(py).unwrap();
         });
     }
