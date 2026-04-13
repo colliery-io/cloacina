@@ -4,15 +4,15 @@ level: task
 title: "Extend Runtime to cover all global registries"
 short_code: "CLOACI-T-0484"
 created_at: 2026-04-11T14:49:52.454121+00:00
-updated_at: 2026-04-11T14:49:52.454121+00:00
-parent:
+updated_at: 2026-04-13T01:52:08.289621+00:00
+parent: 
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -36,6 +36,12 @@ EVO-002, EVO-008 (REC-014). Pragmatic first step toward eliminating global mutab
 
 ### Priority
 - [x] P2 - Medium (nice to have)
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

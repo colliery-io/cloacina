@@ -4,7 +4,7 @@ level: task
 title: "Wire signature verification in upload handler and harden server defaults"
 short_code: "CLOACI-T-0475"
 created_at: 2026-04-11T13:42:55.253374+00:00
-updated_at: 2026-04-13T00:03:35.033187+00:00
+updated_at: 2026-04-13T00:10:49.804659+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -41,6 +41,8 @@ SEC-002, SEC-005 (from architecture review `review/10-recommendations.md` REC-00
 - **Current Problems**: `require_signatures: true` blanket-rejects all uploads (TODO in handler) instead of verifying. No CLI/config path to enable it. Server defaults to `0.0.0.0:8080` (all interfaces, no TLS). Vestigial `tower_governor` dep and dead `TOO_MANY_REQUESTS` error variant from removed rate limiting.
 - **Benefits of Fixing**: Operators who need signature verification can actually use it. Server doesn't accidentally expose on all interfaces. Dead code removed.
 - **Risk Assessment**: Low risk — default remains `require_signatures: false` (intentional for high-trust environments). Bind address change only affects new deployments.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

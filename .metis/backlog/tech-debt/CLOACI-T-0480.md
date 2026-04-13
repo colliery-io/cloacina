@@ -4,15 +4,15 @@ level: task
 title: "Remove stub Python start/stop methods and fix runner error propagation"
 short_code: "CLOACI-T-0480"
 created_at: 2026-04-11T14:49:48.669569+00:00
-updated_at: 2026-04-11T14:49:48.669569+00:00
-parent:
+updated_at: 2026-04-13T02:07:56.034453+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -36,6 +36,12 @@ API-001, API-009 (REC-009)
 
 ### Priority
 - [x] P2 - Medium (nice to have)
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
