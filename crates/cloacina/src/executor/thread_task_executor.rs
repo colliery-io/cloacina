@@ -246,7 +246,7 @@ impl ThreadTaskExecutor {
                 dependencies.len(),
                 dependencies
             );
-            if let Ok(dep_metadata_with_contexts) = self
+            let dep_metadata_with_contexts = self
                 .dal
                 .task_execution_metadata()
                 .get_dependency_metadata_with_contexts(
@@ -254,42 +254,46 @@ impl ThreadTaskExecutor {
                     dependencies,
                 )
                 .await
-            {
-                debug!(
-                    "Found {} dependency metadata records",
-                    dep_metadata_with_contexts.len()
-                );
-                for (_task_metadata, context_json) in dep_metadata_with_contexts {
-                    if let Some(json_str) = context_json {
-                        // Parse the JSON context data
-                        if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
-                            debug!(
-                                "Merging dependency context with {} keys: {:?}",
-                                dep_context.data().len(),
-                                dep_context.data().keys().collect::<Vec<_>>()
-                            );
-                            // Merge context data (smart merging strategy)
-                            for (key, value) in dep_context.data() {
-                                if let Some(existing_value) = context.get(key) {
-                                    // Key exists - perform smart merging
-                                    let merged_value =
-                                        Self::merge_context_values(existing_value, value);
-                                    let _ = context.update(key, merged_value);
-                                } else {
-                                    // Key doesn't exist - insert new value
-                                    let _ = context.insert(key, value.clone());
-                                }
+                .map_err(|e| {
+                    error!(
+                        "Failed to load dependency contexts for task '{}': {}",
+                        claimed_task.task_name, e
+                    );
+                    ExecutorError::ContextLoadFailed(format!(
+                        "dependency context load failed for '{}': {}",
+                        claimed_task.task_name, e
+                    ))
+                })?;
+
+            debug!(
+                "Found {} dependency metadata records",
+                dep_metadata_with_contexts.len()
+            );
+            for (_task_metadata, context_json) in dep_metadata_with_contexts {
+                if let Some(json_str) = context_json {
+                    // Parse the JSON context data
+                    if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
+                        debug!(
+                            "Merging dependency context with {} keys: {:?}",
+                            dep_context.data().len(),
+                            dep_context.data().keys().collect::<Vec<_>>()
+                        );
+                        // Merge context data (smart merging strategy)
+                        for (key, value) in dep_context.data() {
+                            if let Some(existing_value) = context.get(key) {
+                                // Key exists - perform smart merging
+                                let merged_value =
+                                    Self::merge_context_values(existing_value, value);
+                                let _ = context.update(key, merged_value);
+                            } else {
+                                // Key doesn't exist - insert new value
+                                let _ = context.insert(key, value.clone());
                             }
-                        } else {
-                            debug!("Failed to parse dependency context JSON");
                         }
+                    } else {
+                        debug!("Failed to parse dependency context JSON");
                     }
                 }
-            } else {
-                debug!(
-                    "Failed to load dependency metadata for dependencies: {:?}",
-                    dependencies
-                );
             }
         }
 

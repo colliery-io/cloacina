@@ -295,6 +295,9 @@ pub enum ExecutorError {
 
     #[error("Validation error: {0}")]
     Validation(#[from] ValidationError),
+
+    #[error("Context load failed: {0}")]
+    ContextLoadFailed(String),
 }
 
 impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ExecutorError {
