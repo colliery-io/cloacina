@@ -487,62 +487,52 @@ impl ThreadTaskExecutor {
     ///
     /// # Returns
     /// Result indicating success or failure of the operation
-    async fn mark_task_completed(
-        &self,
-        task_execution_id: UniversalUuid,
-    ) -> Result<(), ExecutorError> {
-        // Get task info for logging before updating
-        let task = self
-            .dal
-            .task_execution()
-            .get_by_id(task_execution_id)
-            .await?;
-
-        self.dal
-            .task_execution()
-            .mark_completed(task_execution_id)
-            .await?;
-
-        info!(
-            "Task state change: {} -> Completed (task: {}, pipeline: {})",
-            task.status, task.task_name, task.pipeline_execution_id
-        );
-        Ok(())
-    }
-
-    /// Completes a task by saving its context and marking it as completed.
+    /// Completes a task by marking it as completed (with claim guard) then saving context.
     ///
-    /// These two operations (context save + status update) are performed sequentially.
-    /// If context save succeeds but mark_completed fails, the error is logged at
-    /// ERROR level with the context_id so the inconsistency can be diagnosed. The
-    /// stale claim sweeper will eventually reset the task to Ready, but the context
-    /// is already persisted and will not be lost.
-    ///
-    /// # Arguments
-    /// * `claimed_task` - The task to complete
-    /// * `context` - The execution context to save
-    ///
-    /// # Returns
-    /// Result indicating success or failure of the operation
+    /// Order: mark_completed first (guarded by claimed_by), then save context. If the
+    /// claim was lost, context is NOT saved — another runner owns this task.
     async fn complete_task_transaction(
         &self,
         claimed_task: &ClaimedTask,
         context: Context<serde_json::Value>,
     ) -> Result<(), ExecutorError> {
-        // Save context and update metadata first (idempotent via upsert)
-        self.save_task_context(claimed_task, context).await?;
+        let runner_id = if self.config.enable_claiming {
+            Some(self.instance_id)
+        } else {
+            None
+        };
 
-        // Mark task as completed — if this fails after context save, log critically
-        if let Err(e) = self
-            .mark_task_completed(claimed_task.task_execution_id)
-            .await
-        {
+        // Mark completed first — guarded by claim ownership
+        let applied = self
+            .dal
+            .task_execution()
+            .mark_completed(claimed_task.task_execution_id, runner_id)
+            .await?;
+
+        if !applied {
+            warn!(
+                task_id = %claimed_task.task_execution_id,
+                task_name = %claimed_task.task_name,
+                "Claim lost — skipping context save, another runner owns this task"
+            );
+            return Ok(());
+        }
+
+        info!(
+            task_id = %claimed_task.task_execution_id,
+            task_name = %claimed_task.task_name,
+            pipeline_id = %claimed_task.pipeline_execution_id,
+            "Task state change: -> Completed"
+        );
+
+        // Save context only after confirming we still own the claim
+        if let Err(e) = self.save_task_context(claimed_task, context).await {
             error!(
                 task_id = %claimed_task.task_execution_id,
                 task_name = %claimed_task.task_name,
                 pipeline_id = %claimed_task.pipeline_execution_id,
                 error = %e,
-                "CRITICAL: Context saved but mark_completed failed — task may be re-executed by stale claim sweeper"
+                "CRITICAL: mark_completed succeeded but context save failed"
             );
             return Err(e);
         }
@@ -564,6 +554,12 @@ impl ThreadTaskExecutor {
         task_execution_id: UniversalUuid,
         error: &ExecutorError,
     ) -> Result<(), ExecutorError> {
+        let runner_id = if self.config.enable_claiming {
+            Some(self.instance_id)
+        } else {
+            None
+        };
+
         // Get task info for logging before updating
         let task = self
             .dal
@@ -571,15 +567,23 @@ impl ThreadTaskExecutor {
             .get_by_id(task_execution_id)
             .await?;
 
-        self.dal
+        let applied = self
+            .dal
             .task_execution()
-            .mark_failed(task_execution_id, &error.to_string())
+            .mark_failed(task_execution_id, &error.to_string(), runner_id)
             .await?;
 
-        error!(
-            "Task state change: {} -> Failed (task: {}, pipeline: {}, error: {})",
-            task.status, task.task_name, task.pipeline_execution_id, error
-        );
+        if applied {
+            error!(
+                "Task state change: {} -> Failed (task: {}, pipeline: {}, error: {})",
+                task.status, task.task_name, task.pipeline_execution_id, error
+            );
+        } else {
+            warn!(
+                task_id = %task_execution_id,
+                "Claim lost — mark_failed skipped, another runner owns this task"
+            );
+        }
 
         Ok(())
     }
@@ -806,6 +810,13 @@ impl TaskExecutor for ThreadTaskExecutor {
             .await
             .map_err(|_| DispatchError::ExecutorNotFound("semaphore closed".into()))?;
 
+        // Compute runner_id for claim-guarded state transitions
+        let claim_runner_id = if self.config.enable_claiming {
+            Some(self.instance_id)
+        } else {
+            None
+        };
+
         // Convert TaskReadyEvent to ClaimedTask format
         let claimed_task = ClaimedTask {
             task_execution_id: event.task_execution_id,
@@ -823,7 +834,7 @@ impl TaskExecutor for ThreadTaskExecutor {
                 let _ = self
                     .dal
                     .task_execution()
-                    .mark_failed(event.task_execution_id, &error_msg)
+                    .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
                     .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
@@ -841,7 +852,7 @@ impl TaskExecutor for ThreadTaskExecutor {
                 let _ = self
                     .dal
                     .task_execution()
-                    .mark_failed(event.task_execution_id, &error_msg)
+                    .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
                     .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
@@ -861,7 +872,7 @@ impl TaskExecutor for ThreadTaskExecutor {
                 let _ = self
                     .dal
                     .task_execution()
-                    .mark_failed(event.task_execution_id, &error_msg)
+                    .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
                     .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
@@ -952,7 +963,7 @@ impl TaskExecutor for ThreadTaskExecutor {
                         let _ = self
                             .dal
                             .task_execution()
-                            .mark_failed(event.task_execution_id, &error_msg)
+                            .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
                             .await;
                         Ok(ExecutionResult::failure(
                             event.task_execution_id,
@@ -991,7 +1002,7 @@ impl TaskExecutor for ThreadTaskExecutor {
                     let _ = self
                         .dal
                         .task_execution()
-                        .mark_failed(event.task_execution_id, &error.to_string())
+                        .mark_failed(event.task_execution_id, &error.to_string(), claim_runner_id)
                         .await;
                     Ok(ExecutionResult::failure(
                         event.task_execution_id,

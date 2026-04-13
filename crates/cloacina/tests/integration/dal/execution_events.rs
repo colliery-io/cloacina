@@ -158,7 +158,7 @@ async fn test_dal_emits_events_on_state_transitions() {
 
         // Mark task completed - should emit TaskCompleted event
         dal.task_execution()
-            .mark_completed(task.id)
+            .mark_completed(task.id, None)
             .await
             .expect("Failed to mark completed");
 

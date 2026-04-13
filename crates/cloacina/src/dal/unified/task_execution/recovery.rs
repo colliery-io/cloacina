@@ -447,7 +447,7 @@ mod tests {
 
         // A regular failure (not ABANDONED) should NOT trigger pipeline failure check
         dal.task_execution()
-            .mark_failed(task_id, "something broke")
+            .mark_failed(task_id, "something broke", None)
             .await
             .unwrap();
 

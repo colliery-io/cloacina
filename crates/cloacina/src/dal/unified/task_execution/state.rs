@@ -34,16 +34,28 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
-    pub async fn mark_completed(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+    ///
+    /// When `runner_id` is `Some`, the update is guarded by a `WHERE claimed_by = runner_id`
+    /// filter. Returns `false` if the claim was lost (another runner owns the task).
+    /// When `runner_id` is `None`, no claim guard is applied (for non-claiming callers).
+    pub async fn mark_completed(
+        &self,
+        task_id: UniversalUuid,
+        runner_id: Option<UniversalUuid>,
+    ) -> Result<bool, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.mark_completed_postgres(task_id).await,
-            self.mark_completed_sqlite(task_id).await
+            self.mark_completed_postgres(task_id, runner_id).await,
+            self.mark_completed_sqlite(task_id, runner_id).await
         )
     }
 
     #[cfg(feature = "postgres")]
-    async fn mark_completed_postgres(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+    async fn mark_completed_postgres(
+        &self,
+        task_id: UniversalUuid,
+        runner_id: Option<UniversalUuid>,
+    ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
         let conn = self
@@ -53,48 +65,66 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
+        let applied = conn
+            .interact(move |conn| {
+                conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+                    let now = UniversalTimestamp::now();
 
-                // Get task info for event
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
+                    // Get task info for event
+                    let task: UnifiedTaskExecution =
+                        task_executions::table.find(task_id).first(conn)?;
 
-                // Update task status
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
+                    // Update task status — guarded by claimed_by when runner_id provided
+                    let set_clause = (
                         task_executions::status.eq("Completed"),
                         task_executions::completed_at.eq(Some(now)),
                         task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
+                    );
+                    let rows = if let Some(rid) = runner_id {
+                        diesel::update(
+                            task_executions::table
+                                .find(task_id)
+                                .filter(task_executions::claimed_by.eq(Some(rid))),
+                        )
+                        .set(set_clause)
+                        .execute(conn)?
+                    } else {
+                        diesel::update(task_executions::table.find(task_id))
+                            .set(set_clause)
+                            .execute(conn)?
+                    };
 
-                // Insert execution event
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
-                    task_execution_id: Some(task_id),
-                    event_type: ExecutionEventType::TaskCompleted.as_str().to_string(),
-                    event_data: None,
-                    worker_id: None,
-                    created_at: now,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
+                    // Only insert event if the update was applied
+                    if rows > 0 {
+                        let event = NewUnifiedExecutionEvent {
+                            id: UniversalUuid::new_v4(),
+                            pipeline_execution_id: task.pipeline_execution_id,
+                            task_execution_id: Some(task_id),
+                            event_type: ExecutionEventType::TaskCompleted.as_str().to_string(),
+                            event_data: None,
+                            worker_id: None,
+                            created_at: now,
+                        };
+                        diesel::insert_into(execution_events::table)
+                            .values(&event)
+                            .execute(conn)?;
+                    }
 
-                Ok(())
+                    Ok(rows > 0)
+                })
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(())
+        Ok(applied)
     }
 
     #[cfg(feature = "sqlite")]
-    async fn mark_completed_sqlite(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+    async fn mark_completed_sqlite(
+        &self,
+        task_id: UniversalUuid,
+        runner_id: Option<UniversalUuid>,
+    ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
         let conn = self
@@ -104,59 +134,80 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
+        let applied = conn
+            .interact(move |conn| {
+                conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+                    let now = UniversalTimestamp::now();
 
-                // Get task info for event
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
+                    // Get task info for event
+                    let task: UnifiedTaskExecution =
+                        task_executions::table.find(task_id).first(conn)?;
 
-                // Update task status
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
+                    // Update task status — guarded by claimed_by when runner_id provided
+                    let set_clause = (
                         task_executions::status.eq("Completed"),
                         task_executions::completed_at.eq(Some(now)),
                         task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
+                    );
+                    let rows = if let Some(rid) = runner_id {
+                        diesel::update(
+                            task_executions::table
+                                .find(task_id)
+                                .filter(task_executions::claimed_by.eq(Some(rid))),
+                        )
+                        .set(set_clause)
+                        .execute(conn)?
+                    } else {
+                        diesel::update(task_executions::table.find(task_id))
+                            .set(set_clause)
+                            .execute(conn)?
+                    };
 
-                // Insert execution event
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
-                    task_execution_id: Some(task_id),
-                    event_type: ExecutionEventType::TaskCompleted.as_str().to_string(),
-                    event_data: None,
-                    worker_id: None,
-                    created_at: now,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
+                    // Only insert event if the update was applied
+                    if rows > 0 {
+                        let event = NewUnifiedExecutionEvent {
+                            id: UniversalUuid::new_v4(),
+                            pipeline_execution_id: task.pipeline_execution_id,
+                            task_execution_id: Some(task_id),
+                            event_type: ExecutionEventType::TaskCompleted.as_str().to_string(),
+                            event_data: None,
+                            worker_id: None,
+                            created_at: now,
+                        };
+                        diesel::insert_into(execution_events::table)
+                            .values(&event)
+                            .execute(conn)?;
+                    }
 
-                Ok(())
+                    Ok(rows > 0)
+                })
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(())
+        Ok(applied)
     }
 
     /// Marks a task execution as failed with an error message.
     ///
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
+    ///
+    /// When `runner_id` is `Some`, the update is guarded by a `WHERE claimed_by = runner_id`
+    /// filter. Returns `false` if the claim was lost (another runner owns the task).
+    /// When `runner_id` is `None`, no claim guard is applied (for non-claiming callers).
     pub async fn mark_failed(
         &self,
         task_id: UniversalUuid,
         error_message: &str,
-    ) -> Result<(), ValidationError> {
+        runner_id: Option<UniversalUuid>,
+    ) -> Result<bool, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.mark_failed_postgres(task_id, error_message).await,
-            self.mark_failed_sqlite(task_id, error_message).await
+            self.mark_failed_postgres(task_id, error_message, runner_id)
+                .await,
+            self.mark_failed_sqlite(task_id, error_message, runner_id)
+                .await
         )
     }
 
@@ -165,7 +216,8 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         task_id: UniversalUuid,
         error_message: &str,
-    ) -> Result<(), ValidationError> {
+        runner_id: Option<UniversalUuid>,
+    ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
         let conn = self
@@ -176,46 +228,60 @@ impl<'a> TaskExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let error_message = error_message.to_string();
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
+        let applied = conn
+            .interact(move |conn| {
+                conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+                    let now = UniversalTimestamp::now();
 
-                // Get task info for event
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
+                    // Get task info for event
+                    let task: UnifiedTaskExecution =
+                        task_executions::table.find(task_id).first(conn)?;
 
-                // Update task status
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
+                    // Update task status — guarded by claimed_by when runner_id provided
+                    let set_clause = (
                         task_executions::status.eq("Failed"),
                         task_executions::completed_at.eq(Some(now)),
                         task_executions::last_error.eq(&error_message),
                         task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
+                    );
+                    let rows = if let Some(rid) = runner_id {
+                        diesel::update(
+                            task_executions::table
+                                .find(task_id)
+                                .filter(task_executions::claimed_by.eq(Some(rid))),
+                        )
+                        .set(set_clause)
+                        .execute(conn)?
+                    } else {
+                        diesel::update(task_executions::table.find(task_id))
+                            .set(set_clause)
+                            .execute(conn)?
+                    };
 
-                // Insert execution event with error details
-                let event_data = serde_json::json!({ "error": error_message }).to_string();
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
-                    task_execution_id: Some(task_id),
-                    event_type: ExecutionEventType::TaskFailed.as_str().to_string(),
-                    event_data: Some(event_data),
-                    worker_id: None,
-                    created_at: now,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
+                    // Only insert event if the update was applied
+                    if rows > 0 {
+                        let event_data = serde_json::json!({ "error": error_message }).to_string();
+                        let event = NewUnifiedExecutionEvent {
+                            id: UniversalUuid::new_v4(),
+                            pipeline_execution_id: task.pipeline_execution_id,
+                            task_execution_id: Some(task_id),
+                            event_type: ExecutionEventType::TaskFailed.as_str().to_string(),
+                            event_data: Some(event_data),
+                            worker_id: None,
+                            created_at: now,
+                        };
+                        diesel::insert_into(execution_events::table)
+                            .values(&event)
+                            .execute(conn)?;
+                    }
 
-                Ok(())
+                    Ok(rows > 0)
+                })
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(())
+        Ok(applied)
     }
 
     #[cfg(feature = "sqlite")]
@@ -223,7 +289,8 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         task_id: UniversalUuid,
         error_message: &str,
-    ) -> Result<(), ValidationError> {
+        runner_id: Option<UniversalUuid>,
+    ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
         let conn = self
@@ -234,46 +301,60 @@ impl<'a> TaskExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let error_message = error_message.to_string();
-        conn.interact(move |conn| {
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let now = UniversalTimestamp::now();
+        let applied = conn
+            .interact(move |conn| {
+                conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+                    let now = UniversalTimestamp::now();
 
-                // Get task info for event
-                let task: UnifiedTaskExecution =
-                    task_executions::table.find(task_id).first(conn)?;
+                    // Get task info for event
+                    let task: UnifiedTaskExecution =
+                        task_executions::table.find(task_id).first(conn)?;
 
-                // Update task status
-                diesel::update(task_executions::table.find(task_id))
-                    .set((
+                    // Update task status — guarded by claimed_by when runner_id provided
+                    let set_clause = (
                         task_executions::status.eq("Failed"),
                         task_executions::completed_at.eq(Some(now)),
                         task_executions::last_error.eq(&error_message),
                         task_executions::updated_at.eq(now),
-                    ))
-                    .execute(conn)?;
+                    );
+                    let rows = if let Some(rid) = runner_id {
+                        diesel::update(
+                            task_executions::table
+                                .find(task_id)
+                                .filter(task_executions::claimed_by.eq(Some(rid))),
+                        )
+                        .set(set_clause)
+                        .execute(conn)?
+                    } else {
+                        diesel::update(task_executions::table.find(task_id))
+                            .set(set_clause)
+                            .execute(conn)?
+                    };
 
-                // Insert execution event with error details
-                let event_data = serde_json::json!({ "error": error_message }).to_string();
-                let event = NewUnifiedExecutionEvent {
-                    id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
-                    task_execution_id: Some(task_id),
-                    event_type: ExecutionEventType::TaskFailed.as_str().to_string(),
-                    event_data: Some(event_data),
-                    worker_id: None,
-                    created_at: now,
-                };
-                diesel::insert_into(execution_events::table)
-                    .values(&event)
-                    .execute(conn)?;
+                    // Only insert event if the update was applied
+                    if rows > 0 {
+                        let event_data = serde_json::json!({ "error": error_message }).to_string();
+                        let event = NewUnifiedExecutionEvent {
+                            id: UniversalUuid::new_v4(),
+                            pipeline_execution_id: task.pipeline_execution_id,
+                            task_execution_id: Some(task_id),
+                            event_type: ExecutionEventType::TaskFailed.as_str().to_string(),
+                            event_data: Some(event_data),
+                            worker_id: None,
+                            created_at: now,
+                        };
+                        diesel::insert_into(execution_events::table)
+                            .values(&event)
+                            .execute(conn)?;
+                    }
 
-                Ok(())
+                    Ok(rows > 0)
+                })
             })
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(())
+        Ok(applied)
     }
 
     /// Marks a task as ready for execution.
