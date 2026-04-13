@@ -175,12 +175,16 @@ pub async fn run(
     info!("Database: {}", db_path.display());
 
     // 4. Create DefaultRunner with SQLite backend and configured poll intervals
-    let runner_config = DefaultRunnerConfig::builder()
+    let mut config_builder = DefaultRunnerConfig::builder()
         .cron_poll_interval(Duration::from_millis(poll_interval_ms))
-        .cron_max_catchup_executions(daemon_cfg.cron_max_catchup.unwrap_or(u64::MAX) as usize)
         .trigger_base_poll_interval(Duration::from_millis(daemon_cfg.trigger_poll_interval_ms))
-        .cron_recovery_interval(Duration::from_secs(daemon_cfg.cron_recovery_interval_s))
-        .build();
+        .cron_recovery_interval(Duration::from_secs(daemon_cfg.cron_recovery_interval_s));
+    if let Some(max_catchup) = daemon_cfg.cron_max_catchup {
+        config_builder = config_builder.cron_max_catchup_executions(max_catchup as usize);
+    }
+    let runner_config = config_builder
+        .build()
+        .context("Invalid runner configuration")?;
 
     let runner = DefaultRunner::with_config(&db_url, runner_config)
         .await

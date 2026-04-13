@@ -210,7 +210,8 @@ pub async fn run(
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let runner_config = DefaultRunnerConfig::builder()
         .registry_storage_backend("database")
-        .build();
+        .build()
+        .context("Invalid runner configuration")?;
 
     let runner = DefaultRunner::with_config(&database_url, runner_config)
         .await
@@ -647,7 +648,8 @@ mod tests {
     async fn test_state() -> AppState {
         let runner_config = cloacina::runner::DefaultRunnerConfig::builder()
             .registry_storage_backend("database")
-            .build();
+            .build()
+            .expect("test config must be valid");
 
         let runner = cloacina::runner::DefaultRunner::with_config(TEST_DB_URL, runner_config)
             .await

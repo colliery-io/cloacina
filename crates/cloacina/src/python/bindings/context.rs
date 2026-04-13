@@ -63,7 +63,7 @@ impl PyDefaultRunnerConfig {
         cron_lost_threshold_minutes: Option<i32>,
         cron_max_recovery_age_seconds: Option<u64>,
         cron_max_recovery_attempts: Option<usize>,
-    ) -> Self {
+    ) -> pyo3::PyResult<Self> {
         use std::time::Duration;
 
         let mut builder = crate::runner::DefaultRunnerConfig::builder();
@@ -111,9 +111,11 @@ impl PyDefaultRunnerConfig {
             builder = builder.cron_max_recovery_attempts(val);
         }
 
-        PyDefaultRunnerConfig {
-            inner: builder.build(),
-        }
+        Ok(PyDefaultRunnerConfig {
+            inner: builder.build().map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("Invalid configuration: {}", e))
+            })?,
+        })
     }
 
     /// Creates a DefaultRunnerConfig with all default values
@@ -357,7 +359,9 @@ impl PyDefaultRunnerConfig {
             .cron_lost_threshold_minutes(c.cron_lost_threshold_minutes())
             .cron_max_recovery_age(c.cron_max_recovery_age())
             .cron_max_recovery_attempts(c.cron_max_recovery_attempts());
-        apply(builder).build()
+        apply(builder)
+            .build()
+            .expect("rebuild from valid config must succeed")
     }
 }
 
@@ -380,7 +384,8 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let config = PyDefaultRunnerConfig::new(
             None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-        );
+        )
+        .unwrap();
         // Should match ::default()
         let default = PyDefaultRunnerConfig::default();
         assert_eq!(
@@ -411,7 +416,8 @@ mod tests {
             Some(15),
             Some(7200),
             Some(3),
-        );
+        )
+        .unwrap();
         assert_eq!(config.max_concurrent_tasks(), 16);
         assert_eq!(config.scheduler_poll_interval_ms(), 500);
         assert_eq!(config.task_timeout_seconds(), 120);
