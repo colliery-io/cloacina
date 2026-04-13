@@ -659,6 +659,7 @@ mod tests {
                 std::time::Duration::from_secs(60),
             )),
             metrics_handle: test_metrics_handle,
+            tenant_databases: Arc::new(TenantDatabaseCache::new(String::new())),
         }
     }
 

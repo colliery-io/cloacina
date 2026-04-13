@@ -330,3 +330,118 @@ impl WsTicketStore {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_auth(name: &str) -> AuthenticatedKey {
+        AuthenticatedKey {
+            key_id: uuid::Uuid::new_v4(),
+            name: name.to_string(),
+            permissions: "read".to_string(),
+            tenant_id: None,
+            is_admin: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ticket_issue_and_consume() {
+        let store = WsTicketStore::new(Duration::from_secs(60));
+        let auth = make_auth("test-key");
+        let ticket = store.issue(auth.clone()).await;
+
+        let consumed = store.consume(&ticket).await;
+        assert!(consumed.is_some(), "valid ticket should be consumed");
+        assert_eq!(consumed.unwrap().name, "test-key");
+    }
+
+    #[tokio::test]
+    async fn test_ticket_single_use() {
+        let store = WsTicketStore::new(Duration::from_secs(60));
+        let ticket = store.issue(make_auth("key")).await;
+
+        let first = store.consume(&ticket).await;
+        assert!(first.is_some(), "first consume should succeed");
+
+        let second = store.consume(&ticket).await;
+        assert!(second.is_none(), "second consume should fail (single-use)");
+    }
+
+    #[tokio::test]
+    async fn test_ticket_invalid_rejected() {
+        let store = WsTicketStore::new(Duration::from_secs(60));
+        store.issue(make_auth("key")).await;
+
+        let result = store.consume("not-a-real-ticket").await;
+        assert!(result.is_none(), "invalid ticket should be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_ticket_expired_rejected() {
+        let store = WsTicketStore::new(Duration::from_millis(1));
+        let ticket = store.issue(make_auth("key")).await;
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let result = store.consume(&ticket).await;
+        assert!(result.is_none(), "expired ticket should be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_ticket_store_bounded() {
+        let store = WsTicketStore::new(Duration::from_secs(60));
+        // Override max_capacity for testing
+        let store = WsTicketStore {
+            max_capacity: 3,
+            ..store
+        };
+
+        // Issue 4 tickets — store should evict oldest when at capacity
+        let _t1 = store.issue(make_auth("key1")).await;
+        let _t2 = store.issue(make_auth("key2")).await;
+        let _t3 = store.issue(make_auth("key3")).await;
+        let t4 = store.issue(make_auth("key4")).await;
+
+        // Store should have at most 3 entries
+        let count = store.tickets.lock().await.len();
+        assert!(
+            count <= 3,
+            "store should be bounded to max_capacity, got {}",
+            count
+        );
+
+        // Most recent ticket should still be valid
+        let result = store.consume(&t4).await;
+        assert!(
+            result.is_some(),
+            "most recent ticket should survive eviction"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ticket_store_evicts_expired_on_issue() {
+        let store = WsTicketStore::new(Duration::from_millis(1));
+
+        // Issue tickets that will expire
+        store.issue(make_auth("expired1")).await;
+        store.issue(make_auth("expired2")).await;
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Issue a new ticket — should evict expired ones
+        let store = WsTicketStore {
+            tickets: store.tickets,
+            ttl: Duration::from_secs(60), // new tickets get long TTL
+            max_capacity: store.max_capacity,
+        };
+        let fresh = store.issue(make_auth("fresh")).await;
+
+        // Only the fresh ticket should remain
+        let count = store.tickets.lock().await.len();
+        assert_eq!(count, 1, "expired tickets should be evicted on issue");
+
+        let result = store.consume(&fresh).await;
+        assert!(result.is_some(), "fresh ticket should be valid");
+    }
+}
