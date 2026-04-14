@@ -4,14 +4,14 @@ level: task
 title: "DB migration + DAL rename for pipeline-to-workflow"
 short_code: "CLOACI-T-0489"
 created_at: 2026-04-14T00:57:35.350686+00:00
-updated_at: 2026-04-14T02:56:11.074691+00:00
+updated_at: 2026-04-14T02:23:31.919088+00:00
 parent: CLOACI-I-0094
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/completed"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,8 +27,6 @@ initiative_id: CLOACI-I-0094
 ## Objective
 
 Create Diesel migration to rename `pipeline_executions` table and columns to `workflow_executions`, update `schema.rs`, and update all DAL code to use the new names.
-
-## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -1127,8 +1127,8 @@ async fn run_workflow_and_get_status(
     }
     let workflow = builder.build().unwrap();
 
-    // Create an empty Runtime for test isolation (no global registry pollution)
-    let runtime = cloacina::Runtime::empty();
+    // Create a scoped Runtime for test isolation (no global registry pollution)
+    let runtime = cloacina::Runtime::new();
 
     // Register tasks on the scoped runtime
     for (task_id, constructor) in &task_defs {
