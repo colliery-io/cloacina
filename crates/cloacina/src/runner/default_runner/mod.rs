@@ -198,7 +198,7 @@ impl DefaultRunner {
             .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
 
         // Snapshot global registries into a scoped runtime
-        let runtime = Arc::new(Runtime::from_global());
+        let runtime = Arc::new(Runtime::new());
 
         // Create scheduler with the scoped runtime
         let scheduler =

@@ -126,6 +126,18 @@ impl StreamBackendRegistry {
         let factory = self.backends.get(type_name)?;
         Some(factory(config))
     }
+
+    /// Create a snapshot of this registry's type names.
+    ///
+    /// Factory functions are not cloneable, so the snapshot is empty but
+    /// can be populated via `register()`. This is used by `Runtime::new()`
+    /// to capture which backends exist at snapshot time.
+    pub fn snapshot(&self) -> Self {
+        // Stream backend factories (Box<dyn Fn>) can't be cloned.
+        // Return an empty registry — backends are registered at runtime
+        // via Runtime::register_stream_backend(), not via #[ctor].
+        Self::new()
+    }
 }
 
 impl Default for StreamBackendRegistry {

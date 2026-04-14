@@ -74,7 +74,7 @@ mod postgres_multi_tenant_tests {
         });
 
         // Setup workflows BEFORE creating runners (runtime snapshot must capture them)
-        let runtime = cloacina::Runtime::new();
+        let runtime = cloacina::Runtime::empty();
         let workflow_a = setup_tenant_workflow("tenant_iso_a", &runtime);
         let workflow_b = setup_tenant_workflow("tenant_iso_b", &runtime);
 
@@ -177,7 +177,7 @@ mod postgres_multi_tenant_tests {
         });
 
         // Setup workflows BEFORE creating runners
-        let runtime = cloacina::Runtime::new();
+        let runtime = cloacina::Runtime::empty();
         let workflow_a = setup_tenant_workflow("tenant_indep_a", &runtime);
         let workflow_b = setup_tenant_workflow("tenant_indep_b", &runtime);
 
@@ -367,7 +367,7 @@ mod sqlite_multi_tenant_tests {
         let db_b = tmp.path().join("tenant_b.db");
 
         // Setup workflows BEFORE creating runners
-        let runtime = cloacina::Runtime::new();
+        let runtime = cloacina::Runtime::empty();
         let workflow_a = setup_sqlite_workflow("a", &runtime);
         let workflow_b = setup_sqlite_workflow("b", &runtime);
 

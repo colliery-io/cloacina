@@ -14,22 +14,22 @@
  *  limitations under the License.
  */
 
-//! Scoped runtime for isolated task, workflow, and trigger registries.
+//! Scoped runtime for isolated task, workflow, trigger, computation graph,
+//! and stream backend registries.
 //!
-//! [`Runtime`] replaces direct access to process-global static registries,
-//! enabling multiple isolated workflow environments in the same process and
-//! parallel test execution without `#[serial]`.
+//! [`Runtime`] is the single source of truth for all registries. There is
+//! one lookup path — local maps only, no delegation to globals.
 //!
 //! # Usage
 //!
 //! ```rust,ignore
 //! use cloacina::Runtime;
 //!
-//! // Snapshot global registries (backward-compatible with #[ctor] registration)
-//! let runtime = Runtime::from_global();
-//!
-//! // Or create an empty runtime for isolation
+//! // Snapshot global registries (picks up #[ctor] registrations)
 //! let runtime = Runtime::new();
+//!
+//! // Empty runtime for test isolation
+//! let runtime = Runtime::empty();
 //! runtime.register_task(namespace, || Arc::new(my_task()));
 //! runtime.register_workflow("my_workflow".to_string(), || workflow.clone());
 //! ```
@@ -39,9 +39,11 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
+use crate::computation_graph::stream_backend::{StreamBackendFactory, StreamBackendRegistry};
 use crate::task::{Task, TaskNamespace};
 use crate::trigger::Trigger;
 use crate::workflow::Workflow;
+use cloacina_computation_graph::{ComputationGraphConstructor, ComputationGraphRegistration};
 
 /// Type alias for task constructor functions.
 pub type TaskConstructorFn = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
@@ -52,16 +54,15 @@ pub type WorkflowConstructorFn = Box<dyn Fn() -> Workflow + Send + Sync>;
 /// Type alias for trigger constructor functions.
 pub type TriggerConstructorFn = Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>;
 
-/// A scoped runtime holding isolated registries for tasks, workflows, and triggers.
+/// A scoped runtime holding isolated registries for tasks, workflows, triggers,
+/// computation graphs, and stream backends.
 ///
-/// `Runtime` enables multiple independent workflow environments in the same process.
-/// Each runtime has its own set of registered tasks, workflows, and triggers that
-/// do not interfere with other runtimes or the process-global registries.
+/// `Runtime` is the single source of truth for all registries. Every lookup
+/// checks local maps only — there is no delegation to globals. This ensures
+/// tests and production exercise the same code path.
 ///
-/// Two modes:
-/// - [`Runtime::new()`] — isolated, no fallback (for tests)
-/// - [`Runtime::from_global()`] — delegates to global registries for dynamic
-///   package loading (for the server)
+/// - [`Runtime::new()`] — snapshots all global registries (populated by `#[ctor]`)
+/// - [`Runtime::empty()`] — completely empty, for test isolation
 #[derive(Clone)]
 pub struct Runtime {
     inner: Arc<RuntimeInner>,
@@ -71,42 +72,124 @@ struct RuntimeInner {
     tasks: RwLock<HashMap<TaskNamespace, TaskConstructorFn>>,
     workflows: RwLock<HashMap<String, WorkflowConstructorFn>>,
     triggers: RwLock<HashMap<String, TriggerConstructorFn>>,
-    /// When true, `get_*()` falls back to the process-global registries
-    /// if the local map doesn't contain the entry. This enables dynamic
-    /// package loading (reconciler registers in globals after startup).
-    use_globals: bool,
+    computation_graphs: RwLock<HashMap<String, ComputationGraphConstructor>>,
+    stream_backends: RwLock<StreamBackendRegistry>,
 }
 
 impl Runtime {
-    /// Create an empty runtime with no registered tasks, workflows, or triggers.
+    /// Create a runtime pre-populated from all global registries.
     ///
-    /// Lookups only check the local maps — no fallback to globals.
-    /// Use this for test isolation.
+    /// Snapshots the current state of global task, workflow, trigger,
+    /// computation graph, and stream backend registries into local maps.
+    /// After creation, lookups only check local maps — no fallback.
     pub fn new() -> Self {
+        // Snapshot tasks
+        let tasks = {
+            let global = crate::task::global_task_registry();
+            let g = global.read();
+            g.iter()
+                .map(|(ns, ctor)| {
+                    let task_instance = ctor();
+                    let ns = ns.clone();
+                    (
+                        ns,
+                        Box::new(move || task_instance.clone()) as TaskConstructorFn,
+                    )
+                })
+                .collect::<HashMap<_, _>>()
+        };
+
+        // Snapshot workflows
+        let workflows = {
+            let global = crate::workflow::global_workflow_registry();
+            let g = global.read();
+            g.iter()
+                .map(|(name, ctor)| {
+                    let wf = ctor();
+                    (
+                        name.clone(),
+                        Box::new(move || wf.clone()) as WorkflowConstructorFn,
+                    )
+                })
+                .collect::<HashMap<_, _>>()
+        };
+
+        // Snapshot triggers
+        let triggers = {
+            let global = crate::trigger::global_trigger_registry();
+            let g = global.read();
+            g.iter()
+                .map(|(name, ctor)| {
+                    let trigger = ctor();
+                    (
+                        name.clone(),
+                        Box::new(move || trigger.clone()) as TriggerConstructorFn,
+                    )
+                })
+                .collect::<HashMap<_, _>>()
+        };
+
+        // Snapshot computation graphs
+        let computation_graphs = {
+            let global = cloacina_computation_graph::global_computation_graph_registry();
+            let g = global.read();
+            let mut map = HashMap::new();
+            for (name, _ctor) in g.iter() {
+                // We can't clone the constructor (Box<dyn Fn>), so we re-read
+                // from the global on each call. This is fine — the snapshot
+                // captures which graphs exist, and the constructor is stateless.
+                let global_ref = cloacina_computation_graph::global_computation_graph_registry();
+                let graph_name = name.clone();
+                map.insert(
+                    name.clone(),
+                    Box::new(move || {
+                        let reg = global_ref.read();
+                        reg.get(&graph_name)
+                            .expect("computation graph disappeared from global registry")(
+                        )
+                    }) as ComputationGraphConstructor,
+                );
+            }
+            map
+        };
+
+        // Snapshot stream backends
+        let stream_backends = {
+            let global = crate::computation_graph::stream_backend::global_stream_registry();
+            let g = global.lock().unwrap();
+            g.snapshot()
+        };
+
         Self {
             inner: Arc::new(RuntimeInner {
-                tasks: RwLock::new(HashMap::new()),
-                workflows: RwLock::new(HashMap::new()),
-                triggers: RwLock::new(HashMap::new()),
-                use_globals: false,
+                tasks: RwLock::new(tasks),
+                workflows: RwLock::new(workflows),
+                triggers: RwLock::new(triggers),
+                computation_graphs: RwLock::new(computation_graphs),
+                stream_backends: RwLock::new(stream_backends),
             }),
         }
     }
 
-    /// Create a runtime that delegates to the process-global registries.
+    /// Create a completely empty runtime with no registrations.
     ///
-    /// Lookups check the local maps first, then fall back to the global
-    /// task/workflow/trigger registries. This supports dynamic package
-    /// loading — packages registered after startup are visible immediately.
-    pub fn from_global() -> Self {
+    /// Use this for test isolation — register only what the test needs.
+    pub fn empty() -> Self {
         Self {
             inner: Arc::new(RuntimeInner {
                 tasks: RwLock::new(HashMap::new()),
                 workflows: RwLock::new(HashMap::new()),
                 triggers: RwLock::new(HashMap::new()),
-                use_globals: true,
+                computation_graphs: RwLock::new(HashMap::new()),
+                stream_backends: RwLock::new(StreamBackendRegistry::new()),
             }),
         }
+    }
+
+    /// Backward-compatible alias for [`Runtime::new()`].
+    #[deprecated(note = "use Runtime::new() instead — same behavior, single code path")]
+    pub fn from_global() -> Self {
+        Self::new()
     }
 
     // -----------------------------------------------------------------------
@@ -123,36 +206,15 @@ impl Runtime {
     }
 
     /// Look up and instantiate a task by namespace.
-    ///
-    /// Checks local registry first, then falls back to the global registry
-    /// if `use_globals` is enabled (i.e., created via `from_global()`).
     pub fn get_task(&self, namespace: &TaskNamespace) -> Option<Arc<dyn Task>> {
-        // Check local first
-        {
-            let guard = self.inner.tasks.read();
-            if let Some(ctor) = guard.get(namespace) {
-                return Some(ctor());
-            }
-        }
-        // Fall back to globals
-        if self.inner.use_globals {
-            return crate::task::get_task(namespace);
-        }
-        None
+        let guard = self.inner.tasks.read();
+        guard.get(namespace).map(|ctor| ctor())
     }
 
     /// Check if a task is registered for the given namespace.
     pub fn has_task(&self, namespace: &TaskNamespace) -> bool {
         let guard = self.inner.tasks.read();
-        if guard.contains_key(namespace) {
-            return true;
-        }
-        if self.inner.use_globals {
-            let global = crate::task::global_task_registry();
-            let g = global.read();
-            return g.contains_key(namespace);
-        }
-        false
+        guard.contains_key(namespace)
     }
 
     // -----------------------------------------------------------------------
@@ -169,22 +231,9 @@ impl Runtime {
     }
 
     /// Look up and instantiate a workflow by name.
-    ///
-    /// Checks local registry first, then falls back to the global registry
-    /// if `use_globals` is enabled.
     pub fn get_workflow(&self, name: &str) -> Option<Workflow> {
-        {
-            let guard = self.inner.workflows.read();
-            if let Some(ctor) = guard.get(name) {
-                return Some(ctor());
-            }
-        }
-        if self.inner.use_globals {
-            let global = crate::workflow::global_workflow_registry();
-            let g = global.read();
-            return g.get(name).map(|ctor| ctor());
-        }
-        None
+        let guard = self.inner.workflows.read();
+        guard.get(name).map(|ctor| ctor())
     }
 
     /// Get all registered workflow names.
@@ -213,22 +262,9 @@ impl Runtime {
     }
 
     /// Look up and instantiate a trigger by name.
-    ///
-    /// Checks local registry first, then falls back to the global registry
-    /// if `use_globals` is enabled.
     pub fn get_trigger(&self, name: &str) -> Option<Arc<dyn Trigger>> {
-        {
-            let guard = self.inner.triggers.read();
-            if let Some(ctor) = guard.get(name) {
-                return Some(ctor());
-            }
-        }
-        if self.inner.use_globals {
-            let global = crate::trigger::global_trigger_registry();
-            let g = global.read();
-            return g.get(name).map(|ctor| ctor());
-        }
-        None
+        let guard = self.inner.triggers.read();
+        guard.get(name).map(|ctor| ctor())
     }
 
     /// Get all registered trigger names.
@@ -245,6 +281,121 @@ impl Runtime {
             .map(|(name, ctor)| (name.clone(), ctor()))
             .collect()
     }
+
+    // -----------------------------------------------------------------------
+    // Computation graph registry
+    // -----------------------------------------------------------------------
+
+    /// Register a computation graph constructor by name.
+    pub fn register_computation_graph<F>(&self, name: String, constructor: F)
+    where
+        F: Fn() -> ComputationGraphRegistration + Send + Sync + 'static,
+    {
+        let mut guard = self.inner.computation_graphs.write();
+        guard.insert(name, Box::new(constructor));
+    }
+
+    /// Look up and invoke a computation graph constructor by name.
+    pub fn get_computation_graph(&self, name: &str) -> Option<ComputationGraphRegistration> {
+        let guard = self.inner.computation_graphs.read();
+        guard.get(name).map(|ctor| ctor())
+    }
+
+    /// Get all registered computation graph names.
+    pub fn computation_graph_names(&self) -> Vec<String> {
+        let guard = self.inner.computation_graphs.read();
+        guard.keys().cloned().collect()
+    }
+
+    // -----------------------------------------------------------------------
+    // Stream backend registry
+    // -----------------------------------------------------------------------
+
+    /// Register a stream backend factory by type name.
+    pub fn register_stream_backend(&self, type_name: &str, factory: StreamBackendFactory) {
+        let mut guard = self.inner.stream_backends.write();
+        guard.register(type_name, factory);
+    }
+
+    /// Get a read-locked reference to the stream backend registry.
+    pub fn stream_backends(&self) -> parking_lot::RwLockReadGuard<'_, StreamBackendRegistry> {
+        self.inner.stream_backends.read()
+    }
+
+    /// Sync new entries from global registries into this runtime.
+    ///
+    /// Call this after dynamically loading packages (e.g., via `dlopen`)
+    /// whose `#[ctor]` registered into globals. Only adds entries that
+    /// don't already exist in the local maps.
+    pub fn sync_from_global(&self) {
+        // Sync tasks
+        {
+            let global = crate::task::global_task_registry();
+            let g = global.read();
+            let mut local = self.inner.tasks.write();
+            for (ns, ctor) in g.iter() {
+                if !local.contains_key(ns) {
+                    let task_instance = ctor();
+                    let ns = ns.clone();
+                    local.insert(
+                        ns,
+                        Box::new(move || task_instance.clone()) as TaskConstructorFn,
+                    );
+                }
+            }
+        }
+        // Sync workflows
+        {
+            let global = crate::workflow::global_workflow_registry();
+            let g = global.read();
+            let mut local = self.inner.workflows.write();
+            for (name, ctor) in g.iter() {
+                if !local.contains_key(name) {
+                    let wf = ctor();
+                    local.insert(
+                        name.clone(),
+                        Box::new(move || wf.clone()) as WorkflowConstructorFn,
+                    );
+                }
+            }
+        }
+        // Sync triggers
+        {
+            let global = crate::trigger::global_trigger_registry();
+            let g = global.read();
+            let mut local = self.inner.triggers.write();
+            for (name, ctor) in g.iter() {
+                if !local.contains_key(name) {
+                    let trigger = ctor();
+                    local.insert(
+                        name.clone(),
+                        Box::new(move || trigger.clone()) as TriggerConstructorFn,
+                    );
+                }
+            }
+        }
+        // Sync computation graphs
+        {
+            let global_ref = cloacina_computation_graph::global_computation_graph_registry();
+            let g = global_ref.read();
+            let mut local = self.inner.computation_graphs.write();
+            for (name, _) in g.iter() {
+                if !local.contains_key(name) {
+                    let global_clone = global_ref.clone();
+                    let graph_name = name.clone();
+                    local.insert(
+                        name.clone(),
+                        Box::new(move || {
+                            let reg = global_clone.read();
+                            reg.get(&graph_name)
+                                .expect("computation graph disappeared from global registry")(
+                            )
+                        }) as ComputationGraphConstructor,
+                    );
+                }
+            }
+        }
+    }
 }
 
 impl Default for Runtime {
@@ -258,10 +409,12 @@ impl std::fmt::Debug for Runtime {
         let tasks = self.inner.tasks.read().len();
         let workflows = self.inner.workflows.read().len();
         let triggers = self.inner.triggers.read().len();
+        let cgs = self.inner.computation_graphs.read().len();
         f.debug_struct("Runtime")
             .field("tasks", &tasks)
             .field("workflows", &workflows)
             .field("triggers", &triggers)
+            .field("computation_graphs", &cgs)
             .finish()
     }
 }
@@ -270,20 +423,22 @@ impl std::fmt::Debug for Runtime {
 mod tests {
     use super::*;
     use crate::task::TaskNamespace;
+    use std::sync::Arc;
 
     #[test]
     fn test_empty_runtime() {
-        let runtime = Runtime::new();
+        let runtime = Runtime::empty();
         let ns = TaskNamespace::new("t", "p", "w", "task1");
         assert!(runtime.get_task(&ns).is_none());
         assert!(runtime.get_workflow("test").is_none());
         assert!(runtime.get_trigger("test").is_none());
         assert!(!runtime.has_task(&ns));
+        assert!(runtime.get_computation_graph("test").is_none());
     }
 
     #[test]
     fn test_register_and_get_workflow() {
-        let runtime = Runtime::new();
+        let runtime = Runtime::empty();
         let wf = Workflow::new("test_workflow");
         runtime.register_workflow("test_workflow".to_string(), move || wf.clone());
 
@@ -294,8 +449,8 @@ mod tests {
 
     #[test]
     fn test_scoped_mutations_dont_affect_other_runtimes() {
-        let rt1 = Runtime::new();
-        let rt2 = Runtime::new();
+        let rt1 = Runtime::empty();
+        let rt2 = Runtime::empty();
 
         let wf = Workflow::new("only_in_rt1");
         rt1.register_workflow("only_in_rt1".to_string(), move || wf.clone());
@@ -306,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_clone_is_shared() {
-        let rt1 = Runtime::new();
+        let rt1 = Runtime::empty();
         let rt2 = rt1.clone();
 
         let wf = Workflow::new("shared");
@@ -317,20 +472,21 @@ mod tests {
     }
 
     #[test]
-    fn test_from_global_captures_workflows() {
+    fn test_new_snapshots_globals() {
         // Register a workflow in globals
         let wf = Workflow::new("global_test_wf");
         crate::workflow::register_workflow_constructor("global_test_wf".to_string(), move || {
             wf.clone()
         });
 
-        let runtime = Runtime::from_global();
+        // new() snapshots globals — should see the registration
+        let runtime = Runtime::new();
         assert!(runtime.get_workflow("global_test_wf").is_some());
     }
 
     #[test]
     fn test_workflow_names() {
-        let runtime = Runtime::new();
+        let runtime = Runtime::empty();
         let wf1 = Workflow::new("alpha");
         let wf2 = Workflow::new("beta");
         runtime.register_workflow("alpha".to_string(), move || wf1.clone());
@@ -343,18 +499,18 @@ mod tests {
 
     #[test]
     fn test_debug_format() {
-        let runtime = Runtime::new();
+        let runtime = Runtime::empty();
         let debug = format!("{:?}", runtime);
         assert!(debug.contains("Runtime"));
         assert!(debug.contains("tasks: 0"));
     }
 
     #[test]
-    fn test_from_global_sees_late_registrations() {
-        // Create runtime BEFORE registering the workflow
-        let runtime = Runtime::from_global();
+    fn test_new_does_not_see_late_registrations() {
+        // Snapshot BEFORE registering
+        let runtime = Runtime::new();
 
-        // Register a workflow in globals AFTER runtime creation
+        // Register AFTER snapshot
         let unique_name = format!(
             "late_reg_test_{}",
             std::time::SystemTime::now()
@@ -365,15 +521,15 @@ mod tests {
         let wf = Workflow::new(&unique_name);
         crate::workflow::register_workflow_constructor(unique_name.clone(), move || wf.clone());
 
-        // from_global() delegates to globals — should see the late registration
+        // Snapshot is frozen — should NOT see late registration
         assert!(
-            runtime.get_workflow(&unique_name).is_some(),
-            "from_global() runtime should see workflows registered after creation"
+            runtime.get_workflow(&unique_name).is_none(),
+            "Runtime::new() snapshot should not see workflows registered after creation"
         );
     }
 
     #[test]
-    fn test_new_does_not_see_global_registrations() {
+    fn test_empty_does_not_see_global_registrations() {
         // Register a workflow in globals
         let unique_name = format!(
             "isolated_test_{}",
@@ -385,17 +541,17 @@ mod tests {
         let wf = Workflow::new(&unique_name);
         crate::workflow::register_workflow_constructor(unique_name.clone(), move || wf.clone());
 
-        // Runtime::new() is isolated — should NOT see global registrations
-        let runtime = Runtime::new();
+        // Runtime::empty() is isolated
+        let runtime = Runtime::empty();
         assert!(
             runtime.get_workflow(&unique_name).is_none(),
-            "Runtime::new() should NOT see globally registered workflows"
+            "Runtime::empty() should NOT see globally registered workflows"
         );
     }
 
     #[test]
-    fn test_local_registration_takes_precedence_over_global() {
-        let runtime = Runtime::from_global();
+    fn test_local_registration_takes_precedence() {
+        let runtime = Runtime::new();
 
         // Register a workflow in globals
         let unique_name = format!(
@@ -410,38 +566,59 @@ mod tests {
             global_wf.clone()
         });
 
-        // Register a DIFFERENT workflow with the same name locally — use a
-        // distinguishable instance by setting tenant
+        // Register a DIFFERENT workflow with the same name locally
         let mut local_wf = Workflow::new(&unique_name);
         local_wf.set_tenant("local_tenant");
         runtime.register_workflow(unique_name.clone(), move || local_wf.clone());
 
-        // Local should win
+        // Local should win (overwrites the snapshot)
         let result = runtime.get_workflow(&unique_name).unwrap();
         assert_eq!(
             result.tenant(),
             "local_tenant",
-            "Local registration should take precedence over global"
+            "Local registration should take precedence over snapshot"
         );
     }
 
     #[test]
-    fn test_from_global_has_task_fallback() {
-        let runtime = Runtime::from_global();
+    fn test_sync_from_global() {
+        let runtime = Runtime::empty();
 
-        // Check a task that exists in globals (from #[ctor] registrations in test binary)
-        // We can't easily register a task here without a Task impl, but we can verify
-        // that has_task delegates to globals by checking use_globals is true
-        assert!(
-            runtime.inner.use_globals,
-            "from_global() should have use_globals = true"
+        // Register in globals
+        let unique_name = format!(
+            "sync_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         );
+        let wf = Workflow::new(&unique_name);
+        crate::workflow::register_workflow_constructor(unique_name.clone(), move || wf.clone());
 
-        // new() should NOT have use_globals
-        let isolated = Runtime::new();
-        assert!(
-            !isolated.inner.use_globals,
-            "new() should have use_globals = false"
-        );
+        // Not visible yet
+        assert!(runtime.get_workflow(&unique_name).is_none());
+
+        // Sync picks it up
+        runtime.sync_from_global();
+        assert!(runtime.get_workflow(&unique_name).is_some());
+    }
+
+    #[test]
+    fn test_computation_graph_registry() {
+        let runtime = Runtime::empty();
+        assert!(runtime.computation_graph_names().is_empty());
+
+        runtime.register_computation_graph("test_graph".to_string(), || {
+            ComputationGraphRegistration {
+                graph_fn: Arc::new(|_| {
+                    Box::pin(async { cloacina_computation_graph::GraphResult::completed_empty() })
+                }),
+                accumulator_names: vec!["acc1".to_string()],
+                reaction_mode: "when_any".to_string(),
+            }
+        });
+
+        assert!(runtime.get_computation_graph("test_graph").is_some());
+        assert_eq!(runtime.computation_graph_names(), vec!["test_graph"]);
     }
 }

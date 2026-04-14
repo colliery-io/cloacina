@@ -4,14 +4,14 @@ level: initiative
 title: "Extend Runtime to cover all global registries"
 short_code: "CLOACI-I-0095"
 created_at: 2026-04-13T12:06:36.329354+00:00
-updated_at: 2026-04-13T12:06:36.329354+00:00
-parent: 
+updated_at: 2026-04-14T12:40:01.875899+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -34,9 +34,9 @@ EVO-002, EVO-008 (from architecture review `review/10-recommendations.md` REC-01
 ## Goals & Non-Goals
 
 **Goals:**
+- Unify Runtime to a single lookup path — `new()` snapshots globals, no delegation/fallback
 - Extend `Runtime` to encompass computation graph and stream backend registries
 - Enable `ReactiveScheduler` to use `Runtime` instead of global statics
-- Make `#[ctor]` auto-registration opt-in so tests can bypass globals
 - Reduce `#[serial]` annotations across test files
 
 **Non-Goals:**
@@ -63,27 +63,42 @@ EVO-002, EVO-008 (from architecture review `review/10-recommendations.md` REC-01
 
 ## Detailed Design
 
-### Phase 1: Add computation graph + stream backend fields to Runtime
-- Add `computation_graphs: RwLock<HashMap<String, ComputationGraphConstructor>>` to `Runtime`
-- Add `stream_backends: RwLock<StreamBackendRegistry>` to `Runtime`
-- Add `register_computation_graph()`, `get_computation_graph()`, `register_stream_backend()` methods
-- `Runtime::from_global()` delegates to global registries on miss (same pattern as tasks/workflows)
+### Design principle: single code path
 
-### Phase 2: Update ReactiveScheduler to use Runtime
-- `ReactiveScheduler` currently receives an `EndpointRegistry` (not global) but graph loading goes through `GLOBAL_COMPUTATION_GRAPH_REGISTRY` via the reconciler
-- Change `load_graph()` to accept a `&Runtime` reference for graph constructor lookup
-- Update reconciler to pass Runtime through
+The current Runtime has two modes (`new()` = isolated, `from_global()` = delegate to globals) which means test and production code exercise different lookup paths. This is wrong — tests should exercise the same code as production.
 
-### Phase 3: Update `#[computation_graph]` macro codegen
+**New model:**
+- `#[ctor]` continues to push into global statics (unavoidable — runs before `main()`)
+- `Runtime::new()` **snapshots** all globals into local maps at creation time. No delegation, no fallback. Lookups only check local maps.
+- `Runtime::empty()` creates a completely empty runtime for test isolation
+- Remove `use_globals` flag entirely — one lookup path for everyone
+- Dynamic package loading (reconciler): after `dlopen` triggers `#[ctor]`, reconciler calls `runtime.register_*()` directly or `runtime.sync_from_global()` to pick up new entries
+- Result: `get_task()`, `get_workflow()`, etc. have exactly one code path
+
+### Phase 1: Unify Runtime lookup path + add CG/stream fields
+- Remove `use_globals` flag from `RuntimeInner`
+- `Runtime::new()` snapshots all 5 global registries (tasks, workflows, triggers, CGs, stream backends) into local maps
+- Add `Runtime::empty()` for test isolation (no snapshot)
+- Rename `from_global()` → deprecate or remove (replaced by `new()`)
+- Add `computation_graphs: RwLock<HashMap<String, ComputationGraphConstructor>>` field
+- Add `stream_backends: RwLock<StreamBackendRegistry>` field
+- Add `register_computation_graph()`, `get_computation_graph()`, `register_stream_backend()`, `get_stream_backend()` methods
+- All `get_*()` methods: check local maps only, no fallback branch
+- Update all callers of `from_global()` → `new()`
+- Update reconciler to call `runtime.register_*()` after loading packages (instead of relying on global fallback)
+
+### Phase 2: Wire ReactiveScheduler + reconciler to use Runtime for CG lookup
+- `load_graph()` looks up constructors via `runtime.get_computation_graph()` instead of `global_computation_graph_registry()`
+- Reconciler calls `runtime.register_computation_graph()` after loading CG packages
+- Stream backend lookup goes through Runtime
+
+### Phase 3: Update `#[computation_graph]` macro codegen + remove `#[serial]`
 - Currently generates `#[ctor]` that calls `register_computation_graph_constructor()` (global)
-- Add opt-in: `#[ctor]` registers to a thread-local staging area (like tasks/workflows)
-- `Runtime::from_global()` consumes staged registrations
-- Tests using `Runtime::new()` bypass globals entirely
-
-### Phase 4: Remove `#[serial]` annotations
-- Identify tests that are serial only because of computation graph / stream backend globals
-- Convert to use `Runtime::new()` with local registrations
-- Verify parallel execution doesn't break
+- Keep `#[ctor]` for binary-embedded graphs (same as tasks/workflows)
+- `Runtime::new()` snapshot picks them up automatically
+- Tests using `Runtime::empty()` + local registration bypass globals
+- Remove `#[serial]` from tests that only needed it for CG/stream backend globals
+- Verify parallel execution
 
 ## Alternatives Considered
 
@@ -93,4 +108,4 @@ EVO-002, EVO-008 (from architecture review `review/10-recommendations.md` REC-01
 
 ## Implementation Plan
 
-Phase 1 → Phase 2 → Phase 3 → Phase 4, sequentially. Each phase is independently testable and shippable. Phase 3 (macro codegen) carries the most risk and should be done carefully with full test suite validation at each step.
+Phase 1 → Phase 2 → Phase 3, sequentially. Phase 1 is the largest (unifying the lookup path + adding fields). Phase 2 wires CG lookup through Runtime. Phase 3 removes `#[serial]`. Full test suite (`angreal cloacina all`) validated at each step.

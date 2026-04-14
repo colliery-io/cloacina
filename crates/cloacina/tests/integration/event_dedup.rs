@@ -57,7 +57,8 @@ async fn test_no_duplicate_completion_events() {
     let db_url = ":memory:";
     let config = DefaultRunnerConfig::builder()
         .enable_registry_reconciler(false)
-        .build();
+        .build()
+        .unwrap();
 
     let runner = DefaultRunner::with_config(db_url, config)
         .await

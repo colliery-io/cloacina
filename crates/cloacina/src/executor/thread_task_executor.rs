@@ -104,7 +104,7 @@ impl ThreadTaskExecutor {
         task_registry: Arc<TaskRegistry>,
         config: ExecutorConfig,
     ) -> Self {
-        Self::with_runtime_and_registry(database, task_registry, Arc::new(Runtime::new()), config)
+        Self::with_runtime_and_registry(database, task_registry, Arc::new(Runtime::empty()), config)
     }
 
     /// Creates a new ThreadTaskExecutor with a specific runtime.
@@ -1300,14 +1300,12 @@ mod tests {
     #[cfg(feature = "sqlite")]
     #[test]
     fn test_new_uses_empty_runtime_not_from_global() {
-        // ThreadTaskExecutor::new() must NOT call Runtime::from_global() — that
-        // was the cause of the deadlock when #[ctor] constructors blocked.
-        // Verify the runtime is empty (use_globals = false, no workflows).
+        // ThreadTaskExecutor::new() uses Runtime::empty() — isolated, no globals.
         let db = Database::new("sqlite://:memory:", "test", 1);
         let config = ExecutorConfig::default();
         let exec = ThreadTaskExecutor::new(db, Arc::new(TaskRegistry::new()), config);
 
-        // The runtime should be isolated (Runtime::new(), not from_global())
+        // The runtime should be isolated (Runtime::empty())
         assert!(
             exec.runtime.workflow_names().is_empty(),
             "new() executor should have an empty runtime with no workflows"
@@ -1321,7 +1319,7 @@ mod tests {
         let config = ExecutorConfig::default();
 
         // Create a runtime with a workflow
-        let runtime = Arc::new(Runtime::new());
+        let runtime = Arc::new(Runtime::empty());
         let wf = crate::workflow::Workflow::new("test_wf");
         runtime.register_workflow("test_wf".to_string(), move || wf.clone());
 

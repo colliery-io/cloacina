@@ -403,7 +403,8 @@ async fn test_task_executor_timeout_handling() {
     // Create runner with short timeout and proper schema isolation
     let config = DefaultRunnerConfig::builder()
         .task_timeout(Duration::from_millis(500))
-        .build();
+        .build()
+        .unwrap();
     let schema = fixture.get_schema();
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
@@ -1126,8 +1127,8 @@ async fn run_workflow_and_get_status(
     }
     let workflow = builder.build().unwrap();
 
-    // Create a scoped Runtime for test isolation (no global registry pollution)
-    let runtime = cloacina::Runtime::new();
+    // Create an empty Runtime for test isolation (no global registry pollution)
+    let runtime = cloacina::Runtime::empty();
 
     // Register tasks on the scoped runtime
     for (task_id, constructor) in &task_defs {

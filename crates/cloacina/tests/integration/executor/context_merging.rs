@@ -199,7 +199,8 @@ async fn test_context_merging_latest_wins() {
     // Create runner with sequential execution to ensure order and proper schema isolation
     let config = DefaultRunnerConfig::builder()
         .max_concurrent_tasks(1)
-        .build();
+        .build()
+        .unwrap();
     let schema = fixture.get_schema();
     let runner = DefaultRunner::builder()
         .database_url(&database_url)

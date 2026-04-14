@@ -4,14 +4,14 @@ level: initiative
 title: "Complete pipeline-to-workflow terminology migration"
 short_code: "CLOACI-I-0094"
 created_at: 2026-04-11T14:01:08.184572+00:00
-updated_at: 2026-04-14T00:59:26.622543+00:00
+updated_at: 2026-04-14T02:56:12.249061+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

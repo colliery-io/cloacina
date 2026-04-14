@@ -4,14 +4,14 @@ level: task
 title: "Code-level pipeline-to-workflow rename (no DB changes)"
 short_code: "CLOACI-T-0488"
 created_at: 2026-04-14T00:57:33.918117+00:00
-updated_at: 2026-04-14T01:01:17.189851+00:00
+updated_at: 2026-04-14T02:56:10.147485+00:00
 parent: CLOACI-I-0094
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0094
 ## Objective
 
 Rename all internal Rust code references from "pipeline" to "workflow" without touching database schema or migrations. This covers file renames, type/variable renames, error messages, log strings, and Python binding property names.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

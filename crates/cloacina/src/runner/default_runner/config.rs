@@ -580,7 +580,7 @@ impl DefaultRunnerBuilder {
     ///
     /// When set, the runner (and all components it creates) will use this
     /// runtime's registries instead of the process-global registries.
-    /// If not set, [`Runtime::from_global()`] is used as the default.
+    /// If not set, [`Runtime::new()`] is used as the default.
     pub fn runtime(mut self, runtime: Runtime) -> Self {
         self.runtime = Some(runtime);
         self
@@ -656,7 +656,7 @@ impl DefaultRunnerBuilder {
         }
 
         // Resolve runtime: use provided or snapshot from globals
-        let runtime = Arc::new(self.runtime.unwrap_or_else(Runtime::from_global));
+        let runtime = Arc::new(self.runtime.unwrap_or_else(Runtime::new));
 
         // Create scheduler with the scoped runtime
         let scheduler = TaskScheduler::with_poll_interval(
