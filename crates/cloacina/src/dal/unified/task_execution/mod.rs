@@ -16,7 +16,7 @@
 
 //! Task Execution Data Access Layer for Unified Backend Support
 //!
-//! This module provides the data access layer for managing task executions in the pipeline system
+//! This module provides the data access layer for managing task executions in the workflow system
 //! with runtime backend selection between PostgreSQL and SQLite.
 //!
 //! Key features:
@@ -24,7 +24,7 @@
 //! - Retry mechanism with configurable backoff
 //! - Recovery system for handling orphaned tasks
 //! - Atomic task claiming for distributed execution
-//! - Pipeline completion and failure detection
+//! - Workflow completion and failure detection
 
 mod claiming;
 mod crud;
@@ -35,7 +35,7 @@ mod state;
 use super::DAL;
 use crate::database::universal_types::UniversalUuid;
 
-/// Statistics about retry behavior for a pipeline execution.
+/// Statistics about retry behavior for a workflow execution.
 #[derive(Debug, Default)]
 pub struct RetryStats {
     /// Number of tasks that required at least one retry.
@@ -53,8 +53,8 @@ pub struct RetryStats {
 pub struct ClaimResult {
     /// Unique identifier of the claimed task
     pub id: UniversalUuid,
-    /// ID of the pipeline execution this task belongs to
-    pub pipeline_execution_id: UniversalUuid,
+    /// ID of the workflow execution this task belongs to
+    pub workflow_execution_id: UniversalUuid,
     /// Name of the task that was claimed
     pub task_name: String,
     /// Current attempt number for this task

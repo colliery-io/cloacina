@@ -98,7 +98,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     if rows > 0 {
                         let event = NewUnifiedExecutionEvent {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: task.pipeline_execution_id,
+                            workflow_execution_id: task.workflow_execution_id,
                             task_execution_id: Some(task_id),
                             event_type: ExecutionEventType::TaskCompleted.as_str().to_string(),
                             event_data: None,
@@ -167,7 +167,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     if rows > 0 {
                         let event = NewUnifiedExecutionEvent {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: task.pipeline_execution_id,
+                            workflow_execution_id: task.workflow_execution_id,
                             task_execution_id: Some(task_id),
                             event_type: ExecutionEventType::TaskCompleted.as_str().to_string(),
                             event_data: None,
@@ -263,7 +263,7 @@ impl<'a> TaskExecutionDAL<'a> {
                         let event_data = serde_json::json!({ "error": error_message }).to_string();
                         let event = NewUnifiedExecutionEvent {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: task.pipeline_execution_id,
+                            workflow_execution_id: task.workflow_execution_id,
                             task_execution_id: Some(task_id),
                             event_type: ExecutionEventType::TaskFailed.as_str().to_string(),
                             event_data: Some(event_data),
@@ -336,7 +336,7 @@ impl<'a> TaskExecutionDAL<'a> {
                         let event_data = serde_json::json!({ "error": error_message }).to_string();
                         let event = NewUnifiedExecutionEvent {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: task.pipeline_execution_id,
+                            workflow_execution_id: task.workflow_execution_id,
                             task_execution_id: Some(task_id),
                             event_type: ExecutionEventType::TaskFailed.as_str().to_string(),
                             event_data: Some(event_data),
@@ -402,7 +402,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 // Insert execution event
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskMarkedReady.as_str().to_string(),
                     event_data: None,
@@ -462,7 +462,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 // Insert execution event
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskMarkedReady.as_str().to_string(),
                     event_data: None,
@@ -546,7 +546,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 let event_data = serde_json::json!({ "reason": reason }).to_string();
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskSkipped.as_str().to_string(),
                     event_data: Some(event_data),
@@ -605,7 +605,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 let event_data = serde_json::json!({ "reason": reason }).to_string();
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskSkipped.as_str().to_string(),
                     event_data: Some(event_data),
@@ -680,7 +680,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 let event_data = serde_json::json!({ "reason": reason }).to_string();
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskAbandoned.as_str().to_string(),
                     event_data: Some(event_data),
@@ -738,7 +738,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 let event_data = serde_json::json!({ "reason": reason }).to_string();
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskAbandoned.as_str().to_string(),
                     event_data: Some(event_data),
@@ -818,7 +818,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 if let Some(event_type) = event_type {
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: task.pipeline_execution_id,
+                        workflow_execution_id: task.workflow_execution_id,
                         task_execution_id: Some(task_id),
                         event_type: event_type.as_str().to_string(),
                         event_data: None,
@@ -882,7 +882,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 if let Some(event_type) = event_type {
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: task.pipeline_execution_id,
+                        workflow_execution_id: task.workflow_execution_id,
                         task_execution_id: Some(task_id),
                         event_type: event_type.as_str().to_string(),
                         event_data: None,
@@ -953,7 +953,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 // Insert execution event
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskReset.as_str().to_string(),
                     event_data: None,
@@ -1011,7 +1011,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 // Insert execution event
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskReset.as_str().to_string(),
                     event_data: None,

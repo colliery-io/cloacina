@@ -326,7 +326,7 @@ impl Scheduler {
                     if let Err(e) = self
                         .dal
                         .schedule_execution()
-                        .update_pipeline_execution_id(audit_record_id, workflow_execution_id)
+                        .update_workflow_execution_id(audit_record_id, workflow_execution_id)
                         .await
                     {
                         error!(
@@ -662,7 +662,7 @@ impl Scheduler {
                 if let Err(e) = self
                     .dal
                     .schedule_execution()
-                    .update_pipeline_execution_id(execution.id, workflow_execution_id)
+                    .update_workflow_execution_id(execution.id, workflow_execution_id)
                     .await
                 {
                     warn!(

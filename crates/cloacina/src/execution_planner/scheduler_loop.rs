@@ -250,7 +250,7 @@ impl<'a> SchedulerLoop<'a> {
             if self
                 .dal
                 .task_execution()
-                .check_pipeline_completion(execution.id)
+                .check_workflow_completion(execution.id)
                 .await?
             {
                 self.complete_pipeline(execution).await?;
@@ -306,7 +306,7 @@ impl<'a> SchedulerLoop<'a> {
     ) -> Result<(), ValidationError> {
         // Guard: only proceed if the workflow execution is still running.
         // This prevents duplicate WorkflowCompleted events when two scheduler
-        // ticks race through check_pipeline_completion concurrently.
+        // ticks race through check_workflow_completion concurrently.
         let current = self
             .dal
             .workflow_execution()
@@ -324,7 +324,7 @@ impl<'a> SchedulerLoop<'a> {
         let all_tasks = self
             .dal
             .task_execution()
-            .get_all_tasks_for_pipeline(execution.id)
+            .get_all_tasks_for_workflow(execution.id)
             .await?;
         let completed_count = all_tasks.iter().filter(|t| t.status == "Completed").count();
         let failed_count = all_tasks.iter().filter(|t| t.status == "Failed").count();
@@ -405,7 +405,7 @@ impl<'a> SchedulerLoop<'a> {
                     if let Ok(task_metadata) = self
                         .dal
                         .task_execution_metadata()
-                        .get_by_pipeline_and_task(workflow_execution_id, &task_namespace)
+                        .get_by_workflow_and_task(workflow_execution_id, &task_namespace)
                         .await
                     {
                         if let Some(context_id) = task_metadata.context_id {

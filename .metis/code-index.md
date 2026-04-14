@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-13T18:47:14Z | 428 files | JavaScript, Python, Rust
+> Generated: 2026-04-14T02:22:25Z | 428 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -88,11 +88,11 @@
 │   │   │   │   └── trigger_rules.rs
 │   │   │   ├── executor/
 │   │   │   │   ├── mod.rs
-│   │   │   │   ├── pipeline_executor.rs
 │   │   │   │   ├── slot_token.rs
 │   │   │   │   ├── task_handle.rs
 │   │   │   │   ├── thread_task_executor.rs
-│   │   │   │   └── types.rs
+│   │   │   │   ├── types.rs
+│   │   │   │   └── workflow_executor.rs
 │   │   │   ├── graph.rs
 │   │   │   ├── lib.rs
 │   │   │   ├── logging.rs
@@ -102,7 +102,6 @@
 │   │   │   │   ├── key_trust_acl.rs
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── package_signature.rs
-│   │   │   │   ├── pipeline_execution.rs
 │   │   │   │   ├── recovery_event.rs
 │   │   │   │   ├── schedule.rs
 │   │   │   │   ├── signing_key.rs
@@ -110,6 +109,7 @@
 │   │   │   │   ├── task_execution_metadata.rs
 │   │   │   │   ├── task_outbox.rs
 │   │   │   │   ├── trusted_key.rs
+│   │   │   │   ├── workflow_execution.rs
 │   │   │   │   ├── workflow_packages.rs
 │   │   │   │   └── workflow_registry.rs
 │   │   │   ├── packaging/
@@ -181,9 +181,9 @@
 │   │   │   │   │   ├── config.rs
 │   │   │   │   │   ├── cron_api.rs
 │   │   │   │   │   ├── mod.rs
-│   │   │   │   │   ├── pipeline_executor_impl.rs
-│   │   │   │   │   ├── pipeline_result.rs
-│   │   │   │   │   └── services.rs
+│   │   │   │   │   ├── services.rs
+│   │   │   │   │   ├── workflow_executor_impl.rs
+│   │   │   │   │   └── workflow_result.rs
 │   │   │   │   └── mod.rs
 │   │   │   ├── runtime.rs
 │   │   │   ├── security/
@@ -1057,12 +1057,12 @@
 -  `is_cron_schedule_active` function L360-372 — `(&self, schedule: &Schedule, now: DateTime<Utc>) -> bool` — Checks if a cron schedule is within its active time window.
 -  `calculate_execution_times` function L375-420 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<Utc>>...` — Calculates execution times based on the schedule's catchup policy.
 -  `calculate_next_run` function L423-442 — `( &self, schedule: &Schedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc>, W...` — Calculates the next run time for a cron schedule.
--  `execute_cron_workflow` function L445-497 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the pipeline executor.
+-  `execute_cron_workflow` function L445-497 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the workflow executor.
 -  `create_cron_execution_audit` function L500-521 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Creates an audit record for a cron execution.
 -  `check_and_process_triggers` function L528-579 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Checks all enabled triggers and processes those that are due.
 -  `process_trigger` function L582-704 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
 -  `create_trigger_execution_audit` function L707-733 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
--  `execute_trigger_workflow` function L736-765 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the pipeline executor.
+-  `execute_trigger_workflow` function L736-765 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the workflow executor.
 -  `tests` module L825-1113 — `-` — ```
 -  `create_test_cron_schedule` function L829-850 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
 -  `create_test_trigger_schedule` function L852-873 — `(trigger_name: &str) -> Schedule` — ```
@@ -1156,7 +1156,7 @@
 - pub `database` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `dispatcher` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `error` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `execution_planner` module L504 — `-` — Task readiness evaluation, pipeline processing, and stale claim sweeping.
+- pub `execution_planner` module L504 — `-` — Task readiness evaluation, workflow processing, and stale claim sweeping.
 - pub `executor` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `graph` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `logging` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
@@ -2381,8 +2381,8 @@
 
 #### crates/cloacina/src/dispatcher/types.rs
 
-- pub `TaskReadyEvent` struct L31-40 — `{ task_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_n...` — Event emitted when a task becomes ready for execution.
-- pub `new` function L44-56 — `( task_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_n...` — Creates a new TaskReadyEvent.
+- pub `TaskReadyEvent` struct L31-40 — `{ task_execution_id: UniversalUuid, workflow_execution_id: UniversalUuid, task_n...` — Event emitted when a task becomes ready for execution.
+- pub `new` function L44-56 — `( task_execution_id: UniversalUuid, workflow_execution_id: UniversalUuid, task_n...` — Creates a new TaskReadyEvent.
 - pub `ExecutionStatus` enum L61-70 — `Completed | Failed | Retry | Skipped` — Simplified status for execution results.
 - pub `ExecutionResult` struct L77-86 — `{ task_execution_id: UniversalUuid, status: ExecutionStatus, error: Option<Strin...` — Result of task execution from an executor.
 - pub `success` function L90-97 — `(task_execution_id: UniversalUuid, duration: Duration) -> Self` — Creates a successful execution result.
@@ -2485,8 +2485,8 @@
 - pub `with_dispatcher` function L300-303 — `(mut self, dispatcher: Arc<dyn Dispatcher>) -> Self` — Sets the dispatcher for push-based task execution.
 - pub `dispatcher` function L306-308 — `(&self) -> Option<&Arc<dyn Dispatcher>>` — Returns a reference to the dispatcher if configured.
 - pub `schedule_workflow_execution` function L353-438 — `( &self, workflow_name: &str, input_context: Context<serde_json::Value>, ) -> Re...` — Schedules a new workflow execution with the provided input context.
-- pub `run_scheduling_loop` function L600-612 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active pipeline executions.
-- pub `process_active_pipelines` function L615-624 — `(&self) -> Result<(), ValidationError>` — Processes all active pipeline executions to update task readiness.
+- pub `run_scheduling_loop` function L600-612 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active workflow executions.
+- pub `process_active_pipelines` function L615-624 — `(&self) -> Result<(), ValidationError>` — Processes all active workflow executions to update task readiness.
 -  `context_manager` module L116 — `-` — # Task Scheduler
 -  `recovery` module L117 — `-` — ```
 -  `scheduler_loop` module L118 — `-` — ```
@@ -2494,8 +2494,8 @@
 -  `trigger_rules` module L121 — `-` — ```
 -  `TaskScheduler` type L198-647 — `= TaskScheduler` — ```
 -  `with_poll_interval_sync` function L258-269 — `(database: Database, poll_interval: Duration) -> Self` — Creates a new TaskScheduler with custom poll interval (synchronous version).
--  `create_pipeline_postgres` function L442-499 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in PostgreSQL.
--  `create_pipeline_sqlite` function L503-560 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in SQLite.
+-  `create_pipeline_postgres` function L442-499 — `( &self, workflow_execution_id: UniversalUuid, now: UniversalTimestamp, workflow...` — Creates workflow execution and tasks in PostgreSQL.
+-  `create_pipeline_sqlite` function L503-560 — `( &self, workflow_execution_id: UniversalUuid, now: UniversalTimestamp, workflow...` — Creates workflow execution and tasks in SQLite.
 -  `get_task_trigger_rules` function L627-636 — `( &self, workflow: &Workflow, task_namespace: &TaskNamespace, ) -> serde_json::V...` — Gets trigger rules for a specific task from the task implementation.
 -  `get_task_configuration` function L639-646 — `( &self, _workflow: &Workflow, _task_namespace: &TaskNamespace, ) -> serde_json:...` — Gets task configuration (currently returns empty object).
 
@@ -2504,13 +2504,13 @@
 - pub `RecoveryResult` enum L35-40 — `Recovered | Abandoned` — Result of attempting to recover a task.
 - pub `RecoveryManager` struct L46-49 — `{ dal: &'a DAL, runtime: Arc<Runtime> }` — Recovery operations for the scheduler.
 - pub `new` function L53-55 — `(dal: &'a DAL, runtime: Arc<Runtime>) -> Self` — Creates a new RecoveryManager.
-- pub `recover_orphaned_tasks` function L67-170 — `(&self) -> Result<(), ValidationError>` — Detects and recovers tasks orphaned by system interruptions.
+- pub `recover_orphaned_tasks` function L67-173 — `(&self) -> Result<(), ValidationError>` — Detects and recovers tasks orphaned by system interruptions.
 -  `MAX_RECOVERY_ATTEMPTS` variable L43 — `: i32` — Maximum number of recovery attempts before abandoning a task.
--  `recover_tasks_for_known_workflow` function L173-200 — `( &self, tasks: Vec<TaskExecution>, ) -> Result<usize, ValidationError>` — Recovers tasks from workflows that are still available in the registry.
--  `abandon_tasks_for_unknown_workflow` function L203-283 — `( &self, pipeline: WorkflowExecutionRecord, tasks: Vec<TaskExecution>, available...` — Abandons tasks from workflows that are no longer available in the registry.
--  `recover_single_task` function L286-326 — `( &self, task: TaskExecution, ) -> Result<RecoveryResult, ValidationError>` — Recovers a single orphaned task with retry limit enforcement.
--  `abandon_task_permanently` function L329-375 — `(&self, task: TaskExecution) -> Result<(), ValidationError>` — Permanently abandons a task that has exceeded recovery limits.
--  `record_recovery_event` function L378-381 — `(&self, event: NewRecoveryEvent) -> Result<(), ValidationError>` — Records a recovery event for monitoring and debugging.
+-  `recover_tasks_for_known_workflow` function L176-203 — `( &self, tasks: Vec<TaskExecution>, ) -> Result<usize, ValidationError>` — Recovers tasks from workflows that are still available in the registry.
+-  `abandon_tasks_for_unknown_workflow` function L206-286 — `( &self, workflow_exec: WorkflowExecutionRecord, tasks: Vec<TaskExecution>, avai...` — Abandons tasks from workflows that are no longer available in the registry.
+-  `recover_single_task` function L289-329 — `( &self, task: TaskExecution, ) -> Result<RecoveryResult, ValidationError>` — Recovers a single orphaned task with retry limit enforcement.
+-  `abandon_task_permanently` function L332-378 — `(&self, task: TaskExecution) -> Result<(), ValidationError>` — Permanently abandons a task that has exceeded recovery limits.
+-  `record_recovery_event` function L381-384 — `(&self, event: NewRecoveryEvent) -> Result<(), ValidationError>` — Records a recovery event for monitoring and debugging.
 
 #### crates/cloacina/src/execution_planner/scheduler_loop.rs
 
@@ -2518,14 +2518,14 @@
 - pub `new` function L63-78 — `( dal: &'a DAL, runtime: Arc<Runtime>, instance_id: Uuid, poll_interval: Duratio...` — Creates a new SchedulerLoop.
 - pub `with_dispatcher` function L81-97 — `( dal: &'a DAL, runtime: Arc<Runtime>, instance_id: Uuid, poll_interval: Duratio...` — Creates a new SchedulerLoop with an optional dispatcher.
 - pub `with_shutdown` function L100-103 — `(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self` — Set the shutdown receiver for graceful termination.
-- pub `run` function L112-175 — `(&mut self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active pipeline executions.
-- pub `process_active_pipelines` function L178-202 — `(&self) -> Result<(), ValidationError>` — Processes all active pipeline executions to update task readiness.
+- pub `run` function L112-175 — `(&mut self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active workflow executions.
+- pub `process_active_pipelines` function L178-202 — `(&self) -> Result<(), ValidationError>` — Processes all active workflow executions to update task readiness.
 -  `MAX_BACKOFF` variable L41 — `: Duration` — Maximum backoff interval during sustained errors (30 seconds).
 -  `CIRCUIT_OPEN_THRESHOLD` variable L44 — `: u32` — Number of consecutive errors before logging a circuit-open warning.
--  `process_pipelines_batch` function L210-261 — `( &self, active_executions: Vec<WorkflowExecutionRecord>, ) -> Result<(), Valida...` — Processes multiple pipelines in batch for better performance.
+-  `process_pipelines_batch` function L210-261 — `( &self, active_executions: Vec<WorkflowExecutionRecord>, ) -> Result<(), Valida...` — Processes multiple workflow executions in batch for better performance.
 -  `dispatch_ready_tasks` function L268-296 — `(&self) -> Result<(), ValidationError>` — Dispatches all Ready tasks to the executor.
--  `complete_pipeline` function L303-379 — `( &self, execution: &WorkflowExecutionRecord, ) -> Result<(), ValidationError>` — Completes a pipeline by updating its final context and marking it as completed.
--  `update_pipeline_final_context` function L386-443 — `( &self, pipeline_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the pipeline's final context when it completes.
+-  `complete_pipeline` function L303-379 — `( &self, execution: &WorkflowExecutionRecord, ) -> Result<(), ValidationError>` — Completes a workflow execution by updating its final context and marking it as completed.
+-  `update_pipeline_final_context` function L386-443 — `( &self, workflow_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the workflow execution's final context when it completes.
 
 #### crates/cloacina/src/execution_planner/stale_claim_sweeper.rs
 
@@ -2546,7 +2546,7 @@
 
 - pub `StateManager` struct L37-40 — `{ dal: &'a DAL, runtime: Arc<Runtime> }` — State management operations for the scheduler.
 - pub `new` function L44-46 — `(dal: &'a DAL, runtime: Arc<Runtime>) -> Self` — Creates a new StateManager.
-- pub `update_pipeline_task_readiness` function L53-86 — `( &self, pipeline_execution_id: UniversalUuid, pending_tasks: &[TaskExecution], ...` — Updates task readiness for a specific pipeline using pre-loaded tasks.
+- pub `update_pipeline_task_readiness` function L53-86 — `( &self, workflow_execution_id: UniversalUuid, pending_tasks: &[TaskExecution], ...` — Updates task readiness for a specific workflow execution using pre-loaded tasks.
 - pub `check_task_dependencies` function L91-145 — `( &self, task_execution: &TaskExecution, ) -> Result<bool, ValidationError>` — Checks if all dependencies for a task are satisfied.
 - pub `evaluate_trigger_rules` function L148-242 — `( &self, task_execution: &TaskExecution, ) -> Result<bool, ValidationError>` — Evaluates trigger rules for a task based on its configuration.
 -  `evaluate_condition` function L245-321 — `( &self, condition: &TriggerCondition, task_execution: &TaskExecution, ) -> Resu...` — Evaluates a specific trigger condition.
@@ -2576,52 +2576,11 @@
 
 #### crates/cloacina/src/executor/mod.rs
 
-- pub `pipeline_executor` module L47 — `-` — # Task Executor
-- pub `slot_token` module L48 — `-` — All components are thread-safe and can be used in concurrent environments.
-- pub `task_handle` module L49 — `-` — All components are thread-safe and can be used in concurrent environments.
-- pub `thread_task_executor` module L50 — `-` — All components are thread-safe and can be used in concurrent environments.
-- pub `types` module L51 — `-` — All components are thread-safe and can be used in concurrent environments.
-
-#### crates/cloacina/src/executor/pipeline_executor.rs
-
-- pub `StatusCallback` interface L59-66 — `{ fn on_status_change() }` — Callback trait for receiving real-time status updates during workflow execution.
-- pub `TaskResult` struct L73-88 — `{ task_name: String, status: TaskState, start_time: Option<DateTime<Utc>>, end_t...` — Represents the outcome of a single task execution within a pipeline.
-- pub `WorkflowExecutionError` enum L96-120 — `DatabaseConnection | WorkflowNotFound | ExecutionFailed | Timeout | Validation |...` — Unified error type for workflow execution operations.
-- pub `WorkflowStatus` enum L128-141 — `Pending | Running | Completed | Failed | Cancelled | Paused` — Represents the current state of a workflow execution.
-- pub `is_terminal` function L151-156 — `(&self) -> bool` — Determines if this status represents a terminal state.
-- pub `WorkflowExecutionResult` struct L164-183 — `{ execution_id: Uuid, workflow_name: String, status: WorkflowStatus, start_time:...` — Contains the complete result of a workflow execution.
-- pub `WorkflowExecution` struct L189-195 — `{ execution_id: Uuid, workflow_name: String, executor: crate::runner::DefaultRun...` — Handle for managing an asynchronous workflow execution.
-- pub `new` function L205-215 — `( execution_id: Uuid, workflow_name: String, executor: crate::runner::DefaultRun...` — Creates a new workflow execution handle.
-- pub `wait_for_completion` function L225-229 — `( self, ) -> Result<WorkflowExecutionResult, WorkflowExecutionError>` — Waits for the workflow to complete execution.
-- pub `wait_for_completion_with_timeout` function L241-271 — `( self, timeout: Option<Duration>, ) -> Result<WorkflowExecutionResult, Workflow...` — Waits for completion with a specified timeout.
-- pub `get_status` function L279-281 — `(&self) -> Result<WorkflowStatus, WorkflowExecutionError>` — Gets the current status of the workflow execution.
-- pub `cancel` function L291-293 — `(&self) -> Result<(), WorkflowExecutionError>` — Cancels the workflow execution.
-- pub `pause` function L308-312 — `(&self, reason: Option<&str>) -> Result<(), WorkflowExecutionError>` — Pauses the workflow execution.
-- pub `resume` function L323-325 — `(&self) -> Result<(), WorkflowExecutionError>` — Resumes a paused workflow execution.
-- pub `WorkflowExecutor` interface L334-487 — `{ fn execute(), fn execute_async(), fn get_execution_status(), fn get_execution_...` — Core trait defining the interface for workflow execution engines.
--  `WorkflowStatus` type L143-157 — `= WorkflowStatus` — ```
--  `WorkflowExecution` type L197-326 — `= WorkflowExecution` — ```
--  `WorkflowStatus` type L489-522 — `= WorkflowStatus` — ```
--  `from_str` function L511-521 — `(s: &str) -> Self` — Creates a WorkflowStatus from a string representation.
--  `tests` module L525-777 — `-` — ```
--  `test_pipeline_status_is_terminal` function L534-538 — `()` — ```
--  `test_pipeline_status_is_not_terminal` function L541-545 — `()` — ```
--  `test_pipeline_status_from_str_valid` function L548-561 — `()` — ```
--  `test_pipeline_status_from_str_invalid_defaults_to_failed` function L564-569 — `()` — ```
--  `test_pipeline_status_eq` function L572-575 — `()` — ```
--  `test_pipeline_status_clone` function L578-582 — `()` — ```
--  `test_pipeline_status_debug` function L585-588 — `()` — ```
--  `test_pipeline_error_display_database_connection` function L595-603 — `()` — ```
--  `test_pipeline_error_display_workflow_not_found` function L606-611 — `()` — ```
--  `test_pipeline_error_display_execution_failed` function L614-622 — `()` — ```
--  `test_pipeline_error_display_timeout` function L625-630 — `()` — ```
--  `test_pipeline_error_display_configuration` function L633-638 — `()` — ```
--  `test_task_result_construction` function L645-661 — `()` — ```
--  `test_task_result_with_error` function L664-679 — `()` — ```
--  `test_task_result_clone` function L682-694 — `()` — ```
--  `test_pipeline_result_construction` function L701-717 — `()` — ```
--  `test_pipeline_result_with_tasks` function L720-758 — `()` — ```
--  `test_pipeline_result_debug` function L761-776 — `()` — ```
+- pub `slot_token` module L47 — `-` — # Task Executor
+- pub `task_handle` module L48 — `-` — All components are thread-safe and can be used in concurrent environments.
+- pub `thread_task_executor` module L49 — `-` — All components are thread-safe and can be used in concurrent environments.
+- pub `types` module L50 — `-` — All components are thread-safe and can be used in concurrent environments.
+- pub `workflow_executor` module L51 — `-` — All components are thread-safe and can be used in concurrent environments.
 
 #### crates/cloacina/src/executor/slot_token.rs
 
@@ -2718,12 +2677,12 @@
 
 #### crates/cloacina/src/executor/types.rs
 
-- pub `ExecutionScope` struct L37-44 — `{ pipeline_execution_id: UniversalUuid, task_execution_id: Option<UniversalUuid>...` — Execution scope information for a context
-- pub `DependencyLoader` struct L52-61 — `{ database: Database, pipeline_execution_id: UniversalUuid, dependency_tasks: Ve...` — Dependency loader for automatic context merging with lazy loading
-- pub `new` function L70-81 — `( database: Database, pipeline_execution_id: UniversalUuid, dependency_tasks: Ve...` — Creates a new dependency loader instance
+- pub `ExecutionScope` struct L37-44 — `{ workflow_execution_id: UniversalUuid, task_execution_id: Option<UniversalUuid>...` — Execution scope information for a context
+- pub `DependencyLoader` struct L52-61 — `{ database: Database, workflow_execution_id: UniversalUuid, dependency_tasks: Ve...` — Dependency loader for automatic context merging with lazy loading
+- pub `new` function L70-81 — `( database: Database, workflow_execution_id: UniversalUuid, dependency_tasks: Ve...` — Creates a new dependency loader instance
 - pub `load_from_dependencies` function L93-130 — `( &self, key: &str, ) -> Result<Option<serde_json::Value>, ExecutorError>` — Loads a value from dependency contexts using a "latest wins" strategy
 - pub `ExecutorConfig` struct L164-174 — `{ max_concurrent_tasks: usize, task_timeout: std::time::Duration, enable_claimin...` — Configuration settings for the executor
-- pub `ClaimedTask` struct L199-208 — `{ task_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_n...` — Represents a task that has been claimed for execution
+- pub `ClaimedTask` struct L199-208 — `{ task_execution_id: UniversalUuid, workflow_execution_id: UniversalUuid, task_n...` — Represents a task that has been claimed for execution
 -  `DependencyLoader` type L63-157 — `= DependencyLoader` — and configure the behavior of the execution engine.
 -  `load_dependency_context_data` function L139-156 — `( &self, task_namespace: &crate::task::TaskNamespace, ) -> Result<HashMap<String...` — Loads the context data for a specific dependency task
 -  `ExecutorConfig` type L176-192 — `impl Default for ExecutorConfig` — and configure the behavior of the execution engine.
@@ -2743,6 +2702,47 @@
 -  `test_dependency_loader_debug` function L372-378 — `()` — and configure the behavior of the execution engine.
 -  `assert_send_sync` function L376 — `()` — and configure the behavior of the execution engine.
 
+#### crates/cloacina/src/executor/workflow_executor.rs
+
+- pub `StatusCallback` interface L59-66 — `{ fn on_status_change() }` — Callback trait for receiving real-time status updates during workflow execution.
+- pub `TaskResult` struct L73-88 — `{ task_name: String, status: TaskState, start_time: Option<DateTime<Utc>>, end_t...` — Represents the outcome of a single task execution within a workflow.
+- pub `WorkflowExecutionError` enum L96-120 — `DatabaseConnection | WorkflowNotFound | ExecutionFailed | Timeout | Validation |...` — Unified error type for workflow execution operations.
+- pub `WorkflowStatus` enum L128-141 — `Pending | Running | Completed | Failed | Cancelled | Paused` — Represents the current state of a workflow execution.
+- pub `is_terminal` function L151-156 — `(&self) -> bool` — Determines if this status represents a terminal state.
+- pub `WorkflowExecutionResult` struct L164-183 — `{ execution_id: Uuid, workflow_name: String, status: WorkflowStatus, start_time:...` — Contains the complete result of a workflow execution.
+- pub `WorkflowExecution` struct L189-195 — `{ execution_id: Uuid, workflow_name: String, executor: crate::runner::DefaultRun...` — Handle for managing an asynchronous workflow execution.
+- pub `new` function L205-215 — `( execution_id: Uuid, workflow_name: String, executor: crate::runner::DefaultRun...` — Creates a new workflow execution handle.
+- pub `wait_for_completion` function L225-229 — `( self, ) -> Result<WorkflowExecutionResult, WorkflowExecutionError>` — Waits for the workflow to complete execution.
+- pub `wait_for_completion_with_timeout` function L241-271 — `( self, timeout: Option<Duration>, ) -> Result<WorkflowExecutionResult, Workflow...` — Waits for completion with a specified timeout.
+- pub `get_status` function L279-281 — `(&self) -> Result<WorkflowStatus, WorkflowExecutionError>` — Gets the current status of the workflow execution.
+- pub `cancel` function L291-293 — `(&self) -> Result<(), WorkflowExecutionError>` — Cancels the workflow execution.
+- pub `pause` function L308-312 — `(&self, reason: Option<&str>) -> Result<(), WorkflowExecutionError>` — Pauses the workflow execution.
+- pub `resume` function L323-325 — `(&self) -> Result<(), WorkflowExecutionError>` — Resumes a paused workflow execution.
+- pub `WorkflowExecutor` interface L334-487 — `{ fn execute(), fn execute_async(), fn get_execution_status(), fn get_execution_...` — Core trait defining the interface for workflow execution engines.
+-  `WorkflowStatus` type L143-157 — `= WorkflowStatus` — ```
+-  `WorkflowExecution` type L197-326 — `= WorkflowExecution` — ```
+-  `WorkflowStatus` type L489-522 — `= WorkflowStatus` — ```
+-  `from_str` function L511-521 — `(s: &str) -> Self` — Creates a WorkflowStatus from a string representation.
+-  `tests` module L525-777 — `-` — ```
+-  `test_workflow_status_is_terminal` function L534-538 — `()` — ```
+-  `test_workflow_status_is_not_terminal` function L541-545 — `()` — ```
+-  `test_workflow_status_from_str_valid` function L548-561 — `()` — ```
+-  `test_workflow_status_from_str_invalid_defaults_to_failed` function L564-569 — `()` — ```
+-  `test_workflow_status_eq` function L572-575 — `()` — ```
+-  `test_workflow_status_clone` function L578-582 — `()` — ```
+-  `test_workflow_status_debug` function L585-588 — `()` — ```
+-  `test_workflow_error_display_database_connection` function L595-603 — `()` — ```
+-  `test_workflow_error_display_workflow_not_found` function L606-611 — `()` — ```
+-  `test_workflow_error_display_execution_failed` function L614-622 — `()` — ```
+-  `test_workflow_error_display_timeout` function L625-630 — `()` — ```
+-  `test_workflow_error_display_configuration` function L633-638 — `()` — ```
+-  `test_task_result_construction` function L645-661 — `()` — ```
+-  `test_task_result_with_error` function L664-679 — `()` — ```
+-  `test_task_result_clone` function L682-694 — `()` — ```
+-  `test_workflow_result_construction` function L701-717 — `()` — ```
+-  `test_workflow_result_with_tasks` function L720-758 — `()` — ```
+-  `test_workflow_result_debug` function L761-776 — `()` — ```
+
 ### crates/cloacina/src/models
 
 > *Semantic summary to be generated by AI agent.*
@@ -2757,10 +2757,10 @@
 
 #### crates/cloacina/src/models/execution_event.rs
 
-- pub `ExecutionEvent` struct L34-51 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Represents an execution event record (domain type).
-- pub `NewExecutionEvent` struct L55-66 — `{ pipeline_execution_id: UniversalUuid, task_execution_id: Option<UniversalUuid>...` — Structure for creating new execution event records (domain type).
-- pub `pipeline_event` function L70-83 — `( pipeline_execution_id: UniversalUuid, event_type: ExecutionEventType, event_da...` — Creates a new execution event for a pipeline-level transition.
-- pub `task_event` function L86-100 — `( pipeline_execution_id: UniversalUuid, task_execution_id: UniversalUuid, event_...` — Creates a new execution event for a task-level transition.
+- pub `ExecutionEvent` struct L34-51 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — Represents an execution event record (domain type).
+- pub `NewExecutionEvent` struct L55-66 — `{ workflow_execution_id: UniversalUuid, task_execution_id: Option<UniversalUuid>...` — Structure for creating new execution event records (domain type).
+- pub `workflow_event` function L70-83 — `( workflow_execution_id: UniversalUuid, event_type: ExecutionEventType, event_da...` — Creates a new execution event for a workflow-level transition.
+- pub `task_event` function L86-100 — `( workflow_execution_id: UniversalUuid, task_execution_id: UniversalUuid, event_...` — Creates a new execution event for a task-level transition.
 - pub `ExecutionEventType` enum L108-146 — `TaskCreated | TaskMarkedReady | TaskClaimed | TaskStarted | TaskDeferred | TaskR...` — Enumeration of execution event types in the system.
 - pub `as_str` function L150-172 — `(&self) -> &'static str` — Returns the string representation of the event type.
 - pub `from_str` function L176-197 — `(s: &str) -> Option<Self>` — Parses an event type from its string representation.
@@ -2787,12 +2787,12 @@
 
 - pub `context` module L71 — `-` — - Keep model definitions in sync with database schema migrations
 - pub `execution_event` module L72 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `pipeline_execution` module L73 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `recovery_event` module L74 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `schedule` module L75 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `task_execution` module L76 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `task_execution_metadata` module L77 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `task_outbox` module L78 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `recovery_event` module L73 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `schedule` module L74 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `task_execution` module L75 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `task_execution_metadata` module L76 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `task_outbox` module L77 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `workflow_execution` module L78 — `-` — - Keep model definitions in sync with database schema migrations
 - pub `workflow_packages` module L79 — `-` — - Keep model definitions in sync with database schema migrations
 - pub `workflow_registry` module L80 — `-` — - Keep model definitions in sync with database schema migrations
 - pub `key_trust_acl` module L83 — `-` — - Keep model definitions in sync with database schema migrations
@@ -2808,15 +2808,10 @@
 - pub `SignatureVerification` struct L59-68 — `{ is_valid: bool, signer_fingerprint: String, signed_at: UniversalTimestamp, sig...` — Result of signature verification.
 -  `NewPackageSignature` type L47-55 — `= NewPackageSignature` — the SHA256 hash of the package binary.
 
-#### crates/cloacina/src/models/pipeline_execution.rs
-
-- pub `WorkflowExecutionRecord` struct L27-42 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — Represents a workflow execution record (domain type).
-- pub `NewWorkflowExecution` struct L46-51 — `{ pipeline_name: String, pipeline_version: String, status: String, context_id: O...` — Structure for creating new workflow executions (domain type).
-
 #### crates/cloacina/src/models/recovery_event.rs
 
-- pub `RecoveryEvent` struct L27-36 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Represents a recovery event record (domain type).
-- pub `NewRecoveryEvent` struct L40-45 — `{ pipeline_execution_id: UniversalUuid, task_execution_id: Option<UniversalUuid>...` — Structure for creating new recovery event records (domain type).
+- pub `RecoveryEvent` struct L27-36 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — Represents a recovery event record (domain type).
+- pub `NewRecoveryEvent` struct L40-45 — `{ workflow_execution_id: UniversalUuid, task_execution_id: Option<UniversalUuid>...` — Structure for creating new recovery event records (domain type).
 - pub `RecoveryType` enum L49-54 — `TaskReset | TaskAbandoned | PipelineFailed | WorkflowUnavailable` — Enumeration of possible recovery types in the system.
 - pub `as_str` function L57-64 — `(&self) -> &'static str` — These are API-level types; backend-specific models handle database storage.
 -  `RecoveryType` type L56-65 — `= RecoveryType` — These are API-level types; backend-specific models handle database storage.
@@ -2837,8 +2832,8 @@
 - pub `NewSchedule` struct L159-178 — `{ schedule_type: String, workflow_name: String, enabled: Option<UniversalBool>, ...` — Structure for creating new schedule records.
 - pub `cron` function L182-201 — `( workflow_name: &str, cron_expression: &str, next_run_at: UniversalTimestamp, )...` — Create a new cron schedule.
 - pub `trigger` function L204-219 — `(trigger_name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Create a new trigger schedule.
-- pub `ScheduleExecution` struct L224-240 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — Represents a schedule execution record (domain type).
-- pub `NewScheduleExecution` struct L244-250 — `{ schedule_id: UniversalUuid, pipeline_execution_id: Option<UniversalUuid>, sche...` — Structure for creating new schedule execution records.
+- pub `ScheduleExecution` struct L224-240 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — Represents a schedule execution record (domain type).
+- pub `NewScheduleExecution` struct L244-250 — `{ schedule_id: UniversalUuid, workflow_execution_id: Option<UniversalUuid>, sche...` — Structure for creating new schedule execution records.
 -  `String` type L33-40 — `= String` — `schedule_executions` tables, replacing the separate cron and trigger models.
 -  `from` function L34-39 — `(policy: CatchupPolicy) -> Self` — `schedule_executions` tables, replacing the separate cron and trigger models.
 -  `CatchupPolicy` type L42-50 — `= CatchupPolicy` — `schedule_executions` tables, replacing the separate cron and trigger models.
@@ -2874,13 +2869,13 @@
 
 #### crates/cloacina/src/models/task_execution.rs
 
-- pub `TaskExecution` struct L27-48 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — Represents a task execution record (domain type).
-- pub `NewTaskExecution` struct L52-60 — `{ pipeline_execution_id: UniversalUuid, task_name: String, status: String, attem...` — Structure for creating new task executions (domain type).
+- pub `TaskExecution` struct L27-48 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_name: String, st...` — Represents a task execution record (domain type).
+- pub `NewTaskExecution` struct L52-60 — `{ workflow_execution_id: UniversalUuid, task_name: String, status: String, attem...` — Structure for creating new task executions (domain type).
 
 #### crates/cloacina/src/models/task_execution_metadata.rs
 
-- pub `TaskExecutionMetadata` struct L27-35 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — Represents a task execution metadata record (domain type).
-- pub `NewTaskExecutionMetadata` struct L39-44 — `{ task_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_n...` — Structure for creating new task execution metadata (domain type).
+- pub `TaskExecutionMetadata` struct L27-35 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, workflow_execution_id: Un...` — Represents a task execution metadata record (domain type).
+- pub `NewTaskExecutionMetadata` struct L39-44 — `{ task_execution_id: UniversalUuid, workflow_execution_id: UniversalUuid, task_n...` — Structure for creating new task execution metadata (domain type).
 
 #### crates/cloacina/src/models/task_outbox.rs
 
@@ -2897,6 +2892,11 @@
 - pub `from_signing_key` function L79-91 — `( org_id: UniversalUuid, key_fingerprint: String, public_key: Vec<u8>, key_name:...` — Create a trusted key from a signing key's public key.
 -  `TrustedKey` type L42-52 — `= TrustedKey` — derived from the organization's own signing keys.
 -  `NewTrustedKey` type L63-92 — `= NewTrustedKey` — derived from the organization's own signing keys.
+
+#### crates/cloacina/src/models/workflow_execution.rs
+
+- pub `WorkflowExecutionRecord` struct L27-42 — `{ id: UniversalUuid, workflow_name: String, workflow_version: String, status: St...` — Represents a workflow execution record (domain type).
+- pub `NewWorkflowExecution` struct L46-51 — `{ workflow_name: String, workflow_version: String, status: String, context_id: O...` — Structure for creating new workflow executions (domain type).
 
 #### crates/cloacina/src/models/workflow_packages.rs
 
@@ -3089,7 +3089,7 @@
 - pub `max_concurrent_tasks` function L131-133 — `(&self) -> usize`
 - pub `scheduler_poll_interval_ms` function L136-138 — `(&self) -> u64`
 - pub `task_timeout_seconds` function L141-143 — `(&self) -> u64`
-- pub `pipeline_timeout_seconds` function L146-148 — `(&self) -> Option<u64>`
+- pub `workflow_timeout_seconds` function L146-148 — `(&self) -> Option<u64>`
 - pub `db_pool_size` function L151-153 — `(&self) -> u32`
 - pub `enable_recovery` function L156-158 — `(&self) -> bool`
 - pub `enable_cron_scheduling` function L161-163 — `(&self) -> bool`
@@ -3103,7 +3103,7 @@
 - pub `set_max_concurrent_tasks` function L201-203 — `(&mut self, value: usize)`
 - pub `set_scheduler_poll_interval_ms` function L206-209 — `(&mut self, value: u64)`
 - pub `set_task_timeout_seconds` function L212-214 — `(&mut self, value: u64)`
-- pub `set_pipeline_timeout_seconds` function L217-220 — `(&mut self, value: Option<u64>)`
+- pub `set_workflow_timeout_seconds` function L217-220 — `(&mut self, value: Option<u64>)`
 - pub `set_db_pool_size` function L223-225 — `(&mut self, value: u32)`
 - pub `set_enable_recovery` function L228-230 — `(&mut self, value: bool)`
 - pub `set_enable_cron_scheduling` function L233-235 — `(&mut self, value: bool)`
@@ -3207,8 +3207,8 @@
 -  `test_runner_set_cron_schedule_enabled_invalid_id` function L1392-1401 — `()`
 -  `test_runner_set_trigger_enabled` function L1405-1414 — `()`
 -  `test_runner_get_trigger_execution_history` function L1418-1428 — `()`
--  `test_pipeline_result_completed` function L1432-1463 — `()`
--  `test_pipeline_result_failed` function L1467-1486 — `()`
+-  `test_workflow_result_completed` function L1432-1463 — `()`
+-  `test_workflow_result_failed` function L1467-1486 — `()`
 -  `test_runner_execute_nonexistent_workflow` function L1490-1503 — `()`
 -  `test_runner_execute_registered_workflow` function L1507-1554 — `()`
 -  `NoOpTask` struct L1514 — `-`
@@ -4095,7 +4095,7 @@
 - pub `max_concurrent_tasks` function L106-108 — `(&self) -> usize` — Maximum number of concurrent task executions allowed.
 - pub `scheduler_poll_interval` function L111-113 — `(&self) -> Duration` — How often the scheduler checks for ready tasks.
 - pub `task_timeout` function L116-118 — `(&self) -> Duration` — Maximum time allowed for a single task to execute.
-- pub `pipeline_timeout` function L121-123 — `(&self) -> Option<Duration>` — Optional maximum time for an entire pipeline execution.
+- pub `workflow_timeout` function L121-123 — `(&self) -> Option<Duration>` — Optional maximum time for an entire workflow execution.
 - pub `db_pool_size` function L126-128 — `(&self) -> u32` — Number of database connections in the pool.
 - pub `enable_recovery` function L131-133 — `(&self) -> bool` — Whether automatic recovery is enabled.
 - pub `enable_cron_scheduling` function L136-138 — `(&self) -> bool` — Whether cron scheduling is enabled.
@@ -4125,7 +4125,7 @@
 - pub `max_concurrent_tasks` function L306-309 — `(mut self, value: usize) -> Self` — Sets the maximum number of concurrent task executions.
 - pub `scheduler_poll_interval` function L312-315 — `(mut self, value: Duration) -> Self` — Sets the scheduler poll interval.
 - pub `task_timeout` function L318-321 — `(mut self, value: Duration) -> Self` — Sets the task timeout.
-- pub `pipeline_timeout` function L324-327 — `(mut self, value: Option<Duration>) -> Self` — Sets the pipeline timeout.
+- pub `workflow_timeout` function L324-327 — `(mut self, value: Option<Duration>) -> Self` — Sets the workflow timeout.
 - pub `db_pool_size` function L330-333 — `(mut self, value: u32) -> Self` — Sets the database pool size.
 - pub `enable_recovery` function L336-339 — `(mut self, value: bool) -> Self` — Enables or disables automatic recovery.
 - pub `enable_cron_scheduling` function L342-345 — `(mut self, value: bool) -> Self` — Enables or disables cron scheduling.
@@ -4208,9 +4208,9 @@
 - pub `shutdown` function L304-341 — `(&self) -> Result<(), WorkflowExecutionError>` — Gracefully shuts down the executor and its background services
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `pipeline_executor_impl` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `pipeline_result` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `services` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `workflow_executor_impl` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `workflow_result` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `RuntimeHandles` struct L97-110 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
 -  `DefaultRunner` type L112-342 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `DefaultRunner` type L344-359 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
@@ -4218,7 +4218,17 @@
 -  `DefaultRunner` type L362-368 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `drop` function L363-367 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
-#### crates/cloacina/src/runner/default_runner/pipeline_executor_impl.rs
+#### crates/cloacina/src/runner/default_runner/services.rs
+
+-  `DefaultRunner` type L37-405 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
+-  `create_runner_span` function L39-57 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
+-  `start_background_services` function L69-135 — `(&self) -> Result<(), WorkflowExecutionError>` — Starts the background scheduler and executor services
+-  `start_unified_scheduler` function L138-195 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the unified scheduler that handles both cron and trigger schedules.
+-  `start_cron_recovery` function L198-255 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
+-  `start_registry_reconciler` function L258-357 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
+-  `start_stale_claim_sweeper` function L360-404 — `( &self, _handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<(...` — Starts the stale claim sweeper background service.
+
+#### crates/cloacina/src/runner/default_runner/workflow_executor_impl.rs
 
 -  `DefaultRunner` type L44-371 — `impl WorkflowExecutor for DefaultRunner` — Implementation of WorkflowExecutor trait for DefaultRunner
 -  `execute` function L55-101 — `( &self, workflow_name: &str, context: Context<serde_json::Value>, ) -> Result<W...` — Executes a workflow synchronously and waits for completion
@@ -4232,20 +4242,10 @@
 -  `list_executions` function L341-362 — `( &self, ) -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>` — Lists recent workflow executions
 -  `shutdown` function L368-370 — `(&self) -> Result<(), WorkflowExecutionError>` — Shuts down the executor
 
-#### crates/cloacina/src/runner/default_runner/pipeline_result.rs
+#### crates/cloacina/src/runner/default_runner/workflow_result.rs
 
 -  `DefaultRunner` type L35-176 — `= DefaultRunner` — from database records.
--  `build_pipeline_result` function L50-175 — `( &self, execution_id: Uuid, ) -> Result<WorkflowExecutionResult, WorkflowExecut...` — Builds a workflow execution result from an execution ID
-
-#### crates/cloacina/src/runner/default_runner/services.rs
-
--  `DefaultRunner` type L37-405 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
--  `create_runner_span` function L39-57 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
--  `start_background_services` function L69-135 — `(&self) -> Result<(), WorkflowExecutionError>` — Starts the background scheduler and executor services
--  `start_unified_scheduler` function L138-195 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the unified scheduler that handles both cron and trigger schedules.
--  `start_cron_recovery` function L198-255 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
--  `start_registry_reconciler` function L258-357 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
--  `start_stale_claim_sweeper` function L360-404 — `( &self, _handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<(...` — Starts the stale claim sweeper background service.
+-  `build_workflow_result` function L50-175 — `( &self, execution_id: Uuid, ) -> Result<WorkflowExecutionResult, WorkflowExecut...` — Builds a workflow execution result from an execution ID
 
 ### crates/cloacina/src/runner
 
@@ -4253,7 +4253,7 @@
 
 #### crates/cloacina/src/runner/mod.rs
 
-- pub `default_runner` module L23 — `-` — Workflow runners for executing complete pipelines and workflows.
+- pub `default_runner` module L23 — `-` — Workflow runners for executing complete workflows.
 
 ### crates/cloacina/src/security
 
@@ -6588,7 +6588,7 @@
 
 - pub `ExecuteRequest` struct L37-41 — `{ context: Option<serde_json::Value> }` — Request body for executing a workflow.
 - pub `execute_workflow` function L50-99 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
-- pub `list_executions` function L102-151 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list pipeline executions.
+- pub `list_executions` function L102-151 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list workflow executions.
 - pub `get_execution` function L154-203 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id — get execution details.
 - pub `get_execution_events` function L206-258 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
 

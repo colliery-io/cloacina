@@ -326,7 +326,7 @@ impl CronRecoveryService {
                 if let Err(e) = self
                     .dal
                     .schedule_execution()
-                    .update_pipeline_execution_id(
+                    .update_workflow_execution_id(
                         execution.id,
                         crate::database::UniversalUuid(workflow_result.execution_id),
                     )

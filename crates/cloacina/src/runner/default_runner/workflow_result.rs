@@ -63,7 +63,7 @@ impl DefaultRunner {
 
         let task_executions = dal
             .task_execution()
-            .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
+            .get_all_tasks_for_workflow(UniversalUuid(execution_id))
             .await
             .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get task executions: {}", e),

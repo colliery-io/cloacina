@@ -94,7 +94,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 .to_string();
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskRetryScheduled.as_str().to_string(),
                     event_data: Some(event_data),
@@ -169,7 +169,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 .to_string();
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: task.pipeline_execution_id,
+                    workflow_execution_id: task.workflow_execution_id,
                     task_execution_id: Some(task_id),
                     event_type: ExecutionEventType::TaskRetryScheduled.as_str().to_string(),
                     event_data: Some(event_data),
@@ -236,7 +236,7 @@ impl<'a> TaskExecutionDAL<'a> {
             #[diesel(sql_type = diesel::sql_types::Uuid)]
             id: Uuid,
             #[diesel(sql_type = diesel::sql_types::Uuid)]
-            pipeline_execution_id: Uuid,
+            workflow_execution_id: Uuid,
             #[diesel(sql_type = diesel::sql_types::Text)]
             task_name: String,
             #[diesel(sql_type = diesel::sql_types::Integer)]
@@ -271,7 +271,7 @@ impl<'a> TaskExecutionDAL<'a> {
                         SET status = 'Running', started_at = NOW(), updated_at = NOW()
                         FROM claimed_outbox
                         WHERE task_executions.id = claimed_outbox.task_execution_id
-                        RETURNING task_executions.id, task_executions.pipeline_execution_id, task_executions.task_name, task_executions.attempt
+                        RETURNING task_executions.id, task_executions.workflow_execution_id, task_executions.task_name, task_executions.attempt
                         "#,
                         limit
                     ))
@@ -281,7 +281,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     for task in &claimed {
                         let event = NewUnifiedExecutionEvent {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: UniversalUuid(task.pipeline_execution_id),
+                            workflow_execution_id: UniversalUuid(task.workflow_execution_id),
                             task_execution_id: Some(UniversalUuid(task.id)),
                             event_type: ExecutionEventType::TaskClaimed.as_str().to_string(),
                             event_data: None,
@@ -303,7 +303,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .into_iter()
             .map(|pg| ClaimResult {
                 id: UniversalUuid(pg.id),
-                pipeline_execution_id: UniversalUuid(pg.pipeline_execution_id),
+                workflow_execution_id: UniversalUuid(pg.workflow_execution_id),
                 task_name: pg.task_name,
                 attempt: pg.attempt,
             })
@@ -380,7 +380,7 @@ impl<'a> TaskExecutionDAL<'a> {
                             for task in &claimed_tasks {
                                 let event = NewUnifiedExecutionEvent {
                                     id: UniversalUuid::new_v4(),
-                                    pipeline_execution_id: task.pipeline_execution_id,
+                                    workflow_execution_id: task.workflow_execution_id,
                                     task_execution_id: Some(task.id),
                                     event_type: ExecutionEventType::TaskClaimed
                                         .as_str()
@@ -406,7 +406,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .into_iter()
             .map(|task| ClaimResult {
                 id: task.id,
-                pipeline_execution_id: task.pipeline_execution_id,
+                workflow_execution_id: task.workflow_execution_id,
                 task_name: task.task_name,
                 attempt: task.attempt,
             })

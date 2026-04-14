@@ -340,7 +340,7 @@ impl<'a> RecoveryManager<'a> {
         let workflow_failed = self
             .dal
             .task_execution()
-            .check_pipeline_failure(task.workflow_execution_id)
+            .check_workflow_failure(task.workflow_execution_id)
             .await?;
 
         if workflow_failed {

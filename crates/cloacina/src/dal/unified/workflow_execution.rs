@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-//! Unified Pipeline Execution DAL with compile-time backend selection
+//! Unified Workflow Execution DAL with compile-time backend selection
 //!
 //! All state transitions are transactional: the status update and execution event
 //! are written atomically. If either fails, both are rolled back.
@@ -23,7 +23,7 @@ use super::models::{
     NewUnifiedExecutionEvent, NewUnifiedWorkflowExecution, UnifiedWorkflowExecution,
 };
 use super::DAL;
-use crate::database::schema::unified::{execution_events, pipeline_executions};
+use crate::database::schema::unified::{execution_events, workflow_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
@@ -41,9 +41,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
         Self { dal }
     }
 
-    /// Creates a new pipeline execution record in the database.
+    /// Creates a new workflow execution record in the database.
     ///
-    /// This operation is transactional: the pipeline record and execution event
+    /// This operation is transactional: the workflow record and execution event
     /// are written atomically.
     pub async fn create(
         &self,
@@ -78,8 +78,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
                     let unified_new = NewUnifiedWorkflowExecution {
                         id,
-                        pipeline_name: new_execution.workflow_name,
-                        pipeline_version: new_execution.workflow_version,
+                        workflow_name: new_execution.workflow_name,
+                        workflow_version: new_execution.workflow_version,
                         status: new_execution.status,
                         context_id: new_execution.context_id,
                         started_at: now,
@@ -87,19 +87,19 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         updated_at: now,
                     };
 
-                    // Insert pipeline record
-                    diesel::insert_into(pipeline_executions::table)
+                    // Insert workflow record
+                    diesel::insert_into(workflow_executions::table)
                         .values(&unified_new)
                         .execute(conn)?;
 
                     // Retrieve the created record
                     let execution: UnifiedWorkflowExecution =
-                        pipeline_executions::table.find(id).first(conn)?;
+                        workflow_executions::table.find(id).first(conn)?;
 
-                    // Insert execution event for pipeline start
+                    // Insert execution event for workflow start
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: execution.id,
+                        workflow_execution_id: execution.id,
                         task_execution_id: None,
                         event_type: ExecutionEventType::PipelineStarted.as_str().to_string(),
                         event_data: None,
@@ -141,8 +141,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
                     let unified_new = NewUnifiedWorkflowExecution {
                         id,
-                        pipeline_name: new_execution.workflow_name,
-                        pipeline_version: new_execution.workflow_version,
+                        workflow_name: new_execution.workflow_name,
+                        workflow_version: new_execution.workflow_version,
                         status: new_execution.status,
                         context_id: new_execution.context_id,
                         started_at: now,
@@ -150,19 +150,19 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         updated_at: now,
                     };
 
-                    // Insert pipeline record
-                    diesel::insert_into(pipeline_executions::table)
+                    // Insert workflow record
+                    diesel::insert_into(workflow_executions::table)
                         .values(&unified_new)
                         .execute(conn)?;
 
                     // Retrieve the created record
                     let execution: UnifiedWorkflowExecution =
-                        pipeline_executions::table.find(id).first(conn)?;
+                        workflow_executions::table.find(id).first(conn)?;
 
-                    // Insert execution event for pipeline start
+                    // Insert execution event for workflow start
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: execution.id,
+                        workflow_execution_id: execution.id,
                         task_execution_id: None,
                         event_type: ExecutionEventType::PipelineStarted.as_str().to_string(),
                         event_data: None,
@@ -206,7 +206,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let execution: UnifiedWorkflowExecution = conn
-            .interact(move |conn| pipeline_executions::table.find(id).first(conn))
+            .interact(move |conn| workflow_executions::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
@@ -226,7 +226,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let execution: UnifiedWorkflowExecution = conn
-            .interact(move |conn| pipeline_executions::table.find(id).first(conn))
+            .interact(move |conn| workflow_executions::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
@@ -256,8 +256,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let executions: Vec<UnifiedWorkflowExecution> = conn
             .interact(move |conn| {
-                pipeline_executions::table
-                    .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
+                workflow_executions::table
+                    .filter(workflow_executions::status.eq_any(vec!["Pending", "Running"]))
                     .load(conn)
             })
             .await
@@ -279,8 +279,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let executions: Vec<UnifiedWorkflowExecution> = conn
             .interact(move |conn| {
-                pipeline_executions::table
-                    .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
+                workflow_executions::table
+                    .filter(workflow_executions::status.eq_any(vec!["Pending", "Running"]))
                     .load(conn)
             })
             .await
@@ -317,10 +317,10 @@ impl<'a> WorkflowExecutionDAL<'a> {
         let status = status.to_string();
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(workflow_executions::table.find(id))
                 .set((
-                    pipeline_executions::status.eq(status),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::status.eq(status),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -346,10 +346,10 @@ impl<'a> WorkflowExecutionDAL<'a> {
         let status = status.to_string();
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(workflow_executions::table.find(id))
                 .set((
-                    pipeline_executions::status.eq(status),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::status.eq(status),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -359,7 +359,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
         Ok(())
     }
 
-    /// Marks a pipeline execution as completed.
+    /// Marks a workflow execution as completed.
     ///
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
@@ -389,14 +389,14 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 // Only transition from Running to Completed — prevents duplicate
                 // PipelineCompleted events when two scheduler ticks race.
                 let rows = diesel::update(
-                    pipeline_executions::table
+                    workflow_executions::table
                         .find(id)
-                        .filter(pipeline_executions::status.ne_all(vec!["Completed", "Failed"])),
+                        .filter(workflow_executions::status.ne_all(vec!["Completed", "Failed"])),
                 )
                 .set((
-                    pipeline_executions::status.eq("Completed"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::status.eq("Completed"),
+                    workflow_executions::completed_at.eq(Some(now)),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)?;
 
@@ -404,7 +404,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 if rows > 0 {
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: id,
+                        workflow_execution_id: id,
                         task_execution_id: None,
                         event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
                         event_data: None,
@@ -443,14 +443,14 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 // Only transition from Running to Completed — prevents duplicate
                 // PipelineCompleted events when two scheduler ticks race.
                 let rows = diesel::update(
-                    pipeline_executions::table
+                    workflow_executions::table
                         .find(id)
-                        .filter(pipeline_executions::status.ne_all(vec!["Completed", "Failed"])),
+                        .filter(workflow_executions::status.ne_all(vec!["Completed", "Failed"])),
                 )
                 .set((
-                    pipeline_executions::status.eq("Completed"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::status.eq("Completed"),
+                    workflow_executions::completed_at.eq(Some(now)),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)?;
 
@@ -458,7 +458,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 if rows > 0 {
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: id,
+                        workflow_execution_id: id,
                         task_execution_id: None,
                         event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
                         event_data: None,
@@ -481,19 +481,19 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
     pub async fn get_last_version(
         &self,
-        pipeline_name: &str,
+        workflow_name: &str,
     ) -> Result<Option<String>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.get_last_version_postgres(pipeline_name).await,
-            self.get_last_version_sqlite(pipeline_name).await
+            self.get_last_version_postgres(workflow_name).await,
+            self.get_last_version_sqlite(workflow_name).await
         )
     }
 
     #[cfg(feature = "postgres")]
     async fn get_last_version_postgres(
         &self,
-        pipeline_name: &str,
+        workflow_name: &str,
     ) -> Result<Option<String>, ValidationError> {
         let conn = self
             .dal
@@ -502,13 +502,13 @@ impl<'a> WorkflowExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let pipeline_name = pipeline_name.to_string();
+        let workflow_name = workflow_name.to_string();
         let version: Option<String> = conn
             .interact(move |conn| {
-                pipeline_executions::table
-                    .filter(pipeline_executions::pipeline_name.eq(pipeline_name))
-                    .order(pipeline_executions::started_at.desc())
-                    .select(pipeline_executions::pipeline_version)
+                workflow_executions::table
+                    .filter(workflow_executions::workflow_name.eq(workflow_name))
+                    .order(workflow_executions::started_at.desc())
+                    .select(workflow_executions::workflow_version)
                     .first(conn)
                     .optional()
             })
@@ -521,7 +521,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
     #[cfg(feature = "sqlite")]
     async fn get_last_version_sqlite(
         &self,
-        pipeline_name: &str,
+        workflow_name: &str,
     ) -> Result<Option<String>, ValidationError> {
         let conn = self
             .dal
@@ -530,13 +530,13 @@ impl<'a> WorkflowExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let pipeline_name = pipeline_name.to_string();
+        let workflow_name = workflow_name.to_string();
         let version: Option<String> = conn
             .interact(move |conn| {
-                pipeline_executions::table
-                    .filter(pipeline_executions::pipeline_name.eq(pipeline_name))
-                    .order(pipeline_executions::started_at.desc())
-                    .select(pipeline_executions::pipeline_version)
+                workflow_executions::table
+                    .filter(workflow_executions::workflow_name.eq(workflow_name))
+                    .order(workflow_executions::started_at.desc())
+                    .select(workflow_executions::workflow_version)
                     .first(conn)
                     .optional()
             })
@@ -546,7 +546,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
         Ok(version)
     }
 
-    /// Marks a pipeline execution as failed with an error reason.
+    /// Marks a workflow execution as failed with an error reason.
     ///
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
@@ -585,15 +585,15 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 // Only transition from Running to Failed — prevents duplicate
                 // PipelineFailed events when two scheduler ticks race.
                 let rows = diesel::update(
-                    pipeline_executions::table
+                    workflow_executions::table
                         .find(id)
-                        .filter(pipeline_executions::status.ne_all(vec!["Completed", "Failed"])),
+                        .filter(workflow_executions::status.ne_all(vec!["Completed", "Failed"])),
                 )
                 .set((
-                    pipeline_executions::status.eq("Failed"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::error_details.eq(&reason),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::status.eq("Failed"),
+                    workflow_executions::completed_at.eq(Some(now)),
+                    workflow_executions::error_details.eq(&reason),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)?;
 
@@ -602,7 +602,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     let event_data = serde_json::json!({ "reason": reason }).to_string();
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: id,
+                        workflow_execution_id: id,
                         task_execution_id: None,
                         event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
                         event_data: Some(event_data),
@@ -646,15 +646,15 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 // Only transition from Running to Failed — prevents duplicate
                 // PipelineFailed events when two scheduler ticks race.
                 let rows = diesel::update(
-                    pipeline_executions::table
+                    workflow_executions::table
                         .find(id)
-                        .filter(pipeline_executions::status.ne_all(vec!["Completed", "Failed"])),
+                        .filter(workflow_executions::status.ne_all(vec!["Completed", "Failed"])),
                 )
                 .set((
-                    pipeline_executions::status.eq("Failed"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::error_details.eq(&reason),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::status.eq("Failed"),
+                    workflow_executions::completed_at.eq(Some(now)),
+                    workflow_executions::error_details.eq(&reason),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)?;
 
@@ -663,7 +663,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     let event_data = serde_json::json!({ "reason": reason }).to_string();
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: id,
+                        workflow_execution_id: id,
                         task_execution_id: None,
                         event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
                         event_data: Some(event_data),
@@ -709,12 +709,12 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(workflow_executions::table.find(id))
                 .set((
-                    pipeline_executions::recovery_attempts
-                        .eq(pipeline_executions::recovery_attempts + 1),
-                    pipeline_executions::last_recovery_at.eq(Some(now)),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::recovery_attempts
+                        .eq(workflow_executions::recovery_attempts + 1),
+                    workflow_executions::last_recovery_at.eq(Some(now)),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -738,12 +738,12 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(workflow_executions::table.find(id))
                 .set((
-                    pipeline_executions::recovery_attempts
-                        .eq(pipeline_executions::recovery_attempts + 1),
-                    pipeline_executions::last_recovery_at.eq(Some(now)),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::recovery_attempts
+                        .eq(workflow_executions::recovery_attempts + 1),
+                    workflow_executions::last_recovery_at.eq(Some(now)),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -761,9 +761,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
         )
     }
 
-    /// Pauses a running pipeline execution.
+    /// Pauses a running workflow execution.
     ///
-    /// Sets the pipeline status to 'Paused', records the pause timestamp,
+    /// Sets the workflow status to 'Paused', records the pause timestamp,
     /// and optionally stores a reason for the pause.
     ///
     /// This operation is transactional: the status update and execution event
@@ -800,13 +800,13 @@ impl<'a> WorkflowExecutionDAL<'a> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
-                // Update pipeline status
-                diesel::update(pipeline_executions::table.find(id))
+                // Update workflow status
+                diesel::update(workflow_executions::table.find(id))
                     .set((
-                        pipeline_executions::status.eq("Paused"),
-                        pipeline_executions::paused_at.eq(Some(now)),
-                        pipeline_executions::pause_reason.eq(&reason),
-                        pipeline_executions::updated_at.eq(now),
+                        workflow_executions::status.eq("Paused"),
+                        workflow_executions::paused_at.eq(Some(now)),
+                        workflow_executions::pause_reason.eq(&reason),
+                        workflow_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;
 
@@ -814,7 +814,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 let event_data = reason.map(|r| serde_json::json!({ "reason": r }).to_string());
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: id,
+                    workflow_execution_id: id,
                     task_execution_id: None,
                     event_type: ExecutionEventType::PipelinePaused.as_str().to_string(),
                     event_data,
@@ -854,13 +854,13 @@ impl<'a> WorkflowExecutionDAL<'a> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
-                // Update pipeline status
-                diesel::update(pipeline_executions::table.find(id))
+                // Update workflow status
+                diesel::update(workflow_executions::table.find(id))
                     .set((
-                        pipeline_executions::status.eq("Paused"),
-                        pipeline_executions::paused_at.eq(Some(now)),
-                        pipeline_executions::pause_reason.eq(&reason),
-                        pipeline_executions::updated_at.eq(now),
+                        workflow_executions::status.eq("Paused"),
+                        workflow_executions::paused_at.eq(Some(now)),
+                        workflow_executions::pause_reason.eq(&reason),
+                        workflow_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;
 
@@ -868,7 +868,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 let event_data = reason.map(|r| serde_json::json!({ "reason": r }).to_string());
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: id,
+                    workflow_execution_id: id,
                     task_execution_id: None,
                     event_type: ExecutionEventType::PipelinePaused.as_str().to_string(),
                     event_data,
@@ -888,9 +888,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
         Ok(())
     }
 
-    /// Resumes a paused pipeline execution.
+    /// Resumes a paused workflow execution.
     ///
-    /// Sets the pipeline status back to 'Running' and clears the pause metadata.
+    /// Sets the workflow status back to 'Running' and clears the pause metadata.
     ///
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
@@ -917,20 +917,20 @@ impl<'a> WorkflowExecutionDAL<'a> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
-                // Update pipeline status
-                diesel::update(pipeline_executions::table.find(id))
+                // Update workflow status
+                diesel::update(workflow_executions::table.find(id))
                     .set((
-                        pipeline_executions::status.eq("Running"),
-                        pipeline_executions::paused_at.eq(None::<UniversalTimestamp>),
-                        pipeline_executions::pause_reason.eq(None::<String>),
-                        pipeline_executions::updated_at.eq(now),
+                        workflow_executions::status.eq("Running"),
+                        workflow_executions::paused_at.eq(None::<UniversalTimestamp>),
+                        workflow_executions::pause_reason.eq(None::<String>),
+                        workflow_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;
 
                 // Insert execution event
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: id,
+                    workflow_execution_id: id,
                     task_execution_id: None,
                     event_type: ExecutionEventType::PipelineResumed.as_str().to_string(),
                     event_data: None,
@@ -965,20 +965,20 @@ impl<'a> WorkflowExecutionDAL<'a> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
 
-                // Update pipeline status
-                diesel::update(pipeline_executions::table.find(id))
+                // Update workflow status
+                diesel::update(workflow_executions::table.find(id))
                     .set((
-                        pipeline_executions::status.eq("Running"),
-                        pipeline_executions::paused_at.eq(None::<UniversalTimestamp>),
-                        pipeline_executions::pause_reason.eq(None::<String>),
-                        pipeline_executions::updated_at.eq(now),
+                        workflow_executions::status.eq("Running"),
+                        workflow_executions::paused_at.eq(None::<UniversalTimestamp>),
+                        workflow_executions::pause_reason.eq(None::<String>),
+                        workflow_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;
 
                 // Insert execution event
                 let event = NewUnifiedExecutionEvent {
                     id: UniversalUuid::new_v4(),
-                    pipeline_execution_id: id,
+                    workflow_execution_id: id,
                     task_execution_id: None,
                     event_type: ExecutionEventType::PipelineResumed.as_str().to_string(),
                     event_data: None,
@@ -1009,11 +1009,11 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(workflow_executions::table.find(id))
                 .set((
-                    pipeline_executions::status.eq("Cancelled"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::status.eq("Cancelled"),
+                    workflow_executions::completed_at.eq(Some(now)),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -1034,11 +1034,11 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(workflow_executions::table.find(id))
                 .set((
-                    pipeline_executions::status.eq("Cancelled"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::status.eq("Cancelled"),
+                    workflow_executions::completed_at.eq(Some(now)),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -1076,10 +1076,10 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(workflow_executions::table.find(id))
                 .set((
-                    pipeline_executions::context_id.eq(Some(final_context_id)),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::context_id.eq(Some(final_context_id)),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -1104,10 +1104,10 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(workflow_executions::table.find(id))
                 .set((
-                    pipeline_executions::context_id.eq(Some(final_context_id)),
-                    pipeline_executions::updated_at.eq(now),
+                    workflow_executions::context_id.eq(Some(final_context_id)),
+                    workflow_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -1142,8 +1142,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let executions: Vec<UnifiedWorkflowExecution> = conn
             .interact(move |conn| {
-                pipeline_executions::table
-                    .order(pipeline_executions::started_at.desc())
+                workflow_executions::table
+                    .order(workflow_executions::started_at.desc())
                     .limit(limit)
                     .load(conn)
             })
@@ -1167,8 +1167,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
         let executions: Vec<UnifiedWorkflowExecution> = conn
             .interact(move |conn| {
-                pipeline_executions::table
-                    .order(pipeline_executions::started_at.desc())
+                workflow_executions::table
+                    .order(workflow_executions::started_at.desc())
                     .limit(limit)
                     .load(conn)
             })

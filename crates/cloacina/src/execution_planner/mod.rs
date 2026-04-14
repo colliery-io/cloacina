@@ -133,7 +133,7 @@ use uuid::Uuid;
 
 use crate::dal::unified::models::{NewUnifiedTaskExecution, NewUnifiedWorkflowExecution};
 use crate::dal::DAL;
-use crate::database::schema::unified::{pipeline_executions, task_executions};
+use crate::database::schema::unified::{task_executions, workflow_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::dispatcher::Dispatcher;
 use crate::error::ValidationError;
@@ -458,11 +458,11 @@ impl TaskScheduler {
         conn.interact(move |conn| {
             conn.transaction(|conn| {
                 // Insert workflow execution
-                diesel::insert_into(pipeline_executions::table)
+                diesel::insert_into(workflow_executions::table)
                     .values(&NewUnifiedWorkflowExecution {
                         id: workflow_execution_id,
-                        pipeline_name: workflow_name,
-                        pipeline_version: workflow_version,
+                        workflow_name,
+                        workflow_version,
                         status: "Pending".to_string(),
                         context_id: stored_context,
                         started_at: now,
@@ -476,7 +476,7 @@ impl TaskScheduler {
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: workflow_execution_id,
+                            workflow_execution_id,
                             task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,
@@ -519,11 +519,11 @@ impl TaskScheduler {
         conn.interact(move |conn| {
             conn.transaction(|conn| {
                 // Insert workflow execution
-                diesel::insert_into(pipeline_executions::table)
+                diesel::insert_into(workflow_executions::table)
                     .values(&NewUnifiedWorkflowExecution {
                         id: workflow_execution_id,
-                        pipeline_name: workflow_name,
-                        pipeline_version: workflow_version,
+                        workflow_name,
+                        workflow_version,
                         status: "Pending".to_string(),
                         context_id: stored_context,
                         started_at: now,
@@ -537,7 +537,7 @@ impl TaskScheduler {
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: workflow_execution_id,
+                            workflow_execution_id,
                             task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,

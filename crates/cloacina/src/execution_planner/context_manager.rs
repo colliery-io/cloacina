@@ -95,7 +95,7 @@ impl<'a> ContextManager<'a> {
             match self
                 .dal
                 .task_execution_metadata()
-                .get_by_pipeline_and_task(task_execution.workflow_execution_id, dep_task_namespace)
+                .get_by_workflow_and_task(task_execution.workflow_execution_id, dep_task_namespace)
                 .await
             {
                 Ok(task_metadata) => {
@@ -157,7 +157,7 @@ impl<'a> ContextManager<'a> {
             if let Ok(task_metadata) = self
                 .dal
                 .task_execution_metadata()
-                .get_by_pipeline_and_task(task_execution.workflow_execution_id, dep_task_namespace)
+                .get_by_workflow_and_task(task_execution.workflow_execution_id, dep_task_namespace)
                 .await
             {
                 if let Some(context_id) = task_metadata.context_id {

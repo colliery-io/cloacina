@@ -232,7 +232,7 @@ pub async fn get_execution_events(
     let dal = cloacina::dal::DAL::new(tenant_db);
     let universal_id = cloacina::database::universal_types::UniversalUuid(id);
 
-    match dal.execution_event().list_by_pipeline(universal_id).await {
+    match dal.execution_event().list_by_workflow(universal_id).await {
         Ok(events) => {
             let items: Vec<_> = events
                 .into_iter()
