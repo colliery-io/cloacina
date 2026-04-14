@@ -72,7 +72,7 @@ impl<'a> RecoveryEventDAL<'a> {
 
         let new_unified = NewUnifiedRecoveryEvent {
             id,
-            pipeline_execution_id: new_event.pipeline_execution_id,
+            pipeline_execution_id: new_event.workflow_execution_id,
             task_execution_id: new_event.task_execution_id,
             recovery_type: new_event.recovery_type,
             recovered_at: now,
@@ -114,7 +114,7 @@ impl<'a> RecoveryEventDAL<'a> {
 
         let new_unified = NewUnifiedRecoveryEvent {
             id,
-            pipeline_execution_id: new_event.pipeline_execution_id,
+            pipeline_execution_id: new_event.workflow_execution_id,
             task_execution_id: new_event.task_execution_id,
             recovery_type: new_event.recovery_type,
             recovered_at: now,

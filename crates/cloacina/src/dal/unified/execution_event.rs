@@ -78,7 +78,7 @@ impl<'a> ExecutionEventDAL<'a> {
 
         let new_unified = NewUnifiedExecutionEvent {
             id,
-            pipeline_execution_id: new_event.pipeline_execution_id,
+            pipeline_execution_id: new_event.workflow_execution_id,
             task_execution_id: new_event.task_execution_id,
             event_type: new_event.event_type,
             event_data: new_event.event_data,
@@ -115,7 +115,7 @@ impl<'a> ExecutionEventDAL<'a> {
 
         let new_unified = NewUnifiedExecutionEvent {
             id,
-            pipeline_execution_id: new_event.pipeline_execution_id,
+            pipeline_execution_id: new_event.workflow_execution_id,
             task_execution_id: new_event.task_execution_id,
             event_type: new_event.event_type,
             event_data: new_event.event_data,

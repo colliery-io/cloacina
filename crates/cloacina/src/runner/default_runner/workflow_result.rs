@@ -23,7 +23,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::dal::DAL;
-use crate::executor::pipeline_executor::{
+use crate::executor::workflow_executor::{
     TaskResult, WorkflowExecutionError, WorkflowExecutionResult, WorkflowStatus,
 };
 use crate::task::TaskState;
@@ -47,18 +47,18 @@ impl DefaultRunner {
     /// 3. Retrieves the final context
     /// 4. Builds task results
     /// 5. Constructs the complete workflow execution result
-    pub(super) async fn build_pipeline_result(
+    pub(super) async fn build_workflow_result(
         &self,
         execution_id: Uuid,
     ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
         let dal = DAL::new(self.database.clone());
 
-        let pipeline_execution = dal
+        let workflow_execution = dal
             .workflow_execution()
             .get_by_id(UniversalUuid(execution_id))
             .await
             .map_err(|e| WorkflowExecutionError::ExecutionFailed {
-                message: format!("Failed to get pipeline execution: {}", e),
+                message: format!("Failed to get workflow execution: {}", e),
             })?;
 
         let task_executions = dal
@@ -70,7 +70,7 @@ impl DefaultRunner {
             })?;
 
         // Get final context using DAL
-        let final_context = if let Some(context_id) = pipeline_execution.context_id {
+        let final_context = if let Some(context_id) = workflow_execution.context_id {
             dal.context().read(context_id).await.map_err(|e| {
                 WorkflowExecutionError::ExecutionFailed {
                     message: format!("Failed to get context: {}", e),
@@ -147,7 +147,7 @@ impl DefaultRunner {
             .collect();
 
         // Convert status
-        let status = match pipeline_execution.status.as_str() {
+        let status = match workflow_execution.status.as_str() {
             "Pending" => WorkflowStatus::Pending,
             "Running" => WorkflowStatus::Running,
             "Completed" => WorkflowStatus::Completed,
@@ -155,22 +155,22 @@ impl DefaultRunner {
             _ => WorkflowStatus::Failed,
         };
 
-        let duration = pipeline_execution.completed_at.map(|end| {
+        let duration = workflow_execution.completed_at.map(|end| {
             let end_utc = end.0;
-            let start_utc = pipeline_execution.started_at.0;
+            let start_utc = workflow_execution.started_at.0;
             (end_utc - start_utc).to_std().unwrap_or(Duration::ZERO)
         });
 
         Ok(WorkflowExecutionResult {
             execution_id,
-            workflow_name: pipeline_execution.pipeline_name,
+            workflow_name: workflow_execution.workflow_name,
             status,
-            start_time: pipeline_execution.started_at.0,
-            end_time: pipeline_execution.completed_at.map(|ts| ts.0),
+            start_time: workflow_execution.started_at.0,
+            end_time: workflow_execution.completed_at.map(|ts| ts.0),
             duration,
             final_context,
             task_results,
-            error_message: pipeline_execution.error_details,
+            error_message: workflow_execution.error_details,
         })
     }
 }

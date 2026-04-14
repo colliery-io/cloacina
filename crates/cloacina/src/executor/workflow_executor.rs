@@ -65,7 +65,7 @@ pub trait StatusCallback: Send + Sync {
     fn on_status_change(&self, status: WorkflowStatus);
 }
 
-/// Represents the outcome of a single task execution within a pipeline.
+/// Represents the outcome of a single task execution within a workflow.
 ///
 /// This struct contains detailed information about a task's execution, including
 /// timing information, status, and any error messages.
@@ -100,10 +100,10 @@ pub enum WorkflowExecutionError {
     #[error("Workflow not found: {workflow_name}")]
     WorkflowNotFound { workflow_name: String },
 
-    #[error("Pipeline execution failed: {message}")]
+    #[error("Workflow execution failed: {message}")]
     ExecutionFailed { message: String },
 
-    #[error("Pipeline timeout after {timeout_seconds}s")]
+    #[error("Workflow timeout after {timeout_seconds}s")]
     Timeout { timeout_seconds: u64 },
 
     #[error("Validation error: {0}")]
@@ -531,21 +531,21 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_pipeline_status_is_terminal() {
+    fn test_workflow_status_is_terminal() {
         assert!(WorkflowStatus::Completed.is_terminal());
         assert!(WorkflowStatus::Failed.is_terminal());
         assert!(WorkflowStatus::Cancelled.is_terminal());
     }
 
     #[test]
-    fn test_pipeline_status_is_not_terminal() {
+    fn test_workflow_status_is_not_terminal() {
         assert!(!WorkflowStatus::Pending.is_terminal());
         assert!(!WorkflowStatus::Running.is_terminal());
         assert!(!WorkflowStatus::Paused.is_terminal());
     }
 
     #[test]
-    fn test_pipeline_status_from_str_valid() {
+    fn test_workflow_status_from_str_valid() {
         assert_eq!(WorkflowStatus::from_str("Pending"), WorkflowStatus::Pending);
         assert_eq!(WorkflowStatus::from_str("Running"), WorkflowStatus::Running);
         assert_eq!(
@@ -561,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_status_from_str_invalid_defaults_to_failed() {
+    fn test_workflow_status_from_str_invalid_defaults_to_failed() {
         assert_eq!(WorkflowStatus::from_str("garbage"), WorkflowStatus::Failed);
         assert_eq!(WorkflowStatus::from_str(""), WorkflowStatus::Failed);
         assert_eq!(WorkflowStatus::from_str("running"), WorkflowStatus::Failed);
@@ -569,20 +569,20 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_status_eq() {
+    fn test_workflow_status_eq() {
         assert_eq!(WorkflowStatus::Running, WorkflowStatus::Running);
         assert_ne!(WorkflowStatus::Running, WorkflowStatus::Pending);
     }
 
     #[test]
-    fn test_pipeline_status_clone() {
+    fn test_workflow_status_clone() {
         let status = WorkflowStatus::Paused;
         let cloned = status.clone();
         assert_eq!(status, cloned);
     }
 
     #[test]
-    fn test_pipeline_status_debug() {
+    fn test_workflow_status_debug() {
         let debug_str = format!("{:?}", WorkflowStatus::Running);
         assert_eq!(debug_str, "Running");
     }
@@ -592,7 +592,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_pipeline_error_display_database_connection() {
+    fn test_workflow_error_display_database_connection() {
         let err = WorkflowExecutionError::DatabaseConnection {
             message: "connection refused".to_string(),
         };
@@ -603,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_error_display_workflow_not_found() {
+    fn test_workflow_error_display_workflow_not_found() {
         let err = WorkflowExecutionError::WorkflowNotFound {
             workflow_name: "my_workflow".to_string(),
         };
@@ -611,26 +611,26 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_error_display_execution_failed() {
+    fn test_workflow_error_display_execution_failed() {
         let err = WorkflowExecutionError::ExecutionFailed {
             message: "something broke".to_string(),
         };
         assert_eq!(
             err.to_string(),
-            "Pipeline execution failed: something broke"
+            "Workflow execution failed: something broke"
         );
     }
 
     #[test]
-    fn test_pipeline_error_display_timeout() {
+    fn test_workflow_error_display_timeout() {
         let err = WorkflowExecutionError::Timeout {
             timeout_seconds: 300,
         };
-        assert_eq!(err.to_string(), "Pipeline timeout after 300s");
+        assert_eq!(err.to_string(), "Workflow timeout after 300s");
     }
 
     #[test]
-    fn test_pipeline_error_display_configuration() {
+    fn test_workflow_error_display_configuration() {
         let err = WorkflowExecutionError::Configuration {
             message: "bad config".to_string(),
         };
@@ -698,7 +698,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_pipeline_result_construction() {
+    fn test_workflow_result_construction() {
         let result = WorkflowExecutionResult {
             execution_id: Uuid::new_v4(),
             workflow_name: "etl_pipeline".to_string(),
@@ -717,7 +717,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_result_with_tasks() {
+    fn test_workflow_result_with_tasks() {
         let task1 = TaskResult {
             task_name: "step_1".to_string(),
             status: TaskState::Completed {
@@ -758,7 +758,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_result_debug() {
+    fn test_workflow_result_debug() {
         let result = WorkflowExecutionResult {
             execution_id: Uuid::new_v4(),
             workflow_name: "debug_wf".to_string(),

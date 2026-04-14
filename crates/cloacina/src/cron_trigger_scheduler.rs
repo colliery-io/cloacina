@@ -101,7 +101,7 @@ impl Default for SchedulerConfig {
 /// - Atomically claim cron schedules
 /// - Calculate missed execution times (catchup)
 /// - Poll trigger functions and deduplicate
-/// - Hand off workflow executions to the pipeline executor
+/// - Hand off workflow executions to the workflow executor
 /// - Record execution audit trail
 /// - Move on immediately (no waiting for completion)
 ///
@@ -127,7 +127,7 @@ impl Scheduler {
     ///
     /// # Arguments
     /// * `dal` - Data access layer for database operations
-    /// * `executor` - Pipeline executor for workflow execution
+    /// * `executor` - Workflow executor for workflow execution
     /// * `config` - Scheduler configuration
     /// * `shutdown` - Shutdown signal receiver
     pub fn new(
@@ -319,14 +319,14 @@ impl Scheduler {
                 }
             };
 
-            // Step 2: Hand off to pipeline executor
+            // Step 2: Hand off to workflow executor
             match self.execute_cron_workflow(schedule, scheduled_time).await {
-                Ok(pipeline_execution_id) => {
+                Ok(workflow_execution_id) => {
                     // Step 3: Link audit record
                     if let Err(e) = self
                         .dal
                         .schedule_execution()
-                        .update_pipeline_execution_id(audit_record_id, pipeline_execution_id)
+                        .update_pipeline_execution_id(audit_record_id, workflow_execution_id)
                         .await
                     {
                         error!(
@@ -346,7 +346,7 @@ impl Scheduler {
                         schedule.workflow_name, schedule.id, scheduled_time, e
                     );
                     error!(
-                        "Execution lost: audit record {} exists but pipeline execution failed",
+                        "Execution lost: audit record {} exists but workflow execution failed",
                         audit_record_id
                     );
                 }
@@ -441,7 +441,7 @@ impl Scheduler {
             })
     }
 
-    /// Executes a cron workflow by handing it off to the pipeline executor.
+    /// Executes a cron workflow by handing it off to the workflow executor.
     async fn execute_cron_workflow(
         &self,
         schedule: &Schedule,
@@ -483,17 +483,17 @@ impl Scheduler {
             schedule.workflow_name, schedule.id, scheduled_time
         );
 
-        let pipeline_result = self
+        let workflow_result = self
             .executor
             .execute(&schedule.workflow_name, context)
             .await?;
 
         debug!(
             "Successfully handed off workflow '{}' to executor (execution_id: {})",
-            schedule.workflow_name, pipeline_result.execution_id
+            schedule.workflow_name, workflow_result.execution_id
         );
 
-        Ok(UniversalUuid(pipeline_result.execution_id))
+        Ok(UniversalUuid(workflow_result.execution_id))
     }
 
     /// Creates an audit record for a cron execution.
@@ -504,7 +504,7 @@ impl Scheduler {
     ) -> Result<UniversalUuid, ValidationError> {
         let new_execution = NewScheduleExecution {
             schedule_id,
-            pipeline_execution_id: None,
+            workflow_execution_id: None,
             scheduled_time: Some(UniversalTimestamp(scheduled_time)),
             claimed_at: Some(UniversalTimestamp(Utc::now())),
             context_hash: None,
@@ -655,25 +655,25 @@ impl Scheduler {
         // Extract context from result
         let context = poll_result.into_context().unwrap_or_else(Context::new);
 
-        // Hand off to pipeline executor
+        // Hand off to workflow executor
         match self.execute_trigger_workflow(schedule, context).await {
-            Ok(pipeline_execution_id) => {
-                // Link the execution to the pipeline execution
+            Ok(workflow_execution_id) => {
+                // Link the execution to the workflow execution
                 if let Err(e) = self
                     .dal
                     .schedule_execution()
-                    .update_pipeline_execution_id(execution.id, pipeline_execution_id)
+                    .update_pipeline_execution_id(execution.id, workflow_execution_id)
                     .await
                 {
                     warn!(
-                        "Failed to link schedule execution to pipeline execution: {}",
+                        "Failed to link schedule execution to workflow execution: {}",
                         e
                     );
                 }
 
                 info!(
                     "Successfully scheduled workflow '{}' for trigger '{}' (execution: {})",
-                    schedule.workflow_name, trigger_name, pipeline_execution_id
+                    schedule.workflow_name, trigger_name, workflow_execution_id
                 );
             }
             Err(e) => {
@@ -711,7 +711,7 @@ impl Scheduler {
     ) -> Result<crate::models::schedule::ScheduleExecution, TriggerError> {
         let new_execution = NewScheduleExecution {
             schedule_id,
-            pipeline_execution_id: None,
+            workflow_execution_id: None,
             scheduled_time: None,
             claimed_at: None,
             context_hash: Some(context_hash.to_string()),
@@ -732,7 +732,7 @@ impl Scheduler {
         Ok(execution)
     }
 
-    /// Executes a trigger workflow by handing it off to the pipeline executor.
+    /// Executes a trigger workflow by handing it off to the workflow executor.
     async fn execute_trigger_workflow(
         &self,
         schedule: &Schedule,

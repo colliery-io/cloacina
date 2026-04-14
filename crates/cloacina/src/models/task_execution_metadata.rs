@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 pub struct TaskExecutionMetadata {
     pub id: UniversalUuid,
     pub task_execution_id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub context_id: Option<UniversalUuid>,
     pub created_at: UniversalTimestamp,
@@ -38,7 +38,7 @@ pub struct TaskExecutionMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewTaskExecutionMetadata {
     pub task_execution_id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub context_id: Option<UniversalUuid>,
 }

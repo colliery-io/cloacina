@@ -34,9 +34,9 @@ use serde::{Deserialize, Serialize};
 pub struct ExecutionEvent {
     /// Unique identifier for this event
     pub id: UniversalUuid,
-    /// The pipeline execution this event belongs to
-    pub pipeline_execution_id: UniversalUuid,
-    /// The task execution this event relates to (None for pipeline-level events)
+    /// The workflow execution this event belongs to
+    pub workflow_execution_id: UniversalUuid,
+    /// The task execution this event relates to (None for workflow-level events)
     pub task_execution_id: Option<UniversalUuid>,
     /// The type of event (e.g., "task_created", "task_completed")
     pub event_type: String,
@@ -53,9 +53,9 @@ pub struct ExecutionEvent {
 /// Structure for creating new execution event records (domain type).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewExecutionEvent {
-    /// The pipeline execution this event belongs to
-    pub pipeline_execution_id: UniversalUuid,
-    /// The task execution this event relates to (None for pipeline-level events)
+    /// The workflow execution this event belongs to
+    pub workflow_execution_id: UniversalUuid,
+    /// The task execution this event relates to (None for workflow-level events)
     pub task_execution_id: Option<UniversalUuid>,
     /// The type of event
     pub event_type: String,
@@ -66,15 +66,15 @@ pub struct NewExecutionEvent {
 }
 
 impl NewExecutionEvent {
-    /// Creates a new execution event for a pipeline-level transition.
-    pub fn pipeline_event(
-        pipeline_execution_id: UniversalUuid,
+    /// Creates a new execution event for a workflow-level transition.
+    pub fn workflow_event(
+        workflow_execution_id: UniversalUuid,
         event_type: ExecutionEventType,
         event_data: Option<String>,
         worker_id: Option<String>,
     ) -> Self {
         Self {
-            pipeline_execution_id,
+            workflow_execution_id,
             task_execution_id: None,
             event_type: event_type.as_str().to_string(),
             event_data,
@@ -84,14 +84,14 @@ impl NewExecutionEvent {
 
     /// Creates a new execution event for a task-level transition.
     pub fn task_event(
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         task_execution_id: UniversalUuid,
         event_type: ExecutionEventType,
         event_data: Option<String>,
         worker_id: Option<String>,
     ) -> Self {
         Self {
-            pipeline_execution_id,
+            workflow_execution_id,
             task_execution_id: Some(task_execution_id),
             event_type: event_type.as_str().to_string(),
             event_data,

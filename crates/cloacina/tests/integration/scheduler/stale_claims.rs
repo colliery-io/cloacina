@@ -22,8 +22,8 @@ use cloacina::database::universal_types::UniversalUuid;
 use cloacina::execution_planner::stale_claim_sweeper::{
     StaleClaimSweeper, StaleClaimSweeperConfig,
 };
-use cloacina::models::pipeline_execution::NewWorkflowExecution;
 use cloacina::models::task_execution::NewTaskExecution;
+use cloacina::models::workflow_execution::NewWorkflowExecution;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -50,8 +50,8 @@ async fn create_claimed_task(
     let pipeline = dal
         .workflow_execution()
         .create(NewWorkflowExecution {
-            pipeline_name: pipeline_name.to_string(),
-            pipeline_version: "1.0".to_string(),
+            workflow_name: pipeline_name.to_string(),
+            workflow_version: "1.0".to_string(),
             status: "Running".to_string(),
             context_id: None,
         })

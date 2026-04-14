@@ -367,9 +367,9 @@ impl<'a> TaskOutboxDAL<'a> {
 mod tests {
     use super::*;
     use crate::database::Database;
-    use crate::models::pipeline_execution::NewWorkflowExecution;
     use crate::models::task_execution::NewTaskExecution;
     use crate::models::task_outbox::NewTaskOutbox;
+    use crate::models::workflow_execution::NewWorkflowExecution;
 
     #[cfg(feature = "sqlite")]
     async fn unique_dal() -> DAL {
@@ -391,8 +391,8 @@ mod tests {
         let pipeline = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "test_pipeline".into(),
-                pipeline_version: "1.0".into(),
+                workflow_name: "test_pipeline".into(),
+                workflow_version: "1.0".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -402,7 +402,7 @@ mod tests {
         let task = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: pipeline.id,
                 task_name: task_name.into(),
                 status: "NotStarted".into(),
                 attempt: 1,
@@ -585,8 +585,8 @@ mod tests {
         let pipeline = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "p".into(),
-                pipeline_version: "1".into(),
+                workflow_name: "p".into(),
+                workflow_version: "1".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -595,7 +595,7 @@ mod tests {
         let task = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: pipeline.id,
                 task_name: "direct".into(),
                 status: "NotStarted".into(),
                 attempt: 1,
@@ -627,8 +627,8 @@ mod tests {
         let pipeline = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "p".into(),
-                pipeline_version: "1".into(),
+                workflow_name: "p".into(),
+                workflow_version: "1".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -637,7 +637,7 @@ mod tests {
         let task = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: pipeline.id,
                 task_name: "ready_test".into(),
                 status: "NotStarted".into(),
                 attempt: 1,

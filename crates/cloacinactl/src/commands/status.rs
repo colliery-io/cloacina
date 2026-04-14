@@ -73,7 +73,7 @@ fn display_health(health: &DaemonHealth) {
             "DISCONNECTED"
         }
     );
-    println!("Pipelines:    {} active", health.active_pipelines);
+    println!("Workflows:    {} active", health.active_workflows);
     println!("Packages:     {} loaded", health.reconciler.packages_loaded);
     if let Some(ref last) = health.reconciler.last_run_at {
         println!("Last reconcile: {}", last);

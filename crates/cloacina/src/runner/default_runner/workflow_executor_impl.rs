@@ -24,7 +24,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::dal::DAL;
-use crate::executor::pipeline_executor::{
+use crate::executor::workflow_executor::{
     WorkflowExecution, WorkflowExecutionError, WorkflowExecutionResult, WorkflowExecutor,
     WorkflowStatus,
 };
@@ -72,7 +72,7 @@ impl WorkflowExecutor for DefaultRunner {
 
         loop {
             // Check timeout
-            if let Some(timeout) = self.config.pipeline_timeout() {
+            if let Some(timeout) = self.config.workflow_timeout() {
                 if start_time.elapsed() > timeout {
                     return Err(WorkflowExecutionError::Timeout {
                         timeout_seconds: timeout.as_secs(),
@@ -81,7 +81,7 @@ impl WorkflowExecutor for DefaultRunner {
             }
 
             // Check status
-            let pipeline = dal
+            let execution = dal
                 .workflow_execution()
                 .get_by_id(UniversalUuid(execution_id))
                 .await
@@ -89,9 +89,9 @@ impl WorkflowExecutor for DefaultRunner {
                     message: format!("Failed to check execution status: {}", e),
                 })?;
 
-            match pipeline.status.as_str() {
+            match execution.status.as_str() {
                 "Completed" | "Failed" => {
-                    return self.build_pipeline_result(execution_id).await;
+                    return self.build_workflow_result(execution_id).await;
                 }
                 _ => {
                     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -148,7 +148,7 @@ impl WorkflowExecutor for DefaultRunner {
         &self,
         workflow_name: &str,
         context: Context<serde_json::Value>,
-        callback: Box<dyn crate::executor::pipeline_executor::StatusCallback>,
+        callback: Box<dyn crate::executor::workflow_executor::StatusCallback>,
     ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
         // Start async execution
         let execution = self.execute_async(workflow_name, context).await?;
@@ -186,7 +186,7 @@ impl WorkflowExecutor for DefaultRunner {
         execution_id: Uuid,
     ) -> Result<WorkflowStatus, WorkflowExecutionError> {
         let dal = DAL::new(self.database.clone());
-        let pipeline = dal
+        let execution = dal
             .workflow_execution()
             .get_by_id(UniversalUuid(execution_id))
             .await
@@ -194,7 +194,7 @@ impl WorkflowExecutor for DefaultRunner {
                 message: format!("Failed to get execution status: {}", e),
             })?;
 
-        let status = match pipeline.status.as_str() {
+        let status = match execution.status.as_str() {
             "Pending" => WorkflowStatus::Pending,
             "Running" => WorkflowStatus::Running,
             "Completed" => WorkflowStatus::Completed,
@@ -218,7 +218,7 @@ impl WorkflowExecutor for DefaultRunner {
         &self,
         execution_id: Uuid,
     ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
-        self.build_pipeline_result(execution_id).await
+        self.build_workflow_result(execution_id).await
     }
 
     /// Cancels an in-progress workflow execution
@@ -262,7 +262,7 @@ impl WorkflowExecutor for DefaultRunner {
         let dal = DAL::new(self.database.clone());
 
         // Verify the workflow is in a pausable state (Pending or Running)
-        let pipeline = dal
+        let execution = dal
             .workflow_execution()
             .get_by_id(UniversalUuid(execution_id))
             .await
@@ -272,11 +272,11 @@ impl WorkflowExecutor for DefaultRunner {
 
         // Allow pausing both Pending and Running workflows
         // Pending = waiting to start, Running = actively executing
-        if pipeline.status != "Running" && pipeline.status != "Pending" {
+        if execution.status != "Running" && execution.status != "Pending" {
             return Err(WorkflowExecutionError::ExecutionFailed {
                 message: format!(
                     "Cannot pause workflow with status '{}'. Only 'Pending' or 'Running' workflows can be paused.",
-                    pipeline.status
+                    execution.status
                 ),
             });
         }
@@ -305,7 +305,7 @@ impl WorkflowExecutor for DefaultRunner {
         let dal = DAL::new(self.database.clone());
 
         // Verify the workflow is in a resumable state (Paused)
-        let pipeline = dal
+        let execution = dal
             .workflow_execution()
             .get_by_id(UniversalUuid(execution_id))
             .await
@@ -313,11 +313,11 @@ impl WorkflowExecutor for DefaultRunner {
                 message: format!("Failed to get execution: {}", e),
             })?;
 
-        if pipeline.status != "Paused" {
+        if execution.status != "Paused" {
             return Err(WorkflowExecutionError::ExecutionFailed {
                 message: format!(
                     "Cannot resume workflow with status '{}'. Only 'Paused' workflows can be resumed.",
-                    pipeline.status
+                    execution.status
                 ),
             });
         }
@@ -353,7 +353,7 @@ impl WorkflowExecutor for DefaultRunner {
 
         let mut results = Vec::new();
         for execution in executions {
-            if let Ok(result) = self.build_pipeline_result(execution.id.into()).await {
+            if let Ok(result) = self.build_workflow_result(execution.id.into()).await {
                 results.push(result);
             }
         }

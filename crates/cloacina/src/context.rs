@@ -17,12 +17,12 @@
 //! # Context Management
 //!
 //! The context module provides a type-safe, serializable container for sharing data between tasks
-//! in a pipeline. Contexts can be persisted to and restored from a database, enabling robust
+//! in a workflow. Contexts can be persisted to and restored from a database, enabling robust
 //! checkpoint and recovery capabilities.
 //!
 //! ## Overview
 //!
-//! The [`Context`] struct is the core data container that flows through your pipeline. It provides:
+//! The [`Context`] struct is the core data container that flows through your workflow. It provides:
 //! - Type-safe data storage with compile-time guarantees
 //! - JSON serialization for database persistence
 //! - Key-value access patterns with error handling

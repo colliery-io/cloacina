@@ -14,9 +14,9 @@
  *  limitations under the License.
  */
 
-//! # Cloacina: Embedded Pipeline Framework for Rust
+//! # Cloacina: Embedded Workflow Framework for Rust
 //!
-//! Cloacina is a **library** for building resilient task pipelines directly within your Rust applications.
+//! Cloacina is a **library** for building resilient task workflows directly within your Rust applications.
 //! Unlike standalone orchestration services (Airflow, Prefect), Cloacina embeds into your existing
 //! applications to manage complex multi-step workflows with automatic retry, state persistence,
 //! and dependency resolution.
@@ -42,7 +42,7 @@
 //!
 //! ## Perfect For
 //!
-//! - **Data Processing Applications**: ETL pipelines within your data services
+//! - **Data Processing Applications**: ETL workflows within your data services
 //! - **Background Job Processing**: Complex multi-step jobs in web applications
 //! - **Batch Processing**: Resilient batch operations with dependency management
 //! - **Integration Workflows**: Multi-step API integrations with error recovery
@@ -100,7 +100,7 @@
 //! // Create the workflow
 //! let workflow = workflow! {
 //!     name: "etl_pipeline",
-//!     description: "Extract, Transform, Load pipeline",
+//!     description: "Extract, Transform, Load workflow",
 //!     tasks: [extract_data, transform_data, load_data]
 //! };
 //! ```
@@ -119,7 +119,7 @@
 //!     let context = Context::new();
 //!     let result = executor.execute("etl_pipeline", context).await?;
 //!
-//!     println!("Pipeline completed: {:?}", result.status);
+//!     println!("Workflow completed: {:?}", result.status);
 //!     Ok(())
 //! }
 //! ```
@@ -243,7 +243,7 @@
 //!     subgraph "Your Application"
 //!         A[Task Definitions]
 //!         B[Workflow Builder]
-//!         C[Pipeline Execution]
+//!         C[Workflow Execution]
 //!     end
 //!
 //!     subgraph "Cloacina Core"
@@ -388,7 +388,7 @@
 //! ## Documentation Navigation
 //!
 //! ### Learn Cloacina (Tutorials)
-//! - [Your First Pipeline](crate::task) - Start here for macro-based task creation
+//! - [Your First Workflow](crate::task) - Start here for macro-based task creation
 //! - [Multi-Task Workflows](crate::workflow) - Building complex dependency chains
 //! - [Working with Data](crate::context) - Context management and serialization
 //! - [Error Handling](crate::retry) - Retry policies and failure recovery
@@ -401,7 +401,7 @@
 //!
 //! ### API Reference
 //! - [`Task`] - Core task trait and macro
-//! - [`Workflow`] - Pipeline construction and management
+//! - [`Workflow`] - Workflow construction and management
 //! - [`Context`] - Data container for inter-task communication
 //! - [`TaskScheduler`] - Execution engine and scheduling
 //! - [Error Types](crate::error) - Complete error hierarchy
@@ -499,7 +499,7 @@ pub mod dal;
 pub mod database;
 pub mod dispatcher;
 pub mod error;
-/// Task readiness evaluation, pipeline processing, and stale claim sweeping.
+/// Task readiness evaluation, workflow processing, and stale claim sweeping.
 /// For cron and trigger scheduling, see [`cron_trigger_scheduler`].
 pub mod execution_planner;
 pub mod executor;

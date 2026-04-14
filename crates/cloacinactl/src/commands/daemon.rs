@@ -371,7 +371,7 @@ pub async fn run(
     // Graceful shutdown with timeout and force-exit on second signal
     let shutdown_timeout = Duration::from_secs(daemon_cfg.shutdown_timeout_s);
     info!(
-        "Draining in-flight pipelines (timeout: {}s)...",
+        "Draining in-flight workflows (timeout: {}s)...",
         shutdown_timeout.as_secs()
     );
     info!("Press Ctrl+C again to force exit immediately.");
@@ -380,7 +380,7 @@ pub async fn run(
     tokio::select! {
         result = runner.shutdown() => {
             match result {
-                Ok(()) => info!("All pipelines drained successfully."),
+                Ok(()) => info!("All workflows drained successfully."),
                 Err(e) => error!("Runner shutdown error: {}", e),
             }
         }

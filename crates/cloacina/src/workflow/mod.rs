@@ -31,7 +31,7 @@
 //!
 //! - Directed acyclic graph (DAG) task dependencies
 //! - Automatic cycle detection and validation
-//! - Content-based versioning for reliable pipeline management
+//! - Content-based versioning for reliable workflow management
 //! - Parallel execution planning
 //! - Global workflow registry
 //!

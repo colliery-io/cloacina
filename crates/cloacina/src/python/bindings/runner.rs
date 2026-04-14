@@ -337,8 +337,8 @@ fn cron_execution_to_dict(
     )?;
     dict.set_item("claimed_at", execution.claimed_at.map(|t| t.to_string()))?;
     dict.set_item(
-        "pipeline_execution_id",
-        execution.pipeline_execution_id.map(|id| id.to_string()),
+        "workflow_execution_id",
+        execution.workflow_execution_id.map(|id| id.to_string()),
     )?;
     dict.set_item("created_at", execution.created_at.to_string())?;
     dict.set_item("updated_at", execution.updated_at.to_string())?;
@@ -355,8 +355,8 @@ fn trigger_execution_to_dict(
     dict.set_item("schedule_id", execution.schedule_id.to_string())?;
     dict.set_item("context_hash", execution.context_hash.as_deref())?;
     dict.set_item(
-        "pipeline_execution_id",
-        execution.pipeline_execution_id.map(|id| id.to_string()),
+        "workflow_execution_id",
+        execution.workflow_execution_id.map(|id| id.to_string()),
     )?;
     dict.set_item("started_at", execution.started_at.to_string())?;
     dict.set_item(
@@ -1429,7 +1429,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_pipeline_result_completed() {
+    fn test_workflow_result_completed() {
         pyo3::prepare_freethreaded_python();
         let mut ctx = crate::Context::new();
         ctx.insert("result".to_string(), serde_json::json!("done"))
@@ -1464,7 +1464,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_pipeline_result_failed() {
+    fn test_workflow_result_failed() {
         pyo3::prepare_freethreaded_python();
         let result = crate::executor::WorkflowExecutionResult {
             execution_id: uuid::Uuid::new_v4(),
@@ -1547,8 +1547,8 @@ mod tests {
             let result = runner.execute("py_runner_exec_test", &ctx, py);
             assert!(result.is_ok(), "Execute should succeed: {:?}", result.err());
 
-            let pipeline_result = result.unwrap();
-            assert!(!pipeline_result.status().is_empty());
+            let workflow_result = result.unwrap();
+            assert!(!workflow_result.status().is_empty());
             runner.shutdown(py).unwrap();
         });
     }

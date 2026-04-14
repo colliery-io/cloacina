@@ -27,7 +27,7 @@ use crate::database::schema::unified::{execution_events, pipeline_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
-use crate::models::pipeline_execution::{NewWorkflowExecution, WorkflowExecutionRecord};
+use crate::models::workflow_execution::{NewWorkflowExecution, WorkflowExecutionRecord};
 use diesel::prelude::*;
 
 /// Data access layer for workflow execution operations with compile-time backend selection.
@@ -78,8 +78,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
                     let unified_new = NewUnifiedWorkflowExecution {
                         id,
-                        pipeline_name: new_execution.pipeline_name,
-                        pipeline_version: new_execution.pipeline_version,
+                        pipeline_name: new_execution.workflow_name,
+                        pipeline_version: new_execution.workflow_version,
                         status: new_execution.status,
                         context_id: new_execution.context_id,
                         started_at: now,
@@ -141,8 +141,8 @@ impl<'a> WorkflowExecutionDAL<'a> {
 
                     let unified_new = NewUnifiedWorkflowExecution {
                         id,
-                        pipeline_name: new_execution.pipeline_name,
-                        pipeline_version: new_execution.pipeline_version,
+                        pipeline_name: new_execution.workflow_name,
+                        pipeline_version: new_execution.workflow_version,
                         status: new_execution.status,
                         context_id: new_execution.context_id,
                         started_at: now,

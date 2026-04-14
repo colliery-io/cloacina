@@ -14,10 +14,10 @@
  *  limitations under the License.
  */
 
-//! Scheduler loop and pipeline processing.
+//! Scheduler loop and workflow execution processing.
 //!
 //! This module contains the main scheduling loop that continuously processes
-//! active pipeline executions and manages task readiness.
+//! active workflow executions and manages task readiness.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,8 +31,8 @@ use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::dispatcher::{Dispatcher, TaskReadyEvent};
 use crate::error::ValidationError;
-use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::task_execution::TaskExecution;
+use crate::models::workflow_execution::WorkflowExecutionRecord;
 use crate::Runtime;
 
 use super::state_manager::StateManager;
@@ -102,12 +102,12 @@ impl<'a> SchedulerLoop<'a> {
         self
     }
 
-    /// Runs the main scheduling loop that continuously processes active pipeline executions.
+    /// Runs the main scheduling loop that continuously processes active workflow executions.
     ///
     /// This loop:
-    /// 1. Checks for active pipeline executions
+    /// 1. Checks for active workflow executions
     /// 2. Updates task readiness based on dependencies and trigger rules
-    /// 3. Marks completed pipelines
+    /// 3. Marks completed workflow executions
     /// 4. Repeats at the configured poll interval
     pub async fn run(&mut self) -> Result<(), ValidationError> {
         info!(
@@ -174,7 +174,7 @@ impl<'a> SchedulerLoop<'a> {
         Ok(())
     }
 
-    /// Processes all active pipeline executions to update task readiness.
+    /// Processes all active workflow executions to update task readiness.
     pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
         let active_executions = self
             .dal
@@ -183,14 +183,14 @@ impl<'a> SchedulerLoop<'a> {
             .await?;
 
         if active_executions.is_empty() {
-            // Even with no active pipelines, dispatch any Ready tasks (e.g., retries)
+            // Even with no active workflow executions, dispatch any Ready tasks (e.g., retries)
             if self.dispatcher.is_some() {
                 self.dispatch_ready_tasks().await?;
             }
             return Ok(());
         }
 
-        // Batch process all active pipelines (evaluates pending tasks, marks them Ready)
+        // Batch process all active workflow executions (evaluates pending tasks, marks them Ready)
         self.process_pipelines_batch(active_executions).await?;
 
         // Dispatch all Ready tasks (including newly marked and retry tasks)
@@ -201,52 +201,52 @@ impl<'a> SchedulerLoop<'a> {
         Ok(())
     }
 
-    /// Processes multiple pipelines in batch for better performance.
+    /// Processes multiple workflow executions in batch for better performance.
     ///
-    /// This method optimizes pipeline processing by:
-    /// 1. Loading all pending tasks across all pipelines in one query
-    /// 2. Grouping tasks by pipeline for processing
-    /// 3. Batch checking pipeline completion
+    /// This method optimizes workflow execution processing by:
+    /// 1. Loading all pending tasks across all workflow executions in one query
+    /// 2. Grouping tasks by workflow execution for processing
+    /// 3. Batch checking workflow execution completion
     async fn process_pipelines_batch(
         &self,
         active_executions: Vec<WorkflowExecutionRecord>,
     ) -> Result<(), ValidationError> {
-        let pipeline_ids: Vec<UniversalUuid> = active_executions.iter().map(|e| e.id).collect();
+        let execution_ids: Vec<UniversalUuid> = active_executions.iter().map(|e| e.id).collect();
 
-        // Batch load all pending tasks across all active pipelines
+        // Batch load all pending tasks across all active workflow executions
         let all_pending_tasks = self
             .dal
             .task_execution()
-            .get_pending_tasks_batch(pipeline_ids)
+            .get_pending_tasks_batch(execution_ids)
             .await?;
 
-        // Group tasks by pipeline ID for processing
-        let mut tasks_by_pipeline: HashMap<UniversalUuid, Vec<TaskExecution>> = HashMap::new();
+        // Group tasks by workflow execution ID for processing
+        let mut tasks_by_execution: HashMap<UniversalUuid, Vec<TaskExecution>> = HashMap::new();
         for task in all_pending_tasks {
-            tasks_by_pipeline
-                .entry(task.pipeline_execution_id)
+            tasks_by_execution
+                .entry(task.workflow_execution_id)
                 .or_default()
                 .push(task);
         }
 
         let state_manager = StateManager::new(self.dal, self.runtime.clone());
 
-        // Process each pipeline's tasks
+        // Process each workflow execution's tasks
         for execution in &active_executions {
-            if let Some(pipeline_tasks) = tasks_by_pipeline.get(&execution.id) {
+            if let Some(execution_tasks) = tasks_by_execution.get(&execution.id) {
                 if let Err(e) = state_manager
-                    .update_pipeline_task_readiness(execution.id, pipeline_tasks)
+                    .update_pipeline_task_readiness(execution.id, execution_tasks)
                     .await
                 {
                     error!(
-                        "Failed to update task readiness for pipeline {}: {}",
+                        "Failed to update task readiness for workflow execution {}: {}",
                         execution.id, e
                     );
                     continue;
                 }
             }
 
-            // Check if pipeline is complete
+            // Check if workflow execution is complete
             if self
                 .dal
                 .task_execution()
@@ -277,7 +277,7 @@ impl<'a> SchedulerLoop<'a> {
         for task in ready_tasks {
             let event = TaskReadyEvent::new(
                 task.id,
-                task.pipeline_execution_id,
+                task.workflow_execution_id,
                 task.task_name.clone(),
                 task.attempt,
             );
@@ -295,17 +295,17 @@ impl<'a> SchedulerLoop<'a> {
         Ok(())
     }
 
-    /// Completes a pipeline by updating its final context and marking it as completed.
+    /// Completes a workflow execution by updating its final context and marking it as completed.
     ///
-    /// Guards against the race where two scheduler ticks both see the pipeline
+    /// Guards against the race where two scheduler ticks both see the workflow execution
     /// as complete and both try to finalise it. Only the first caller (whose
-    /// pipeline is still "Running") will proceed; subsequent calls return early.
+    /// workflow execution is still "Running") will proceed; subsequent calls return early.
     async fn complete_pipeline(
         &self,
         execution: &WorkflowExecutionRecord,
     ) -> Result<(), ValidationError> {
-        // Guard: only proceed if the pipeline is still running.
-        // This prevents duplicate PipelineCompleted events when two scheduler
+        // Guard: only proceed if the workflow execution is still running.
+        // This prevents duplicate WorkflowCompleted events when two scheduler
         // ticks race through check_pipeline_completion concurrently.
         let current = self
             .dal
@@ -314,7 +314,7 @@ impl<'a> SchedulerLoop<'a> {
             .await?;
         if current.status == "Completed" || current.status == "Failed" {
             debug!(
-                "Pipeline {} already in status '{}', skipping completion",
+                "Workflow execution {} already in status '{}', skipping completion",
                 execution.id, current.status
             );
             return Ok(());
@@ -330,18 +330,18 @@ impl<'a> SchedulerLoop<'a> {
         let failed_count = all_tasks.iter().filter(|t| t.status == "Failed").count();
         let skipped_count = all_tasks.iter().filter(|t| t.status == "Skipped").count();
 
-        // Update the pipeline's final context before marking complete
+        // Update the workflow execution's final context before marking complete
         if let Err(e) = self
             .update_pipeline_final_context(execution.id, &all_tasks)
             .await
         {
             warn!(
-                "Failed to update final context for pipeline {}: {}",
+                "Failed to update final context for workflow execution {}: {}",
                 execution.id, e
             );
         }
 
-        // Determine final pipeline status based on task outcomes
+        // Determine final workflow execution status based on task outcomes
         if failed_count > 0 {
             let reason = format!(
                 "{} task(s) failed, {} completed, {} skipped",
@@ -353,8 +353,8 @@ impl<'a> SchedulerLoop<'a> {
                 .await?;
             metrics::counter!("cloacina_pipelines_total", "status" => "failed").increment(1);
             info!(
-                "Pipeline failed: {} (name: {}, {})",
-                execution.id, execution.pipeline_name, reason
+                "Workflow execution failed: {} (name: {}, {})",
+                execution.id, execution.workflow_name, reason
             );
         } else {
             self.dal
@@ -363,12 +363,12 @@ impl<'a> SchedulerLoop<'a> {
                 .await?;
             metrics::counter!("cloacina_pipelines_total", "status" => "completed").increment(1);
             info!(
-                "Pipeline completed: {} (name: {}, {} completed, {} skipped)",
-                execution.id, execution.pipeline_name, completed_count, skipped_count
+                "Workflow execution completed: {} (name: {}, {} completed, {} skipped)",
+                execution.id, execution.workflow_name, completed_count, skipped_count
             );
         }
 
-        // Record pipeline duration and decrement active gauge
+        // Record workflow execution duration and decrement active gauge
         let duration = chrono::Utc::now() - execution.started_at.0;
         if let Ok(secs) = duration.to_std() {
             metrics::histogram!("cloacina_pipeline_duration_seconds").record(secs.as_secs_f64());
@@ -378,14 +378,14 @@ impl<'a> SchedulerLoop<'a> {
         Ok(())
     }
 
-    /// Updates the pipeline's final context when it completes.
+    /// Updates the workflow execution's final context when it completes.
     ///
     /// This method finds the context from the final task(s) that produced output
-    /// and updates the pipeline's context_id to point to that final context,
+    /// and updates the workflow execution's context_id to point to that final context,
     /// ensuring that WorkflowExecutionResult.final_context returns the correct data.
     async fn update_pipeline_final_context(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         all_tasks: &[TaskExecution],
     ) -> Result<(), ValidationError> {
         // Find the final context by looking at the last task that completed with context
@@ -405,7 +405,7 @@ impl<'a> SchedulerLoop<'a> {
                     if let Ok(task_metadata) = self
                         .dal
                         .task_execution_metadata()
-                        .get_by_pipeline_and_task(pipeline_execution_id, &task_namespace)
+                        .get_by_pipeline_and_task(workflow_execution_id, &task_namespace)
                         .await
                     {
                         if let Some(context_id) = task_metadata.context_id {
@@ -422,20 +422,20 @@ impl<'a> SchedulerLoop<'a> {
             }
         }
 
-        // Update the pipeline's context_id if we found a final context
+        // Update the workflow execution's context_id if we found a final context
         if let Some(context_id) = final_context_id {
             debug!(
-                "Updating pipeline {} final context to context_id: {}",
-                pipeline_execution_id, context_id
+                "Updating workflow execution {} final context to context_id: {}",
+                workflow_execution_id, context_id
             );
             self.dal
                 .workflow_execution()
-                .update_final_context(pipeline_execution_id, context_id)
+                .update_final_context(workflow_execution_id, context_id)
                 .await?;
         } else {
             debug!(
-                "No final context found for pipeline {} - keeping initial context",
-                pipeline_execution_id
+                "No final context found for workflow execution {} - keeping initial context",
+                workflow_execution_id
             );
         }
 

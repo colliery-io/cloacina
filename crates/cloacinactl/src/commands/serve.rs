@@ -191,8 +191,8 @@ pub async fn run(
 
     // Register metric descriptions
     metrics::describe_counter!(
-        "cloacina_pipelines_total",
-        "Total pipeline executions by status"
+        "cloacina_workflows_total",
+        "Total workflow executions by status"
     );
     metrics::describe_counter!("cloacina_tasks_total", "Total task executions by status");
     metrics::describe_counter!(
@@ -200,11 +200,11 @@ pub async fn run(
         "Total API requests by method, path, and status"
     );
     metrics::describe_histogram!(
-        "cloacina_pipeline_duration_seconds",
-        "Pipeline execution duration"
+        "cloacina_workflow_duration_seconds",
+        "Workflow execution duration"
     );
     metrics::describe_histogram!("cloacina_task_duration_seconds", "Task execution duration");
-    metrics::describe_gauge!("cloacina_active_pipelines", "Currently active pipelines");
+    metrics::describe_gauge!("cloacina_active_workflows", "Currently active workflows");
     metrics::describe_gauge!("cloacina_active_tasks", "Currently active tasks");
 
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
@@ -781,7 +781,7 @@ mod tests {
         let state = test_state().await;
 
         // Record some test metrics so the output isn't empty
-        metrics::counter!("cloacina_pipelines_total", "status" => "completed").increment(3);
+        metrics::counter!("cloacina_workflows_total", "status" => "completed").increment(3);
         metrics::counter!("cloacina_tasks_total", "status" => "completed").increment(10);
         metrics::counter!("cloacina_tasks_total", "status" => "failed").increment(2);
 
@@ -821,8 +821,8 @@ mod tests {
 
         // Verify Prometheus text format: HELP, TYPE, and metric lines
         assert!(
-            text.contains("cloacina_pipelines_total"),
-            "Metrics should contain pipeline counters. Got:\n{}",
+            text.contains("cloacina_workflows_total"),
+            "Metrics should contain workflow counters. Got:\n{}",
             text
         );
         assert!(
@@ -1471,7 +1471,7 @@ mod tests {
         let app = build_router(state);
 
         // Valid UUID format but no matching execution — should return
-        // an empty events list (the DAL returns Ok([]) for missing pipelines)
+        // an empty events list (the DAL returns Ok([]) for missing executions)
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
             .uri(format!("/tenants/default/executions/{}/events", fake_id))

@@ -35,8 +35,8 @@ use tokio::sync::RwLock;
 /// correlate execution contexts throughout the system.
 #[derive(Debug, Clone)]
 pub struct ExecutionScope {
-    /// Unique identifier for the pipeline execution
-    pub pipeline_execution_id: UniversalUuid,
+    /// Unique identifier for the workflow execution
+    pub workflow_execution_id: UniversalUuid,
     /// Optional unique identifier for the specific task execution
     pub task_execution_id: Option<UniversalUuid>,
     /// Optional name of the task being executed
@@ -52,8 +52,8 @@ pub struct ExecutionScope {
 pub struct DependencyLoader {
     /// Database connection for loading dependency data
     database: Database,
-    /// ID of the pipeline execution being processed
-    pipeline_execution_id: UniversalUuid,
+    /// ID of the workflow execution being processed
+    workflow_execution_id: UniversalUuid,
     /// List of task namespaces that this loader depends on
     dependency_tasks: Vec<crate::task::TaskNamespace>,
     /// Thread-safe cache of loaded dependency contexts
@@ -65,16 +65,16 @@ impl DependencyLoader {
     ///
     /// # Arguments
     /// * `database` - Database connection for loading dependencies
-    /// * `pipeline_execution_id` - ID of the pipeline execution
+    /// * `workflow_execution_id` - ID of the workflow execution
     /// * `dependency_tasks` - List of task namespaces that this loader depends on
     pub fn new(
         database: Database,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         dependency_tasks: Vec<crate::task::TaskNamespace>,
     ) -> Self {
         Self {
             database,
-            pipeline_execution_id,
+            workflow_execution_id,
             dependency_tasks,
             loaded_contexts: RwLock::new(HashMap::new()),
         }
@@ -143,7 +143,7 @@ impl DependencyLoader {
         let dal = DAL::new(self.database.clone());
         let task_metadata = dal
             .task_execution_metadata()
-            .get_by_pipeline_and_task(self.pipeline_execution_id, task_namespace)
+            .get_by_pipeline_and_task(self.workflow_execution_id, task_namespace)
             .await?;
 
         if let Some(context_id) = task_metadata.context_id {
@@ -200,7 +200,7 @@ pub struct ClaimedTask {
     /// Unique identifier for this task execution
     pub task_execution_id: UniversalUuid,
     /// ID of the pipeline this task belongs to
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     /// Name of the task being executed
     pub task_name: String,
     /// Current attempt number for this task execution
@@ -220,11 +220,11 @@ mod tests {
         let pipeline_id = UniversalUuid::new_v4();
         let task_id = UniversalUuid::new_v4();
         let scope = ExecutionScope {
-            pipeline_execution_id: pipeline_id,
+            workflow_execution_id: pipeline_id,
             task_execution_id: Some(task_id),
             task_name: Some("my_task".to_string()),
         };
-        assert_eq!(scope.pipeline_execution_id, pipeline_id);
+        assert_eq!(scope.workflow_execution_id, pipeline_id);
         assert_eq!(scope.task_execution_id, Some(task_id));
         assert_eq!(scope.task_name.as_deref(), Some("my_task"));
     }
@@ -233,7 +233,7 @@ mod tests {
     fn test_execution_scope_minimal() {
         let pipeline_id = UniversalUuid::new_v4();
         let scope = ExecutionScope {
-            pipeline_execution_id: pipeline_id,
+            workflow_execution_id: pipeline_id,
             task_execution_id: None,
             task_name: None,
         };
@@ -244,12 +244,12 @@ mod tests {
     #[test]
     fn test_execution_scope_clone() {
         let scope = ExecutionScope {
-            pipeline_execution_id: UniversalUuid::new_v4(),
+            workflow_execution_id: UniversalUuid::new_v4(),
             task_execution_id: Some(UniversalUuid::new_v4()),
             task_name: Some("cloned_task".to_string()),
         };
         let cloned = scope.clone();
-        assert_eq!(cloned.pipeline_execution_id, scope.pipeline_execution_id);
+        assert_eq!(cloned.workflow_execution_id, scope.workflow_execution_id);
         assert_eq!(cloned.task_execution_id, scope.task_execution_id);
         assert_eq!(cloned.task_name, scope.task_name);
     }
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_execution_scope_debug() {
         let scope = ExecutionScope {
-            pipeline_execution_id: UniversalUuid::new_v4(),
+            workflow_execution_id: UniversalUuid::new_v4(),
             task_execution_id: None,
             task_name: Some("debug_task".to_string()),
         };
@@ -330,12 +330,12 @@ mod tests {
         let pipeline_exec_id = UniversalUuid::new_v4();
         let task = ClaimedTask {
             task_execution_id: task_exec_id,
-            pipeline_execution_id: pipeline_exec_id,
+            workflow_execution_id: pipeline_exec_id,
             task_name: "tenant::pkg::wf::my_task".to_string(),
             attempt: 1,
         };
         assert_eq!(task.task_execution_id, task_exec_id);
-        assert_eq!(task.pipeline_execution_id, pipeline_exec_id);
+        assert_eq!(task.workflow_execution_id, pipeline_exec_id);
         assert_eq!(task.task_name, "tenant::pkg::wf::my_task");
         assert_eq!(task.attempt, 1);
     }
@@ -344,7 +344,7 @@ mod tests {
     fn test_claimed_task_retry_attempt() {
         let task = ClaimedTask {
             task_execution_id: UniversalUuid::new_v4(),
-            pipeline_execution_id: UniversalUuid::new_v4(),
+            workflow_execution_id: UniversalUuid::new_v4(),
             task_name: "t::p::w::task".to_string(),
             attempt: 3,
         };
@@ -355,7 +355,7 @@ mod tests {
     fn test_claimed_task_debug() {
         let task = ClaimedTask {
             task_execution_id: UniversalUuid::new_v4(),
-            pipeline_execution_id: UniversalUuid::new_v4(),
+            workflow_execution_id: UniversalUuid::new_v4(),
             task_name: "t::p::w::debug_task".to_string(),
             attempt: 0,
         };

@@ -17,7 +17,7 @@
 //! # Task Management
 //!
 //! This module provides the core task execution framework. Tasks are the fundamental building
-//! blocks of Cloacina pipelines - they represent individual units of work that can be executed
+//! blocks of Cloacina workflows - they represent individual units of work that can be executed
 //! with dependencies, retry policies, and persistent state management.
 //!
 //! ## Core Concepts

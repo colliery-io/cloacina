@@ -44,7 +44,7 @@ use std::path::PathBuf;
 
 /// High-level function to package a workflow project using fidius source packaging.
 ///
-/// This function performs the packaging pipeline:
+/// This function performs the packaging workflow:
 /// 1. Validates the project structure (Cargo.toml, src/, cdylib crate type)
 /// 2. Verifies that a `package.toml` exists in the project directory
 /// 3. Calls `fidius_core::package::pack_package` to create the bzip2 tar archive

@@ -34,7 +34,7 @@ pub struct DaemonHealth {
     pub uptime_seconds: u64,
     pub database: DatabaseHealth,
     pub reconciler: ReconcilerHealth,
-    pub active_pipelines: u64,
+    pub active_workflows: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,8 +87,8 @@ pub async fn build_health(
         .await
         .is_ok();
 
-    // Count active pipelines
-    let active_pipelines = dal
+    // Count active workflows
+    let active_workflows = dal
         .workflow_execution()
         .get_active_executions()
         .await
@@ -117,7 +117,7 @@ pub async fn build_health(
             packages_loaded,
             last_run_at: last_reconciliation.map(|t| t.to_rfc3339()),
         },
-        active_pipelines,
+        active_workflows,
     }
 }
 
@@ -207,7 +207,7 @@ pub async fn run_health_pulse(
                     status = %health.status,
                     uptime_s = health.uptime_seconds,
                     db_connected = health.database.connected,
-                    active_pipelines = health.active_pipelines,
+                    active_workflows = health.active_workflows,
                     packages_loaded = health.reconciler.packages_loaded,
                     "health pulse"
                 );

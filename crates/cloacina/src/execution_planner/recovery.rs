@@ -25,9 +25,9 @@ use std::sync::Arc;
 
 use crate::dal::DAL;
 use crate::error::ValidationError;
-use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryType};
 use crate::models::task_execution::TaskExecution;
+use crate::models::workflow_execution::WorkflowExecutionRecord;
 use crate::Runtime;
 
 /// Result of attempting to recover a task.
@@ -80,28 +80,28 @@ impl<'a> RecoveryManager<'a> {
             orphaned_tasks.len()
         );
 
-        // Group tasks by pipeline to handle workflow availability
-        let mut tasks_by_pipeline: std::collections::HashMap<
+        // Group tasks by workflow execution to handle workflow availability
+        let mut tasks_by_execution: std::collections::HashMap<
             crate::database::universal_types::UniversalUuid,
             (WorkflowExecutionRecord, Vec<TaskExecution>),
         > = std::collections::HashMap::new();
 
         for task in orphaned_tasks {
-            let pipeline = self
+            let workflow_exec = self
                 .dal
                 .workflow_execution()
-                .get_by_id(task.pipeline_execution_id)
+                .get_by_id(task.workflow_execution_id)
                 .await?;
-            tasks_by_pipeline
-                .entry(pipeline.id)
-                .or_insert((pipeline, Vec::new()))
+            tasks_by_execution
+                .entry(workflow_exec.id)
+                .or_insert((workflow_exec, Vec::new()))
                 .1
                 .push(task);
         }
 
         let mut recovered_count = 0;
         let mut abandoned_count = 0;
-        let mut failed_pipelines = 0;
+        let mut failed_executions = 0;
         let mut available_workflows = self.runtime.workflow_names();
         available_workflows.sort();
 
@@ -110,51 +110,54 @@ impl<'a> RecoveryManager<'a> {
             available_workflows.join(", ")
         );
 
-        // Process each pipeline's orphaned tasks
-        for (pipeline_id, (pipeline, tasks)) in tasks_by_pipeline {
-            let workflow_exists = self.runtime.get_workflow(&pipeline.pipeline_name).is_some();
+        // Process each workflow execution's orphaned tasks
+        for (execution_id, (workflow_exec, tasks)) in tasks_by_execution {
+            let workflow_exists = self
+                .runtime
+                .get_workflow(&workflow_exec.workflow_name)
+                .is_some();
 
             if workflow_exists {
                 // Known workflow - use existing recovery logic
                 info!(
                     "Recovering {} tasks from known workflow '{}'",
                     tasks.len(),
-                    pipeline.pipeline_name
+                    workflow_exec.workflow_name
                 );
                 match self.recover_tasks_for_known_workflow(tasks).await {
                     Ok(recovered) => recovered_count += recovered,
                     Err(e) => {
                         error!(
-                            "Failed to recover tasks for pipeline {}: {}",
-                            pipeline_id, e
+                            "Failed to recover tasks for workflow execution {}: {}",
+                            execution_id, e
                         );
-                        // Continue with other pipelines
+                        // Continue with other workflow executions
                     }
                 }
             } else {
                 // Unknown workflow - gracefully abandon
                 warn!(
-                    "Pipeline '{}' not in current workflow registry - marking as abandoned",
-                    pipeline.pipeline_name
+                    "Workflow '{}' not in current workflow registry - marking as abandoned",
+                    workflow_exec.workflow_name
                 );
                 debug!(
-                    "Found orphaned pipeline '{}' - not in registry",
-                    pipeline.pipeline_name
+                    "Found orphaned workflow execution '{}' - not in registry",
+                    workflow_exec.workflow_name
                 );
                 match self
-                    .abandon_tasks_for_unknown_workflow(pipeline, tasks, &available_workflows)
+                    .abandon_tasks_for_unknown_workflow(workflow_exec, tasks, &available_workflows)
                     .await
                 {
                     Ok(abandoned) => {
                         abandoned_count += abandoned;
-                        failed_pipelines += 1;
+                        failed_executions += 1;
                     }
                     Err(e) => {
                         error!(
                             "Failed to abandon tasks for unknown workflow {}: {}",
-                            pipeline_id, e
+                            execution_id, e
                         );
-                        // Continue with other pipelines
+                        // Continue with other workflow executions
                     }
                 }
             }
@@ -162,8 +165,8 @@ impl<'a> RecoveryManager<'a> {
 
         // Log detailed recovery summary
         info!(
-            "Recovery Summary:\n  ├─ Tasks Processed: {}\n  ├─ Recovered: {}\n  ├─ Abandoned: {}\n  ├─ Pipelines Failed: {}\n  └─ Available Workflows: [{}]",
-            recovered_count + abandoned_count, recovered_count, abandoned_count, failed_pipelines, available_workflows.join(", ")
+            "Recovery Summary:\n  ├─ Tasks Processed: {}\n  ├─ Recovered: {}\n  ├─ Abandoned: {}\n  ├─ Workflow Executions Failed: {}\n  └─ Available Workflows: [{}]",
+            recovered_count + abandoned_count, recovered_count, abandoned_count, failed_executions, available_workflows.join(", ")
         );
 
         Ok(())
@@ -202,15 +205,15 @@ impl<'a> RecoveryManager<'a> {
     /// Abandons tasks from workflows that are no longer available in the registry.
     async fn abandon_tasks_for_unknown_workflow(
         &self,
-        pipeline: WorkflowExecutionRecord,
+        workflow_exec: WorkflowExecutionRecord,
         tasks: Vec<TaskExecution>,
         available_workflows: &[String],
     ) -> Result<usize, ValidationError> {
         // Mark all tasks as abandoned
         for task in &tasks {
             debug!(
-                "Abandoning task '{}' (pipeline: {})",
-                task.task_name, pipeline.pipeline_name
+                "Abandoning task '{}' (workflow: {})",
+                task.task_name, workflow_exec.workflow_name
             );
 
             self.dal
@@ -219,20 +222,20 @@ impl<'a> RecoveryManager<'a> {
                     task.id,
                     &format!(
                         "Workflow '{}' no longer available in registry",
-                        pipeline.pipeline_name
+                        workflow_exec.workflow_name
                     ),
                 )
                 .await?;
 
             // Record abandonment event with clear reason
             self.record_recovery_event(NewRecoveryEvent {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: workflow_exec.id,
                 task_execution_id: Some(task.id),
                 recovery_type: RecoveryType::WorkflowUnavailable.into(),
                 details: Some(
                     serde_json::json!({
                         "task_name": task.task_name,
-                        "workflow_name": pipeline.pipeline_name,
+                        "workflow_name": workflow_exec.workflow_name,
                         "reason": "Workflow not in current registry",
                         "action": "abandoned",
                         "available_workflows": available_workflows
@@ -243,28 +246,28 @@ impl<'a> RecoveryManager<'a> {
             .await?;
         }
 
-        // Mark pipeline as failed
+        // Mark workflow execution as failed
         self.dal
             .workflow_execution()
             .mark_failed(
-                pipeline.id,
+                workflow_exec.id,
                 &format!(
                     "Workflow '{}' no longer available - abandoned during recovery",
-                    pipeline.pipeline_name
+                    workflow_exec.workflow_name
                 ),
             )
             .await?;
 
-        // Record pipeline-level recovery event
+        // Record workflow execution-level recovery event
         self.record_recovery_event(NewRecoveryEvent {
-            pipeline_execution_id: pipeline.id,
+            workflow_execution_id: workflow_exec.id,
             task_execution_id: None,
             recovery_type: RecoveryType::WorkflowUnavailable.into(),
             details: Some(
                 serde_json::json!({
-                    "workflow_name": pipeline.pipeline_name,
+                    "workflow_name": workflow_exec.workflow_name,
                     "reason": "Workflow not in current registry",
-                    "action": "pipeline_failed",
+                    "action": "workflow_execution_failed",
                     "abandoned_tasks": tasks.len(),
                     "available_workflows": available_workflows
                 })
@@ -276,7 +279,7 @@ impl<'a> RecoveryManager<'a> {
         info!(
             "Abandoned {} tasks from unknown workflow '{}'",
             tasks.len(),
-            pipeline.pipeline_name
+            workflow_exec.workflow_name
         );
 
         Ok(tasks.len())
@@ -288,7 +291,7 @@ impl<'a> RecoveryManager<'a> {
         task: TaskExecution,
     ) -> Result<RecoveryResult, ValidationError> {
         if task.recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
-            // Too many recovery attempts - abandon the task and potentially the pipeline
+            // Too many recovery attempts - abandon the task and potentially the workflow execution
             self.abandon_task_permanently(task).await?;
             return Ok(RecoveryResult::Abandoned);
         }
@@ -301,7 +304,7 @@ impl<'a> RecoveryManager<'a> {
 
         // Record recovery event
         self.record_recovery_event(NewRecoveryEvent {
-            pipeline_execution_id: task.pipeline_execution_id,
+            workflow_execution_id: task.workflow_execution_id,
             task_execution_id: Some(task.id),
             recovery_type: RecoveryType::TaskReset.into(),
             details: Some(
@@ -333,26 +336,26 @@ impl<'a> RecoveryManager<'a> {
             .mark_abandoned(task.id, "Exceeded recovery attempts")
             .await?;
 
-        // Check if this causes the entire pipeline to fail
-        let pipeline_failed = self
+        // Check if this causes the entire workflow execution to fail
+        let workflow_failed = self
             .dal
             .task_execution()
-            .check_pipeline_failure(task.pipeline_execution_id)
+            .check_pipeline_failure(task.workflow_execution_id)
             .await?;
 
-        if pipeline_failed {
+        if workflow_failed {
             self.dal
                 .workflow_execution()
                 .mark_failed(
-                    task.pipeline_execution_id,
-                    "Task abandonment caused pipeline failure",
+                    task.workflow_execution_id,
+                    "Task abandonment caused workflow execution failure",
                 )
                 .await?;
         }
 
         // Record abandonment event
         self.record_recovery_event(NewRecoveryEvent {
-            pipeline_execution_id: task.pipeline_execution_id,
+            workflow_execution_id: task.workflow_execution_id,
             task_execution_id: Some(task.id),
             recovery_type: RecoveryType::TaskAbandoned.into(),
             details: Some(

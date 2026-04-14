@@ -24,7 +24,7 @@
 //!
 //! - [`context`]: Models for execution context storage
 //! - [`schedule`]: Models for unified cron and trigger workflow scheduling
-//! - [`pipeline_execution`]: Models for tracking pipeline execution state and metadata
+//! - [`workflow_execution`]: Models for tracking workflow execution state and metadata
 //! - [`recovery_event`]: Models for recording system recovery events and state transitions
 //! - [`task_execution`]: Models for managing individual task execution records
 //! - [`task_execution_metadata`]: Models for storing task execution metadata and context references
@@ -70,12 +70,12 @@
 // pub mod auth_tokens;
 pub mod context;
 pub mod execution_event;
-pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod schedule;
 pub mod task_execution;
 pub mod task_execution_metadata;
 pub mod task_outbox;
+pub mod workflow_execution;
 pub mod workflow_packages;
 pub mod workflow_registry;
 

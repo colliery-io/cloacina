@@ -492,13 +492,13 @@ use crate::models::context::DbContext;
 use crate::models::execution_event::ExecutionEvent;
 use crate::models::key_trust_acl::KeyTrustAcl;
 use crate::models::package_signature::PackageSignature;
-use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::recovery_event::RecoveryEvent;
 use crate::models::schedule::{Schedule, ScheduleExecution};
 use crate::models::signing_key::SigningKey;
 use crate::models::task_execution::TaskExecution;
 use crate::models::task_execution_metadata::TaskExecutionMetadata;
 use crate::models::trusted_key::TrustedKey;
+use crate::models::workflow_execution::WorkflowExecutionRecord;
 use crate::models::workflow_packages::WorkflowPackage;
 use crate::models::workflow_registry::WorkflowRegistryEntry;
 
@@ -517,8 +517,8 @@ impl From<UnifiedWorkflowExecution> for WorkflowExecutionRecord {
     fn from(u: UnifiedWorkflowExecution) -> Self {
         WorkflowExecutionRecord {
             id: u.id,
-            pipeline_name: u.pipeline_name,
-            pipeline_version: u.pipeline_version,
+            workflow_name: u.pipeline_name,
+            workflow_version: u.pipeline_version,
             status: u.status,
             context_id: u.context_id,
             started_at: u.started_at,
@@ -538,7 +538,7 @@ impl From<UnifiedTaskExecution> for TaskExecution {
     fn from(u: UnifiedTaskExecution) -> Self {
         TaskExecution {
             id: u.id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.pipeline_execution_id,
             task_name: u.task_name,
             status: u.status,
             started_at: u.started_at,
@@ -566,7 +566,7 @@ impl From<UnifiedTaskExecutionMetadata> for TaskExecutionMetadata {
         TaskExecutionMetadata {
             id: u.id,
             task_execution_id: u.task_execution_id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.pipeline_execution_id,
             task_name: u.task_name,
             context_id: u.context_id,
             created_at: u.created_at,
@@ -579,7 +579,7 @@ impl From<UnifiedRecoveryEvent> for RecoveryEvent {
     fn from(u: UnifiedRecoveryEvent) -> Self {
         RecoveryEvent {
             id: u.id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.pipeline_execution_id,
             task_execution_id: u.task_execution_id,
             recovery_type: u.recovery_type,
             recovered_at: u.recovered_at,
@@ -594,7 +594,7 @@ impl From<UnifiedExecutionEvent> for ExecutionEvent {
     fn from(u: UnifiedExecutionEvent) -> Self {
         ExecutionEvent {
             id: u.id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.pipeline_execution_id,
             task_execution_id: u.task_execution_id,
             event_type: u.event_type,
             event_data: u.event_data,
@@ -715,7 +715,7 @@ impl From<UnifiedScheduleExecution> for ScheduleExecution {
         ScheduleExecution {
             id: u.id,
             schedule_id: u.schedule_id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.pipeline_execution_id,
             scheduled_time: u.scheduled_time,
             claimed_at: u.claimed_at,
             context_hash: u.context_hash,

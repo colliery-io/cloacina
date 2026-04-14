@@ -45,14 +45,14 @@ impl<'a> StateManager<'a> {
         Self { dal, runtime }
     }
 
-    /// Updates task readiness for a specific pipeline using pre-loaded tasks.
+    /// Updates task readiness for a specific workflow execution using pre-loaded tasks.
     ///
     /// When a task becomes ready, marks it as Ready in the database.
     /// Dispatch to executors is handled separately by the scheduler loop's
     /// dispatch_ready_tasks() method.
     pub async fn update_pipeline_task_readiness(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         pending_tasks: &[TaskExecution],
     ) -> Result<(), ValidationError> {
         for task_execution in pending_tasks {
@@ -68,16 +68,16 @@ impl<'a> StateManager<'a> {
                         .task_execution()
                         .mark_ready(task_execution.id)
                         .await?;
-                    info!("Task ready: {} (pipeline: {}, dependencies satisfied, trigger rules passed)",
-                          task_execution.task_name, pipeline_execution_id);
+                    info!("Task ready: {} (workflow execution: {}, dependencies satisfied, trigger rules passed)",
+                          task_execution.task_name, workflow_execution_id);
                 } else {
                     // Dependencies satisfied + trigger rules fail -> Mark Skipped
                     self.dal
                         .task_execution()
                         .mark_skipped(task_execution.id, "Trigger rules not satisfied")
                         .await?;
-                    info!("Task skipped: {} (pipeline: {}, dependencies satisfied, trigger rules failed)",
-                          task_execution.task_name, pipeline_execution_id);
+                    info!("Task skipped: {} (workflow execution: {}, dependencies satisfied, trigger rules failed)",
+                          task_execution.task_name, workflow_execution_id);
                 }
             }
         }
@@ -93,16 +93,16 @@ impl<'a> StateManager<'a> {
         task_execution: &TaskExecution,
     ) -> Result<bool, ValidationError> {
         // Get workflow to check dependencies
-        let pipeline = self
+        let workflow_execution = self
             .dal
             .workflow_execution()
-            .get_by_id(task_execution.pipeline_execution_id)
+            .get_by_id(task_execution.workflow_execution_id)
             .await?;
-        let workflow = match self.runtime.get_workflow(&pipeline.pipeline_name) {
+        let workflow = match self.runtime.get_workflow(&workflow_execution.workflow_name) {
             Some(wf) => wf,
             None => {
                 return Err(ValidationError::WorkflowNotFound(
-                    pipeline.pipeline_name.clone(),
+                    workflow_execution.workflow_name.clone(),
                 ));
             }
         };
@@ -124,7 +124,7 @@ impl<'a> StateManager<'a> {
         let status_map = self
             .dal
             .task_execution()
-            .get_task_statuses_batch(task_execution.pipeline_execution_id, dependency_names)
+            .get_task_statuses_batch(task_execution.workflow_execution_id, dependency_names)
             .await?;
 
         // Check that all dependencies exist and are in terminal states
@@ -250,13 +250,13 @@ impl<'a> StateManager<'a> {
         match condition {
             TriggerCondition::TaskSuccess { task_name } => {
                 tracing::debug!(
-                    "[DEBUG] Scheduler evaluating TaskSuccess trigger rule: looking up task_name '{}' in pipeline {}",
-                    task_name, task_execution.pipeline_execution_id
+                    "[DEBUG] Scheduler evaluating TaskSuccess trigger rule: looking up task_name '{}' in workflow execution {}",
+                    task_name, task_execution.workflow_execution_id
                 );
                 let status = self
                     .dal
                     .task_execution()
-                    .get_task_status(task_execution.pipeline_execution_id, task_name)
+                    .get_task_status(task_execution.workflow_execution_id, task_name)
                     .await?;
                 let result = status == "Completed";
                 debug!(
@@ -267,13 +267,13 @@ impl<'a> StateManager<'a> {
             }
             TriggerCondition::TaskFailed { task_name } => {
                 tracing::debug!(
-                    "[DEBUG] Scheduler evaluating TaskFailed trigger rule: looking up task_name '{}' in pipeline {}",
-                    task_name, task_execution.pipeline_execution_id
+                    "[DEBUG] Scheduler evaluating TaskFailed trigger rule: looking up task_name '{}' in workflow execution {}",
+                    task_name, task_execution.workflow_execution_id
                 );
                 let status = self
                     .dal
                     .task_execution()
-                    .get_task_status(task_execution.pipeline_execution_id, task_name)
+                    .get_task_status(task_execution.workflow_execution_id, task_name)
                     .await?;
                 let result = status == "Failed";
                 debug!(
@@ -284,13 +284,13 @@ impl<'a> StateManager<'a> {
             }
             TriggerCondition::TaskSkipped { task_name } => {
                 tracing::debug!(
-                    "[DEBUG] Scheduler evaluating TaskSkipped trigger rule: looking up task_name '{}' in pipeline {}",
-                    task_name, task_execution.pipeline_execution_id
+                    "[DEBUG] Scheduler evaluating TaskSkipped trigger rule: looking up task_name '{}' in workflow execution {}",
+                    task_name, task_execution.workflow_execution_id
                 );
                 let status = self
                     .dal
                     .task_execution()
-                    .get_task_status(task_execution.pipeline_execution_id, task_name)
+                    .get_task_status(task_execution.workflow_execution_id, task_name)
                     .await?;
                 let result = status == "Skipped";
                 debug!(

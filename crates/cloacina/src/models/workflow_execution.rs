@@ -26,8 +26,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowExecutionRecord {
     pub id: UniversalUuid,
-    pub pipeline_name: String,
-    pub pipeline_version: String,
+    pub workflow_name: String,
+    pub workflow_version: String,
     pub status: String,
     pub context_id: Option<UniversalUuid>,
     pub started_at: UniversalTimestamp,
@@ -44,8 +44,8 @@ pub struct WorkflowExecutionRecord {
 /// Structure for creating new workflow executions (domain type).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewWorkflowExecution {
-    pub pipeline_name: String,
-    pub pipeline_version: String,
+    pub workflow_name: String,
+    pub workflow_version: String,
     pub status: String,
     pub context_id: Option<UniversalUuid>,
 }

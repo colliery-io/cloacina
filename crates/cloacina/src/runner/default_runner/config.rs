@@ -24,8 +24,8 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
-use crate::executor::pipeline_executor::WorkflowExecutionError;
 use crate::executor::types::ExecutorConfig;
+use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::executor::ThreadTaskExecutor;
 use crate::Database;
 use crate::Runtime;
@@ -68,7 +68,7 @@ pub struct DefaultRunnerConfig {
     max_concurrent_tasks: usize,
     scheduler_poll_interval: Duration,
     task_timeout: Duration,
-    pipeline_timeout: Option<Duration>,
+    workflow_timeout: Option<Duration>,
     db_pool_size: u32,
     enable_recovery: bool,
     enable_cron_scheduling: bool,
@@ -117,9 +117,9 @@ impl DefaultRunnerConfig {
         self.task_timeout
     }
 
-    /// Optional maximum time for an entire pipeline execution.
-    pub fn pipeline_timeout(&self) -> Option<Duration> {
-        self.pipeline_timeout
+    /// Optional maximum time for an entire workflow execution.
+    pub fn workflow_timeout(&self) -> Option<Duration> {
+        self.workflow_timeout
     }
 
     /// Number of database connections in the pool.
@@ -270,7 +270,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 max_concurrent_tasks: 4,
                 scheduler_poll_interval: Duration::from_millis(100),
                 task_timeout: Duration::from_secs(300),
-                pipeline_timeout: Some(Duration::from_secs(3600)),
+                workflow_timeout: Some(Duration::from_secs(3600)),
                 db_pool_size: 10,
                 enable_recovery: true,
                 enable_cron_scheduling: true,
@@ -320,9 +320,9 @@ impl DefaultRunnerConfigBuilder {
         self
     }
 
-    /// Sets the pipeline timeout.
-    pub fn pipeline_timeout(mut self, value: Option<Duration>) -> Self {
-        self.config.pipeline_timeout = value;
+    /// Sets the workflow timeout.
+    pub fn workflow_timeout(mut self, value: Option<Duration>) -> Self {
+        self.config.workflow_timeout = value;
         self
     }
 
@@ -758,7 +758,7 @@ mod tests {
         assert_eq!(config.max_concurrent_tasks(), 4);
         assert_eq!(config.scheduler_poll_interval(), Duration::from_millis(100));
         assert_eq!(config.task_timeout(), Duration::from_secs(300));
-        assert_eq!(config.pipeline_timeout(), Some(Duration::from_secs(3600)));
+        assert_eq!(config.workflow_timeout(), Some(Duration::from_secs(3600)));
         assert!(config.enable_recovery());
         assert!(config.enable_cron_scheduling());
         assert!(config.enable_registry_reconciler());
@@ -895,7 +895,7 @@ mod tests {
             .max_concurrent_tasks(8)
             .scheduler_poll_interval(Duration::from_millis(200))
             .task_timeout(Duration::from_secs(600))
-            .pipeline_timeout(Some(Duration::from_secs(7200)))
+            .workflow_timeout(Some(Duration::from_secs(7200)))
             .db_pool_size(20)
             .enable_recovery(false)
             .enable_cron_scheduling(false)
@@ -911,7 +911,7 @@ mod tests {
         assert_eq!(config.max_concurrent_tasks(), 8);
         assert_eq!(config.scheduler_poll_interval(), Duration::from_millis(200));
         assert_eq!(config.task_timeout(), Duration::from_secs(600));
-        assert_eq!(config.pipeline_timeout(), Some(Duration::from_secs(7200)));
+        assert_eq!(config.workflow_timeout(), Some(Duration::from_secs(7200)));
         assert_eq!(config.db_pool_size(), 20);
         assert!(!config.enable_recovery());
         assert!(!config.enable_cron_scheduling());

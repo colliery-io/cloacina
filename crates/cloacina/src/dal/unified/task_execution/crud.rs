@@ -68,7 +68,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
                     let new_unified_task = NewUnifiedTaskExecution {
                         id,
-                        pipeline_execution_id: new_task.pipeline_execution_id,
+                        pipeline_execution_id: new_task.workflow_execution_id,
                         task_name: new_task.task_name,
                         status: new_task.status,
                         attempt: new_task.attempt,
@@ -129,7 +129,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
                     let new_unified_task = NewUnifiedTaskExecution {
                         id,
-                        pipeline_execution_id: new_task.pipeline_execution_id,
+                        pipeline_execution_id: new_task.workflow_execution_id,
                         task_name: new_task.task_name,
                         status: new_task.status,
                         attempt: new_task.attempt,

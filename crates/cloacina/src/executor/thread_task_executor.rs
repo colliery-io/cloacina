@@ -16,7 +16,7 @@
 
 //! Task Executor Module
 //!
-//! This module provides the core task execution functionality for the Cloacina pipeline system.
+//! This module provides the core task execution functionality for the Cloacina workflow system.
 //! The ThreadTaskExecutor implements the `TaskExecutor` trait for dispatcher-based execution.
 //!
 //! The executor is responsible for:
@@ -198,7 +198,7 @@ impl ThreadTaskExecutor {
             dependencies
         );
         let execution_scope = ExecutionScope {
-            pipeline_execution_id: claimed_task.pipeline_execution_id,
+            workflow_execution_id: claimed_task.workflow_execution_id,
             task_execution_id: Some(claimed_task.task_execution_id),
             task_name: Some(claimed_task.task_name.clone()),
         };
@@ -210,15 +210,15 @@ impl ThreadTaskExecutor {
         // Track execution scope for logging/metrics (not stored in context)
         let _execution_scope = execution_scope;
 
-        // Load initial pipeline context if task has no dependencies
+        // Load initial workflow context if task has no dependencies
         if dependencies.is_empty() {
-            if let Ok(pipeline_execution) = self
+            if let Ok(workflow_execution) = self
                 .dal
                 .workflow_execution()
-                .get_by_id(claimed_task.pipeline_execution_id)
+                .get_by_id(claimed_task.workflow_execution_id)
                 .await
             {
-                if let Some(context_id) = pipeline_execution.context_id {
+                if let Some(context_id) = workflow_execution.context_id {
                     if let Ok(initial_context) = self
                         .dal
                         .context()
@@ -230,7 +230,7 @@ impl ThreadTaskExecutor {
                             let _ = context.insert(key, value.clone());
                         }
                         debug!(
-                            "Loaded initial pipeline context with {} keys",
+                            "Loaded initial workflow context with {} keys",
                             initial_context.data().len()
                         );
                     }
@@ -250,7 +250,7 @@ impl ThreadTaskExecutor {
                 .dal
                 .task_execution_metadata()
                 .get_dependency_metadata_with_contexts(
-                    claimed_task.pipeline_execution_id,
+                    claimed_task.workflow_execution_id,
                     dependencies,
                 )
                 .await
@@ -461,7 +461,7 @@ impl ThreadTaskExecutor {
         // Create task execution metadata record with reference to context
         let task_metadata_record = NewTaskExecutionMetadata {
             task_execution_id: claimed_task.task_execution_id,
-            pipeline_execution_id: claimed_task.pipeline_execution_id,
+            workflow_execution_id: claimed_task.workflow_execution_id,
             task_name: claimed_task.task_name.clone(),
             context_id,
         };
@@ -474,8 +474,8 @@ impl ThreadTaskExecutor {
         let key_count = context.data().len();
         let keys: Vec<_> = context.data().keys().collect();
         info!(
-            "Context saved: {} (pipeline: {}, {} keys: {:?}, context_id: {:?})",
-            claimed_task.task_name, claimed_task.pipeline_execution_id, key_count, keys, context_id
+            "Context saved: {} (workflow: {}, {} keys: {:?}, context_id: {:?})",
+            claimed_task.task_name, claimed_task.workflow_execution_id, key_count, keys, context_id
         );
         Ok(())
     }
@@ -521,7 +521,7 @@ impl ThreadTaskExecutor {
         info!(
             task_id = %claimed_task.task_execution_id,
             task_name = %claimed_task.task_name,
-            pipeline_id = %claimed_task.pipeline_execution_id,
+            workflow_id = %claimed_task.workflow_execution_id,
             "Task state change: -> Completed"
         );
 
@@ -530,7 +530,7 @@ impl ThreadTaskExecutor {
             error!(
                 task_id = %claimed_task.task_execution_id,
                 task_name = %claimed_task.task_name,
-                pipeline_id = %claimed_task.pipeline_execution_id,
+                workflow_id = %claimed_task.workflow_execution_id,
                 error = %e,
                 "CRITICAL: mark_completed succeeded but context save failed"
             );
@@ -575,8 +575,8 @@ impl ThreadTaskExecutor {
 
         if applied {
             error!(
-                "Task state change: {} -> Failed (task: {}, pipeline: {}, error: {})",
-                task.status, task.task_name, task.pipeline_execution_id, error
+                "Task state change: {} -> Failed (task: {}, workflow: {}, error: {})",
+                task.status, task.task_name, task.workflow_execution_id, error
             );
         } else {
             warn!(
@@ -820,7 +820,7 @@ impl TaskExecutor for ThreadTaskExecutor {
         // Convert TaskReadyEvent to ClaimedTask format
         let claimed_task = ClaimedTask {
             task_execution_id: event.task_execution_id,
-            pipeline_execution_id: event.pipeline_execution_id,
+            workflow_execution_id: event.workflow_execution_id,
             task_name: event.task_name.clone(),
             attempt: event.attempt,
         };

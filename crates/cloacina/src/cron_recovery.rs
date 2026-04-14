@@ -17,22 +17,22 @@
 //! Cron execution recovery service for handling lost executions.
 //!
 //! This module provides a recovery mechanism that detects and retries cron executions
-//! that were claimed but never successfully handed off to the pipeline executor.
+//! that were claimed but never successfully handed off to the workflow executor.
 //! It implements the recovery side of the guaranteed execution pattern.
 //!
 //! # Architecture
 //!
 //! The recovery service runs as a background task that periodically:
-//! 1. Queries for lost executions (claimed but no pipeline execution)
+//! 1. Queries for lost executions (claimed but no workflow execution)
 //! 2. Determines if recovery is appropriate
-//! 3. Retries the execution through the pipeline executor
+//! 3. Retries the execution through the workflow executor
 //! 4. Updates audit records to reflect recovery attempts
 //!
 //! # Recovery Policy
 //!
 //! Executions are considered "lost" if:
 //! - They have a schedule_executions record (were claimed)
-//! - They have no corresponding pipeline_executions record
+//! - They have no corresponding workflow_executions record
 //! - They were claimed more than X minutes ago (configurable)
 //!
 //! Recovery is skipped if:
@@ -98,7 +98,7 @@ impl CronRecoveryService {
     ///
     /// # Arguments
     /// * `dal` - Data access layer for database operations
-    /// * `executor` - Pipeline executor for retrying executions
+    /// * `executor` - Workflow executor for retrying executions
     /// * `config` - Recovery service configuration
     /// * `shutdown` - Shutdown signal receiver
     pub fn new(
@@ -321,14 +321,14 @@ impl CronRecoveryService {
             .execute(&schedule.workflow_name, context)
             .await
         {
-            Ok(pipeline_result) => {
-                // Update the audit record with the new pipeline execution ID
+            Ok(workflow_result) => {
+                // Update the audit record with the new workflow execution ID
                 if let Err(e) = self
                     .dal
                     .schedule_execution()
                     .update_pipeline_execution_id(
                         execution.id,
-                        crate::database::UniversalUuid(pipeline_result.execution_id),
+                        crate::database::UniversalUuid(workflow_result.execution_id),
                     )
                     .await
                 {
@@ -340,8 +340,8 @@ impl CronRecoveryService {
                 }
 
                 info!(
-                    "Successfully recovered execution {} (new pipeline: {})",
-                    execution.id, pipeline_result.execution_id
+                    "Successfully recovered execution {} (new workflow execution: {})",
+                    execution.id, workflow_result.execution_id
                 );
 
                 // Clear recovery attempts on success

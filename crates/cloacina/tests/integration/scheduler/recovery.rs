@@ -22,8 +22,8 @@ mod postgres_tests {
     use crate::fixtures::get_or_init_postgres_fixture;
     use cloacina::dal::DAL;
     use cloacina::database::schema::postgres::task_executions;
-    use cloacina::models::pipeline_execution::NewWorkflowExecution;
     use cloacina::models::task_execution::NewTaskExecution;
+    use cloacina::models::workflow_execution::NewWorkflowExecution;
     use cloacina::*;
     use diesel::prelude::*;
     use serde_json::json;
@@ -44,8 +44,8 @@ mod postgres_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "recovery-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "recovery-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -122,8 +122,8 @@ mod postgres_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "abandonment-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "abandonment-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -206,8 +206,8 @@ mod postgres_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "no-recovery-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "no-recovery-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Completed".to_string(),
                 context_id: None,
             })
@@ -286,8 +286,8 @@ mod postgres_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "multi-recovery-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "multi-recovery-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -426,8 +426,8 @@ mod postgres_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "event-details-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "event-details-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -491,8 +491,8 @@ mod postgres_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "unknown-workflow".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "unknown-workflow".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -606,8 +606,8 @@ mod sqlite_tests {
     use crate::fixtures::get_or_init_sqlite_fixture;
     use cloacina::dal::DAL;
     use cloacina::database::schema::sqlite::task_executions;
-    use cloacina::models::pipeline_execution::NewWorkflowExecution;
     use cloacina::models::task_execution::NewTaskExecution;
+    use cloacina::models::workflow_execution::NewWorkflowExecution;
     use cloacina::*;
     use diesel::prelude::*;
     use serde_json::json;
@@ -628,8 +628,8 @@ mod sqlite_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "recovery-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "recovery-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -706,8 +706,8 @@ mod sqlite_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "abandonment-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "abandonment-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -794,8 +794,8 @@ mod sqlite_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "no-recovery-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "no-recovery-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Completed".to_string(),
                 context_id: None,
             })
@@ -874,8 +874,8 @@ mod sqlite_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "multi-recovery-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "multi-recovery-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -1018,8 +1018,8 @@ mod sqlite_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "event-details-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "event-details-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -1083,8 +1083,8 @@ mod sqlite_tests {
         let pipeline_execution = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "unknown-workflow".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "unknown-workflow".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })

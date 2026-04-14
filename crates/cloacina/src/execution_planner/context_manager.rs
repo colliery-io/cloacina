@@ -49,16 +49,16 @@ impl<'a> ContextManager<'a> {
         task_execution: &TaskExecution,
     ) -> Result<Context<serde_json::Value>, ValidationError> {
         // Get the workflow to find task dependencies
-        let pipeline = self
+        let workflow_execution = self
             .dal
             .workflow_execution()
-            .get_by_id(task_execution.pipeline_execution_id)
+            .get_by_id(task_execution.workflow_execution_id)
             .await?;
-        let workflow = match self.runtime.get_workflow(&pipeline.pipeline_name) {
+        let workflow = match self.runtime.get_workflow(&workflow_execution.workflow_name) {
             Some(wf) => wf,
             None => {
                 return Err(ValidationError::WorkflowNotFound(
-                    pipeline.pipeline_name.clone(),
+                    workflow_execution.workflow_name.clone(),
                 ));
             }
         };
@@ -72,15 +72,15 @@ impl<'a> ContextManager<'a> {
             .map_err(|e| ValidationError::InvalidTaskName(e.to_string()))?;
 
         if dependencies.is_empty() {
-            // No dependencies: read initial pipeline context
-            if let Some(context_id) = pipeline.context_id {
+            // No dependencies: read initial workflow execution context
+            if let Some(context_id) = workflow_execution.context_id {
                 let context = self.dal.context().read(context_id).await.map_err(|_e| {
                     ValidationError::ContextEvaluationFailed {
                         key: format!("context_id:{}", context_id),
                     }
                 })?;
                 debug!(
-                    "Context loaded: initial pipeline context ({} keys)",
+                    "Context loaded: initial workflow execution context ({} keys)",
                     context.data().len()
                 );
                 Ok(context)
@@ -95,7 +95,7 @@ impl<'a> ContextManager<'a> {
             match self
                 .dal
                 .task_execution_metadata()
-                .get_by_pipeline_and_task(task_execution.pipeline_execution_id, dep_task_namespace)
+                .get_by_pipeline_and_task(task_execution.workflow_execution_id, dep_task_namespace)
                 .await
             {
                 Ok(task_metadata) => {
@@ -157,7 +157,7 @@ impl<'a> ContextManager<'a> {
             if let Ok(task_metadata) = self
                 .dal
                 .task_execution_metadata()
-                .get_by_pipeline_and_task(task_execution.pipeline_execution_id, dep_task_namespace)
+                .get_by_pipeline_and_task(task_execution.workflow_execution_id, dep_task_namespace)
                 .await
             {
                 if let Some(context_id) = task_metadata.context_id {

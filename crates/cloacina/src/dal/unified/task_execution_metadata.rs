@@ -71,7 +71,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let new_unified = NewUnifiedTaskExecutionMetadata {
             id,
             task_execution_id: new_metadata.task_execution_id,
-            pipeline_execution_id: new_metadata.pipeline_execution_id,
+            pipeline_execution_id: new_metadata.workflow_execution_id,
             task_name: new_metadata.task_name,
             context_id: new_metadata.context_id,
             created_at: now,
@@ -112,7 +112,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let new_unified = NewUnifiedTaskExecutionMetadata {
             id,
             task_execution_id: new_metadata.task_execution_id,
-            pipeline_execution_id: new_metadata.pipeline_execution_id,
+            pipeline_execution_id: new_metadata.workflow_execution_id,
             task_name: new_metadata.task_name,
             context_id: new_metadata.context_id,
             created_at: now,
@@ -369,7 +369,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let new_unified = NewUnifiedTaskExecutionMetadata {
             id,
             task_execution_id: new_metadata.task_execution_id,
-            pipeline_execution_id: new_metadata.pipeline_execution_id,
+            pipeline_execution_id: new_metadata.workflow_execution_id,
             task_name: new_metadata.task_name,
             context_id: new_metadata.context_id,
             created_at: now,
@@ -467,7 +467,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 let new_unified = NewUnifiedTaskExecutionMetadata {
                     id,
                     task_execution_id: new_metadata.task_execution_id,
-                    pipeline_execution_id: new_metadata.pipeline_execution_id,
+                    pipeline_execution_id: new_metadata.workflow_execution_id,
                     task_name: new_metadata.task_name,
                     context_id: new_metadata.context_id,
                     created_at: now,
@@ -670,9 +670,9 @@ mod tests {
     use super::*;
     use crate::context::Context;
     use crate::database::Database;
-    use crate::models::pipeline_execution::NewWorkflowExecution;
     use crate::models::task_execution::NewTaskExecution;
     use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
+    use crate::models::workflow_execution::NewWorkflowExecution;
 
     #[cfg(feature = "sqlite")]
     async fn unique_dal() -> DAL {
@@ -696,8 +696,8 @@ mod tests {
         let pipeline = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "test_pipeline".into(),
-                pipeline_version: "1.0".into(),
+                workflow_name: "test_pipeline".into(),
+                workflow_version: "1.0".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -707,7 +707,7 @@ mod tests {
         let task = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: pipeline.id,
                 task_name: task_name.into(),
                 status: "NotStarted".into(),
                 attempt: 1,
@@ -733,7 +733,7 @@ mod tests {
             .task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: pipeline_id,
                 task_name: "my_task".into(),
                 context_id: None,
             })
@@ -741,7 +741,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(metadata.task_execution_id, task_id);
-        assert_eq!(metadata.pipeline_execution_id, pipeline_id);
+        assert_eq!(metadata.workflow_execution_id, pipeline_id);
         assert_eq!(metadata.task_name, "my_task");
         assert!(metadata.context_id.is_none());
     }
@@ -762,7 +762,7 @@ mod tests {
             .task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: pipeline_id,
                 task_name: "ctx_task".into(),
                 context_id: Some(ctx_id),
             })
@@ -785,7 +785,7 @@ mod tests {
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: pipeline_id,
                 task_name: ns_str.clone(),
                 context_id: None,
             })
@@ -825,7 +825,7 @@ mod tests {
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: pipeline_id,
                 task_name: "exec_lookup".into(),
                 context_id: None,
             })
@@ -839,7 +839,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(found.task_execution_id, task_id);
-        assert_eq!(found.pipeline_execution_id, pipeline_id);
+        assert_eq!(found.workflow_execution_id, pipeline_id);
     }
 
     // ── update_context_id ──────────────────────────────────────────
@@ -853,7 +853,7 @@ mod tests {
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: pipeline_id,
                 task_name: "update_ctx".into(),
                 context_id: None,
             })
@@ -893,7 +893,7 @@ mod tests {
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: pipeline_id,
                 task_name: "clear_ctx".into(),
                 context_id: Some(ctx_id),
             })
@@ -926,7 +926,7 @@ mod tests {
             .task_execution_metadata()
             .upsert_task_execution_metadata(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: pipeline_id,
                 task_name: "upsert_new".into(),
                 context_id: None,
             })
@@ -948,7 +948,7 @@ mod tests {
             .task_execution_metadata()
             .upsert_task_execution_metadata(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: pipeline_id,
                 task_name: "upsert_upd".into(),
                 context_id: None,
             })
@@ -966,7 +966,7 @@ mod tests {
             .task_execution_metadata()
             .upsert_task_execution_metadata(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: pipeline_id,
                 task_name: "upsert_upd".into(),
                 context_id: Some(ctx_id),
             })
@@ -987,8 +987,8 @@ mod tests {
         let pipeline = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "dep_pipeline".into(),
-                pipeline_version: "1".into(),
+                workflow_name: "dep_pipeline".into(),
+                workflow_version: "1".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -1000,7 +1000,7 @@ mod tests {
             let task = dal
                 .task_execution()
                 .create(NewTaskExecution {
-                    pipeline_execution_id: pipeline.id,
+                    workflow_execution_id: pipeline.id,
                     task_name: name.to_string(),
                     status: "NotStarted".into(),
                     attempt: 1,
@@ -1014,7 +1014,7 @@ mod tests {
             dal.task_execution_metadata()
                 .create(NewTaskExecutionMetadata {
                     task_execution_id: task.id,
-                    pipeline_execution_id: pipeline.id,
+                    workflow_execution_id: pipeline.id,
                     task_name: name.to_string(),
                     context_id: None,
                 })
@@ -1068,8 +1068,8 @@ mod tests {
         let pipeline = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "ctx_dep_pipeline".into(),
-                pipeline_version: "1".into(),
+                workflow_name: "ctx_dep_pipeline".into(),
+                workflow_version: "1".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -1085,7 +1085,7 @@ mod tests {
         let task_with_ctx = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: pipeline.id,
                 task_name: "public::embedded::wf::has_ctx".into(),
                 status: "Completed".into(),
                 attempt: 1,
@@ -1099,7 +1099,7 @@ mod tests {
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_with_ctx.id,
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: pipeline.id,
                 task_name: "public::embedded::wf::has_ctx".into(),
                 context_id: Some(ctx_id),
             })
@@ -1110,7 +1110,7 @@ mod tests {
         let task_no_ctx = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: pipeline.id,
                 task_name: "public::embedded::wf::no_ctx".into(),
                 status: "Completed".into(),
                 attempt: 1,
@@ -1124,7 +1124,7 @@ mod tests {
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_no_ctx.id,
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: pipeline.id,
                 task_name: "public::embedded::wf::no_ctx".into(),
                 context_id: None,
             })

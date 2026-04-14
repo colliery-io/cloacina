@@ -209,7 +209,7 @@ mod tests {
     fn new_exec(schedule_id: UniversalUuid) -> NewScheduleExecution {
         NewScheduleExecution {
             schedule_id,
-            pipeline_execution_id: None,
+            workflow_execution_id: None,
             scheduled_time: Some(UniversalTimestamp::now()),
             claimed_at: Some(UniversalTimestamp::now()),
             context_hash: Some(uuid::Uuid::new_v4().to_string()),
@@ -231,7 +231,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(exec.schedule_id, sched_id);
-        assert!(exec.pipeline_execution_id.is_none());
+        assert!(exec.workflow_execution_id.is_none());
         assert!(exec.completed_at.is_none());
         assert!(exec.scheduled_time.is_some());
         assert!(exec.context_hash.is_some());
@@ -410,15 +410,15 @@ mod tests {
             .create(new_exec(sched_id))
             .await
             .unwrap();
-        assert!(exec.pipeline_execution_id.is_none());
+        assert!(exec.workflow_execution_id.is_none());
 
         // Create a real pipeline so the FK constraint is satisfied
-        use crate::models::pipeline_execution::NewWorkflowExecution;
+        use crate::models::workflow_execution::NewWorkflowExecution;
         let pipeline = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "fk-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "fk-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -431,7 +431,7 @@ mod tests {
             .unwrap();
 
         let updated = dal.schedule_execution().get_by_id(exec.id).await.unwrap();
-        assert_eq!(updated.pipeline_execution_id, Some(pipeline.id));
+        assert_eq!(updated.workflow_execution_id, Some(pipeline.id));
     }
 
     // ── get_latest_by_schedule ──────────────────────────────────────
@@ -559,12 +559,12 @@ mod tests {
             .unwrap();
 
         // Link one to a real pipeline (FK constraint requires it to exist)
-        use crate::models::pipeline_execution::NewWorkflowExecution;
+        use crate::models::workflow_execution::NewWorkflowExecution;
         let pipeline = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "stats-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "stats-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Completed".to_string(),
                 context_id: None,
             })

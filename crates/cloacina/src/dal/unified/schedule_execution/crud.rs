@@ -49,7 +49,7 @@ impl<'a> ScheduleExecutionDAL<'a> {
         let new_unified = NewUnifiedScheduleExecution {
             id,
             schedule_id: new_execution.schedule_id,
-            pipeline_execution_id: new_execution.pipeline_execution_id,
+            pipeline_execution_id: new_execution.workflow_execution_id,
             scheduled_time: new_execution.scheduled_time,
             claimed_at: new_execution.claimed_at,
             context_hash: new_execution.context_hash,
@@ -92,7 +92,7 @@ impl<'a> ScheduleExecutionDAL<'a> {
         let new_unified = NewUnifiedScheduleExecution {
             id,
             schedule_id: new_execution.schedule_id,
-            pipeline_execution_id: new_execution.pipeline_execution_id,
+            pipeline_execution_id: new_execution.workflow_execution_id,
             scheduled_time: new_execution.scheduled_time,
             claimed_at: new_execution.claimed_at,
             context_hash: new_execution.context_hash,

@@ -35,7 +35,7 @@ impl PyDefaultRunnerConfig {
         max_concurrent_tasks = None,
         scheduler_poll_interval_ms = None,
         task_timeout_seconds = None,
-        pipeline_timeout_seconds = None,
+        workflow_timeout_seconds = None,
         db_pool_size = None,
         enable_recovery = None,
         enable_cron_scheduling = None,
@@ -52,7 +52,7 @@ impl PyDefaultRunnerConfig {
         max_concurrent_tasks: Option<usize>,
         scheduler_poll_interval_ms: Option<u64>,
         task_timeout_seconds: Option<u64>,
-        pipeline_timeout_seconds: Option<u64>,
+        workflow_timeout_seconds: Option<u64>,
         db_pool_size: Option<u32>,
         enable_recovery: Option<bool>,
         enable_cron_scheduling: Option<bool>,
@@ -77,8 +77,8 @@ impl PyDefaultRunnerConfig {
         if let Some(val) = task_timeout_seconds {
             builder = builder.task_timeout(Duration::from_secs(val));
         }
-        if let Some(val) = pipeline_timeout_seconds {
-            builder = builder.pipeline_timeout(Some(Duration::from_secs(val)));
+        if let Some(val) = workflow_timeout_seconds {
+            builder = builder.workflow_timeout(Some(Duration::from_secs(val)));
         }
         if let Some(val) = db_pool_size {
             builder = builder.db_pool_size(val);
@@ -143,8 +143,8 @@ impl PyDefaultRunnerConfig {
     }
 
     #[getter]
-    pub fn pipeline_timeout_seconds(&self) -> Option<u64> {
-        self.inner.pipeline_timeout().map(|d| d.as_secs())
+    pub fn workflow_timeout_seconds(&self) -> Option<u64> {
+        self.inner.workflow_timeout().map(|d| d.as_secs())
     }
 
     #[getter]
@@ -214,9 +214,9 @@ impl PyDefaultRunnerConfig {
     }
 
     #[setter]
-    pub fn set_pipeline_timeout_seconds(&mut self, value: Option<u64>) {
+    pub fn set_workflow_timeout_seconds(&mut self, value: Option<u64>) {
         self.inner =
-            self.rebuild(|b| b.pipeline_timeout(value.map(std::time::Duration::from_secs)));
+            self.rebuild(|b| b.workflow_timeout(value.map(std::time::Duration::from_secs)));
     }
 
     #[setter]
@@ -282,8 +282,8 @@ impl PyDefaultRunnerConfig {
         )?;
         dict.set_item("task_timeout_seconds", self.inner.task_timeout().as_secs())?;
         dict.set_item(
-            "pipeline_timeout_seconds",
-            self.inner.pipeline_timeout().map(|d| d.as_secs()),
+            "workflow_timeout_seconds",
+            self.inner.workflow_timeout().map(|d| d.as_secs()),
         )?;
         dict.set_item("db_pool_size", self.inner.db_pool_size())?;
         dict.set_item("enable_recovery", self.inner.enable_recovery())?;
@@ -348,7 +348,7 @@ impl PyDefaultRunnerConfig {
             .max_concurrent_tasks(c.max_concurrent_tasks())
             .scheduler_poll_interval(c.scheduler_poll_interval())
             .task_timeout(c.task_timeout())
-            .pipeline_timeout(c.pipeline_timeout())
+            .workflow_timeout(c.workflow_timeout())
             .db_pool_size(c.db_pool_size())
             .enable_recovery(c.enable_recovery())
             .enable_cron_scheduling(c.enable_cron_scheduling())
@@ -421,7 +421,7 @@ mod tests {
         assert_eq!(config.max_concurrent_tasks(), 16);
         assert_eq!(config.scheduler_poll_interval_ms(), 500);
         assert_eq!(config.task_timeout_seconds(), 120);
-        assert_eq!(config.pipeline_timeout_seconds(), Some(3600));
+        assert_eq!(config.workflow_timeout_seconds(), Some(3600));
         assert_eq!(config.db_pool_size(), 10);
         assert!(config.enable_recovery());
         assert!(config.enable_cron_scheduling());

@@ -98,7 +98,7 @@ pub async fn execute_workflow(
     }
 }
 
-/// GET /tenants/:tenant_id/executions — list pipeline executions.
+/// GET /tenants/:tenant_id/executions — list workflow executions.
 pub async fn list_executions(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -127,7 +127,7 @@ pub async fn list_executions(
                 .map(|e| {
                     serde_json::json!({
                         "id": e.id.0.to_string(),
-                        "workflow_name": e.pipeline_name,
+                        "workflow_name": e.workflow_name,
                         "status": e.status,
                         "started_at": e.started_at.0.to_rfc3339(),
                         "completed_at": e.completed_at.map(|t| t.0.to_rfc3339()),
@@ -181,8 +181,8 @@ pub async fn get_execution(
     let universal_id = cloacina::database::universal_types::UniversalUuid(id);
 
     match dal.workflow_execution().get_by_id(universal_id).await {
-        Ok(pipeline) => {
-            let status = match pipeline.status.as_str() {
+        Ok(execution) => {
+            let status = match execution.status.as_str() {
                 "Pending" => "Pending",
                 "Running" => "Running",
                 "Completed" => "Completed",
