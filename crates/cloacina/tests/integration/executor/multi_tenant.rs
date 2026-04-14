@@ -233,11 +233,11 @@ mod postgres_multi_tenant_tests {
         // Each tenant should have their workflow execution
         let tenant_a_workflows: Vec<_> = executions_a
             .iter()
-            .filter(|e| e.pipeline_name.contains("tenant_indep_a"))
+            .filter(|e| e.workflow_name.contains("tenant_indep_a"))
             .collect();
         let tenant_b_workflows: Vec<_> = executions_b
             .iter()
-            .filter(|e| e.pipeline_name.contains("tenant_indep_b"))
+            .filter(|e| e.workflow_name.contains("tenant_indep_b"))
             .collect();
 
         assert!(

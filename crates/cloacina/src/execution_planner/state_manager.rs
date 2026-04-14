@@ -50,7 +50,7 @@ impl<'a> StateManager<'a> {
     /// When a task becomes ready, marks it as Ready in the database.
     /// Dispatch to executors is handled separately by the scheduler loop's
     /// dispatch_ready_tasks() method.
-    pub async fn update_pipeline_task_readiness(
+    pub async fn update_workflow_task_readiness(
         &self,
         workflow_execution_id: UniversalUuid,
         pending_tasks: &[TaskExecution],

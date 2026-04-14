@@ -16,7 +16,7 @@
 
 //! Integration tests for workflow packaging functionality.
 //!
-//! These tests verify the packaging pipeline including compilation,
+//! These tests verify the packaging workflow including compilation,
 //! manifest generation, and archive creation.
 
 use anyhow::Result;

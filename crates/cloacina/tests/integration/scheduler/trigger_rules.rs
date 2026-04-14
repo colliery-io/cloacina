@@ -118,19 +118,19 @@ async fn test_always_trigger_rule() {
     let dal = fixture.get_dal();
     let _tasks = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
+        .get_all_tasks_for_workflow(UniversalUuid(execution_id))
         .await
         .expect("Failed to get tasks");
 
     // Since we have an empty workflow, there should be no tasks
-    // But the pipeline should be created successfully
-    let pipeline = dal
+    // But the workflow execution should be created successfully
+    let wf_exec = dal
         .workflow_execution()
         .get_by_id(UniversalUuid(execution_id))
         .await
-        .expect("Failed to get pipeline");
+        .expect("Failed to get workflow execution");
 
-    assert_eq!(pipeline.status, "Pending");
+    assert_eq!(wf_exec.status, "Pending");
 }
 
 #[tokio::test]
@@ -267,7 +267,7 @@ async fn test_complex_trigger_rule() {
 
 // ── Runtime evaluation tests ────────────────────────────────────────
 
-/// Helper: schedule a workflow and run one round of pipeline processing.
+/// Helper: schedule a workflow and run one round of execution processing.
 /// Returns the task statuses as a map of task_name -> status.
 async fn schedule_and_process(
     workflow_name: &str,
@@ -293,14 +293,14 @@ async fn schedule_and_process(
 
     // Drive one round of scheduling
     scheduler
-        .process_active_pipelines()
+        .process_active_executions()
         .await
-        .expect("Failed to process pipelines");
+        .expect("Failed to process executions");
 
     let dal = fixture.get_dal();
     let tasks = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(UniversalUuid(exec_id))
+        .get_all_tasks_for_workflow(UniversalUuid(exec_id))
         .await
         .expect("Failed to get tasks");
 

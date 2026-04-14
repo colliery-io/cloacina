@@ -129,7 +129,7 @@ impl<'a> SchedulerLoop<'a> {
                 interval.tick().await;
             }
 
-            match self.process_active_pipelines().await {
+            match self.process_active_executions().await {
                 Ok(_) => {
                     if self.consecutive_errors > 0 {
                         info!(
@@ -175,7 +175,7 @@ impl<'a> SchedulerLoop<'a> {
     }
 
     /// Processes all active workflow executions to update task readiness.
-    pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
+    pub async fn process_active_executions(&self) -> Result<(), ValidationError> {
         let active_executions = self
             .dal
             .workflow_execution()
@@ -191,7 +191,7 @@ impl<'a> SchedulerLoop<'a> {
         }
 
         // Batch process all active workflow executions (evaluates pending tasks, marks them Ready)
-        self.process_pipelines_batch(active_executions).await?;
+        self.process_executions_batch(active_executions).await?;
 
         // Dispatch all Ready tasks (including newly marked and retry tasks)
         if self.dispatcher.is_some() {
@@ -207,7 +207,7 @@ impl<'a> SchedulerLoop<'a> {
     /// 1. Loading all pending tasks across all workflow executions in one query
     /// 2. Grouping tasks by workflow execution for processing
     /// 3. Batch checking workflow execution completion
-    async fn process_pipelines_batch(
+    async fn process_executions_batch(
         &self,
         active_executions: Vec<WorkflowExecutionRecord>,
     ) -> Result<(), ValidationError> {
@@ -235,7 +235,7 @@ impl<'a> SchedulerLoop<'a> {
         for execution in &active_executions {
             if let Some(execution_tasks) = tasks_by_execution.get(&execution.id) {
                 if let Err(e) = state_manager
-                    .update_pipeline_task_readiness(execution.id, execution_tasks)
+                    .update_workflow_task_readiness(execution.id, execution_tasks)
                     .await
                 {
                     error!(
@@ -253,7 +253,7 @@ impl<'a> SchedulerLoop<'a> {
                 .check_workflow_completion(execution.id)
                 .await?
             {
-                self.complete_pipeline(execution).await?;
+                self.complete_execution(execution).await?;
             }
         }
 
@@ -300,7 +300,7 @@ impl<'a> SchedulerLoop<'a> {
     /// Guards against the race where two scheduler ticks both see the workflow execution
     /// as complete and both try to finalise it. Only the first caller (whose
     /// workflow execution is still "Running") will proceed; subsequent calls return early.
-    async fn complete_pipeline(
+    async fn complete_execution(
         &self,
         execution: &WorkflowExecutionRecord,
     ) -> Result<(), ValidationError> {
@@ -332,7 +332,7 @@ impl<'a> SchedulerLoop<'a> {
 
         // Update the workflow execution's final context before marking complete
         if let Err(e) = self
-            .update_pipeline_final_context(execution.id, &all_tasks)
+            .update_execution_final_context(execution.id, &all_tasks)
             .await
         {
             warn!(
@@ -351,7 +351,7 @@ impl<'a> SchedulerLoop<'a> {
                 .workflow_execution()
                 .mark_failed(execution.id, &reason)
                 .await?;
-            metrics::counter!("cloacina_pipelines_total", "status" => "failed").increment(1);
+            metrics::counter!("cloacina_workflows_total", "status" => "failed").increment(1);
             info!(
                 "Workflow execution failed: {} (name: {}, {})",
                 execution.id, execution.workflow_name, reason
@@ -361,7 +361,7 @@ impl<'a> SchedulerLoop<'a> {
                 .workflow_execution()
                 .mark_completed(execution.id)
                 .await?;
-            metrics::counter!("cloacina_pipelines_total", "status" => "completed").increment(1);
+            metrics::counter!("cloacina_workflows_total", "status" => "completed").increment(1);
             info!(
                 "Workflow execution completed: {} (name: {}, {} completed, {} skipped)",
                 execution.id, execution.workflow_name, completed_count, skipped_count
@@ -371,9 +371,9 @@ impl<'a> SchedulerLoop<'a> {
         // Record workflow execution duration and decrement active gauge
         let duration = chrono::Utc::now() - execution.started_at.0;
         if let Ok(secs) = duration.to_std() {
-            metrics::histogram!("cloacina_pipeline_duration_seconds").record(secs.as_secs_f64());
+            metrics::histogram!("cloacina_workflow_duration_seconds").record(secs.as_secs_f64());
         }
-        metrics::gauge!("cloacina_active_pipelines").decrement(1.0);
+        metrics::gauge!("cloacina_active_workflows").decrement(1.0);
 
         Ok(())
     }
@@ -383,7 +383,7 @@ impl<'a> SchedulerLoop<'a> {
     /// This method finds the context from the final task(s) that produced output
     /// and updates the workflow execution's context_id to point to that final context,
     /// ensuring that WorkflowExecutionResult.final_context returns the correct data.
-    async fn update_pipeline_final_context(
+    async fn update_execution_final_context(
         &self,
         workflow_execution_id: UniversalUuid,
         all_tasks: &[TaskExecution],

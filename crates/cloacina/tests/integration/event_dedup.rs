@@ -15,7 +15,7 @@
  */
 
 //! Verify that task completion produces exactly one TaskCompleted event per task
-//! and one PipelineCompleted event per pipeline (no duplicates from the dispatcher).
+//! and one WorkflowCompleted event per workflow (no duplicates from the dispatcher).
 //!
 //! Regression test for CLOACI-T-0474: the dispatcher previously called
 //! mark_completed/mark_failed in addition to the executor, producing duplicate
@@ -50,7 +50,7 @@ pub mod event_dedup_test_workflow {
 }
 
 /// Execute a 2-task workflow and verify exactly one TaskCompleted event per task
-/// and exactly one PipelineCompleted event for the pipeline.
+/// and exactly one WorkflowCompleted event for the workflow execution.
 #[cfg(feature = "sqlite")]
 #[tokio::test]
 async fn test_no_duplicate_completion_events() {
@@ -83,11 +83,11 @@ async fn test_no_duplicate_completion_events() {
         "second task should have completed"
     );
 
-    // Query execution events for this pipeline
+    // Query execution events for this workflow execution
     let dal = DAL::new(database);
     let events = dal
         .execution_event()
-        .list_by_pipeline(UniversalUuid(result.execution_id))
+        .list_by_workflow(UniversalUuid(result.execution_id))
         .await
         .expect("Failed to list events");
 
@@ -96,9 +96,9 @@ async fn test_no_duplicate_completion_events() {
         .iter()
         .filter(|e| e.event_type == "task_completed")
         .count();
-    let pipeline_completed_count = events
+    let workflow_completed_count = events
         .iter()
-        .filter(|e| e.event_type == "pipeline_completed")
+        .filter(|e| e.event_type == "workflow_completed")
         .count();
 
     // Must have exactly 2 TaskCompleted (one per task) — not 4 (no dispatcher duplicates)
@@ -109,12 +109,12 @@ async fn test_no_duplicate_completion_events() {
         task_completed_count
     );
 
-    // Must have exactly 1 PipelineCompleted — not 2 (no race duplicates)
+    // Must have exactly 1 WorkflowCompleted — not 2 (no race duplicates)
     assert_eq!(
-        pipeline_completed_count, 1,
-        "Expected exactly 1 PipelineCompleted event, got {}. \
-         Duplicate events indicate a pipeline completion race condition.",
-        pipeline_completed_count
+        workflow_completed_count, 1,
+        "Expected exactly 1 WorkflowCompleted event, got {}. \
+         Duplicate events indicate a workflow completion race condition.",
+        workflow_completed_count
     );
 
     runner.shutdown().await.expect("Shutdown failed");

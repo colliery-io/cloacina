@@ -412,7 +412,7 @@ impl TaskScheduler {
         // This prevents the race condition where the scheduler sees a workflow execution before tasks exist
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.create_pipeline_postgres(
+            self.create_workflow_execution_postgres(
                 workflow_execution_id,
                 now,
                 wf_name,
@@ -421,7 +421,7 @@ impl TaskScheduler {
                 task_data,
             )
             .await?,
-            self.create_pipeline_sqlite(
+            self.create_workflow_execution_sqlite(
                 workflow_execution_id,
                 now,
                 wf_name,
@@ -432,14 +432,14 @@ impl TaskScheduler {
             .await?
         );
 
-        metrics::gauge!("cloacina_active_pipelines").increment(1.0);
+        metrics::gauge!("cloacina_active_workflows").increment(1.0);
         info!("Workflow execution scheduled: {}", workflow_execution_id);
         Ok(workflow_execution_id.into())
     }
 
     /// Creates workflow execution and tasks in PostgreSQL.
     #[cfg(feature = "postgres")]
-    async fn create_pipeline_postgres(
+    async fn create_workflow_execution_postgres(
         &self,
         workflow_execution_id: UniversalUuid,
         now: UniversalTimestamp,
@@ -500,7 +500,7 @@ impl TaskScheduler {
 
     /// Creates workflow execution and tasks in SQLite.
     #[cfg(feature = "sqlite")]
-    async fn create_pipeline_sqlite(
+    async fn create_workflow_execution_sqlite(
         &self,
         workflow_execution_id: UniversalUuid,
         now: UniversalTimestamp,
@@ -612,7 +612,7 @@ impl TaskScheduler {
     }
 
     /// Processes all active workflow executions to update task readiness.
-    pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
+    pub async fn process_active_executions(&self) -> Result<(), ValidationError> {
         let scheduler_loop = SchedulerLoop::with_dispatcher(
             &self.dal,
             self.runtime.clone(),
@@ -620,7 +620,7 @@ impl TaskScheduler {
             self.poll_interval,
             self.dispatcher.clone(),
         );
-        scheduler_loop.process_active_pipelines().await
+        scheduler_loop.process_active_executions().await
     }
 
     /// Gets trigger rules for a specific task from the task implementation.

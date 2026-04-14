@@ -47,8 +47,8 @@ async fn test_sub_status_crud_operations() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        // Create a pipeline and task
-        let pipeline = dal
+        // Create a workflow execution and task
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
                 workflow_name: "sub-status-test".to_string(),
@@ -57,12 +57,12 @@ async fn test_sub_status_crud_operations() {
                 context_id: None,
             })
             .await
-            .expect("Failed to create pipeline");
+            .expect("Failed to create workflow execution");
 
         let task = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: wf_exec.id,
                 task_name: "sub-status-test-task".to_string(),
                 status: "Running".to_string(),
                 attempt: 1,

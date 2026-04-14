@@ -49,7 +49,7 @@ pub struct NewRecoveryEvent {
 pub enum RecoveryType {
     TaskReset,
     TaskAbandoned,
-    PipelineFailed,
+    WorkflowFailed,
     WorkflowUnavailable,
 }
 
@@ -58,7 +58,7 @@ impl RecoveryType {
         match self {
             RecoveryType::TaskReset => "task_reset",
             RecoveryType::TaskAbandoned => "task_abandoned",
-            RecoveryType::PipelineFailed => "pipeline_failed",
+            RecoveryType::WorkflowFailed => "workflow_failed",
             RecoveryType::WorkflowUnavailable => "workflow_unavailable",
         }
     }

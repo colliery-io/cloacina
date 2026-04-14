@@ -141,7 +141,7 @@ async fn test_context_merging_latest_wins() {
     let late_ns = TaskNamespace::new("public", "embedded", &workflow_name, "late_producer_task");
 
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline for context merging")
+        .description("Test workflow for context merging")
         .add_task(Arc::new(early_producer_task_task()))
         .unwrap()
         .add_task(Arc::new(
@@ -218,7 +218,7 @@ async fn test_context_merging_latest_wins() {
         .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Wait for workflow completion
     execution.wait_for_completion().await.unwrap();
@@ -233,7 +233,7 @@ async fn test_context_merging_latest_wins() {
     );
     let merger_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &merger_task_namespace)
+        .get_by_workflow_and_task(UniversalUuid(exec_id), &merger_task_namespace)
         .await
         .unwrap();
 
@@ -295,7 +295,7 @@ async fn test_execution_scope_context_setup() {
             .as_nanos()
     );
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline for execution scope")
+        .description("Test workflow for execution scope")
         .add_task(Arc::new(WorkflowTask::new("scope_inspector_task", vec![])))
         .unwrap()
         .build()
@@ -334,7 +334,7 @@ async fn test_execution_scope_context_setup() {
         .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Wait for workflow completion
     execution.wait_for_completion().await.unwrap();
@@ -349,7 +349,7 @@ async fn test_execution_scope_context_setup() {
     );
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &task_namespace)
+        .get_by_workflow_and_task(UniversalUuid(exec_id), &task_namespace)
         .await
         .unwrap();
 

@@ -4,14 +4,14 @@ level: task
 title: "Final sweep — eliminate remaining pipeline references"
 short_code: "CLOACI-T-0490"
 created_at: 2026-04-14T00:57:36.243621+00:00
-updated_at: 2026-04-14T00:57:36.243621+00:00
+updated_at: 2026-04-14T02:38:27.136793+00:00
 parent: CLOACI-I-0094
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0094
 ## Objective
 
 Case-insensitive sweep across all crates, tests, examples, tutorials, docs, and configs to eliminate any remaining "pipeline" references. Rename test functions, update comments, verify no consumer-facing breakage.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

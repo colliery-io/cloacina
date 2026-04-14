@@ -31,7 +31,7 @@ use tokio::sync::RwLock;
 /// Execution scope information for a context
 ///
 /// This structure holds metadata about the current execution context, including
-/// identifiers for both pipeline and task executions. It is used to track and
+/// identifiers for both workflow and task executions. It is used to track and
 /// correlate execution contexts throughout the system.
 #[derive(Debug, Clone)]
 pub struct ExecutionScope {
@@ -199,7 +199,7 @@ impl Default for ExecutorConfig {
 pub struct ClaimedTask {
     /// Unique identifier for this task execution
     pub task_execution_id: UniversalUuid,
-    /// ID of the pipeline this task belongs to
+    /// ID of the workflow execution this task belongs to
     pub workflow_execution_id: UniversalUuid,
     /// Name of the task being executed
     pub task_name: String,
@@ -217,23 +217,23 @@ mod tests {
 
     #[test]
     fn test_execution_scope_full() {
-        let pipeline_id = UniversalUuid::new_v4();
+        let wf_exec_id = UniversalUuid::new_v4();
         let task_id = UniversalUuid::new_v4();
         let scope = ExecutionScope {
-            workflow_execution_id: pipeline_id,
+            workflow_execution_id: wf_exec_id,
             task_execution_id: Some(task_id),
             task_name: Some("my_task".to_string()),
         };
-        assert_eq!(scope.workflow_execution_id, pipeline_id);
+        assert_eq!(scope.workflow_execution_id, wf_exec_id);
         assert_eq!(scope.task_execution_id, Some(task_id));
         assert_eq!(scope.task_name.as_deref(), Some("my_task"));
     }
 
     #[test]
     fn test_execution_scope_minimal() {
-        let pipeline_id = UniversalUuid::new_v4();
+        let wf_exec_id = UniversalUuid::new_v4();
         let scope = ExecutionScope {
-            workflow_execution_id: pipeline_id,
+            workflow_execution_id: wf_exec_id,
             task_execution_id: None,
             task_name: None,
         };
@@ -327,15 +327,15 @@ mod tests {
     #[test]
     fn test_claimed_task_construction() {
         let task_exec_id = UniversalUuid::new_v4();
-        let pipeline_exec_id = UniversalUuid::new_v4();
+        let wf_exec_id = UniversalUuid::new_v4();
         let task = ClaimedTask {
             task_execution_id: task_exec_id,
-            workflow_execution_id: pipeline_exec_id,
+            workflow_execution_id: wf_exec_id,
             task_name: "tenant::pkg::wf::my_task".to_string(),
             attempt: 1,
         };
         assert_eq!(task.task_execution_id, task_exec_id);
-        assert_eq!(task.workflow_execution_id, pipeline_exec_id);
+        assert_eq!(task.workflow_execution_id, wf_exec_id);
         assert_eq!(task.task_name, "tenant::pkg::wf::my_task");
         assert_eq!(task.attempt, 1);
     }

@@ -175,9 +175,9 @@ impl Task for SimpleTask {
 // ---------------------------------------------------------------------------
 
 /// Verifies that a task using `defer_until` via TaskHandle completes
-/// successfully through the full executor pipeline.
+/// successfully through the full executor workflow.
 #[tokio::test]
-async fn test_defer_until_full_pipeline() {
+async fn test_defer_until_full_workflow() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -189,7 +189,7 @@ async fn test_defer_until_full_pipeline() {
 
     // Build workflow with the deferred task
     let workflow = Workflow::builder("defer_pipeline")
-        .description("Pipeline with deferred task")
+        .description("Workflow with deferred task")
         .add_task(Arc::new(SimpleTask::new("deferred_flag_task", vec![])))
         .unwrap()
         .build()
@@ -225,7 +225,7 @@ async fn test_defer_until_full_pipeline() {
         .execute_async("defer_pipeline", input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Poll until task completes (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
@@ -238,7 +238,7 @@ async fn test_defer_until_full_pipeline() {
             async move {
                 let tasks = dal
                     .task_execution()
-                    .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+                    .get_all_tasks_for_workflow(UniversalUuid(exec_id))
                     .await
                     .unwrap_or_default();
                 tasks.len() == 1 && tasks[0].status == "Completed"
@@ -250,7 +250,7 @@ async fn test_defer_until_full_pipeline() {
     // Verify task completed
     let task_executions = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+        .get_all_tasks_for_workflow(UniversalUuid(exec_id))
         .await
         .unwrap();
 
@@ -281,7 +281,7 @@ async fn test_defer_until_with_downstream_dependency() {
 
     // Build workflow: deferred_flag_task -> after_deferred_task
     let workflow = Workflow::builder("defer_chain_pipeline")
-        .description("Pipeline with deferred task and downstream dependency")
+        .description("Workflow with deferred task and downstream dependency")
         .add_task(Arc::new(SimpleTask::new("deferred_flag_task", vec![])))
         .unwrap()
         .add_task(Arc::new(SimpleTask::with_workflow(
@@ -328,7 +328,7 @@ async fn test_defer_until_with_downstream_dependency() {
         .execute_async("defer_chain_pipeline", input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Poll until both tasks complete (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
@@ -341,7 +341,7 @@ async fn test_defer_until_with_downstream_dependency() {
             async move {
                 let tasks = dal
                     .task_execution()
-                    .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+                    .get_all_tasks_for_workflow(UniversalUuid(exec_id))
                     .await
                     .unwrap_or_default();
                 tasks.len() == 2 && tasks.iter().all(|t| t.status == "Completed")
@@ -352,7 +352,7 @@ async fn test_defer_until_with_downstream_dependency() {
 
     let task_executions = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+        .get_all_tasks_for_workflow(UniversalUuid(exec_id))
         .await
         .unwrap();
 
@@ -384,7 +384,7 @@ async fn test_sub_status_transitions_during_deferral() {
     let database = fixture.get_database();
 
     let workflow = Workflow::builder("sub_status_pipeline")
-        .description("Pipeline for observing sub_status transitions")
+        .description("Workflow for observing sub_status transitions")
         .add_task(Arc::new(SimpleTask::new("slow_deferred_task", vec![])))
         .unwrap()
         .build()
@@ -416,7 +416,7 @@ async fn test_sub_status_transitions_during_deferral() {
         .execute_async("sub_status_pipeline", input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     let dal = cloacina::dal::DAL::new(database.clone());
 
@@ -427,7 +427,7 @@ async fn test_sub_status_transitions_during_deferral() {
         time::sleep(Duration::from_millis(100)).await;
         let tasks = dal
             .task_execution()
-            .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+            .get_all_tasks_for_workflow(UniversalUuid(exec_id))
             .await
             .unwrap();
         if let Some(task) = tasks.first() {
@@ -453,7 +453,7 @@ async fn test_sub_status_transitions_during_deferral() {
             async move {
                 let tasks = dal
                     .task_execution()
-                    .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+                    .get_all_tasks_for_workflow(UniversalUuid(exec_id))
                     .await
                     .unwrap_or_default();
                 tasks.len() == 1 && tasks[0].status == "Completed"
@@ -464,7 +464,7 @@ async fn test_sub_status_transitions_during_deferral() {
 
     let tasks = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+        .get_all_tasks_for_workflow(UniversalUuid(exec_id))
         .await
         .unwrap();
 

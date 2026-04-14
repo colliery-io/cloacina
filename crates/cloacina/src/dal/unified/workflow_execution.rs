@@ -101,7 +101,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         id: UniversalUuid::new_v4(),
                         workflow_execution_id: execution.id,
                         task_execution_id: None,
-                        event_type: ExecutionEventType::PipelineStarted.as_str().to_string(),
+                        event_type: ExecutionEventType::WorkflowStarted.as_str().to_string(),
                         event_data: None,
                         worker_id: None,
                         created_at: now,
@@ -164,7 +164,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         id: UniversalUuid::new_v4(),
                         workflow_execution_id: execution.id,
                         task_execution_id: None,
-                        event_type: ExecutionEventType::PipelineStarted.as_str().to_string(),
+                        event_type: ExecutionEventType::WorkflowStarted.as_str().to_string(),
                         event_data: None,
                         worker_id: None,
                         created_at: now,
@@ -387,7 +387,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 let now = UniversalTimestamp::now();
 
                 // Only transition from Running to Completed — prevents duplicate
-                // PipelineCompleted events when two scheduler ticks race.
+                // WorkflowCompleted events when two scheduler ticks race.
                 let rows = diesel::update(
                     workflow_executions::table
                         .find(id)
@@ -406,7 +406,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         id: UniversalUuid::new_v4(),
                         workflow_execution_id: id,
                         task_execution_id: None,
-                        event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
+                        event_type: ExecutionEventType::WorkflowCompleted.as_str().to_string(),
                         event_data: None,
                         worker_id: None,
                         created_at: now,
@@ -441,7 +441,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 let now = UniversalTimestamp::now();
 
                 // Only transition from Running to Completed — prevents duplicate
-                // PipelineCompleted events when two scheduler ticks race.
+                // WorkflowCompleted events when two scheduler ticks race.
                 let rows = diesel::update(
                     workflow_executions::table
                         .find(id)
@@ -460,7 +460,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         id: UniversalUuid::new_v4(),
                         workflow_execution_id: id,
                         task_execution_id: None,
-                        event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
+                        event_type: ExecutionEventType::WorkflowCompleted.as_str().to_string(),
                         event_data: None,
                         worker_id: None,
                         created_at: now,
@@ -583,7 +583,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 let now = UniversalTimestamp::now();
 
                 // Only transition from Running to Failed — prevents duplicate
-                // PipelineFailed events when two scheduler ticks race.
+                // WorkflowFailed events when two scheduler ticks race.
                 let rows = diesel::update(
                     workflow_executions::table
                         .find(id)
@@ -604,7 +604,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         id: UniversalUuid::new_v4(),
                         workflow_execution_id: id,
                         task_execution_id: None,
-                        event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
+                        event_type: ExecutionEventType::WorkflowFailed.as_str().to_string(),
                         event_data: Some(event_data),
                         worker_id: None,
                         created_at: now,
@@ -644,7 +644,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                 let now = UniversalTimestamp::now();
 
                 // Only transition from Running to Failed — prevents duplicate
-                // PipelineFailed events when two scheduler ticks race.
+                // WorkflowFailed events when two scheduler ticks race.
                 let rows = diesel::update(
                     workflow_executions::table
                         .find(id)
@@ -665,7 +665,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         id: UniversalUuid::new_v4(),
                         workflow_execution_id: id,
                         task_execution_id: None,
-                        event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
+                        event_type: ExecutionEventType::WorkflowFailed.as_str().to_string(),
                         event_data: Some(event_data),
                         worker_id: None,
                         created_at: now,
@@ -816,7 +816,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     id: UniversalUuid::new_v4(),
                     workflow_execution_id: id,
                     task_execution_id: None,
-                    event_type: ExecutionEventType::PipelinePaused.as_str().to_string(),
+                    event_type: ExecutionEventType::WorkflowPaused.as_str().to_string(),
                     event_data,
                     worker_id: None,
                     created_at: now,
@@ -870,7 +870,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     id: UniversalUuid::new_v4(),
                     workflow_execution_id: id,
                     task_execution_id: None,
-                    event_type: ExecutionEventType::PipelinePaused.as_str().to_string(),
+                    event_type: ExecutionEventType::WorkflowPaused.as_str().to_string(),
                     event_data,
                     worker_id: None,
                     created_at: now,
@@ -932,7 +932,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     id: UniversalUuid::new_v4(),
                     workflow_execution_id: id,
                     task_execution_id: None,
-                    event_type: ExecutionEventType::PipelineResumed.as_str().to_string(),
+                    event_type: ExecutionEventType::WorkflowResumed.as_str().to_string(),
                     event_data: None,
                     worker_id: None,
                     created_at: now,
@@ -980,7 +980,7 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     id: UniversalUuid::new_v4(),
                     workflow_execution_id: id,
                     task_execution_id: None,
-                    event_type: ExecutionEventType::PipelineResumed.as_str().to_string(),
+                    event_type: ExecutionEventType::WorkflowResumed.as_str().to_string(),
                     event_data: None,
                     worker_id: None,
                     created_at: now,

@@ -56,8 +56,8 @@ async fn test_concurrent_task_claiming_no_duplicates() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        // Create a test pipeline
-        let pipeline = dal
+        // Create a test workflow execution
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
                 workflow_name: "concurrent-claim-test".to_string(),
@@ -66,7 +66,7 @@ async fn test_concurrent_task_claiming_no_duplicates() {
                 context_id: None,
             })
             .await
-            .expect("Failed to create pipeline");
+            .expect("Failed to create workflow execution");
 
         // Create multiple tasks and mark them ready (which populates the outbox)
         const NUM_TASKS: usize = 20;
@@ -76,7 +76,7 @@ async fn test_concurrent_task_claiming_no_duplicates() {
             let task = dal
                 .task_execution()
                 .create(NewTaskExecution {
-                    pipeline_execution_id: pipeline.id,
+                    workflow_execution_id: wf_exec.id,
                     task_name: format!("concurrent-task-{}", i),
                     status: "NotStarted".to_string(),
                     attempt: 1,
@@ -212,8 +212,8 @@ async fn test_claimed_tasks_marked_running() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        // Create a test pipeline
-        let pipeline = dal
+        // Create a test workflow execution
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
                 workflow_name: "claim-status-test".to_string(),
@@ -222,13 +222,13 @@ async fn test_claimed_tasks_marked_running() {
                 context_id: None,
             })
             .await
-            .expect("Failed to create pipeline");
+            .expect("Failed to create workflow execution");
 
         // Create a task and mark it ready (which populates the outbox)
         let task = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: wf_exec.id,
                 task_name: "status-test-task".to_string(),
                 status: "NotStarted".to_string(),
                 attempt: 1,
@@ -299,8 +299,8 @@ async fn test_running_tasks_not_claimable() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        // Create a test pipeline
-        let pipeline = dal
+        // Create a test workflow execution
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
                 workflow_name: "running-not-claimable-test".to_string(),
@@ -309,13 +309,13 @@ async fn test_running_tasks_not_claimable() {
                 context_id: None,
             })
             .await
-            .expect("Failed to create pipeline");
+            .expect("Failed to create workflow execution");
 
         // Create a task that's already running
         let _running_task = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: wf_exec.id,
                 task_name: "already-running-task".to_string(),
                 status: "Running".to_string(), // Already running
                 attempt: 1,
@@ -347,9 +347,9 @@ async fn test_running_tasks_not_claimable() {
 // Runner-level claiming tests (horizontal scaling)
 // ============================================================================
 
-/// Helper: create a pipeline and a Running task for runner claiming tests.
+/// Helper: create a workflow execution and a Running task for runner claiming tests.
 async fn create_running_task(dal: &DAL) -> (UniversalUuid, UniversalUuid) {
-    let pipeline = dal
+    let wf_exec = dal
         .workflow_execution()
         .create(NewWorkflowExecution {
             workflow_name: "runner-claim-test".to_string(),
@@ -358,12 +358,12 @@ async fn create_running_task(dal: &DAL) -> (UniversalUuid, UniversalUuid) {
             context_id: None,
         })
         .await
-        .expect("create pipeline");
+        .expect("create workflow execution");
 
     let task = dal
         .task_execution()
         .create(NewTaskExecution {
-            pipeline_execution_id: pipeline.id,
+            workflow_execution_id: wf_exec.id,
             task_name: "claimable-task".to_string(),
             status: "Running".to_string(),
             attempt: 1,
@@ -374,7 +374,7 @@ async fn create_running_task(dal: &DAL) -> (UniversalUuid, UniversalUuid) {
         .await
         .expect("create task");
 
-    (pipeline.id, task.id)
+    (wf_exec.id, task.id)
 }
 
 /// Double-claim prevention: two runners claim the same task — exactly one wins.
@@ -387,7 +387,7 @@ async fn test_runner_double_claim_prevention() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        let (_pipeline_id, task_id) = create_running_task(&dal).await;
+        let (_exec_id, task_id) = create_running_task(&dal).await;
 
         let runner_a = UniversalUuid::new_v4();
         let runner_b = UniversalUuid::new_v4();
@@ -450,7 +450,7 @@ async fn test_heartbeat_ownership_guard() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        let (_pipeline_id, task_id) = create_running_task(&dal).await;
+        let (_exec_id, task_id) = create_running_task(&dal).await;
 
         let runner_a = UniversalUuid::new_v4();
         let runner_b = UniversalUuid::new_v4();
@@ -501,7 +501,7 @@ async fn test_release_claim_clears_fields() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        let (_pipeline_id, task_id) = create_running_task(&dal).await;
+        let (_exec_id, task_id) = create_running_task(&dal).await;
         let runner = UniversalUuid::new_v4();
 
         // Claim
@@ -547,7 +547,7 @@ async fn test_reclaim_after_release() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        let (_pipeline_id, task_id) = create_running_task(&dal).await;
+        let (_exec_id, task_id) = create_running_task(&dal).await;
         let runner_a = UniversalUuid::new_v4();
         let runner_b = UniversalUuid::new_v4();
 
@@ -601,7 +601,7 @@ async fn test_find_stale_claims() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        let (_pipeline_id, task_id) = create_running_task(&dal).await;
+        let (_exec_id, task_id) = create_running_task(&dal).await;
         let runner = UniversalUuid::new_v4();
 
         // Claim the task
