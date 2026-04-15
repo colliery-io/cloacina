@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-04-14
+
+### Changed
+
+- **Pipeline-to-workflow terminology migration** — complete rename across code, DB schema (Diesel migrations for Postgres + SQLite), DAL, models, error messages, metrics, and all tests. `pipeline_executions` table renamed to `workflow_executions`; all `pipeline_*` columns and fields renamed to `workflow_*`. `ExecutionEventType` variants renamed (`PipelineStarted` → `WorkflowStarted`, etc.) with backward-compatible `from_str` parsing.
+- **Config builder returns Result** — `DefaultRunnerConfigBuilder::build()` now returns `Result<DefaultRunnerConfig, ConfigError>` with validation for `scheduler_poll_interval >= 10ms` and `cron_max_catchup_executions <= 1000`. Default `cron_max_catchup_executions` capped at 100.
+- **Python runner DRY refactor** — 40% reduction in `runner.rs` via extracted `run_event_loop()`, `spawn_runtime()`, `send_and_recv()`, and dict conversion helpers. Fixed `with_schema()` double-construction bug.
+
+### Added
+
+- **Daemon health observability** — Unix domain socket (`daemon.sock`) serves JSON health on connect. Structured log pulse every 60s. `cloacinactl status` command for querying daemon health.
+- **Claim ownership guard** — `mark_completed`/`mark_failed` now check `claimed_by` column before updating, preventing race conditions between concurrent runners.
+- **TOML config validation** — `deny_unknown_fields` on `CloacinaConfig`, `DaemonSection`, `WatchSection` for early typo detection.
+
+### Fixed
+
+- Integration test `.build()` calls updated for `Result` return type.
+
 ## [0.5.0] - 2026-04-10
 
 ### Added

@@ -23,7 +23,7 @@ telemetry = ["tracing-opentelemetry", "opentelemetry", "opentelemetry-otlp", "op
 
 [dependencies]
 cloacina = { path = "../cloacina", default-features = false }
-cloacina-workflow-plugin = { version = "0.5.0", path = "../cloacina-workflow-plugin" }
+cloacina-workflow-plugin = { version = "0.5.1", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
 anyhow.workspace = true
 fidius-core = "0.0.5"
@@ -56,4 +56,4 @@ http-body-util = "0.1"
 serial_test = "3"
 
 [build-dependencies]
-cloacina-build = { version = "0.5.0", path = "../cloacina-build" }
+cloacina-build = { version = "0.5.1", path = "../cloacina-build" }
