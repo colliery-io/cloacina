@@ -1298,12 +1298,23 @@ def server_soak():
         ws_event_count = {"sent": 0, "failed": 0}
         py_cg_event_count = {"sent": 0, "failed": 0}
 
+        def get_ws_ticket():
+            """Get a single-use WebSocket ticket from the server."""
+            s, b = api_request("POST", f"{base_url}/v1/auth/ws-ticket", token=token)
+            if s == 200:
+                return b.get("ticket", "")
+            return ""
+
         def ws_event_worker():
             """Push market data via persistent WebSocket at ~200 msg/sec."""
             try:
+                ticket = get_ws_ticket()
+                if not ticket:
+                    print("  WS worker: failed to get ticket")
+                    return
                 ws = PersistentWebSocket(
                     "127.0.0.1", 18080,
-                    "/v1/ws/accumulator/alpha", token
+                    "/v1/ws/accumulator/alpha", ticket
                 )
                 import math
                 seq = 0
@@ -1363,9 +1374,13 @@ def server_soak():
         def py_cg_event_worker():
             """Push market data to Python CG accumulator via WebSocket at ~100 msg/sec."""
             try:
+                ticket = get_ws_ticket()
+                if not ticket:
+                    print("  Python CG WS worker: failed to get ticket")
+                    return
                 ws = PersistentWebSocket(
                     "127.0.0.1", 18080,
-                    "/v1/ws/accumulator/py_alpha", token
+                    "/v1/ws/accumulator/py_alpha", ticket
                 )
                 import math
                 seq = 0
