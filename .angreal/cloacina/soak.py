@@ -355,16 +355,16 @@ def soak(duration=None):
                 time.sleep(check_interval)
                 assert daemon_proc.poll() is None, \
                     f"Daemon crashed after {elapsed + check_interval}s of soak!"
-                # Count completed pipelines in stderr
+                # Count completed workflow executions in stderr
                 daemon_stderr_file.flush()
                 stderr = daemon_stderr_path.read_text() if daemon_stderr_path.exists() else ""
-                new_count = stderr.count("Pipeline completed")
+                new_count = stderr.count("Workflow execution completed")
                 if new_count > executions_seen:
                     executions_seen = new_count
-                    print(f"  [{elapsed + check_interval}s] {executions_seen} pipeline executions completed")
+                    print(f"  [{elapsed + check_interval}s] {executions_seen} workflow executions completed")
 
             print(f"  Soak complete: {executions_seen} total executions")
-            assert executions_seen > 0, "No pipeline executions during soak period!"
+            assert executions_seen > 0, "No workflow executions during soak period!"
 
             # Step 5: Verify daemon health and parse logs
             print_section_header("Step 5: Verify daemon health")

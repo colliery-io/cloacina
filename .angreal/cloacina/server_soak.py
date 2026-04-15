@@ -890,7 +890,7 @@ class PersistentWebSocket:
     about="run server soak test — end-to-end HTTP API verification with Postgres",
     when_to_use=[
         "validating server API end-to-end",
-        "testing auth, upload, execute pipeline",
+        "testing auth, upload, execute workflow",
     ],
     when_not_to_use=[
         "unit testing",
@@ -1070,10 +1070,10 @@ def server_soak():
             time.sleep(5)
             stderr_file.flush()
             stderr = stderr_path.read_text() if stderr_path.exists() else ""
-            if "Pipeline completed" in stderr:
-                print("  Python pipeline completed ✓")
+            if "Workflow execution completed" in stderr:
+                print("  Python workflow completed ✓")
             else:
-                print("  WARNING: Python pipeline may not have completed yet")
+                print("  WARNING: Python workflow may not have completed yet")
 
         # Step 8d: Upload and load computation graph package
         print_section_header("Step 8d: Upload computation graph package")
@@ -1531,10 +1531,10 @@ def server_soak():
         stats["kafka_stream_produced"] = kafka_stream_count["sent"]
         stats["kafka_batch_produced"] = kafka_batch_count["sent"]
 
-        # Check completed pipelines in server logs
+        # Check completed workflows in server logs
         stderr_file.flush()
         stderr = stderr_path.read_text() if stderr_path.exists() else ""
-        pipelines_completed = stderr.count("Pipeline completed")
+        workflows_completed = stderr.count("Workflow execution completed")
 
         print("\n  Soak complete:")
         print(f"    Iterations:           {iteration}")
@@ -1575,13 +1575,13 @@ def server_soak():
         print(f"    List queries OK:      {stats['list_queries']}")
         print(f"    API errors:           {stats['api_errors']}")
         print(f"    Connection errors:    {stats['connection_errors']}")
-        print(f"    Pipelines completed:  {pipelines_completed} (from server logs)")
+        print(f"    Workflows completed:  {workflows_completed} (from server logs)")
 
         assert stats["connection_errors"] == 0, "Server had connection errors!"
         assert stats["health_ok"] > 0, "No successful health checks!"
         if workflow_ready:
             assert stats["executions_accepted"] > 0, "No Rust executions accepted!"
-            assert pipelines_completed > 0, "No pipelines completed in server logs!"
+            assert workflows_completed > 0, "No workflows completed in server logs!"
         if py_workflow_ready:
             assert stats["py_executions_accepted"] > 0, "No Python executions accepted!"
         if cg_loaded:
