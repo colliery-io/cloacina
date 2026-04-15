@@ -393,13 +393,28 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
                             result = backend.recv() => {
                                 match result {
                                     Ok(msg) => {
+                                        // Kafka delivers JSON payloads — convert to bincode
+                                        // (internal wire format) before forwarding to accumulator.
+                                        let wire_bytes = match serde_json::from_slice::<serde_json::Value>(&msg.payload) {
+                                            Ok(value) => match bincode::serialize(&value) {
+                                                Ok(b) => b,
+                                                Err(e) => {
+                                                    tracing::warn!(accumulator = %acc_name, "failed to serialize Kafka msg to bincode: {}", e);
+                                                    continue;
+                                                }
+                                            },
+                                            Err(e) => {
+                                                tracing::warn!(accumulator = %acc_name, "invalid JSON from Kafka: {}", e);
+                                                continue;
+                                            }
+                                        };
                                         tracing::info!(
                                             accumulator = %acc_name,
                                             offset = msg.offset,
-                                            bytes = msg.payload.len(),
-                                            "Kafka message received"
+                                            bytes = wire_bytes.len(),
+                                            "Kafka message received (JSON→bincode)"
                                         );
-                                        if socket_tx_stream.send(msg.payload).await.is_err() {
+                                        if socket_tx_stream.send(wire_bytes).await.is_err() {
                                             break;
                                         }
                                     }
