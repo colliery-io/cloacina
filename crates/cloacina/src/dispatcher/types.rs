@@ -31,8 +31,8 @@ use thiserror::Error;
 pub struct TaskReadyEvent {
     /// Unique identifier for this task execution
     pub task_execution_id: UniversalUuid,
-    /// Parent pipeline execution ID
-    pub pipeline_execution_id: UniversalUuid,
+    /// Parent workflow execution ID
+    pub workflow_execution_id: UniversalUuid,
     /// Fully qualified task name (namespace::task)
     pub task_name: String,
     /// Current attempt number (starts at 1)
@@ -43,13 +43,13 @@ impl TaskReadyEvent {
     /// Creates a new TaskReadyEvent.
     pub fn new(
         task_execution_id: UniversalUuid,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         task_name: String,
         attempt: i32,
     ) -> Self {
         Self {
             task_execution_id,
-            pipeline_execution_id,
+            workflow_execution_id,
             task_name,
             attempt,
         }

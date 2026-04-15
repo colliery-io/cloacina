@@ -33,6 +33,61 @@ use cloacina::database::Database;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::security::SecurityConfig;
 
+/// Cached per-tenant database connections for schema isolation.
+///
+/// Each tenant gets a small connection pool scoped to their PostgreSQL schema.
+/// Lazily populated on first request for a given tenant.
+pub struct TenantDatabaseCache {
+    databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>,
+    database_url: String,
+}
+
+impl TenantDatabaseCache {
+    pub fn new(database_url: String) -> Self {
+        Self {
+            databases: tokio::sync::RwLock::new(std::collections::HashMap::new()),
+            database_url,
+        }
+    }
+
+    /// Get or create a schema-scoped Database for the given tenant.
+    ///
+    /// Returns the admin (public schema) database if tenant_id is "public".
+    pub async fn resolve(
+        &self,
+        tenant_id: &str,
+        admin_db: &Database,
+    ) -> Result<Database, cloacina::database::connection::DatabaseError> {
+        if tenant_id == "public" {
+            return Ok(admin_db.clone());
+        }
+
+        // Fast path: check read lock
+        {
+            let cache = self.databases.read().await;
+            if let Some(db) = cache.get(tenant_id) {
+                return Ok(db.clone());
+            }
+        }
+
+        // Slow path: create and cache
+        let db = Database::try_new_with_schema(
+            &self.database_url,
+            "cloacina",
+            2, // small pool per tenant
+            Some(tenant_id),
+        )?;
+
+        let mut cache = self.databases.write().await;
+        // Double-check after acquiring write lock
+        if let Some(existing) = cache.get(tenant_id) {
+            return Ok(existing.clone());
+        }
+        cache.insert(tenant_id.to_string(), db.clone());
+        Ok(db)
+    }
+}
+
 /// Shared application state accessible from all route handlers.
 #[derive(Clone)]
 pub struct AppState {
@@ -46,6 +101,8 @@ pub struct AppState {
     pub ws_tickets: Arc<crate::server::auth::WsTicketStore>,
     /// Prometheus metrics handle for rendering /metrics endpoint.
     pub metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
+    /// Per-tenant database connection cache for schema isolation.
+    pub tenant_databases: Arc<TenantDatabaseCache>,
 }
 
 /// Run the API server.
@@ -55,6 +112,7 @@ pub async fn run(
     database_url: String,
     verbose: bool,
     bootstrap_key: Option<String>,
+    require_signatures: bool,
 ) -> Result<()> {
     // Set up logging (file + stderr, same as daemon)
     std::fs::create_dir_all(&home)
@@ -133,8 +191,8 @@ pub async fn run(
 
     // Register metric descriptions
     metrics::describe_counter!(
-        "cloacina_pipelines_total",
-        "Total pipeline executions by status"
+        "cloacina_workflows_total",
+        "Total workflow executions by status"
     );
     metrics::describe_counter!("cloacina_tasks_total", "Total task executions by status");
     metrics::describe_counter!(
@@ -142,17 +200,18 @@ pub async fn run(
         "Total API requests by method, path, and status"
     );
     metrics::describe_histogram!(
-        "cloacina_pipeline_duration_seconds",
-        "Pipeline execution duration"
+        "cloacina_workflow_duration_seconds",
+        "Workflow execution duration"
     );
     metrics::describe_histogram!("cloacina_task_duration_seconds", "Task execution duration");
-    metrics::describe_gauge!("cloacina_active_pipelines", "Currently active pipelines");
+    metrics::describe_gauge!("cloacina_active_workflows", "Currently active workflows");
     metrics::describe_gauge!("cloacina_active_tasks", "Currently active tasks");
 
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let runner_config = DefaultRunnerConfig::builder()
         .registry_storage_backend("database")
-        .build();
+        .build()
+        .context("Invalid runner configuration")?;
 
     let runner = DefaultRunner::with_config(&database_url, runner_config)
         .await
@@ -178,11 +237,15 @@ pub async fn run(
         key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
         endpoint_registry,
         reactive_scheduler,
-        security_config: SecurityConfig::default(),
+        security_config: SecurityConfig {
+            require_signatures,
+            ..SecurityConfig::default()
+        },
         ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
             std::time::Duration::from_secs(60),
         )),
         metrics_handle,
+        tenant_databases: Arc::new(TenantDatabaseCache::new(database_url.clone())),
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -407,9 +470,24 @@ fn build_router(state: AppState) -> Router {
         .fallback(fallback_404)
         // Body size limit: 100MB (matches PackageValidator)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
+        // API request metrics (counts by method and status)
+        .layer(middleware::from_fn(api_request_metrics))
         // Request ID + tracing span (outermost — wraps everything)
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
+}
+
+/// Middleware that counts API requests by method and status code.
+async fn api_request_metrics(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = request.method().to_string();
+    let response = next.run(request).await;
+    let status = response.status().as_u16().to_string();
+    metrics::counter!("cloacina_api_requests_total", "method" => method, "status" => status)
+        .increment(1);
+    response
 }
 
 /// GET /health — liveness check (no auth, no DB)
@@ -570,7 +648,8 @@ mod tests {
     async fn test_state() -> AppState {
         let runner_config = cloacina::runner::DefaultRunnerConfig::builder()
             .registry_storage_backend("database")
-            .build();
+            .build()
+            .expect("test config must be valid");
 
         let runner = cloacina::runner::DefaultRunner::with_config(TEST_DB_URL, runner_config)
             .await
@@ -597,6 +676,7 @@ mod tests {
                 std::time::Duration::from_secs(60),
             )),
             metrics_handle: test_metrics_handle,
+            tenant_databases: Arc::new(TenantDatabaseCache::new(String::new())),
         }
     }
 
@@ -701,7 +781,7 @@ mod tests {
         let state = test_state().await;
 
         // Record some test metrics so the output isn't empty
-        metrics::counter!("cloacina_pipelines_total", "status" => "completed").increment(3);
+        metrics::counter!("cloacina_workflows_total", "status" => "completed").increment(3);
         metrics::counter!("cloacina_tasks_total", "status" => "completed").increment(10);
         metrics::counter!("cloacina_tasks_total", "status" => "failed").increment(2);
 
@@ -741,8 +821,8 @@ mod tests {
 
         // Verify Prometheus text format: HELP, TYPE, and metric lines
         assert!(
-            text.contains("cloacina_pipelines_total"),
-            "Metrics should contain pipeline counters. Got:\n{}",
+            text.contains("cloacina_workflows_total"),
+            "Metrics should contain workflow counters. Got:\n{}",
             text
         );
         assert!(
@@ -1391,7 +1471,7 @@ mod tests {
         let app = build_router(state);
 
         // Valid UUID format but no matching execution — should return
-        // an empty events list (the DAL returns Ok([]) for missing pipelines)
+        // an empty events list (the DAL returns Ok([]) for missing executions)
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
             .uri(format!("/tenants/default/executions/{}/events", fake_id))

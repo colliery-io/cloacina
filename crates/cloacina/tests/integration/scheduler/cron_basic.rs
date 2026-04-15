@@ -74,7 +74,8 @@ async fn test_default_runner_cron_integration() {
     // Create a runner with cron enabled
     let config = DefaultRunnerConfig::builder()
         .enable_cron_scheduling(true)
-        .build();
+        .build()
+        .unwrap();
     let runner = DefaultRunner::with_config(&database_url, config)
         .await
         .unwrap();
@@ -115,7 +116,8 @@ async fn test_cron_scheduler_startup_shutdown() {
     // Create and start a runner with cron enabled
     let config = DefaultRunnerConfig::builder()
         .enable_cron_scheduling(true)
-        .build();
+        .build()
+        .unwrap();
     let runner = DefaultRunner::with_config(&database_url, config)
         .await
         .unwrap();
@@ -174,7 +176,8 @@ async fn test_cron_schedule_with_recovery_config() {
         .enable_cron_scheduling(true)
         .cron_recovery_interval(Duration::from_secs(60))
         .cron_max_catchup_executions(5)
-        .build();
+        .build()
+        .unwrap();
 
     let runner = DefaultRunner::with_config(&database_url, config)
         .await

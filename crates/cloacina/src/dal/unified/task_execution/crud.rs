@@ -68,7 +68,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
                     let new_unified_task = NewUnifiedTaskExecution {
                         id,
-                        pipeline_execution_id: new_task.pipeline_execution_id,
+                        workflow_execution_id: new_task.workflow_execution_id,
                         task_name: new_task.task_name,
                         status: new_task.status,
                         attempt: new_task.attempt,
@@ -87,7 +87,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     // Insert execution event for task creation
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: task.pipeline_execution_id,
+                        workflow_execution_id: task.workflow_execution_id,
                         task_execution_id: Some(task.id),
                         event_type: ExecutionEventType::TaskCreated.as_str().to_string(),
                         event_data: None,
@@ -129,7 +129,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
                     let new_unified_task = NewUnifiedTaskExecution {
                         id,
-                        pipeline_execution_id: new_task.pipeline_execution_id,
+                        workflow_execution_id: new_task.workflow_execution_id,
                         task_name: new_task.task_name,
                         status: new_task.status,
                         attempt: new_task.attempt,
@@ -148,7 +148,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     // Insert execution event for task creation
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
-                        pipeline_execution_id: task.pipeline_execution_id,
+                        workflow_execution_id: task.workflow_execution_id,
                         task_execution_id: Some(task.id),
                         event_type: ExecutionEventType::TaskCreated.as_str().to_string(),
                         event_data: None,
@@ -220,24 +220,24 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(task.into())
     }
 
-    /// Retrieves all tasks associated with a pipeline execution.
-    pub async fn get_all_tasks_for_pipeline(
+    /// Retrieves all tasks associated with a workflow execution.
+    pub async fn get_all_tasks_for_workflow(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.get_all_tasks_for_pipeline_postgres(pipeline_execution_id)
+            self.get_all_tasks_for_workflow_postgres(workflow_execution_id)
                 .await,
-            self.get_all_tasks_for_pipeline_sqlite(pipeline_execution_id)
+            self.get_all_tasks_for_workflow_sqlite(workflow_execution_id)
                 .await
         )
     }
 
     #[cfg(feature = "postgres")]
-    async fn get_all_tasks_for_pipeline_postgres(
+    async fn get_all_tasks_for_workflow_postgres(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         let conn = self
             .dal
@@ -249,7 +249,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let tasks: Vec<UnifiedTaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
                     .load(conn)
             })
             .await
@@ -259,9 +259,9 @@ impl<'a> TaskExecutionDAL<'a> {
     }
 
     #[cfg(feature = "sqlite")]
-    async fn get_all_tasks_for_pipeline_sqlite(
+    async fn get_all_tasks_for_workflow_sqlite(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         let conn = self
             .dal
@@ -273,7 +273,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let tasks: Vec<UnifiedTaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
                     .load(conn)
             })
             .await

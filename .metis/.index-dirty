@@ -1,0 +1,6 @@
+/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/event_dedup.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/executor/context_merging.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/runner_configurable_registry_tests.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/scheduler/cron_basic.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/unified_workflow.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/executor/task_execution.rs

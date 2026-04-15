@@ -24,14 +24,21 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
-use crate::executor::pipeline_executor::WorkflowExecutionError;
 use crate::executor::types::ExecutorConfig;
+use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::executor::ThreadTaskExecutor;
 use crate::Database;
 use crate::Runtime;
 use crate::TaskScheduler;
 
 use super::{DefaultRunner, RuntimeHandles};
+
+/// Errors that can occur during configuration validation.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("Invalid configuration: {0}")]
+    Invalid(String),
+}
 
 /// Configuration for the default runner
 ///
@@ -61,7 +68,7 @@ pub struct DefaultRunnerConfig {
     max_concurrent_tasks: usize,
     scheduler_poll_interval: Duration,
     task_timeout: Duration,
-    pipeline_timeout: Option<Duration>,
+    workflow_timeout: Option<Duration>,
     db_pool_size: u32,
     enable_recovery: bool,
     enable_cron_scheduling: bool,
@@ -110,9 +117,9 @@ impl DefaultRunnerConfig {
         self.task_timeout
     }
 
-    /// Optional maximum time for an entire pipeline execution.
-    pub fn pipeline_timeout(&self) -> Option<Duration> {
-        self.pipeline_timeout
+    /// Optional maximum time for an entire workflow execution.
+    pub fn workflow_timeout(&self) -> Option<Duration> {
+        self.workflow_timeout
     }
 
     /// Number of database connections in the pool.
@@ -263,12 +270,12 @@ impl Default for DefaultRunnerConfigBuilder {
                 max_concurrent_tasks: 4,
                 scheduler_poll_interval: Duration::from_millis(100),
                 task_timeout: Duration::from_secs(300),
-                pipeline_timeout: Some(Duration::from_secs(3600)),
+                workflow_timeout: Some(Duration::from_secs(3600)),
                 db_pool_size: 10,
                 enable_recovery: true,
                 enable_cron_scheduling: true,
                 cron_poll_interval: Duration::from_secs(30),
-                cron_max_catchup_executions: usize::MAX,
+                cron_max_catchup_executions: 100,
                 cron_enable_recovery: true,
                 cron_recovery_interval: Duration::from_secs(300),
                 cron_lost_threshold_minutes: 10,
@@ -313,9 +320,9 @@ impl DefaultRunnerConfigBuilder {
         self
     }
 
-    /// Sets the pipeline timeout.
-    pub fn pipeline_timeout(mut self, value: Option<Duration>) -> Self {
-        self.config.pipeline_timeout = value;
+    /// Sets the workflow timeout.
+    pub fn workflow_timeout(mut self, value: Option<Duration>) -> Self {
+        self.config.workflow_timeout = value;
         self
     }
 
@@ -457,26 +464,44 @@ impl DefaultRunnerConfigBuilder {
         self
     }
 
-    /// Builds the configuration.
-    pub fn build(self) -> DefaultRunnerConfig {
-        assert!(
-            self.config.max_concurrent_tasks > 0,
-            "max_concurrent_tasks must be > 0"
-        );
-        assert!(self.config.db_pool_size > 0, "db_pool_size must be > 0");
-        assert!(
-            self.config.stale_claim_threshold > self.config.heartbeat_interval,
-            "stale_claim_threshold ({:?}) must be greater than heartbeat_interval ({:?})",
-            self.config.stale_claim_threshold,
-            self.config.heartbeat_interval
-        );
-        self.config
+    /// Builds and validates the configuration.
+    ///
+    /// Returns an error if any configuration value is out of bounds.
+    pub fn build(self) -> Result<DefaultRunnerConfig, ConfigError> {
+        if self.config.max_concurrent_tasks == 0 {
+            return Err(ConfigError::Invalid(
+                "max_concurrent_tasks must be > 0".into(),
+            ));
+        }
+        if self.config.db_pool_size == 0 {
+            return Err(ConfigError::Invalid("db_pool_size must be > 0".into()));
+        }
+        if self.config.scheduler_poll_interval < Duration::from_millis(10) {
+            return Err(ConfigError::Invalid(
+                "scheduler_poll_interval must be >= 10ms".into(),
+            ));
+        }
+        if self.config.stale_claim_threshold <= self.config.heartbeat_interval {
+            return Err(ConfigError::Invalid(format!(
+                "stale_claim_threshold ({:?}) must be greater than heartbeat_interval ({:?})",
+                self.config.stale_claim_threshold, self.config.heartbeat_interval
+            )));
+        }
+        if self.config.cron_max_catchup_executions > 1000 {
+            return Err(ConfigError::Invalid(format!(
+                "cron_max_catchup_executions ({}) must be <= 1000",
+                self.config.cron_max_catchup_executions
+            )));
+        }
+        Ok(self.config)
     }
 }
 
 impl Default for DefaultRunnerConfig {
     fn default() -> Self {
-        DefaultRunnerConfigBuilder::default().build()
+        DefaultRunnerConfigBuilder::default()
+            .build()
+            .expect("default config must be valid")
     }
 }
 
@@ -733,7 +758,7 @@ mod tests {
         assert_eq!(config.max_concurrent_tasks(), 4);
         assert_eq!(config.scheduler_poll_interval(), Duration::from_millis(100));
         assert_eq!(config.task_timeout(), Duration::from_secs(300));
-        assert_eq!(config.pipeline_timeout(), Some(Duration::from_secs(3600)));
+        assert_eq!(config.workflow_timeout(), Some(Duration::from_secs(3600)));
         assert!(config.enable_recovery());
         assert!(config.enable_cron_scheduling());
         assert!(config.enable_registry_reconciler());
@@ -752,20 +777,23 @@ mod tests {
         // Test sqlite backend via builder
         let config = DefaultRunnerConfig::builder()
             .registry_storage_backend("sqlite")
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(config.registry_storage_backend(), "sqlite");
 
         // Test postgres backend via builder
         let config = DefaultRunnerConfig::builder()
             .registry_storage_backend("postgres")
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(config.registry_storage_backend(), "postgres");
 
         // Test custom path for filesystem via builder
         let custom_path = std::path::PathBuf::from("/custom/registry/path");
         let config = DefaultRunnerConfig::builder()
             .registry_storage_path(Some(custom_path.clone()))
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(config.registry_storage_path(), Some(custom_path.as_path()));
     }
 
@@ -774,7 +802,8 @@ mod tests {
         let config = DefaultRunnerConfig::builder()
             .runner_id(Some("test-runner-123".to_string()))
             .runner_name(Some("Test Runner".to_string()))
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(config.runner_id(), Some("test-runner-123"));
         assert_eq!(config.runner_name(), Some("Test Runner"));
@@ -785,13 +814,15 @@ mod tests {
         // Test disabling registry reconciler via builder
         let config = DefaultRunnerConfig::builder()
             .enable_registry_reconciler(false)
-            .build();
+            .build()
+            .unwrap();
         assert!(!config.enable_registry_reconciler());
 
         // Test custom reconcile interval via builder
         let config = DefaultRunnerConfig::builder()
             .registry_reconcile_interval(Duration::from_secs(30))
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(
             config.registry_reconcile_interval(),
             Duration::from_secs(30)
@@ -800,7 +831,8 @@ mod tests {
         // Test disabling startup reconciliation via builder
         let config = DefaultRunnerConfig::builder()
             .registry_enable_startup_reconciliation(false)
-            .build();
+            .build()
+            .unwrap();
         assert!(!config.registry_enable_startup_reconciliation());
     }
 
@@ -813,7 +845,8 @@ mod tests {
             .cron_lost_threshold_minutes(15)
             .cron_max_recovery_age(Duration::from_secs(86400))
             .cron_max_recovery_attempts(5)
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(config.cron_poll_interval(), Duration::from_secs(60));
         assert_eq!(config.cron_recovery_interval(), Duration::from_secs(300));
@@ -862,7 +895,7 @@ mod tests {
             .max_concurrent_tasks(8)
             .scheduler_poll_interval(Duration::from_millis(200))
             .task_timeout(Duration::from_secs(600))
-            .pipeline_timeout(Some(Duration::from_secs(7200)))
+            .workflow_timeout(Some(Duration::from_secs(7200)))
             .db_pool_size(20)
             .enable_recovery(false)
             .enable_cron_scheduling(false)
@@ -872,12 +905,13 @@ mod tests {
             .enable_trigger_scheduling(false)
             .trigger_base_poll_interval(Duration::from_secs(5))
             .trigger_poll_timeout(Duration::from_secs(60))
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(config.max_concurrent_tasks(), 8);
         assert_eq!(config.scheduler_poll_interval(), Duration::from_millis(200));
         assert_eq!(config.task_timeout(), Duration::from_secs(600));
-        assert_eq!(config.pipeline_timeout(), Some(Duration::from_secs(7200)));
+        assert_eq!(config.workflow_timeout(), Some(Duration::from_secs(7200)));
         assert_eq!(config.db_pool_size(), 20);
         assert!(!config.enable_recovery());
         assert!(!config.enable_cron_scheduling());

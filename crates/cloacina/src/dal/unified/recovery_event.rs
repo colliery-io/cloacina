@@ -31,7 +31,7 @@ use diesel::prelude::*;
 /// Data access layer for recovery event operations with runtime backend selection.
 ///
 /// This DAL provides methods for creating and querying recovery events,
-/// which track recovery operations performed on tasks and pipelines.
+/// which track recovery operations performed on tasks and workflow executions.
 #[derive(Clone)]
 pub struct RecoveryEventDAL<'a> {
     dal: &'a DAL,
@@ -72,7 +72,7 @@ impl<'a> RecoveryEventDAL<'a> {
 
         let new_unified = NewUnifiedRecoveryEvent {
             id,
-            pipeline_execution_id: new_event.pipeline_execution_id,
+            workflow_execution_id: new_event.workflow_execution_id,
             task_execution_id: new_event.task_execution_id,
             recovery_type: new_event.recovery_type,
             recovered_at: now,
@@ -114,7 +114,7 @@ impl<'a> RecoveryEventDAL<'a> {
 
         let new_unified = NewUnifiedRecoveryEvent {
             id,
-            pipeline_execution_id: new_event.pipeline_execution_id,
+            workflow_execution_id: new_event.workflow_execution_id,
             task_execution_id: new_event.task_execution_id,
             recovery_type: new_event.recovery_type,
             recovered_at: now,
@@ -139,22 +139,22 @@ impl<'a> RecoveryEventDAL<'a> {
         Ok(result.into())
     }
 
-    /// Gets all recovery events for a specific pipeline execution.
-    pub async fn get_by_pipeline(
+    /// Gets all recovery events for a specific workflow execution.
+    pub async fn get_by_workflow(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.get_by_pipeline_postgres(pipeline_execution_id).await,
-            self.get_by_pipeline_sqlite(pipeline_execution_id).await
+            self.get_by_workflow_postgres(workflow_execution_id).await,
+            self.get_by_workflow_sqlite(workflow_execution_id).await
         )
     }
 
     #[cfg(feature = "postgres")]
-    async fn get_by_pipeline_postgres(
+    async fn get_by_workflow_postgres(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self
             .dal
@@ -166,7 +166,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let results: Vec<UnifiedRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
-                    .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(recovery_events::workflow_execution_id.eq(workflow_execution_id))
                     .order(recovery_events::recovered_at.desc())
                     .load(conn)
             })
@@ -177,9 +177,9 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     #[cfg(feature = "sqlite")]
-    async fn get_by_pipeline_sqlite(
+    async fn get_by_workflow_sqlite(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self
             .dal
@@ -191,7 +191,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let results: Vec<UnifiedRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
-                    .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(recovery_events::workflow_execution_id.eq(workflow_execution_id))
                     .order(recovery_events::recovered_at.desc())
                     .load(conn)
             })

@@ -29,7 +29,7 @@
 //! - [`CheckpointError`]: Errors in task checkpointing
 //! - [`RegistrationError`]: Task registration and ID validation errors
 //! - [`SubgraphError`]: Errors when creating Workflow subgraphs
-//! - [`ExecutorError`]: Errors during task execution and pipeline management
+//! - [`ExecutorError`]: Errors during task execution and workflow management
 //!
 //! ## Error Handling Patterns
 //!
@@ -79,12 +79,12 @@
 //! - Recovery-specific errors
 //!
 //! ### ExecutorError
-//! Manages errors during task execution and pipeline management:
+//! Manages errors during task execution and workflow management:
 //! - Database and connection pool issues
 //! - Task registry problems
 //! - Execution timeouts
 //! - Semaphore acquisition failures
-//! - Pipeline execution issues
+//! - Workflow execution issues
 //! - Serialization errors
 //! - Scope and validation errors
 //!
@@ -207,7 +207,7 @@ pub enum ValidationError {
     #[error("Workflow not found in registry: {0}")]
     WorkflowNotFound(String),
 
-    #[error("Pipeline execution failed: {message}")]
+    #[error("Workflow execution failed: {message}")]
     ExecutionFailed { message: String },
 
     #[error("Task scheduling failed: {task_id}")]
@@ -229,8 +229,8 @@ pub enum ValidationError {
     #[error("Task recovery abandoned: {task_id} after {attempts} attempts")]
     TaskRecoveryAbandoned { task_id: String, attempts: i32 },
 
-    #[error("Pipeline recovery failed: {pipeline_id}")]
-    PipelineRecoveryFailed { pipeline_id: uuid::Uuid },
+    #[error("Workflow recovery failed: {workflow_execution_id}")]
+    WorkflowRecoveryFailed { workflow_execution_id: uuid::Uuid },
 
     #[error("Database connection error: {message}")]
     DatabaseConnection { message: String },
@@ -284,8 +284,8 @@ pub enum ExecutorError {
     #[error("Semaphore acquisition error: {0}")]
     Semaphore(#[from] tokio::sync::AcquireError),
 
-    #[error("Pipeline execution not found: {0}")]
-    PipelineNotFound(Uuid),
+    #[error("Workflow execution not found: {0}")]
+    WorkflowExecutionNotFound(Uuid),
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
@@ -295,6 +295,9 @@ pub enum ExecutorError {
 
     #[error("Validation error: {0}")]
     Validation(#[from] ValidationError),
+
+    #[error("Context load failed: {0}")]
+    ContextLoadFailed(String),
 }
 
 impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ExecutorError {

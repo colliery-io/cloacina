@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-//! Workflow runners for executing complete pipelines and workflows.
+//! Workflow runners for executing complete workflows.
 //!
 //! This module provides high-level workflow execution components that coordinate
 //! scheduling and task execution. Runners handle the complete lifecycle of

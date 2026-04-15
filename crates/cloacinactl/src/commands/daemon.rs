@@ -175,19 +175,44 @@ pub async fn run(
     info!("Database: {}", db_path.display());
 
     // 4. Create DefaultRunner with SQLite backend and configured poll intervals
-    let runner_config = DefaultRunnerConfig::builder()
+    let mut config_builder = DefaultRunnerConfig::builder()
         .cron_poll_interval(Duration::from_millis(poll_interval_ms))
-        .cron_max_catchup_executions(daemon_cfg.cron_max_catchup.unwrap_or(u64::MAX) as usize)
         .trigger_base_poll_interval(Duration::from_millis(daemon_cfg.trigger_poll_interval_ms))
-        .cron_recovery_interval(Duration::from_secs(daemon_cfg.cron_recovery_interval_s))
-        .build();
+        .cron_recovery_interval(Duration::from_secs(daemon_cfg.cron_recovery_interval_s));
+    if let Some(max_catchup) = daemon_cfg.cron_max_catchup {
+        config_builder = config_builder.cron_max_catchup_executions(max_catchup as usize);
+    }
+    let runner_config = config_builder
+        .build()
+        .context("Invalid runner configuration")?;
 
     let runner = DefaultRunner::with_config(&db_url, runner_config)
         .await
         .context("Failed to create DefaultRunner")?;
     info!("DefaultRunner initialized with SQLite backend");
 
-    // 5. Create FilesystemWorkflowRegistry
+    // 5. Start health socket and pulse
+    let health_state = Arc::new(super::health::SharedDaemonState::new());
+    let (health_shutdown_tx, health_shutdown_rx) = watch::channel(false);
+
+    let socket_path = home.join("daemon.sock");
+    let health_socket_handle = tokio::spawn(super::health::run_health_socket(
+        socket_path,
+        runner.dal().clone(),
+        health_state.clone(),
+        "sqlite".to_string(),
+        health_shutdown_rx.clone(),
+    ));
+
+    let health_pulse_handle = tokio::spawn(super::health::run_health_pulse(
+        runner.dal().clone(),
+        health_state.clone(),
+        "sqlite".to_string(),
+        Duration::from_secs(60),
+        health_shutdown_rx,
+    ));
+
+    // 6. Create FilesystemWorkflowRegistry
     let registry = Arc::new(FilesystemWorkflowRegistry::new(all_watch_dirs.clone()));
     let registry_for_triggers = registry.clone();
 
@@ -214,6 +239,10 @@ pub async fn run(
                 result.packages_unloaded.len(),
                 result.packages_failed.len()
             );
+            health_state.set_packages_loaded(result.packages_loaded.len());
+            health_state
+                .set_last_reconciliation(chrono::Utc::now())
+                .await;
             register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
         }
         Err(e) => {
@@ -265,6 +294,8 @@ pub async fn run(
                 debug!("Filesystem change detected — reconciling");
                 match reconciler.reconcile().await {
                     Ok(result) => {
+                        health_state.set_packages_loaded(result.packages_loaded.len());
+                        health_state.set_last_reconciliation(chrono::Utc::now()).await;
                         handle_reconcile(&runner, &registry_for_triggers, &result, "Reconciliation").await;
                     }
                     Err(e) => {
@@ -278,6 +309,8 @@ pub async fn run(
                 debug!("Periodic reconciliation tick");
                 match reconciler.reconcile().await {
                     Ok(result) => {
+                        health_state.set_packages_loaded(result.packages_loaded.len());
+                        health_state.set_last_reconciliation(chrono::Utc::now()).await;
                         handle_reconcile(&runner, &registry_for_triggers, &result, "Periodic reconciliation").await;
                     }
                     Err(e) => {
@@ -316,6 +349,8 @@ pub async fn run(
                 info!("Triggering reconciliation after config reload...");
                 match reconciler.reconcile().await {
                     Ok(result) => {
+                        health_state.set_packages_loaded(result.packages_loaded.len());
+                        health_state.set_last_reconciliation(chrono::Utc::now()).await;
                         handle_reconcile(&runner, &registry_for_triggers, &result, "Post-reload reconciliation").await;
                     }
                     Err(e) => {
@@ -328,10 +363,15 @@ pub async fn run(
         }
     }
 
+    // Stop health socket and pulse
+    let _ = health_shutdown_tx.send(true);
+    health_socket_handle.abort();
+    health_pulse_handle.abort();
+
     // Graceful shutdown with timeout and force-exit on second signal
     let shutdown_timeout = Duration::from_secs(daemon_cfg.shutdown_timeout_s);
     info!(
-        "Draining in-flight pipelines (timeout: {}s)...",
+        "Draining in-flight workflows (timeout: {}s)...",
         shutdown_timeout.as_secs()
     );
     info!("Press Ctrl+C again to force exit immediately.");
@@ -340,7 +380,7 @@ pub async fn run(
     tokio::select! {
         result = runner.shutdown() => {
             match result {
-                Ok(()) => info!("All pipelines drained successfully."),
+                Ok(()) => info!("All workflows drained successfully."),
                 Err(e) => error!("Runner shutdown error: {}", e),
             }
         }

@@ -27,7 +27,7 @@ use tracing::Instrument;
 use crate::dal::FilesystemRegistryStorage;
 use crate::dal::UnifiedRegistryStorage;
 use crate::dal::DAL;
-use crate::executor::pipeline_executor::WorkflowExecutionError;
+use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::registry::traits::WorkflowRegistry;
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::{Scheduler, SchedulerConfig};

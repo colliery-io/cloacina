@@ -49,7 +49,7 @@ impl<'a> ScheduleExecutionDAL<'a> {
         let new_unified = NewUnifiedScheduleExecution {
             id,
             schedule_id: new_execution.schedule_id,
-            pipeline_execution_id: new_execution.pipeline_execution_id,
+            workflow_execution_id: new_execution.workflow_execution_id,
             scheduled_time: new_execution.scheduled_time,
             claimed_at: new_execution.claimed_at,
             context_hash: new_execution.context_hash,
@@ -92,7 +92,7 @@ impl<'a> ScheduleExecutionDAL<'a> {
         let new_unified = NewUnifiedScheduleExecution {
             id,
             schedule_id: new_execution.schedule_id,
-            pipeline_execution_id: new_execution.pipeline_execution_id,
+            workflow_execution_id: new_execution.workflow_execution_id,
             scheduled_time: new_execution.scheduled_time,
             claimed_at: new_execution.claimed_at,
             context_hash: new_execution.context_hash,
@@ -332,10 +332,10 @@ impl<'a> ScheduleExecutionDAL<'a> {
     }
 
     #[cfg(feature = "postgres")]
-    pub(super) async fn update_pipeline_execution_id_postgres(
+    pub(super) async fn update_workflow_execution_id_postgres(
         &self,
         id: UniversalUuid,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -349,7 +349,7 @@ impl<'a> ScheduleExecutionDAL<'a> {
         conn.interact(move |conn| {
             diesel::update(schedule_executions::table.find(id))
                 .set((
-                    schedule_executions::pipeline_execution_id.eq(Some(pipeline_execution_id)),
+                    schedule_executions::workflow_execution_id.eq(Some(workflow_execution_id)),
                     schedule_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
@@ -361,10 +361,10 @@ impl<'a> ScheduleExecutionDAL<'a> {
     }
 
     #[cfg(feature = "sqlite")]
-    pub(super) async fn update_pipeline_execution_id_sqlite(
+    pub(super) async fn update_workflow_execution_id_sqlite(
         &self,
         id: UniversalUuid,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -378,7 +378,7 @@ impl<'a> ScheduleExecutionDAL<'a> {
         conn.interact(move |conn| {
             diesel::update(schedule_executions::table.find(id))
                 .set((
-                    schedule_executions::pipeline_execution_id.eq(Some(pipeline_execution_id)),
+                    schedule_executions::workflow_execution_id.eq(Some(workflow_execution_id)),
                     schedule_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
@@ -504,7 +504,7 @@ impl<'a> ScheduleExecutionDAL<'a> {
         &self,
         since: DateTime<Utc>,
     ) -> Result<super::ScheduleExecutionStats, ValidationError> {
-        use crate::database::schema::unified::pipeline_executions;
+        use crate::database::schema::unified::workflow_executions;
 
         let conn = self
             .dal
@@ -525,16 +525,16 @@ impl<'a> ScheduleExecutionDAL<'a> {
 
                 let successful_executions: i64 = schedule_executions::table
                     .filter(schedule_executions::started_at.ge(since_ts))
-                    .filter(schedule_executions::pipeline_execution_id.is_not_null())
+                    .filter(schedule_executions::workflow_execution_id.is_not_null())
                     .count()
                     .first(conn)?;
 
                 let lost_executions: i64 = schedule_executions::table
                     .left_join(
-                        pipeline_executions::table.on(schedule_executions::pipeline_execution_id
-                            .eq(pipeline_executions::id.nullable())),
+                        workflow_executions::table.on(schedule_executions::workflow_execution_id
+                            .eq(workflow_executions::id.nullable())),
                     )
-                    .filter(pipeline_executions::id.is_null())
+                    .filter(workflow_executions::id.is_null())
                     .filter(schedule_executions::started_at.ge(since_ts))
                     .filter(schedule_executions::started_at.lt(lost_cutoff))
                     .count()
@@ -566,7 +566,7 @@ impl<'a> ScheduleExecutionDAL<'a> {
         &self,
         since: DateTime<Utc>,
     ) -> Result<super::ScheduleExecutionStats, ValidationError> {
-        use crate::database::schema::unified::pipeline_executions;
+        use crate::database::schema::unified::workflow_executions;
 
         let conn = self
             .dal
@@ -592,7 +592,7 @@ impl<'a> ScheduleExecutionDAL<'a> {
             .interact(move |conn| {
                 schedule_executions::table
                     .filter(schedule_executions::started_at.ge(since_ts))
-                    .filter(schedule_executions::pipeline_execution_id.is_not_null())
+                    .filter(schedule_executions::workflow_execution_id.is_not_null())
                     .count()
                     .first(conn)
             })
@@ -605,10 +605,10 @@ impl<'a> ScheduleExecutionDAL<'a> {
             .interact(move |conn| {
                 schedule_executions::table
                     .left_join(
-                        pipeline_executions::table.on(schedule_executions::pipeline_execution_id
-                            .eq(pipeline_executions::id.nullable())),
+                        workflow_executions::table.on(schedule_executions::workflow_execution_id
+                            .eq(workflow_executions::id.nullable())),
                     )
-                    .filter(pipeline_executions::id.is_null())
+                    .filter(workflow_executions::id.is_null())
                     .filter(schedule_executions::started_at.ge(since_ts))
                     .filter(schedule_executions::started_at.lt(lost_cutoff))
                     .count()

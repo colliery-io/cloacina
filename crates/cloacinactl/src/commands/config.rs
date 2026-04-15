@@ -28,7 +28,7 @@ use tracing::{info, warn};
 
 /// Full configuration file structure.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CloacinaConfig {
     /// Database URL for commands that need it (admin, serve).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,7 +42,7 @@ pub struct CloacinaConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DaemonSection {
     /// Cron scheduler poll interval in milliseconds.
     pub poll_interval_ms: u64,
@@ -79,7 +79,7 @@ impl Default for DaemonSection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct WatchSection {
     pub directories: Vec<String>,
 }

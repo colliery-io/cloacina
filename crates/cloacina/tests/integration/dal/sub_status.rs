@@ -24,8 +24,8 @@
 
 use crate::fixtures::get_all_fixtures;
 use cloacina::dal::DAL;
-use cloacina::models::pipeline_execution::NewWorkflowExecution;
 use cloacina::models::task_execution::NewTaskExecution;
+use cloacina::models::workflow_execution::NewWorkflowExecution;
 use serde_json::json;
 
 /// Tests all sub_status operations in a single test to avoid fixture contention.
@@ -47,22 +47,22 @@ async fn test_sub_status_crud_operations() {
         let database = guard.get_database();
         let dal = DAL::new(database.clone());
 
-        // Create a pipeline and task
-        let pipeline = dal
+        // Create a workflow execution and task
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "sub-status-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "sub-status-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
             .await
-            .expect("Failed to create pipeline");
+            .expect("Failed to create workflow execution");
 
         let task = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: wf_exec.id,
                 task_name: "sub-status-test-task".to_string(),
                 status: "Running".to_string(),
                 attempt: 1,

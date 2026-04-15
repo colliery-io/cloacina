@@ -129,7 +129,7 @@ async fn test_task_executor_basic_execution() {
 
     // Create workflow using the #[task] function
     let workflow = Workflow::builder("test_pipeline_basic")
-        .description("Test pipeline for executor")
+        .description("Test workflow for executor")
         .add_task(Arc::new(WorkflowTask::new("test_task", vec![])))
         .unwrap()
         .build()
@@ -168,7 +168,7 @@ async fn test_task_executor_basic_execution() {
         .execute_async("test_pipeline_basic", input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Poll until task completes (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
@@ -181,7 +181,7 @@ async fn test_task_executor_basic_execution() {
             async move {
                 let tasks = dal
                     .task_execution()
-                    .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+                    .get_all_tasks_for_workflow(UniversalUuid(exec_id))
                     .await
                     .unwrap_or_default();
                 tasks.len() == 1 && tasks[0].status == "Completed"
@@ -192,7 +192,7 @@ async fn test_task_executor_basic_execution() {
 
     let task_executions = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+        .get_all_tasks_for_workflow(UniversalUuid(exec_id))
         .await
         .unwrap();
     assert_eq!(task_executions.len(), 1);
@@ -234,7 +234,7 @@ async fn test_task_executor_dependency_loading() {
     let producer_ns = TaskNamespace::new("public", "embedded", &workflow_name, "producer_task");
 
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline with dependencies")
+        .description("Test workflow with dependencies")
         .add_task(Arc::new(producer_task_task()))
         .unwrap()
         .add_task(Arc::new(
@@ -288,7 +288,7 @@ async fn test_task_executor_dependency_loading() {
         .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Poll until both tasks complete (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
@@ -308,7 +308,7 @@ async fn test_task_executor_dependency_loading() {
             async move {
                 let meta = dal
                     .task_execution_metadata()
-                    .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &ns)
+                    .get_by_workflow_and_task(UniversalUuid(exec_id), &ns)
                     .await;
                 meta.is_ok()
             }
@@ -325,7 +325,7 @@ async fn test_task_executor_dependency_loading() {
     );
     let consumer_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &consumer_namespace)
+        .get_by_workflow_and_task(UniversalUuid(exec_id), &consumer_namespace)
         .await
         .unwrap();
 
@@ -379,7 +379,7 @@ async fn test_task_executor_timeout_handling() {
             .as_nanos()
     );
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline with timeout")
+        .description("Test workflow with timeout")
         .add_task(Arc::new(WorkflowTask::new("timeout_task_test", vec![])))
         .unwrap()
         .build()
@@ -403,7 +403,8 @@ async fn test_task_executor_timeout_handling() {
     // Create runner with short timeout and proper schema isolation
     let config = DefaultRunnerConfig::builder()
         .task_timeout(Duration::from_millis(500))
-        .build();
+        .build()
+        .unwrap();
     let schema = fixture.get_schema();
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
@@ -422,7 +423,7 @@ async fn test_task_executor_timeout_handling() {
         .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Poll until task fails due to timeout (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
@@ -442,7 +443,7 @@ async fn test_task_executor_timeout_handling() {
             async move {
                 let status = dal
                     .task_execution()
-                    .get_task_status(UniversalUuid(pipeline_id), &name)
+                    .get_task_status(UniversalUuid(exec_id), &name)
                     .await
                     .unwrap_or_default();
                 status == "Failed"
@@ -453,7 +454,7 @@ async fn test_task_executor_timeout_handling() {
 
     let task_status = dal
         .task_execution()
-        .get_task_status(UniversalUuid(pipeline_id), &full_task_name)
+        .get_task_status(UniversalUuid(exec_id), &full_task_name)
         .await
         .unwrap();
 
@@ -462,18 +463,18 @@ async fn test_task_executor_timeout_handling() {
         "Task should have failed due to timeout"
     );
 
-    // COR-01: Verify PIPELINE status reflects the task failure.
-    // Previously, pipelines were always marked "Completed" even with failed tasks.
+    // COR-01: Verify workflow execution status reflects the task failure.
+    // Previously, workflow executions were always marked "Completed" even with failed tasks.
     crate::fixtures::poll_until(
         Duration::from_secs(10),
         Duration::from_millis(100),
-        "pipeline should be marked as terminal (Failed or Completed)",
+        "workflow execution should be marked as terminal (Failed or Completed)",
         || {
             let dal = dal.clone();
             async move {
                 if let Ok(exec) = dal
                     .workflow_execution()
-                    .get_by_id(UniversalUuid(pipeline_id))
+                    .get_by_id(UniversalUuid(exec_id))
                     .await
                 {
                     exec.status == "Failed" || exec.status == "Completed"
@@ -485,14 +486,14 @@ async fn test_task_executor_timeout_handling() {
     )
     .await;
 
-    let pipeline_exec = dal
+    let wf_exec = dal
         .workflow_execution()
-        .get_by_id(UniversalUuid(pipeline_id))
+        .get_by_id(UniversalUuid(exec_id))
         .await
         .unwrap();
     assert_eq!(
-        pipeline_exec.status, "Failed",
-        "Pipeline with failed task(s) must be marked Failed, not Completed"
+        wf_exec.status, "Failed",
+        "Workflow execution with failed task(s) must be marked Failed, not Completed"
     );
 
     // Cleanup
@@ -522,7 +523,7 @@ async fn test_default_runner_execution() {
 
     // Create workflow using the #[task] function
     let workflow = Workflow::builder("unified_pipeline_test")
-        .description("Test pipeline for unified mode")
+        .description("Test workflow for unified mode")
         .add_task(Arc::new(WorkflowTask::new("unified_task_test", vec![])))
         .unwrap()
         .build()
@@ -561,7 +562,7 @@ async fn test_default_runner_execution() {
         .execute_async("unified_pipeline_test", input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Poll until task is processed (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
@@ -580,7 +581,7 @@ async fn test_default_runner_execution() {
             let ns = task_namespace.clone();
             async move {
                 dal.task_execution_metadata()
-                    .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &ns)
+                    .get_by_workflow_and_task(UniversalUuid(exec_id), &ns)
                     .await
                     .is_ok()
             }
@@ -591,7 +592,7 @@ async fn test_default_runner_execution() {
     // Check that task was processed
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &task_namespace)
+        .get_by_workflow_and_task(UniversalUuid(exec_id), &task_namespace)
         .await;
 
     // If the task was executed, metadata should exist
@@ -623,7 +624,7 @@ async fn test_default_runner_execution() {
             );
             let task_status = dal
                 .task_execution()
-                .get_task_status(UniversalUuid(pipeline_id), &full_task_name)
+                .get_task_status(UniversalUuid(exec_id), &full_task_name)
                 .await
                 .unwrap();
             assert_ne!(task_status, "Pending", "Task should have been processed");
@@ -675,7 +676,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
             .as_nanos()
     );
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline for initial context loading")
+        .description("Test workflow for initial context loading")
         .add_task(Arc::new(WorkflowTask::new(
             "initial_context_task_test",
             vec![],
@@ -720,7 +721,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
         .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Poll until task completes (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
@@ -740,7 +741,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
             async move {
                 let status = dal
                     .task_execution()
-                    .get_task_status(UniversalUuid(pipeline_id), &name)
+                    .get_task_status(UniversalUuid(exec_id), &name)
                     .await
                     .unwrap_or_default();
                 status == "Completed"
@@ -752,7 +753,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     // Verify the task successfully processed the initial context
     let task_status = dal
         .task_execution()
-        .get_task_status(UniversalUuid(pipeline_id), &full_task_name)
+        .get_task_status(UniversalUuid(exec_id), &full_task_name)
         .await
         .unwrap();
     assert_eq!(
@@ -769,7 +770,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     );
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &task_namespace)
+        .get_by_workflow_and_task(UniversalUuid(exec_id), &task_namespace)
         .await
         .unwrap();
 
@@ -883,7 +884,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
     );
 
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline for dependency context loading")
+        .description("Test workflow for dependency context loading")
         .add_task(Arc::new(producer_context_task_task()))
         .unwrap()
         .add_task(Arc::new(
@@ -939,7 +940,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
         .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
     // Poll until both tasks complete (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
@@ -966,12 +967,12 @@ async fn test_task_executor_context_loading_with_dependencies() {
             async move {
                 let p = dal
                     .task_execution()
-                    .get_task_status(UniversalUuid(pipeline_id), &producer_name)
+                    .get_task_status(UniversalUuid(exec_id), &producer_name)
                     .await
                     .unwrap_or_default();
                 let c = dal
                     .task_execution()
-                    .get_task_status(UniversalUuid(pipeline_id), &consumer_name)
+                    .get_task_status(UniversalUuid(exec_id), &consumer_name)
                     .await
                     .unwrap_or_default();
                 p == "Completed" && c == "Completed"
@@ -983,12 +984,12 @@ async fn test_task_executor_context_loading_with_dependencies() {
     // Verify both tasks completed
     let producer_status = dal
         .task_execution()
-        .get_task_status(UniversalUuid(pipeline_id), &producer_full_name)
+        .get_task_status(UniversalUuid(exec_id), &producer_full_name)
         .await
         .unwrap();
     let consumer_status = dal
         .task_execution()
-        .get_task_status(UniversalUuid(pipeline_id), &consumer_full_name)
+        .get_task_status(UniversalUuid(exec_id), &consumer_full_name)
         .await
         .unwrap();
 
@@ -1010,7 +1011,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
     );
     let consumer_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &consumer_namespace)
+        .get_by_workflow_and_task(UniversalUuid(exec_id), &consumer_namespace)
         .await
         .unwrap();
 
@@ -1052,7 +1053,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
 }
 
 // =============================================================================
-// COR-01 Regression Tests: Pipeline completion status must reflect task outcomes
+// COR-01 Regression Tests: Workflow completion status must reflect task outcomes
 // =============================================================================
 
 /// A task that always fails immediately.
@@ -1079,8 +1080,8 @@ async fn downstream_of_failure(context: &mut Context<Value>) -> Result<(), TaskE
 }
 
 /// Helper to set up a runner with registered tasks and workflow, execute, and
-/// return the final pipeline status string.
-async fn run_pipeline_and_get_status(
+/// return the final workflow execution status string.
+async fn run_workflow_and_get_status(
     workflow_name: &str,
     task_defs: Vec<(&str, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>)>,
     dep_map: Vec<(&str, Vec<&str>)>,
@@ -1160,20 +1161,20 @@ async fn run_pipeline_and_get_status(
         .execute_async(&unique_name, Context::new())
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
-    // Poll until pipeline reaches a terminal state
+    // Poll until workflow execution reaches a terminal state
     let dal = cloacina::dal::DAL::new(database.clone());
     crate::fixtures::poll_until(
         Duration::from_secs(15),
         Duration::from_millis(100),
-        "pipeline should reach terminal state",
+        "workflow execution should reach terminal state",
         || {
             let dal = dal.clone();
             async move {
                 if let Ok(exec) = dal
                     .workflow_execution()
-                    .get_by_id(UniversalUuid(pipeline_id))
+                    .get_by_id(UniversalUuid(exec_id))
                     .await
                 {
                     exec.status == "Failed" || exec.status == "Completed"
@@ -1187,7 +1188,7 @@ async fn run_pipeline_and_get_status(
 
     let exec = dal
         .workflow_execution()
-        .get_by_id(UniversalUuid(pipeline_id))
+        .get_by_id(UniversalUuid(exec_id))
         .await
         .unwrap();
 
@@ -1195,11 +1196,11 @@ async fn run_pipeline_and_get_status(
     exec.status
 }
 
-/// COR-01: Pipeline where all tasks succeed must be marked "Completed".
+/// COR-01: Workflow where all tasks succeed must be marked "Completed".
 #[tokio::test]
 #[serial_test::serial]
-async fn test_pipeline_all_tasks_succeed_marked_completed() {
-    let status = run_pipeline_and_get_status(
+async fn test_workflow_all_tasks_succeed_marked_completed() {
+    let status = run_workflow_and_get_status(
         "cor01_all_succeed",
         vec![(
             "always_succeeds_task",
@@ -1211,15 +1212,15 @@ async fn test_pipeline_all_tasks_succeed_marked_completed() {
 
     assert_eq!(
         status, "Completed",
-        "Pipeline with all successful tasks must be Completed"
+        "Workflow with all successful tasks must be Completed"
     );
 }
 
-/// COR-01: Pipeline where a task fails must be marked "Failed".
+/// COR-01: Workflow where a task fails must be marked "Failed".
 #[tokio::test]
 #[serial_test::serial]
-async fn test_pipeline_task_fails_marked_failed() {
-    let status = run_pipeline_and_get_status(
+async fn test_workflow_task_fails_marked_failed() {
+    let status = run_workflow_and_get_status(
         "cor01_task_fails",
         vec![(
             "always_fails_task",
@@ -1231,15 +1232,15 @@ async fn test_pipeline_task_fails_marked_failed() {
 
     assert_eq!(
         status, "Failed",
-        "Pipeline with failed task must be Failed, not Completed"
+        "Workflow with failed task must be Failed, not Completed"
     );
 }
 
-/// COR-01: Pipeline with mixed results (one succeeds, one fails) must be "Failed".
+/// COR-01: Workflow with mixed results (one succeeds, one fails) must be "Failed".
 #[tokio::test]
 #[serial_test::serial]
-async fn test_pipeline_mixed_results_marked_failed() {
-    let status = run_pipeline_and_get_status(
+async fn test_workflow_mixed_results_marked_failed() {
+    let status = run_workflow_and_get_status(
         "cor01_mixed",
         vec![
             (
@@ -1260,15 +1261,15 @@ async fn test_pipeline_mixed_results_marked_failed() {
 
     assert_eq!(
         status, "Failed",
-        "Pipeline with any failed task must be Failed"
+        "Workflow with any failed task must be Failed"
     );
 }
 
-/// COR-01: Pipeline where a task fails and downstream tasks are skipped must be "Failed".
+/// COR-01: Workflow where a task fails and downstream tasks are skipped must be "Failed".
 #[tokio::test]
 #[serial_test::serial]
-async fn test_pipeline_skipped_downstream_marked_failed() {
-    let status = run_pipeline_and_get_status(
+async fn test_workflow_skipped_downstream_marked_failed() {
+    let status = run_workflow_and_get_status(
         "cor01_skipped_downstream",
         vec![
             (
@@ -1289,6 +1290,6 @@ async fn test_pipeline_skipped_downstream_marked_failed() {
 
     assert_eq!(
         status, "Failed",
-        "Pipeline with failed task + skipped dependents must be Failed"
+        "Workflow with failed task + skipped dependents must be Failed"
     );
 }

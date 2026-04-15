@@ -22,8 +22,8 @@ use cloacina::database::universal_types::UniversalUuid;
 use cloacina::execution_planner::stale_claim_sweeper::{
     StaleClaimSweeper, StaleClaimSweeperConfig,
 };
-use cloacina::models::pipeline_execution::NewWorkflowExecution;
 use cloacina::models::task_execution::NewTaskExecution;
+use cloacina::models::workflow_execution::NewWorkflowExecution;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -38,31 +38,31 @@ fn test_sweeper(dal: Arc<DAL>, threshold: Duration) -> StaleClaimSweeper {
     StaleClaimSweeper::new(dal, config, rx)
 }
 
-/// Helper: create a pipeline + task in "Running" state with a runner claim.
+/// Helper: create a workflow execution + task in "Running" state with a runner claim.
 ///
 /// Creates the task as "Running" with claimed_by and heartbeat_at set,
 /// simulating a task that was claimed by a runner that has since crashed.
 async fn create_claimed_task(
     dal: &DAL,
-    pipeline_name: &str,
+    wf_name: &str,
     task_name: &str,
 ) -> (UniversalUuid, UniversalUuid) {
-    let pipeline = dal
+    let wf_exec = dal
         .workflow_execution()
         .create(NewWorkflowExecution {
-            pipeline_name: pipeline_name.to_string(),
-            pipeline_version: "1.0".to_string(),
+            workflow_name: wf_name.to_string(),
+            workflow_version: "1.0".to_string(),
             status: "Running".to_string(),
             context_id: None,
         })
         .await
-        .expect("Failed to create pipeline");
+        .expect("Failed to create workflow execution");
 
     // Create task directly as "Running" (skipping the outbox/claim flow)
     let task = dal
         .task_execution()
         .create(NewTaskExecution {
-            pipeline_execution_id: pipeline.id,
+            workflow_execution_id: wf_exec.id,
             task_name: task_name.to_string(),
             status: "Running".to_string(),
             attempt: 1,
@@ -80,7 +80,7 @@ async fn create_claimed_task(
         .await
         .expect("Failed to claim task");
 
-    (pipeline.id, task.id)
+    (wf_exec.id, task.id)
 }
 
 #[tokio::test]
@@ -99,7 +99,7 @@ async fn test_sweep_during_grace_period_is_noop() {
         let dal = Arc::new(DAL::new(database.clone()));
 
         // Create a claimed task
-        let (_pipeline_id, task_id) = create_claimed_task(&dal, "grace-test", "task1").await;
+        let (_exec_id, task_id) = create_claimed_task(&dal, "grace-test", "task1").await;
 
         // Create sweeper with a very long threshold (so we're always in grace period)
         let sweeper = test_sweeper(dal.clone(), Duration::from_secs(3600));
@@ -163,7 +163,7 @@ async fn test_sweep_resets_stale_task_to_ready() {
         let dal = Arc::new(DAL::new(database.clone()));
 
         // Create a claimed task
-        let (_pipeline_id, task_id) = create_claimed_task(&dal, "stale-test", "task1").await;
+        let (_exec_id, task_id) = create_claimed_task(&dal, "stale-test", "task1").await;
 
         // Verify task is Running
         let task = dal.task_execution().get_by_id(task_id).await.unwrap();

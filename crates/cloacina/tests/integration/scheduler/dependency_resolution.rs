@@ -100,9 +100,9 @@ async fn test_task_dependency_initialization() {
     let dal = fixture.get_dal();
     let tasks = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
+        .get_all_tasks_for_workflow(UniversalUuid(execution_id))
         .await
-        .expect("Failed to get tasks for pipeline");
+        .expect("Failed to get tasks for workflow");
 
     assert_eq!(tasks.len(), 2);
 
@@ -182,9 +182,9 @@ async fn test_dependency_satisfaction_check() {
     let dal = fixture.get_dal();
     let tasks = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
+        .get_all_tasks_for_workflow(UniversalUuid(execution_id))
         .await
-        .expect("Failed to get tasks for pipeline");
+        .expect("Failed to get tasks for workflow");
 
     assert_eq!(tasks.len(), 2);
 

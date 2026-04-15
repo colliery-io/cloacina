@@ -34,7 +34,7 @@ use chrono::{DateTime, Utc};
 pub struct ScheduleExecutionStats {
     /// Total number of executions attempted
     pub total_executions: i64,
-    /// Number of executions that successfully handed off to pipeline executor
+    /// Number of executions that successfully handed off to workflow executor
     pub successful_executions: i64,
     /// Number of executions that were lost (started but never completed within expected time)
     pub lost_executions: i64,
@@ -120,17 +120,17 @@ impl<'a> ScheduleExecutionDAL<'a> {
         )
     }
 
-    /// Updates the pipeline execution ID for a schedule execution.
-    pub async fn update_pipeline_execution_id(
+    /// Updates the workflow execution ID for a schedule execution.
+    pub async fn update_workflow_execution_id(
         &self,
         id: UniversalUuid,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.update_pipeline_execution_id_postgres(id, pipeline_execution_id)
+            self.update_workflow_execution_id_postgres(id, workflow_execution_id)
                 .await,
-            self.update_pipeline_execution_id_sqlite(id, pipeline_execution_id)
+            self.update_workflow_execution_id_sqlite(id, workflow_execution_id)
                 .await
         )
     }
@@ -209,7 +209,7 @@ mod tests {
     fn new_exec(schedule_id: UniversalUuid) -> NewScheduleExecution {
         NewScheduleExecution {
             schedule_id,
-            pipeline_execution_id: None,
+            workflow_execution_id: None,
             scheduled_time: Some(UniversalTimestamp::now()),
             claimed_at: Some(UniversalTimestamp::now()),
             context_hash: Some(uuid::Uuid::new_v4().to_string()),
@@ -231,7 +231,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(exec.schedule_id, sched_id);
-        assert!(exec.pipeline_execution_id.is_none());
+        assert!(exec.workflow_execution_id.is_none());
         assert!(exec.completed_at.is_none());
         assert!(exec.scheduled_time.is_some());
         assert!(exec.context_hash.is_some());
@@ -398,11 +398,11 @@ mod tests {
         assert!(!active);
     }
 
-    // ── update_pipeline_execution_id ────────────────────────────────
+    // ── update_workflow_execution_id ────────────────────────────────
 
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_update_pipeline_execution_id() {
+    async fn test_update_workflow_execution_id() {
         let dal = unique_dal().await;
         let sched_id = create_schedule(&dal).await;
         let exec = dal
@@ -410,15 +410,15 @@ mod tests {
             .create(new_exec(sched_id))
             .await
             .unwrap();
-        assert!(exec.pipeline_execution_id.is_none());
+        assert!(exec.workflow_execution_id.is_none());
 
-        // Create a real pipeline so the FK constraint is satisfied
-        use crate::models::pipeline_execution::NewWorkflowExecution;
-        let pipeline = dal
+        // Create a real workflow execution so the FK constraint is satisfied
+        use crate::models::workflow_execution::NewWorkflowExecution;
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "fk-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "fk-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Running".to_string(),
                 context_id: None,
             })
@@ -426,12 +426,12 @@ mod tests {
             .unwrap();
 
         dal.schedule_execution()
-            .update_pipeline_execution_id(exec.id, pipeline.id)
+            .update_workflow_execution_id(exec.id, wf_exec.id)
             .await
             .unwrap();
 
         let updated = dal.schedule_execution().get_by_id(exec.id).await.unwrap();
-        assert_eq!(updated.pipeline_execution_id, Some(pipeline.id));
+        assert_eq!(updated.workflow_execution_id, Some(wf_exec.id));
     }
 
     // ── get_latest_by_schedule ──────────────────────────────────────
@@ -558,20 +558,20 @@ mod tests {
             .await
             .unwrap();
 
-        // Link one to a real pipeline (FK constraint requires it to exist)
-        use crate::models::pipeline_execution::NewWorkflowExecution;
-        let pipeline = dal
+        // Link one to a real workflow execution (FK constraint requires it to exist)
+        use crate::models::workflow_execution::NewWorkflowExecution;
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "stats-test".to_string(),
-                pipeline_version: "1.0".to_string(),
+                workflow_name: "stats-test".to_string(),
+                workflow_version: "1.0".to_string(),
                 status: "Completed".to_string(),
                 context_id: None,
             })
             .await
             .unwrap();
         dal.schedule_execution()
-            .update_pipeline_execution_id(exec1.id, pipeline.id)
+            .update_workflow_execution_id(exec1.id, wf_exec.id)
             .await
             .unwrap();
 

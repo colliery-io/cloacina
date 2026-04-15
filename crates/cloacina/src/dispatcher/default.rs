@@ -83,7 +83,9 @@ impl DefaultDispatcher {
         &self.dal
     }
 
-    /// Handles the execution result by updating database state.
+    /// Logs the execution result. State transitions are owned by the executor
+    /// (via `complete_task_transaction` / `mark_task_failed`) — the dispatcher
+    /// only routes and logs.
     async fn handle_result(
         &self,
         event: &TaskReadyEvent,
@@ -91,10 +93,6 @@ impl DefaultDispatcher {
     ) -> Result<(), DispatchError> {
         match result.status {
             ExecutionStatus::Completed => {
-                self.dal
-                    .task_execution()
-                    .mark_completed(event.task_execution_id)
-                    .await?;
                 info!(
                     task_id = %event.task_execution_id,
                     task_name = %event.task_name,
@@ -104,10 +102,6 @@ impl DefaultDispatcher {
             }
             ExecutionStatus::Failed => {
                 let error_msg = result.error.as_deref().unwrap_or("Unknown error");
-                self.dal
-                    .task_execution()
-                    .mark_failed(event.task_execution_id, error_msg)
-                    .await?;
                 warn!(
                     task_id = %event.task_execution_id,
                     task_name = %event.task_name,

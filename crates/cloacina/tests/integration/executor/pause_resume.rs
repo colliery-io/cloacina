@@ -17,7 +17,7 @@
 //! Integration tests for workflow pause/resume functionality.
 
 use async_trait::async_trait;
-use cloacina::executor::pipeline_executor::{WorkflowExecution, WorkflowStatus};
+use cloacina::executor::workflow_executor::{WorkflowExecution, WorkflowStatus};
 use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::DefaultRunner;
 use cloacina::*;
@@ -28,7 +28,7 @@ use tokio::time;
 
 use crate::fixtures::get_or_init_fixture;
 
-/// Helper to wait for a specific pipeline status without consuming the execution handle.
+/// Helper to wait for a specific workflow execution status without consuming the execution handle.
 /// Useful when you need to keep using the handle after waiting (e.g., to call pause/resume).
 async fn wait_for_status(
     execution: &WorkflowExecution,
@@ -54,7 +54,7 @@ async fn wait_for_status(
     }
 }
 
-/// Wait for the pipeline to reach a terminal state (Completed, Failed, or Cancelled)
+/// Wait for the workflow execution to reach a terminal state (Completed, Failed, or Cancelled)
 async fn wait_for_terminal(
     execution: &WorkflowExecution,
     timeout: Duration,
@@ -133,7 +133,7 @@ async fn slow_second_task(context: &mut Context<Value>) -> Result<(), TaskError>
 }
 
 #[tokio::test]
-async fn test_pause_running_pipeline() {
+async fn test_pause_running_workflow() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -155,7 +155,7 @@ async fn test_pause_running_pipeline() {
     let first_ns = TaskNamespace::new("public", "embedded", &workflow_name, "slow_first_task");
 
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline for pause/resume")
+        .description("Test workflow for pause/resume")
         .add_task(Arc::new(slow_first_task_task()))
         .unwrap()
         .add_task(Arc::new(
@@ -206,30 +206,34 @@ async fn test_pause_running_pipeline() {
         .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
-    // Wait a moment for scheduler to pick up the pipeline
-    // Note: Pipelines stay in "Pending" status while tasks execute, so we just wait briefly
+    // Wait a moment for scheduler to pick up the workflow execution
+    // Note: Workflow executions stay in "Pending" status while tasks execute, so we just wait briefly
     time::sleep(Duration::from_millis(200)).await;
 
-    // Pause the pipeline (works on both Pending and Running status)
+    // Pause the workflow execution (works on both Pending and Running status)
     execution.pause(Some("Test pause")).await.unwrap();
 
-    // Verify the pipeline is paused
+    // Verify the workflow execution is paused
     let status = execution.get_status().await.unwrap();
-    assert_eq!(status, WorkflowStatus::Paused, "Pipeline should be paused");
+    assert_eq!(
+        status,
+        WorkflowStatus::Paused,
+        "Workflow execution should be paused"
+    );
 
     // Verify via DAL that pause metadata is set
     let dal = cloacina::dal::DAL::new(database.clone());
-    let pipeline = dal
+    let wf_exec = dal
         .workflow_execution()
-        .get_by_id(UniversalUuid(pipeline_id))
+        .get_by_id(UniversalUuid(exec_id))
         .await
         .unwrap();
-    assert_eq!(pipeline.status, "Paused");
-    assert!(pipeline.paused_at.is_some(), "paused_at should be set");
+    assert_eq!(wf_exec.status, "Paused");
+    assert!(wf_exec.paused_at.is_some(), "paused_at should be set");
     assert_eq!(
-        pipeline.pause_reason,
+        wf_exec.pause_reason,
         Some("Test pause".to_string()),
         "pause_reason should be set"
     );
@@ -239,7 +243,7 @@ async fn test_pause_running_pipeline() {
 }
 
 #[tokio::test]
-async fn test_resume_paused_pipeline() {
+async fn test_resume_paused_workflow() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -261,7 +265,7 @@ async fn test_resume_paused_pipeline() {
     let first_ns = TaskNamespace::new("public", "embedded", &workflow_name, "slow_first_task");
 
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline for resume")
+        .description("Test workflow for resume")
         .add_task(Arc::new(slow_first_task_task()))
         .unwrap()
         .add_task(Arc::new(
@@ -312,58 +316,58 @@ async fn test_resume_paused_pipeline() {
         .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-    let pipeline_id = execution.execution_id;
+    let exec_id = execution.execution_id;
 
-    // Wait a moment for scheduler to pick up the pipeline
+    // Wait a moment for scheduler to pick up the workflow execution
     time::sleep(Duration::from_millis(200)).await;
 
-    // Pause the pipeline
+    // Pause the workflow execution
     execution.pause(None).await.unwrap();
     let status = execution.get_status().await.unwrap();
     assert_eq!(status, WorkflowStatus::Paused);
 
-    // Resume the pipeline
+    // Resume the workflow execution
     execution.resume().await.unwrap();
 
-    // Verify the pipeline is active again (either Pending or Running)
+    // Verify the workflow execution is active again (either Pending or Running)
     // Note: Resume sets status back to "Running" but the scheduler may not have
     // picked it up yet, or it may have already processed tasks
     let status = execution.get_status().await.unwrap();
     assert!(
         status == WorkflowStatus::Running || status == WorkflowStatus::Pending,
-        "Pipeline should be active after resume, got {:?}",
+        "Workflow execution should be active after resume, got {:?}",
         status
     );
 
     // Verify via DAL that pause metadata is cleared
     let dal = cloacina::dal::DAL::new(database.clone());
-    let pipeline = dal
+    let wf_exec = dal
         .workflow_execution()
-        .get_by_id(UniversalUuid(pipeline_id))
+        .get_by_id(UniversalUuid(exec_id))
         .await
         .unwrap();
     // Resume sets status to "Running"
-    assert_eq!(pipeline.status, "Running");
+    assert_eq!(wf_exec.status, "Running");
     assert!(
-        pipeline.paused_at.is_none(),
+        wf_exec.paused_at.is_none(),
         "paused_at should be cleared after resume"
     );
     assert!(
-        pipeline.pause_reason.is_none(),
+        wf_exec.pause_reason.is_none(),
         "pause_reason should be cleared after resume"
     );
 
     // Wait for completion using event-based polling instead of arbitrary sleep
     wait_for_terminal(&execution, Duration::from_secs(30))
         .await
-        .expect("Pipeline should complete after resume");
+        .expect("Workflow execution should complete after resume");
 
     // Cleanup
     runner.shutdown().await.unwrap();
 }
 
 #[tokio::test]
-async fn test_pause_non_running_pipeline_fails() {
+async fn test_pause_non_running_workflow_fails() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -382,7 +386,7 @@ async fn test_pause_non_running_pipeline_fails() {
     );
 
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline for pause failure")
+        .description("Test workflow for pause failure")
         .add_task(Arc::new(quick_task_task()))
         .unwrap()
         .build()
@@ -419,21 +423,24 @@ async fn test_pause_non_running_pipeline_fails() {
         .await
         .unwrap();
 
-    // Wait for pipeline to complete using event-based polling
+    // Wait for workflow execution to complete using event-based polling
     wait_for_terminal(&execution, Duration::from_secs(30))
         .await
-        .expect("Pipeline should complete");
+        .expect("Workflow execution should complete");
 
-    // Try to pause a completed pipeline - should fail
+    // Try to pause a completed workflow execution - should fail
     let result = execution.pause(None).await;
-    assert!(result.is_err(), "Pausing a completed pipeline should fail");
+    assert!(
+        result.is_err(),
+        "Pausing a completed workflow execution should fail"
+    );
 
     // Cleanup
     runner.shutdown().await.unwrap();
 }
 
 #[tokio::test]
-async fn test_resume_non_paused_pipeline_fails() {
+async fn test_resume_non_paused_workflow_fails() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -452,7 +459,7 @@ async fn test_resume_non_paused_pipeline_fails() {
     );
 
     let workflow = Workflow::builder(&workflow_name)
-        .description("Test pipeline for resume failure")
+        .description("Test workflow for resume failure")
         .add_task(Arc::new(slow_first_task_task()))
         .unwrap()
         .build()
@@ -489,7 +496,7 @@ async fn test_resume_non_paused_pipeline_fails() {
         .await
         .unwrap();
 
-    // Wait for pipeline to be picked up by scheduler (status becomes Running or stays Pending)
+    // Wait for workflow execution to be picked up by scheduler (status becomes Running or stays Pending)
     // We just need it to be non-Paused for the test
     wait_for_status(
         &execution,
@@ -497,13 +504,13 @@ async fn test_resume_non_paused_pipeline_fails() {
         Duration::from_secs(5),
     )
     .await
-    .expect("Pipeline should be scheduled");
+    .expect("Workflow execution should be scheduled");
 
-    // Try to resume a running pipeline (not paused) - should fail
+    // Try to resume a running workflow execution (not paused) - should fail
     let result = execution.resume().await;
     assert!(
         result.is_err(),
-        "Resuming a running (not paused) pipeline should fail"
+        "Resuming a running (not paused) workflow execution should fail"
     );
 
     // Cleanup

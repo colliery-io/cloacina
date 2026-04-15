@@ -55,7 +55,7 @@
 //! - Configurable retry policies with maximum attempts
 //! - Graceful handling of missing workflows
 //! - Detailed recovery event logging
-//! - Pipeline-level failure propagation
+//! - Workflow-level failure propagation
 //!
 //! ## Context Management
 //!
@@ -98,7 +98,7 @@
 //! // Create workflow
 //! let workflow = workflow! {
 //!     name: "data-pipeline",
-//!     description: "Simple data processing pipeline",
+//!     description: "Simple data processing workflow",
 //!     tasks: [fetch_data]
 //! };
 //!
@@ -133,7 +133,7 @@ use uuid::Uuid;
 
 use crate::dal::unified::models::{NewUnifiedTaskExecution, NewUnifiedWorkflowExecution};
 use crate::dal::DAL;
-use crate::database::schema::unified::{pipeline_executions, task_executions};
+use crate::database::schema::unified::{task_executions, workflow_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::dispatcher::Dispatcher;
 use crate::error::ValidationError;
@@ -312,7 +312,7 @@ impl TaskScheduler {
     /// This method:
     /// 1. Validates the workflow exists in the registry
     /// 2. Stores the input context in the database
-    /// 3. Creates a new pipeline execution record
+    /// 3. Creates a new workflow execution record
     /// 4. Initializes task execution records for all workflow tasks
     ///
     /// # Arguments
@@ -322,7 +322,7 @@ impl TaskScheduler {
     ///
     /// # Returns
     ///
-    /// The UUID of the created pipeline execution on success.
+    /// The UUID of the created workflow execution on success.
     ///
     /// # Examples
     ///
@@ -346,7 +346,7 @@ impl TaskScheduler {
     ///
     /// This operation performs multiple database transactions:
     /// - Context storage
-    /// - Pipeline execution creation
+    /// - Workflow execution creation
     /// - Task execution initialization
     ///
     /// All operations are performed in a single transaction for consistency.
@@ -402,48 +402,49 @@ impl TaskScheduler {
             ));
         }
 
-        // Prepare pipeline data
-        let pipeline_id = UniversalUuid::new_v4();
+        // Prepare workflow execution data
+        let workflow_execution_id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
-        let pipeline_name = workflow_name.to_string();
-        let pipeline_version = current_version.clone();
+        let wf_name = workflow_name.to_string();
+        let wf_version = current_version.clone();
 
-        // Create pipeline AND tasks in a single atomic transaction
-        // This prevents the race condition where the scheduler sees a pipeline before tasks exist
+        // Create workflow execution AND tasks in a single atomic transaction
+        // This prevents the race condition where the scheduler sees a workflow execution before tasks exist
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.create_pipeline_postgres(
-                pipeline_id,
+            self.create_workflow_execution_postgres(
+                workflow_execution_id,
                 now,
-                pipeline_name,
-                pipeline_version,
+                wf_name,
+                wf_version,
                 stored_context,
                 task_data,
             )
             .await?,
-            self.create_pipeline_sqlite(
-                pipeline_id,
+            self.create_workflow_execution_sqlite(
+                workflow_execution_id,
                 now,
-                pipeline_name,
-                pipeline_version,
+                wf_name,
+                wf_version,
                 stored_context,
                 task_data,
             )
             .await?
         );
 
-        info!("Workflow execution scheduled: {}", pipeline_id);
-        Ok(pipeline_id.into())
+        metrics::gauge!("cloacina_active_workflows").increment(1.0);
+        info!("Workflow execution scheduled: {}", workflow_execution_id);
+        Ok(workflow_execution_id.into())
     }
 
-    /// Creates pipeline and tasks in PostgreSQL.
+    /// Creates workflow execution and tasks in PostgreSQL.
     #[cfg(feature = "postgres")]
-    async fn create_pipeline_postgres(
+    async fn create_workflow_execution_postgres(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         now: UniversalTimestamp,
-        pipeline_name: String,
-        pipeline_version: String,
+        workflow_name: String,
+        workflow_version: String,
         stored_context: Option<UniversalUuid>,
         task_data: Vec<(String, String, String, i32)>,
     ) -> Result<(), ValidationError> {
@@ -456,12 +457,12 @@ impl TaskScheduler {
 
         conn.interact(move |conn| {
             conn.transaction(|conn| {
-                // Insert pipeline
-                diesel::insert_into(pipeline_executions::table)
+                // Insert workflow execution
+                diesel::insert_into(workflow_executions::table)
                     .values(&NewUnifiedWorkflowExecution {
-                        id: pipeline_id,
-                        pipeline_name,
-                        pipeline_version,
+                        id: workflow_execution_id,
+                        workflow_name,
+                        workflow_version,
                         status: "Pending".to_string(),
                         context_id: stored_context,
                         started_at: now,
@@ -475,7 +476,7 @@ impl TaskScheduler {
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: pipeline_id,
+                            workflow_execution_id,
                             task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,
@@ -497,14 +498,14 @@ impl TaskScheduler {
         Ok(())
     }
 
-    /// Creates pipeline and tasks in SQLite.
+    /// Creates workflow execution and tasks in SQLite.
     #[cfg(feature = "sqlite")]
-    async fn create_pipeline_sqlite(
+    async fn create_workflow_execution_sqlite(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         now: UniversalTimestamp,
-        pipeline_name: String,
-        pipeline_version: String,
+        workflow_name: String,
+        workflow_version: String,
         stored_context: Option<UniversalUuid>,
         task_data: Vec<(String, String, String, i32)>,
     ) -> Result<(), ValidationError> {
@@ -517,12 +518,12 @@ impl TaskScheduler {
 
         conn.interact(move |conn| {
             conn.transaction(|conn| {
-                // Insert pipeline
-                diesel::insert_into(pipeline_executions::table)
+                // Insert workflow execution
+                diesel::insert_into(workflow_executions::table)
                     .values(&NewUnifiedWorkflowExecution {
-                        id: pipeline_id,
-                        pipeline_name,
-                        pipeline_version,
+                        id: workflow_execution_id,
+                        workflow_name,
+                        workflow_version,
                         status: "Pending".to_string(),
                         context_id: stored_context,
                         started_at: now,
@@ -536,7 +537,7 @@ impl TaskScheduler {
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: pipeline_id,
+                            workflow_execution_id,
                             task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,
@@ -558,12 +559,12 @@ impl TaskScheduler {
         Ok(())
     }
 
-    /// Runs the main scheduling loop that continuously processes active pipeline executions.
+    /// Runs the main scheduling loop that continuously processes active workflow executions.
     ///
     /// This loop:
-    /// 1. Checks for active pipeline executions
+    /// 1. Checks for active workflow executions
     /// 2. Updates task readiness based on dependencies and trigger rules
-    /// 3. Marks completed pipelines
+    /// 3. Marks completed workflow executions
     /// 4. Repeats every second
     ///
     /// # Returns
@@ -588,7 +589,7 @@ impl TaskScheduler {
     ///
     /// The scheduling loop:
     /// - Runs every second by default
-    /// - Processes all active pipelines in each iteration
+    /// - Processes all active workflow executions in each iteration
     /// - Uses efficient batch queries where possible
     /// - Implements backoff for database errors
     ///
@@ -610,8 +611,8 @@ impl TaskScheduler {
         scheduler_loop.run().await
     }
 
-    /// Processes all active pipeline executions to update task readiness.
-    pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
+    /// Processes all active workflow executions to update task readiness.
+    pub async fn process_active_executions(&self) -> Result<(), ValidationError> {
         let scheduler_loop = SchedulerLoop::with_dispatcher(
             &self.dal,
             self.runtime.clone(),
@@ -619,7 +620,7 @@ impl TaskScheduler {
             self.poll_interval,
             self.dispatcher.clone(),
         );
-        scheduler_loop.process_active_pipelines().await
+        scheduler_loop.process_active_executions().await
     }
 
     /// Gets trigger rules for a specific task from the task implementation.

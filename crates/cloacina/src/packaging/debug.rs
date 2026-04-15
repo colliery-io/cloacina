@@ -22,7 +22,7 @@
 //!
 //! Packages are fidius source archives (bzip2 tar + `package.toml`). Rust
 //! packages must be compiled before tasks can be executed; this module handles
-//! that compilation step transparently via the reconciler's compile pipeline.
+//! that compilation step transparently via the reconciler's compile workflow.
 
 use anyhow::{bail, Context, Result};
 use std::path::PathBuf;

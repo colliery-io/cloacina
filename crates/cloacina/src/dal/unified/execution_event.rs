@@ -20,7 +20,7 @@
 //! both PostgreSQL and SQLite backends, selecting the appropriate implementation
 //! at runtime based on the database connection type.
 //!
-//! Execution events form an append-only audit trail of all task and pipeline
+//! Execution events form an append-only audit trail of all task and workflow
 //! state transitions for debugging, compliance, and replay capability.
 
 use super::models::{NewUnifiedExecutionEvent, UnifiedExecutionEvent};
@@ -34,7 +34,7 @@ use diesel::prelude::*;
 /// Data access layer for execution event operations with runtime backend selection.
 ///
 /// This DAL provides methods for creating and querying execution events,
-/// which track all state transitions for tasks and pipelines.
+/// which track all state transitions for tasks and workflow executions.
 #[derive(Clone)]
 pub struct ExecutionEventDAL<'a> {
     dal: &'a DAL,
@@ -78,7 +78,7 @@ impl<'a> ExecutionEventDAL<'a> {
 
         let new_unified = NewUnifiedExecutionEvent {
             id,
-            pipeline_execution_id: new_event.pipeline_execution_id,
+            workflow_execution_id: new_event.workflow_execution_id,
             task_execution_id: new_event.task_execution_id,
             event_type: new_event.event_type,
             event_data: new_event.event_data,
@@ -115,7 +115,7 @@ impl<'a> ExecutionEventDAL<'a> {
 
         let new_unified = NewUnifiedExecutionEvent {
             id,
-            pipeline_execution_id: new_event.pipeline_execution_id,
+            workflow_execution_id: new_event.workflow_execution_id,
             task_execution_id: new_event.task_execution_id,
             event_type: new_event.event_type,
             event_data: new_event.event_data,
@@ -144,22 +144,22 @@ impl<'a> ExecutionEventDAL<'a> {
         Ok(result.into())
     }
 
-    /// Gets all execution events for a specific pipeline execution, ordered by sequence.
-    pub async fn list_by_pipeline(
+    /// Gets all execution events for a specific workflow execution, ordered by sequence.
+    pub async fn list_by_workflow(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<ExecutionEvent>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.list_by_pipeline_postgres(pipeline_execution_id).await,
-            self.list_by_pipeline_sqlite(pipeline_execution_id).await
+            self.list_by_workflow_postgres(workflow_execution_id).await,
+            self.list_by_workflow_sqlite(workflow_execution_id).await
         )
     }
 
     #[cfg(feature = "postgres")]
-    async fn list_by_pipeline_postgres(
+    async fn list_by_workflow_postgres(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<ExecutionEvent>, ValidationError> {
         let conn = self
             .dal
@@ -171,7 +171,7 @@ impl<'a> ExecutionEventDAL<'a> {
         let results: Vec<UnifiedExecutionEvent> = conn
             .interact(move |conn| {
                 execution_events::table
-                    .filter(execution_events::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
                     .order(execution_events::sequence_num.asc())
                     .load(conn)
             })
@@ -182,9 +182,9 @@ impl<'a> ExecutionEventDAL<'a> {
     }
 
     #[cfg(feature = "sqlite")]
-    async fn list_by_pipeline_sqlite(
+    async fn list_by_workflow_sqlite(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<ExecutionEvent>, ValidationError> {
         let conn = self
             .dal
@@ -196,7 +196,7 @@ impl<'a> ExecutionEventDAL<'a> {
         let results: Vec<UnifiedExecutionEvent> = conn
             .interact(move |conn| {
                 execution_events::table
-                    .filter(execution_events::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
                     .order(execution_events::sequence_num.asc())
                     .load(conn)
             })
@@ -458,22 +458,22 @@ impl<'a> ExecutionEventDAL<'a> {
         Ok(deleted)
     }
 
-    /// Counts total execution events for a pipeline.
-    pub async fn count_by_pipeline(
+    /// Counts total execution events for a workflow execution.
+    pub async fn count_by_workflow(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<i64, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.count_by_pipeline_postgres(pipeline_execution_id).await,
-            self.count_by_pipeline_sqlite(pipeline_execution_id).await
+            self.count_by_workflow_postgres(workflow_execution_id).await,
+            self.count_by_workflow_sqlite(workflow_execution_id).await
         )
     }
 
     #[cfg(feature = "postgres")]
-    async fn count_by_pipeline_postgres(
+    async fn count_by_workflow_postgres(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<i64, ValidationError> {
         let conn = self
             .dal
@@ -485,7 +485,7 @@ impl<'a> ExecutionEventDAL<'a> {
         let count: i64 = conn
             .interact(move |conn| {
                 execution_events::table
-                    .filter(execution_events::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
                     .count()
                     .get_result(conn)
             })
@@ -496,9 +496,9 @@ impl<'a> ExecutionEventDAL<'a> {
     }
 
     #[cfg(feature = "sqlite")]
-    async fn count_by_pipeline_sqlite(
+    async fn count_by_workflow_sqlite(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<i64, ValidationError> {
         let conn = self
             .dal
@@ -510,7 +510,7 @@ impl<'a> ExecutionEventDAL<'a> {
         let count: i64 = conn
             .interact(move |conn| {
                 execution_events::table
-                    .filter(execution_events::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(execution_events::workflow_execution_id.eq(workflow_execution_id))
                     .count()
                     .get_result(conn)
             })

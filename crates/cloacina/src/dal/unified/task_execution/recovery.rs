@@ -148,24 +148,24 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(())
     }
 
-    /// Checks if a pipeline should be marked as failed due to abandoned tasks.
-    pub async fn check_pipeline_failure(
+    /// Checks if a workflow should be marked as failed due to abandoned tasks.
+    pub async fn check_workflow_failure(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.check_pipeline_failure_postgres(pipeline_execution_id)
+            self.check_workflow_failure_postgres(workflow_execution_id)
                 .await,
-            self.check_pipeline_failure_sqlite(pipeline_execution_id)
+            self.check_workflow_failure_sqlite(workflow_execution_id)
                 .await
         )
     }
 
     #[cfg(feature = "postgres")]
-    async fn check_pipeline_failure_postgres(
+    async fn check_workflow_failure_postgres(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
         let conn = self
             .dal
@@ -177,7 +177,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let failed_count: i64 = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
                     .filter(task_executions::status.eq("Failed"))
                     .filter(task_executions::error_details.like("ABANDONED:%"))
                     .count()
@@ -190,9 +190,9 @@ impl<'a> TaskExecutionDAL<'a> {
     }
 
     #[cfg(feature = "sqlite")]
-    async fn check_pipeline_failure_sqlite(
+    async fn check_workflow_failure_sqlite(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
         let conn = self
             .dal
@@ -204,7 +204,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let failed_count: i64 = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::workflow_execution_id.eq(workflow_execution_id))
                     .filter(task_executions::status.eq("Failed"))
                     .filter(task_executions::error_details.like("ABANDONED:%"))
                     .count()
@@ -216,14 +216,14 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(failed_count > 0)
     }
 
-    /// Calculates retry statistics for a specific pipeline execution.
+    /// Calculates retry statistics for a specific workflow execution.
     pub async fn get_retry_stats(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<RetryStats, ValidationError> {
         // This method is backend-agnostic since it processes data in memory
         let tasks = self
-            .get_all_tasks_for_pipeline(pipeline_execution_id)
+            .get_all_tasks_for_workflow(workflow_execution_id)
             .await?;
 
         let mut stats = RetryStats::default();
@@ -249,11 +249,11 @@ impl<'a> TaskExecutionDAL<'a> {
     /// Retrieves tasks that have exceeded their retry limit.
     pub async fn get_exhausted_retry_tasks(
         &self,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         // This method is backend-agnostic since it filters in memory
         let tasks = self
-            .get_all_tasks_for_pipeline(pipeline_execution_id)
+            .get_all_tasks_for_workflow(workflow_execution_id)
             .await?;
 
         let exhausted_tasks: Vec<TaskExecution> = tasks
@@ -270,8 +270,8 @@ mod tests {
     use crate::dal::DAL;
     use crate::database::universal_types::UniversalUuid;
     use crate::database::Database;
-    use crate::models::pipeline_execution::NewWorkflowExecution;
     use crate::models::task_execution::NewTaskExecution;
+    use crate::models::workflow_execution::NewWorkflowExecution;
 
     #[cfg(feature = "sqlite")]
     async fn unique_dal() -> DAL {
@@ -286,13 +286,13 @@ mod tests {
         DAL::new(db)
     }
 
-    /// Helper: create a pipeline and return its ID.
+    /// Helper: create a workflow execution and return its ID.
     #[cfg(feature = "sqlite")]
-    async fn create_pipeline(dal: &DAL) -> UniversalUuid {
+    async fn create_workflow(dal: &DAL) -> UniversalUuid {
         dal.workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "recovery_pipeline".into(),
-                pipeline_version: "1.0".into(),
+                workflow_name: "recovery_workflow".into(),
+                workflow_version: "1.0".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -305,7 +305,7 @@ mod tests {
     #[cfg(feature = "sqlite")]
     async fn create_task(
         dal: &DAL,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         name: &str,
         status: &str,
         attempt: i32,
@@ -313,7 +313,7 @@ mod tests {
     ) -> UniversalUuid {
         dal.task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: name.into(),
                 status: status.into(),
                 attempt,
@@ -332,9 +332,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_orphaned_tasks_none() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
-        create_task(&dal, pipeline_id, "pending_task", "NotStarted", 1, 3).await;
-        create_task(&dal, pipeline_id, "ready_task", "Ready", 1, 3).await;
+        let workflow_id = create_workflow(&dal).await;
+        create_task(&dal, workflow_id, "pending_task", "NotStarted", 1, 3).await;
+        create_task(&dal, workflow_id, "ready_task", "Ready", 1, 3).await;
 
         let orphaned = dal.task_execution().get_orphaned_tasks().await.unwrap();
         assert!(orphaned.is_empty());
@@ -344,9 +344,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_orphaned_tasks_finds_running() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
-        let running_id = create_task(&dal, pipeline_id, "stuck_task", "Running", 1, 3).await;
-        create_task(&dal, pipeline_id, "ok_task", "Completed", 1, 3).await;
+        let workflow_id = create_workflow(&dal).await;
+        let running_id = create_task(&dal, workflow_id, "stuck_task", "Running", 1, 3).await;
+        create_task(&dal, workflow_id, "ok_task", "Completed", 1, 3).await;
 
         let orphaned = dal.task_execution().get_orphaned_tasks().await.unwrap();
         assert_eq!(orphaned.len(), 1);
@@ -360,8 +360,8 @@ mod tests {
     #[tokio::test]
     async fn test_reset_task_for_recovery() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
-        let task_id = create_task(&dal, pipeline_id, "recover_me", "Running", 1, 3).await;
+        let workflow_id = create_workflow(&dal).await;
+        let task_id = create_task(&dal, workflow_id, "recover_me", "Running", 1, 3).await;
 
         dal.task_execution()
             .reset_task_for_recovery(task_id)
@@ -379,8 +379,8 @@ mod tests {
     #[tokio::test]
     async fn test_reset_task_increments_recovery_attempts() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
-        let task_id = create_task(&dal, pipeline_id, "multi_recover", "Running", 1, 3).await;
+        let workflow_id = create_workflow(&dal).await;
+        let task_id = create_task(&dal, workflow_id, "multi_recover", "Running", 1, 3).await;
 
         // First recovery
         dal.task_execution()
@@ -400,18 +400,18 @@ mod tests {
         assert_eq!(task.recovery_attempts, 2);
     }
 
-    // ── check_pipeline_failure ─────────────────────────────────────
+    // ── check_workflow_failure ─────────────────────────────────────
 
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_check_pipeline_failure_no_abandoned() {
+    async fn test_check_workflow_failure_no_abandoned() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
-        create_task(&dal, pipeline_id, "ok", "Completed", 1, 3).await;
+        let workflow_id = create_workflow(&dal).await;
+        create_task(&dal, workflow_id, "ok", "Completed", 1, 3).await;
 
         let failed = dal
             .task_execution()
-            .check_pipeline_failure(pipeline_id)
+            .check_workflow_failure(workflow_id)
             .await
             .unwrap();
         assert!(!failed);
@@ -419,10 +419,10 @@ mod tests {
 
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_check_pipeline_failure_with_abandoned() {
+    async fn test_check_workflow_failure_with_abandoned() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
-        let task_id = create_task(&dal, pipeline_id, "abandoned", "NotStarted", 1, 3).await;
+        let workflow_id = create_workflow(&dal).await;
+        let task_id = create_task(&dal, workflow_id, "abandoned", "NotStarted", 1, 3).await;
 
         // Mark the task as abandoned (which sets status=Failed + error_details=ABANDONED:...)
         dal.task_execution()
@@ -432,7 +432,7 @@ mod tests {
 
         let failed = dal
             .task_execution()
-            .check_pipeline_failure(pipeline_id)
+            .check_workflow_failure(workflow_id)
             .await
             .unwrap();
         assert!(failed);
@@ -440,20 +440,20 @@ mod tests {
 
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_check_pipeline_failure_regular_failure_not_abandoned() {
+    async fn test_check_workflow_failure_regular_failure_not_abandoned() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
-        let task_id = create_task(&dal, pipeline_id, "regular_fail", "NotStarted", 1, 3).await;
+        let workflow_id = create_workflow(&dal).await;
+        let task_id = create_task(&dal, workflow_id, "regular_fail", "NotStarted", 1, 3).await;
 
-        // A regular failure (not ABANDONED) should NOT trigger pipeline failure check
+        // A regular failure (not ABANDONED) should NOT trigger workflow failure check
         dal.task_execution()
-            .mark_failed(task_id, "something broke")
+            .mark_failed(task_id, "something broke", None)
             .await
             .unwrap();
 
         let failed = dal
             .task_execution()
-            .check_pipeline_failure(pipeline_id)
+            .check_workflow_failure(workflow_id)
             .await
             .unwrap();
         assert!(!failed);
@@ -465,13 +465,13 @@ mod tests {
     #[tokio::test]
     async fn test_get_retry_stats_no_retries() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
-        create_task(&dal, pipeline_id, "t1", "Completed", 1, 3).await;
-        create_task(&dal, pipeline_id, "t2", "Completed", 1, 3).await;
+        let workflow_id = create_workflow(&dal).await;
+        create_task(&dal, workflow_id, "t1", "Completed", 1, 3).await;
+        create_task(&dal, workflow_id, "t2", "Completed", 1, 3).await;
 
         let stats = dal
             .task_execution()
-            .get_retry_stats(pipeline_id)
+            .get_retry_stats(workflow_id)
             .await
             .unwrap();
         assert_eq!(stats.tasks_with_retries, 0);
@@ -484,18 +484,18 @@ mod tests {
     #[tokio::test]
     async fn test_get_retry_stats_with_retries() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
+        let workflow_id = create_workflow(&dal).await;
 
         // Task that succeeded on attempt 1
-        create_task(&dal, pipeline_id, "first_try", "Completed", 1, 3).await;
+        create_task(&dal, workflow_id, "first_try", "Completed", 1, 3).await;
         // Task that succeeded on attempt 3
-        create_task(&dal, pipeline_id, "third_try", "Completed", 3, 3).await;
+        create_task(&dal, workflow_id, "third_try", "Completed", 3, 3).await;
         // Task that exhausted retries
-        create_task(&dal, pipeline_id, "exhausted", "Failed", 3, 3).await;
+        create_task(&dal, workflow_id, "exhausted", "Failed", 3, 3).await;
 
         let stats = dal
             .task_execution()
-            .get_retry_stats(pipeline_id)
+            .get_retry_stats(workflow_id)
             .await
             .unwrap();
         assert_eq!(stats.tasks_with_retries, 2); // third_try + exhausted
@@ -510,15 +510,15 @@ mod tests {
     #[tokio::test]
     async fn test_get_exhausted_retry_tasks() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
+        let workflow_id = create_workflow(&dal).await;
 
-        create_task(&dal, pipeline_id, "ok", "Completed", 1, 3).await;
-        create_task(&dal, pipeline_id, "still_trying", "Failed", 2, 3).await;
-        let exhausted_id = create_task(&dal, pipeline_id, "gave_up", "Failed", 3, 3).await;
+        create_task(&dal, workflow_id, "ok", "Completed", 1, 3).await;
+        create_task(&dal, workflow_id, "still_trying", "Failed", 2, 3).await;
+        let exhausted_id = create_task(&dal, workflow_id, "gave_up", "Failed", 3, 3).await;
 
         let exhausted = dal
             .task_execution()
-            .get_exhausted_retry_tasks(pipeline_id)
+            .get_exhausted_retry_tasks(workflow_id)
             .await
             .unwrap();
         assert_eq!(exhausted.len(), 1);
@@ -530,12 +530,12 @@ mod tests {
     #[tokio::test]
     async fn test_get_exhausted_retry_tasks_empty() {
         let dal = unique_dal().await;
-        let pipeline_id = create_pipeline(&dal).await;
-        create_task(&dal, pipeline_id, "ok", "Completed", 1, 3).await;
+        let workflow_id = create_workflow(&dal).await;
+        create_task(&dal, workflow_id, "ok", "Completed", 1, 3).await;
 
         let exhausted = dal
             .task_execution()
-            .get_exhausted_retry_tasks(pipeline_id)
+            .get_exhausted_retry_tasks(workflow_id)
             .await
             .unwrap();
         assert!(exhausted.is_empty());

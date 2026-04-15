@@ -83,16 +83,16 @@ async fn test_schedule_workflow_execution() {
 
     assert_ne!(execution_id, Uuid::nil());
 
-    // Verify pipeline execution was created
+    // Verify workflow execution was created
     let dal = fixture.get_dal();
-    let pipeline = dal
+    let wf_exec = dal
         .workflow_execution()
         .get_by_id(UniversalUuid(execution_id))
         .await
-        .expect("Failed to get pipeline execution");
+        .expect("Failed to get workflow execution");
 
-    assert_eq!(pipeline.pipeline_name, "test-workflow");
-    assert_eq!(pipeline.status, "Pending");
+    assert_eq!(wf_exec.workflow_name, "test-workflow");
+    assert_eq!(wf_exec.status, "Pending");
 }
 
 #[tokio::test]
@@ -161,12 +161,12 @@ async fn test_workflow_version_tracking() {
 
     // Verify version was stored correctly
     let dal = fixture.get_dal();
-    let pipeline = dal
+    let wf_exec = dal
         .workflow_execution()
         .get_by_id(UniversalUuid(execution_id))
         .await
-        .expect("Failed to get pipeline execution");
+        .expect("Failed to get workflow execution");
 
     // Since we're using auto-versioning, just verify a version was set
-    assert!(!pipeline.pipeline_version.is_empty());
+    assert!(!wf_exec.workflow_version.is_empty());
 }

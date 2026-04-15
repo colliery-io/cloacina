@@ -17,7 +17,7 @@
 //! Execution Event Model
 //!
 //! This module defines domain structures and types for tracking execution events.
-//! Execution events provide a complete audit trail of task and pipeline state
+//! Execution events provide a complete audit trail of task and workflow state
 //! transitions for debugging, compliance, and replay capability.
 //!
 //! These are API-level types; backend-specific models handle database storage.
@@ -28,15 +28,15 @@ use serde::{Deserialize, Serialize};
 /// Represents an execution event record (domain type).
 ///
 /// Execution events are append-only records tracking all state transitions
-/// for tasks and pipelines. Each event captures the transition type, associated
+/// for tasks and workflows. Each event captures the transition type, associated
 /// context, and ordering information for replay.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionEvent {
     /// Unique identifier for this event
     pub id: UniversalUuid,
-    /// The pipeline execution this event belongs to
-    pub pipeline_execution_id: UniversalUuid,
-    /// The task execution this event relates to (None for pipeline-level events)
+    /// The workflow execution this event belongs to
+    pub workflow_execution_id: UniversalUuid,
+    /// The task execution this event relates to (None for workflow-level events)
     pub task_execution_id: Option<UniversalUuid>,
     /// The type of event (e.g., "task_created", "task_completed")
     pub event_type: String,
@@ -53,9 +53,9 @@ pub struct ExecutionEvent {
 /// Structure for creating new execution event records (domain type).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewExecutionEvent {
-    /// The pipeline execution this event belongs to
-    pub pipeline_execution_id: UniversalUuid,
-    /// The task execution this event relates to (None for pipeline-level events)
+    /// The workflow execution this event belongs to
+    pub workflow_execution_id: UniversalUuid,
+    /// The task execution this event relates to (None for workflow-level events)
     pub task_execution_id: Option<UniversalUuid>,
     /// The type of event
     pub event_type: String,
@@ -66,15 +66,15 @@ pub struct NewExecutionEvent {
 }
 
 impl NewExecutionEvent {
-    /// Creates a new execution event for a pipeline-level transition.
-    pub fn pipeline_event(
-        pipeline_execution_id: UniversalUuid,
+    /// Creates a new execution event for a workflow-level transition.
+    pub fn workflow_event(
+        workflow_execution_id: UniversalUuid,
         event_type: ExecutionEventType,
         event_data: Option<String>,
         worker_id: Option<String>,
     ) -> Self {
         Self {
-            pipeline_execution_id,
+            workflow_execution_id,
             task_execution_id: None,
             event_type: event_type.as_str().to_string(),
             event_data,
@@ -84,14 +84,14 @@ impl NewExecutionEvent {
 
     /// Creates a new execution event for a task-level transition.
     pub fn task_event(
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         task_execution_id: UniversalUuid,
         event_type: ExecutionEventType,
         event_data: Option<String>,
         worker_id: Option<String>,
     ) -> Self {
         Self {
-            pipeline_execution_id,
+            workflow_execution_id,
             task_execution_id: Some(task_execution_id),
             event_type: event_type.as_str().to_string(),
             event_data,
@@ -102,7 +102,7 @@ impl NewExecutionEvent {
 
 /// Enumeration of execution event types in the system.
 ///
-/// These cover the full lifecycle of tasks and pipelines, providing
+/// These cover the full lifecycle of tasks and workflows, providing
 /// complete observability into execution state transitions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ExecutionEventType {
@@ -132,17 +132,17 @@ pub enum ExecutionEventType {
     /// Task was reset by recovery process
     TaskReset,
 
-    // Pipeline lifecycle events
-    /// Pipeline execution started
-    PipelineStarted,
-    /// Pipeline execution completed successfully
-    PipelineCompleted,
-    /// Pipeline execution failed
-    PipelineFailed,
-    /// Pipeline was paused
-    PipelinePaused,
-    /// Paused pipeline was resumed
-    PipelineResumed,
+    // Workflow lifecycle events
+    /// Workflow execution started
+    WorkflowStarted,
+    /// Workflow execution completed successfully
+    WorkflowCompleted,
+    /// Workflow execution failed
+    WorkflowFailed,
+    /// Workflow was paused
+    WorkflowPaused,
+    /// Paused workflow was resumed
+    WorkflowResumed,
 }
 
 impl ExecutionEventType {
@@ -162,12 +162,12 @@ impl ExecutionEventType {
             ExecutionEventType::TaskSkipped => "task_skipped",
             ExecutionEventType::TaskAbandoned => "task_abandoned",
             ExecutionEventType::TaskReset => "task_reset",
-            // Pipeline events
-            ExecutionEventType::PipelineStarted => "pipeline_started",
-            ExecutionEventType::PipelineCompleted => "pipeline_completed",
-            ExecutionEventType::PipelineFailed => "pipeline_failed",
-            ExecutionEventType::PipelinePaused => "pipeline_paused",
-            ExecutionEventType::PipelineResumed => "pipeline_resumed",
+            // Workflow events
+            ExecutionEventType::WorkflowStarted => "workflow_started",
+            ExecutionEventType::WorkflowCompleted => "workflow_completed",
+            ExecutionEventType::WorkflowFailed => "workflow_failed",
+            ExecutionEventType::WorkflowPaused => "workflow_paused",
+            ExecutionEventType::WorkflowResumed => "workflow_resumed",
         }
     }
 
@@ -187,11 +187,13 @@ impl ExecutionEventType {
             "task_skipped" => Some(ExecutionEventType::TaskSkipped),
             "task_abandoned" => Some(ExecutionEventType::TaskAbandoned),
             "task_reset" => Some(ExecutionEventType::TaskReset),
-            "pipeline_started" => Some(ExecutionEventType::PipelineStarted),
-            "pipeline_completed" => Some(ExecutionEventType::PipelineCompleted),
-            "pipeline_failed" => Some(ExecutionEventType::PipelineFailed),
-            "pipeline_paused" => Some(ExecutionEventType::PipelinePaused),
-            "pipeline_resumed" => Some(ExecutionEventType::PipelineResumed),
+            "workflow_started" | "pipeline_started" => Some(ExecutionEventType::WorkflowStarted),
+            "workflow_completed" | "pipeline_completed" => {
+                Some(ExecutionEventType::WorkflowCompleted)
+            }
+            "workflow_failed" | "pipeline_failed" => Some(ExecutionEventType::WorkflowFailed),
+            "workflow_paused" | "pipeline_paused" => Some(ExecutionEventType::WorkflowPaused),
+            "workflow_resumed" | "pipeline_resumed" => Some(ExecutionEventType::WorkflowResumed),
             _ => None,
         }
     }
@@ -215,15 +217,15 @@ impl ExecutionEventType {
         )
     }
 
-    /// Returns true if this is a pipeline-level event.
-    pub fn is_pipeline_event(&self) -> bool {
+    /// Returns true if this is a workflow-level event.
+    pub fn is_workflow_event(&self) -> bool {
         matches!(
             self,
-            ExecutionEventType::PipelineStarted
-                | ExecutionEventType::PipelineCompleted
-                | ExecutionEventType::PipelineFailed
-                | ExecutionEventType::PipelinePaused
-                | ExecutionEventType::PipelineResumed
+            ExecutionEventType::WorkflowStarted
+                | ExecutionEventType::WorkflowCompleted
+                | ExecutionEventType::WorkflowFailed
+                | ExecutionEventType::WorkflowPaused
+                | ExecutionEventType::WorkflowResumed
         )
     }
 }

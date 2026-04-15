@@ -71,7 +71,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let new_unified = NewUnifiedTaskExecutionMetadata {
             id,
             task_execution_id: new_metadata.task_execution_id,
-            pipeline_execution_id: new_metadata.pipeline_execution_id,
+            workflow_execution_id: new_metadata.workflow_execution_id,
             task_name: new_metadata.task_name,
             context_id: new_metadata.context_id,
             created_at: now,
@@ -112,7 +112,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let new_unified = NewUnifiedTaskExecutionMetadata {
             id,
             task_execution_id: new_metadata.task_execution_id,
-            pipeline_execution_id: new_metadata.pipeline_execution_id,
+            workflow_execution_id: new_metadata.workflow_execution_id,
             task_name: new_metadata.task_name,
             context_id: new_metadata.context_id,
             created_at: now,
@@ -135,25 +135,25 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         Ok(result.into())
     }
 
-    /// Retrieves task execution metadata for a specific pipeline and task.
-    pub async fn get_by_pipeline_and_task(
+    /// Retrieves task execution metadata for a specific workflow and task.
+    pub async fn get_by_workflow_and_task(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         task_namespace: &TaskNamespace,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.get_by_pipeline_and_task_postgres(pipeline_id, task_namespace)
+            self.get_by_workflow_and_task_postgres(workflow_id, task_namespace)
                 .await,
-            self.get_by_pipeline_and_task_sqlite(pipeline_id, task_namespace)
+            self.get_by_workflow_and_task_sqlite(workflow_id, task_namespace)
                 .await
         )
     }
 
     #[cfg(feature = "postgres")]
-    async fn get_by_pipeline_and_task_postgres(
+    async fn get_by_workflow_and_task_postgres(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         task_namespace: &TaskNamespace,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let conn = self
@@ -167,7 +167,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let result: UnifiedTaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::workflow_execution_id.eq(workflow_id))
                     .filter(task_execution_metadata::task_name.eq(&task_name_owned))
                     .first(conn)
             })
@@ -178,9 +178,9 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     }
 
     #[cfg(feature = "sqlite")]
-    async fn get_by_pipeline_and_task_sqlite(
+    async fn get_by_workflow_and_task_sqlite(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         task_namespace: &TaskNamespace,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let conn = self
@@ -194,7 +194,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let result: UnifiedTaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::workflow_execution_id.eq(workflow_id))
                     .filter(task_execution_metadata::task_name.eq(task_name))
                     .first(conn)
             })
@@ -369,7 +369,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let new_unified = NewUnifiedTaskExecutionMetadata {
             id,
             task_execution_id: new_metadata.task_execution_id,
-            pipeline_execution_id: new_metadata.pipeline_execution_id,
+            workflow_execution_id: new_metadata.workflow_execution_id,
             task_name: new_metadata.task_name,
             context_id: new_metadata.context_id,
             created_at: now,
@@ -467,7 +467,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 let new_unified = NewUnifiedTaskExecutionMetadata {
                     id,
                     task_execution_id: new_metadata.task_execution_id,
-                    pipeline_execution_id: new_metadata.pipeline_execution_id,
+                    workflow_execution_id: new_metadata.workflow_execution_id,
                     task_name: new_metadata.task_name,
                     context_id: new_metadata.context_id,
                     created_at: now,
@@ -492,17 +492,17 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         }
     }
 
-    /// Retrieves metadata for multiple dependency tasks within a pipeline.
+    /// Retrieves metadata for multiple dependency tasks within a workflow execution.
     pub async fn get_dependency_metadata(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.get_dependency_metadata_postgres(pipeline_id, dependency_task_names)
+            self.get_dependency_metadata_postgres(workflow_id, dependency_task_names)
                 .await,
-            self.get_dependency_metadata_sqlite(pipeline_id, dependency_task_names)
+            self.get_dependency_metadata_sqlite(workflow_id, dependency_task_names)
                 .await
         )
     }
@@ -510,7 +510,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     #[cfg(feature = "postgres")]
     async fn get_dependency_metadata_postgres(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
         let conn = self
@@ -524,7 +524,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let results: Vec<UnifiedTaskExecutionMetadata> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::workflow_execution_id.eq(workflow_id))
                     .filter(task_execution_metadata::task_name.eq_any(&dependency_task_names_owned))
                     .load(conn)
             })
@@ -537,7 +537,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     #[cfg(feature = "sqlite")]
     async fn get_dependency_metadata_sqlite(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
         let conn = self
@@ -551,7 +551,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let results: Vec<UnifiedTaskExecutionMetadata> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::workflow_execution_id.eq(workflow_id))
                     .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
                     .load(conn)
             })
@@ -564,7 +564,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// Retrieves metadata and context data for multiple dependency tasks in a single query.
     pub async fn get_dependency_metadata_with_contexts(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         dependency_task_namespaces: &[TaskNamespace],
     ) -> Result<Vec<(TaskExecutionMetadata, Option<String>)>, ValidationError> {
         if dependency_task_namespaces.is_empty() {
@@ -574,12 +574,12 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         crate::dispatch_backend!(
             self.dal.backend(),
             self.get_dependency_metadata_with_contexts_postgres(
-                pipeline_id,
+                workflow_id,
                 dependency_task_namespaces
             )
             .await,
             self.get_dependency_metadata_with_contexts_sqlite(
-                pipeline_id,
+                workflow_id,
                 dependency_task_namespaces
             )
             .await
@@ -589,7 +589,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     #[cfg(feature = "postgres")]
     async fn get_dependency_metadata_with_contexts_postgres(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         dependency_task_namespaces: &[TaskNamespace],
     ) -> Result<Vec<(TaskExecutionMetadata, Option<String>)>, ValidationError> {
         let conn = self
@@ -611,7 +611,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                         contexts::table
                             .on(task_execution_metadata::context_id.eq(contexts::id.nullable())),
                     )
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::workflow_execution_id.eq(workflow_id))
                     .filter(task_execution_metadata::task_name.eq_any(&dependency_task_names_owned))
                     .select((
                         task_execution_metadata::all_columns,
@@ -628,7 +628,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     #[cfg(feature = "sqlite")]
     async fn get_dependency_metadata_with_contexts_sqlite(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_id: UniversalUuid,
         dependency_task_namespaces: &[TaskNamespace],
     ) -> Result<Vec<(TaskExecutionMetadata, Option<String>)>, ValidationError> {
         let conn = self
@@ -650,7 +650,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                         contexts::table
                             .on(task_execution_metadata::context_id.eq(contexts::id.nullable())),
                     )
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::workflow_execution_id.eq(workflow_id))
                     .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
                     .select((
                         task_execution_metadata::all_columns,
@@ -670,9 +670,9 @@ mod tests {
     use super::*;
     use crate::context::Context;
     use crate::database::Database;
-    use crate::models::pipeline_execution::NewWorkflowExecution;
     use crate::models::task_execution::NewTaskExecution;
     use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
+    use crate::models::workflow_execution::NewWorkflowExecution;
 
     #[cfg(feature = "sqlite")]
     async fn unique_dal() -> DAL {
@@ -687,17 +687,17 @@ mod tests {
         DAL::new(db)
     }
 
-    /// Helper: create a pipeline and a task, returning (pipeline_id, task_id).
+    /// Helper: create a workflow execution and a task, returning (workflow_id, task_id).
     #[cfg(feature = "sqlite")]
-    async fn create_pipeline_and_task(
+    async fn create_workflow_and_task(
         dal: &DAL,
         task_name: &str,
     ) -> (UniversalUuid, UniversalUuid) {
-        let pipeline = dal
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "test_pipeline".into(),
-                pipeline_version: "1.0".into(),
+                workflow_name: "test_workflow".into(),
+                workflow_version: "1.0".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -707,7 +707,7 @@ mod tests {
         let task = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: wf_exec.id,
                 task_name: task_name.into(),
                 status: "NotStarted".into(),
                 attempt: 1,
@@ -718,7 +718,7 @@ mod tests {
             .await
             .unwrap();
 
-        (pipeline.id, task.id)
+        (wf_exec.id, task.id)
     }
 
     // ── create ─────────────────────────────────────────────────────
@@ -727,13 +727,13 @@ mod tests {
     #[tokio::test]
     async fn test_create_metadata() {
         let dal = unique_dal().await;
-        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "my_task").await;
+        let (workflow_id, task_id) = create_workflow_and_task(&dal, "my_task").await;
 
         let metadata = dal
             .task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: "my_task".into(),
                 context_id: None,
             })
@@ -741,7 +741,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(metadata.task_execution_id, task_id);
-        assert_eq!(metadata.pipeline_execution_id, pipeline_id);
+        assert_eq!(metadata.workflow_execution_id, workflow_id);
         assert_eq!(metadata.task_name, "my_task");
         assert!(metadata.context_id.is_none());
     }
@@ -750,7 +750,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_metadata_with_context() {
         let dal = unique_dal().await;
-        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "ctx_task").await;
+        let (workflow_id, task_id) = create_workflow_and_task(&dal, "ctx_task").await;
 
         // Create a context first so the FK is satisfied
         let mut ctx = Context::<serde_json::Value>::new();
@@ -762,7 +762,7 @@ mod tests {
             .task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: "ctx_task".into(),
                 context_id: Some(ctx_id),
             })
@@ -772,20 +772,20 @@ mod tests {
         assert_eq!(metadata.context_id, Some(ctx_id));
     }
 
-    // ── get_by_pipeline_and_task ───────────────────────────────────
+    // ── get_by_workflow_and_task ───────────────────────────────────
 
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_get_by_pipeline_and_task() {
+    async fn test_get_by_workflow_and_task() {
         let dal = unique_dal().await;
         let ns = TaskNamespace::new("public", "embedded", "test_wf", "lookup_task");
         let ns_str = ns.to_string();
-        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, &ns_str).await;
+        let (workflow_id, task_id) = create_workflow_and_task(&dal, &ns_str).await;
 
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: ns_str.clone(),
                 context_id: None,
             })
@@ -794,7 +794,7 @@ mod tests {
 
         let found = dal
             .task_execution_metadata()
-            .get_by_pipeline_and_task(pipeline_id, &ns)
+            .get_by_workflow_and_task(workflow_id, &ns)
             .await
             .unwrap();
 
@@ -804,12 +804,12 @@ mod tests {
 
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_get_by_pipeline_and_task_not_found() {
+    async fn test_get_by_workflow_and_task_not_found() {
         let dal = unique_dal().await;
         let ns = TaskNamespace::new("public", "embedded", "wf", "nonexistent");
         let result = dal
             .task_execution_metadata()
-            .get_by_pipeline_and_task(UniversalUuid::new_v4(), &ns)
+            .get_by_workflow_and_task(UniversalUuid::new_v4(), &ns)
             .await;
         assert!(result.is_err());
     }
@@ -820,12 +820,12 @@ mod tests {
     #[tokio::test]
     async fn test_get_by_task_execution() {
         let dal = unique_dal().await;
-        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "exec_lookup").await;
+        let (workflow_id, task_id) = create_workflow_and_task(&dal, "exec_lookup").await;
 
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: "exec_lookup".into(),
                 context_id: None,
             })
@@ -839,7 +839,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(found.task_execution_id, task_id);
-        assert_eq!(found.pipeline_execution_id, pipeline_id);
+        assert_eq!(found.workflow_execution_id, workflow_id);
     }
 
     // ── update_context_id ──────────────────────────────────────────
@@ -848,12 +848,12 @@ mod tests {
     #[tokio::test]
     async fn test_update_context_id() {
         let dal = unique_dal().await;
-        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "update_ctx").await;
+        let (workflow_id, task_id) = create_workflow_and_task(&dal, "update_ctx").await;
 
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: "update_ctx".into(),
                 context_id: None,
             })
@@ -883,7 +883,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_context_id_to_none() {
         let dal = unique_dal().await;
-        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "clear_ctx").await;
+        let (workflow_id, task_id) = create_workflow_and_task(&dal, "clear_ctx").await;
 
         let mut ctx = Context::<serde_json::Value>::new();
         ctx.insert("temp".to_string(), serde_json::json!("data"))
@@ -893,7 +893,7 @@ mod tests {
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: "clear_ctx".into(),
                 context_id: Some(ctx_id),
             })
@@ -920,13 +920,13 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_insert() {
         let dal = unique_dal().await;
-        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "upsert_new").await;
+        let (workflow_id, task_id) = create_workflow_and_task(&dal, "upsert_new").await;
 
         let metadata = dal
             .task_execution_metadata()
             .upsert_task_execution_metadata(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: "upsert_new".into(),
                 context_id: None,
             })
@@ -941,14 +941,14 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_update() {
         let dal = unique_dal().await;
-        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "upsert_upd").await;
+        let (workflow_id, task_id) = create_workflow_and_task(&dal, "upsert_upd").await;
 
         // First insert
         let original = dal
             .task_execution_metadata()
             .upsert_task_execution_metadata(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: "upsert_upd".into(),
                 context_id: None,
             })
@@ -966,7 +966,7 @@ mod tests {
             .task_execution_metadata()
             .upsert_task_execution_metadata(NewTaskExecutionMetadata {
                 task_execution_id: task_id,
-                pipeline_execution_id: pipeline_id,
+                workflow_execution_id: workflow_id,
                 task_name: "upsert_upd".into(),
                 context_id: Some(ctx_id),
             })
@@ -984,11 +984,11 @@ mod tests {
     #[tokio::test]
     async fn test_get_dependency_metadata() {
         let dal = unique_dal().await;
-        let pipeline = dal
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "dep_pipeline".into(),
-                pipeline_version: "1".into(),
+                workflow_name: "dep_workflow".into(),
+                workflow_version: "1".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -1000,7 +1000,7 @@ mod tests {
             let task = dal
                 .task_execution()
                 .create(NewTaskExecution {
-                    pipeline_execution_id: pipeline.id,
+                    workflow_execution_id: wf_exec.id,
                     task_name: name.to_string(),
                     status: "NotStarted".into(),
                     attempt: 1,
@@ -1014,7 +1014,7 @@ mod tests {
             dal.task_execution_metadata()
                 .create(NewTaskExecutionMetadata {
                     task_execution_id: task.id,
-                    pipeline_execution_id: pipeline.id,
+                    workflow_execution_id: wf_exec.id,
                     task_name: name.to_string(),
                     context_id: None,
                 })
@@ -1024,7 +1024,7 @@ mod tests {
 
         let deps = dal
             .task_execution_metadata()
-            .get_dependency_metadata(pipeline.id, &["dep_a".to_string(), "dep_b".to_string()])
+            .get_dependency_metadata(wf_exec.id, &["dep_a".to_string(), "dep_b".to_string()])
             .await
             .unwrap();
 
@@ -1065,11 +1065,11 @@ mod tests {
     #[ignore = "requires matching task_name format with internal query — needs investigation"]
     async fn test_get_dependency_metadata_with_contexts() {
         let dal = unique_dal().await;
-        let pipeline = dal
+        let wf_exec = dal
             .workflow_execution()
             .create(NewWorkflowExecution {
-                pipeline_name: "ctx_dep_pipeline".into(),
-                pipeline_version: "1".into(),
+                workflow_name: "ctx_dep_workflow".into(),
+                workflow_version: "1".into(),
                 status: "Running".into(),
                 context_id: None,
             })
@@ -1085,7 +1085,7 @@ mod tests {
         let task_with_ctx = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: wf_exec.id,
                 task_name: "public::embedded::wf::has_ctx".into(),
                 status: "Completed".into(),
                 attempt: 1,
@@ -1099,7 +1099,7 @@ mod tests {
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_with_ctx.id,
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: wf_exec.id,
                 task_name: "public::embedded::wf::has_ctx".into(),
                 context_id: Some(ctx_id),
             })
@@ -1110,7 +1110,7 @@ mod tests {
         let task_no_ctx = dal
             .task_execution()
             .create(NewTaskExecution {
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: wf_exec.id,
                 task_name: "public::embedded::wf::no_ctx".into(),
                 status: "Completed".into(),
                 attempt: 1,
@@ -1124,7 +1124,7 @@ mod tests {
         dal.task_execution_metadata()
             .create(NewTaskExecutionMetadata {
                 task_execution_id: task_no_ctx.id,
-                pipeline_execution_id: pipeline.id,
+                workflow_execution_id: wf_exec.id,
                 task_name: "public::embedded::wf::no_ctx".into(),
                 context_id: None,
             })
@@ -1136,7 +1136,7 @@ mod tests {
 
         let results = dal
             .task_execution_metadata()
-            .get_dependency_metadata_with_contexts(pipeline.id, &[ns_with, ns_without])
+            .get_dependency_metadata_with_contexts(wf_exec.id, &[ns_with, ns_without])
             .await
             .unwrap();
 

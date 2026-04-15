@@ -224,7 +224,7 @@ impl NewSchedule {
 pub struct ScheduleExecution {
     pub id: UniversalUuid,
     pub schedule_id: UniversalUuid,
-    pub pipeline_execution_id: Option<UniversalUuid>,
+    pub workflow_execution_id: Option<UniversalUuid>,
 
     // Cron-specific
     pub scheduled_time: Option<UniversalTimestamp>,
@@ -243,7 +243,7 @@ pub struct ScheduleExecution {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewScheduleExecution {
     pub schedule_id: UniversalUuid,
-    pub pipeline_execution_id: Option<UniversalUuid>,
+    pub workflow_execution_id: Option<UniversalUuid>,
     pub scheduled_time: Option<UniversalTimestamp>,
     pub claimed_at: Option<UniversalTimestamp>,
     pub context_hash: Option<String>,

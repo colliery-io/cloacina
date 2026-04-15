@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskExecution {
     pub id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub status: String,
     pub started_at: Option<UniversalTimestamp>,
@@ -50,7 +50,7 @@ pub struct TaskExecution {
 /// Structure for creating new task executions (domain type).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewTaskExecution {
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub status: String,
     pub attempt: i32,

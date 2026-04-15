@@ -657,7 +657,7 @@ impl ReactiveScheduler {
         use crate::database::universal_types::UniversalUuid;
         use crate::models::recovery_event::NewRecoveryEvent;
         let event = NewRecoveryEvent {
-            pipeline_execution_id: UniversalUuid::new_v4(),
+            workflow_execution_id: UniversalUuid::new_v4(),
             task_execution_id: None,
             recovery_type: "graph_component_restart".to_string(),
             details: Some(format!(

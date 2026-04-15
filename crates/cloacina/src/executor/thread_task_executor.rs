@@ -16,7 +16,7 @@
 
 //! Task Executor Module
 //!
-//! This module provides the core task execution functionality for the Cloacina pipeline system.
+//! This module provides the core task execution functionality for the Cloacina workflow system.
 //! The ThreadTaskExecutor implements the `TaskExecutor` trait for dispatcher-based execution.
 //!
 //! The executor is responsible for:
@@ -198,7 +198,7 @@ impl ThreadTaskExecutor {
             dependencies
         );
         let execution_scope = ExecutionScope {
-            pipeline_execution_id: claimed_task.pipeline_execution_id,
+            workflow_execution_id: claimed_task.workflow_execution_id,
             task_execution_id: Some(claimed_task.task_execution_id),
             task_name: Some(claimed_task.task_name.clone()),
         };
@@ -210,15 +210,15 @@ impl ThreadTaskExecutor {
         // Track execution scope for logging/metrics (not stored in context)
         let _execution_scope = execution_scope;
 
-        // Load initial pipeline context if task has no dependencies
+        // Load initial workflow context if task has no dependencies
         if dependencies.is_empty() {
-            if let Ok(pipeline_execution) = self
+            if let Ok(workflow_execution) = self
                 .dal
                 .workflow_execution()
-                .get_by_id(claimed_task.pipeline_execution_id)
+                .get_by_id(claimed_task.workflow_execution_id)
                 .await
             {
-                if let Some(context_id) = pipeline_execution.context_id {
+                if let Some(context_id) = workflow_execution.context_id {
                     if let Ok(initial_context) = self
                         .dal
                         .context()
@@ -230,7 +230,7 @@ impl ThreadTaskExecutor {
                             let _ = context.insert(key, value.clone());
                         }
                         debug!(
-                            "Loaded initial pipeline context with {} keys",
+                            "Loaded initial workflow context with {} keys",
                             initial_context.data().len()
                         );
                     }
@@ -246,50 +246,54 @@ impl ThreadTaskExecutor {
                 dependencies.len(),
                 dependencies
             );
-            if let Ok(dep_metadata_with_contexts) = self
+            let dep_metadata_with_contexts = self
                 .dal
                 .task_execution_metadata()
                 .get_dependency_metadata_with_contexts(
-                    claimed_task.pipeline_execution_id,
+                    claimed_task.workflow_execution_id,
                     dependencies,
                 )
                 .await
-            {
-                debug!(
-                    "Found {} dependency metadata records",
-                    dep_metadata_with_contexts.len()
-                );
-                for (_task_metadata, context_json) in dep_metadata_with_contexts {
-                    if let Some(json_str) = context_json {
-                        // Parse the JSON context data
-                        if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
-                            debug!(
-                                "Merging dependency context with {} keys: {:?}",
-                                dep_context.data().len(),
-                                dep_context.data().keys().collect::<Vec<_>>()
-                            );
-                            // Merge context data (smart merging strategy)
-                            for (key, value) in dep_context.data() {
-                                if let Some(existing_value) = context.get(key) {
-                                    // Key exists - perform smart merging
-                                    let merged_value =
-                                        Self::merge_context_values(existing_value, value);
-                                    let _ = context.update(key, merged_value);
-                                } else {
-                                    // Key doesn't exist - insert new value
-                                    let _ = context.insert(key, value.clone());
-                                }
+                .map_err(|e| {
+                    error!(
+                        "Failed to load dependency contexts for task '{}': {}",
+                        claimed_task.task_name, e
+                    );
+                    ExecutorError::ContextLoadFailed(format!(
+                        "dependency context load failed for '{}': {}",
+                        claimed_task.task_name, e
+                    ))
+                })?;
+
+            debug!(
+                "Found {} dependency metadata records",
+                dep_metadata_with_contexts.len()
+            );
+            for (_task_metadata, context_json) in dep_metadata_with_contexts {
+                if let Some(json_str) = context_json {
+                    // Parse the JSON context data
+                    if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
+                        debug!(
+                            "Merging dependency context with {} keys: {:?}",
+                            dep_context.data().len(),
+                            dep_context.data().keys().collect::<Vec<_>>()
+                        );
+                        // Merge context data (smart merging strategy)
+                        for (key, value) in dep_context.data() {
+                            if let Some(existing_value) = context.get(key) {
+                                // Key exists - perform smart merging
+                                let merged_value =
+                                    Self::merge_context_values(existing_value, value);
+                                let _ = context.update(key, merged_value);
+                            } else {
+                                // Key doesn't exist - insert new value
+                                let _ = context.insert(key, value.clone());
                             }
-                        } else {
-                            debug!("Failed to parse dependency context JSON");
                         }
+                    } else {
+                        debug!("Failed to parse dependency context JSON");
                     }
                 }
-            } else {
-                debug!(
-                    "Failed to load dependency metadata for dependencies: {:?}",
-                    dependencies
-                );
             }
         }
 
@@ -457,7 +461,7 @@ impl ThreadTaskExecutor {
         // Create task execution metadata record with reference to context
         let task_metadata_record = NewTaskExecutionMetadata {
             task_execution_id: claimed_task.task_execution_id,
-            pipeline_execution_id: claimed_task.pipeline_execution_id,
+            workflow_execution_id: claimed_task.workflow_execution_id,
             task_name: claimed_task.task_name.clone(),
             context_id,
         };
@@ -470,8 +474,8 @@ impl ThreadTaskExecutor {
         let key_count = context.data().len();
         let keys: Vec<_> = context.data().keys().collect();
         info!(
-            "Context saved: {} (pipeline: {}, {} keys: {:?}, context_id: {:?})",
-            claimed_task.task_name, claimed_task.pipeline_execution_id, key_count, keys, context_id
+            "Context saved: {} (workflow: {}, {} keys: {:?}, context_id: {:?})",
+            claimed_task.task_name, claimed_task.workflow_execution_id, key_count, keys, context_id
         );
         Ok(())
     }
@@ -483,62 +487,52 @@ impl ThreadTaskExecutor {
     ///
     /// # Returns
     /// Result indicating success or failure of the operation
-    async fn mark_task_completed(
-        &self,
-        task_execution_id: UniversalUuid,
-    ) -> Result<(), ExecutorError> {
-        // Get task info for logging before updating
-        let task = self
-            .dal
-            .task_execution()
-            .get_by_id(task_execution_id)
-            .await?;
-
-        self.dal
-            .task_execution()
-            .mark_completed(task_execution_id)
-            .await?;
-
-        info!(
-            "Task state change: {} -> Completed (task: {}, pipeline: {})",
-            task.status, task.task_name, task.pipeline_execution_id
-        );
-        Ok(())
-    }
-
-    /// Completes a task by saving its context and marking it as completed.
+    /// Completes a task by marking it as completed (with claim guard) then saving context.
     ///
-    /// These two operations (context save + status update) are performed sequentially.
-    /// If context save succeeds but mark_completed fails, the error is logged at
-    /// ERROR level with the context_id so the inconsistency can be diagnosed. The
-    /// stale claim sweeper will eventually reset the task to Ready, but the context
-    /// is already persisted and will not be lost.
-    ///
-    /// # Arguments
-    /// * `claimed_task` - The task to complete
-    /// * `context` - The execution context to save
-    ///
-    /// # Returns
-    /// Result indicating success or failure of the operation
+    /// Order: mark_completed first (guarded by claimed_by), then save context. If the
+    /// claim was lost, context is NOT saved — another runner owns this task.
     async fn complete_task_transaction(
         &self,
         claimed_task: &ClaimedTask,
         context: Context<serde_json::Value>,
     ) -> Result<(), ExecutorError> {
-        // Save context and update metadata first (idempotent via upsert)
-        self.save_task_context(claimed_task, context).await?;
+        let runner_id = if self.config.enable_claiming {
+            Some(self.instance_id)
+        } else {
+            None
+        };
 
-        // Mark task as completed — if this fails after context save, log critically
-        if let Err(e) = self
-            .mark_task_completed(claimed_task.task_execution_id)
-            .await
-        {
+        // Mark completed first — guarded by claim ownership
+        let applied = self
+            .dal
+            .task_execution()
+            .mark_completed(claimed_task.task_execution_id, runner_id)
+            .await?;
+
+        if !applied {
+            warn!(
+                task_id = %claimed_task.task_execution_id,
+                task_name = %claimed_task.task_name,
+                "Claim lost — skipping context save, another runner owns this task"
+            );
+            return Ok(());
+        }
+
+        info!(
+            task_id = %claimed_task.task_execution_id,
+            task_name = %claimed_task.task_name,
+            workflow_id = %claimed_task.workflow_execution_id,
+            "Task state change: -> Completed"
+        );
+
+        // Save context only after confirming we still own the claim
+        if let Err(e) = self.save_task_context(claimed_task, context).await {
             error!(
                 task_id = %claimed_task.task_execution_id,
                 task_name = %claimed_task.task_name,
-                pipeline_id = %claimed_task.pipeline_execution_id,
+                workflow_id = %claimed_task.workflow_execution_id,
                 error = %e,
-                "CRITICAL: Context saved but mark_completed failed — task may be re-executed by stale claim sweeper"
+                "CRITICAL: mark_completed succeeded but context save failed"
             );
             return Err(e);
         }
@@ -560,6 +554,12 @@ impl ThreadTaskExecutor {
         task_execution_id: UniversalUuid,
         error: &ExecutorError,
     ) -> Result<(), ExecutorError> {
+        let runner_id = if self.config.enable_claiming {
+            Some(self.instance_id)
+        } else {
+            None
+        };
+
         // Get task info for logging before updating
         let task = self
             .dal
@@ -567,15 +567,23 @@ impl ThreadTaskExecutor {
             .get_by_id(task_execution_id)
             .await?;
 
-        self.dal
+        let applied = self
+            .dal
             .task_execution()
-            .mark_failed(task_execution_id, &error.to_string())
+            .mark_failed(task_execution_id, &error.to_string(), runner_id)
             .await?;
 
-        error!(
-            "Task state change: {} -> Failed (task: {}, pipeline: {}, error: {})",
-            task.status, task.task_name, task.pipeline_execution_id, error
-        );
+        if applied {
+            error!(
+                "Task state change: {} -> Failed (task: {}, workflow: {}, error: {})",
+                task.status, task.task_name, task.workflow_execution_id, error
+            );
+        } else {
+            warn!(
+                task_id = %task_execution_id,
+                "Claim lost — mark_failed skipped, another runner owns this task"
+            );
+        }
 
         Ok(())
     }
@@ -802,10 +810,17 @@ impl TaskExecutor for ThreadTaskExecutor {
             .await
             .map_err(|_| DispatchError::ExecutorNotFound("semaphore closed".into()))?;
 
+        // Compute runner_id for claim-guarded state transitions
+        let claim_runner_id = if self.config.enable_claiming {
+            Some(self.instance_id)
+        } else {
+            None
+        };
+
         // Convert TaskReadyEvent to ClaimedTask format
         let claimed_task = ClaimedTask {
             task_execution_id: event.task_execution_id,
-            pipeline_execution_id: event.pipeline_execution_id,
+            workflow_execution_id: event.workflow_execution_id,
             task_name: event.task_name.clone(),
             attempt: event.attempt,
         };
@@ -815,9 +830,15 @@ impl TaskExecutor for ThreadTaskExecutor {
             Ok(ns) => ns,
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
+                let error_msg = format!("Invalid namespace: {}", e);
+                let _ = self
+                    .dal
+                    .task_execution()
+                    .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
+                    .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
-                    format!("Invalid namespace: {}", e),
+                    error_msg,
                     start.elapsed(),
                 ));
             }
@@ -827,9 +848,15 @@ impl TaskExecutor for ThreadTaskExecutor {
             Some(t) => t,
             None => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
+                let error_msg = format!("Task not found: {}", claimed_task.task_name);
+                let _ = self
+                    .dal
+                    .task_execution()
+                    .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
+                    .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
-                    format!("Task not found: {}", claimed_task.task_name),
+                    error_msg,
                     start.elapsed(),
                 ));
             }
@@ -841,13 +868,21 @@ impl TaskExecutor for ThreadTaskExecutor {
             Ok(ctx) => ctx,
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
+                let error_msg = format!("Context build failed: {}", e);
+                let _ = self
+                    .dal
+                    .task_execution()
+                    .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
+                    .await;
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
-                    format!("Context build failed: {}", e),
+                    error_msg,
                     start.elapsed(),
                 ));
             }
         };
+
+        metrics::gauge!("cloacina_active_tasks").increment(1.0);
 
         // Execute the task — if it requires a handle, wrap execution with
         // task-local storage so the macro-generated code can access it.
@@ -896,6 +931,8 @@ impl TaskExecutor for ThreadTaskExecutor {
             self.execute_with_timeout(task.as_ref(), context).await
         };
         let duration = start.elapsed();
+        metrics::histogram!("cloacina_task_duration_seconds").record(duration.as_secs_f64());
+        metrics::gauge!("cloacina_active_tasks").decrement(1.0);
 
         // Stop heartbeat and release claim after execution (success or failure)
         if let Some(handle) = heartbeat_handle {
@@ -921,9 +958,16 @@ impl TaskExecutor for ThreadTaskExecutor {
                     }
                     Err(e) => {
                         self.total_failed.fetch_add(1, Ordering::SeqCst);
+                        let error_msg = format!("Failed to save context: {}", e);
+                        // Mark failed in DB — executor owns all state transitions
+                        let _ = self
+                            .dal
+                            .task_execution()
+                            .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
+                            .await;
                         Ok(ExecutionResult::failure(
                             event.task_execution_id,
-                            format!("Failed to save context: {}", e),
+                            error_msg,
                             duration,
                         ))
                     }
@@ -954,6 +998,12 @@ impl TaskExecutor for ThreadTaskExecutor {
                     ))
                 } else {
                     self.total_failed.fetch_add(1, Ordering::SeqCst);
+                    // Mark failed in DB — executor owns all state transitions
+                    let _ = self
+                        .dal
+                        .task_execution()
+                        .mark_failed(event.task_execution_id, &error.to_string(), claim_runner_id)
+                        .await;
                     Ok(ExecutionResult::failure(
                         event.task_execution_id,
                         error.to_string(),

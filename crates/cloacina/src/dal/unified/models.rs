@@ -21,9 +21,9 @@
 
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, execution_events, key_trust_acls,
-    package_signatures, pipeline_executions, reactor_state, recovery_events, schedule_executions,
-    schedules, signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions,
-    task_outbox, trusted_keys, workflow_packages, workflow_registry,
+    package_signatures, reactor_state, recovery_events, schedule_executions, schedules,
+    signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions, task_outbox,
+    trusted_keys, workflow_executions, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -55,15 +55,15 @@ pub struct NewUnifiedDbContext {
 }
 
 // ============================================================================
-// Pipeline Execution Models
+// Workflow Execution Models
 // ============================================================================
 
 #[derive(Debug, Clone, Queryable, Selectable)]
-#[diesel(table_name = pipeline_executions)]
+#[diesel(table_name = workflow_executions)]
 pub struct UnifiedWorkflowExecution {
     pub id: UniversalUuid,
-    pub pipeline_name: String,
-    pub pipeline_version: String,
+    pub workflow_name: String,
+    pub workflow_version: String,
     pub status: String,
     pub context_id: Option<UniversalUuid>,
     pub started_at: UniversalTimestamp,
@@ -78,11 +78,11 @@ pub struct UnifiedWorkflowExecution {
 }
 
 #[derive(Debug, Insertable)]
-#[diesel(table_name = pipeline_executions)]
+#[diesel(table_name = workflow_executions)]
 pub struct NewUnifiedWorkflowExecution {
     pub id: UniversalUuid,
-    pub pipeline_name: String,
-    pub pipeline_version: String,
+    pub workflow_name: String,
+    pub workflow_version: String,
     pub status: String,
     pub context_id: Option<UniversalUuid>,
     pub started_at: UniversalTimestamp,
@@ -98,7 +98,7 @@ pub struct NewUnifiedWorkflowExecution {
 #[diesel(table_name = task_executions)]
 pub struct UnifiedTaskExecution {
     pub id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub status: String,
     pub started_at: Option<UniversalTimestamp>,
@@ -123,7 +123,7 @@ pub struct UnifiedTaskExecution {
 #[diesel(table_name = task_executions)]
 pub struct NewUnifiedTaskExecution {
     pub id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub status: String,
     pub attempt: i32,
@@ -143,7 +143,7 @@ pub struct NewUnifiedTaskExecution {
 pub struct UnifiedTaskExecutionMetadata {
     pub id: UniversalUuid,
     pub task_execution_id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub context_id: Option<UniversalUuid>,
     pub created_at: UniversalTimestamp,
@@ -155,7 +155,7 @@ pub struct UnifiedTaskExecutionMetadata {
 pub struct NewUnifiedTaskExecutionMetadata {
     pub id: UniversalUuid,
     pub task_execution_id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub context_id: Option<UniversalUuid>,
     pub created_at: UniversalTimestamp,
@@ -170,7 +170,7 @@ pub struct NewUnifiedTaskExecutionMetadata {
 #[diesel(table_name = recovery_events)]
 pub struct UnifiedRecoveryEvent {
     pub id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_execution_id: Option<UniversalUuid>,
     pub recovery_type: String,
     pub recovered_at: UniversalTimestamp,
@@ -183,7 +183,7 @@ pub struct UnifiedRecoveryEvent {
 #[diesel(table_name = recovery_events)]
 pub struct NewUnifiedRecoveryEvent {
     pub id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_execution_id: Option<UniversalUuid>,
     pub recovery_type: String,
     pub recovered_at: UniversalTimestamp,
@@ -202,7 +202,7 @@ pub struct NewUnifiedRecoveryEvent {
 #[diesel(table_name = execution_events)]
 pub struct UnifiedExecutionEvent {
     pub id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_execution_id: Option<UniversalUuid>,
     pub event_type: String,
     pub event_data: Option<String>,
@@ -215,7 +215,7 @@ pub struct UnifiedExecutionEvent {
 #[diesel(table_name = execution_events)]
 pub struct NewUnifiedExecutionEvent {
     pub id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_execution_id: Option<UniversalUuid>,
     pub event_type: String,
     pub event_data: Option<String>,
@@ -299,7 +299,7 @@ pub struct NewUnifiedSchedule {
 pub struct UnifiedScheduleExecution {
     pub id: UniversalUuid,
     pub schedule_id: UniversalUuid,
-    pub pipeline_execution_id: Option<UniversalUuid>,
+    pub workflow_execution_id: Option<UniversalUuid>,
     pub scheduled_time: Option<UniversalTimestamp>,
     pub claimed_at: Option<UniversalTimestamp>,
     pub context_hash: Option<String>,
@@ -314,7 +314,7 @@ pub struct UnifiedScheduleExecution {
 pub struct NewUnifiedScheduleExecution {
     pub id: UniversalUuid,
     pub schedule_id: UniversalUuid,
-    pub pipeline_execution_id: Option<UniversalUuid>,
+    pub workflow_execution_id: Option<UniversalUuid>,
     pub scheduled_time: Option<UniversalTimestamp>,
     pub claimed_at: Option<UniversalTimestamp>,
     pub context_hash: Option<String>,
@@ -492,13 +492,13 @@ use crate::models::context::DbContext;
 use crate::models::execution_event::ExecutionEvent;
 use crate::models::key_trust_acl::KeyTrustAcl;
 use crate::models::package_signature::PackageSignature;
-use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::recovery_event::RecoveryEvent;
 use crate::models::schedule::{Schedule, ScheduleExecution};
 use crate::models::signing_key::SigningKey;
 use crate::models::task_execution::TaskExecution;
 use crate::models::task_execution_metadata::TaskExecutionMetadata;
 use crate::models::trusted_key::TrustedKey;
+use crate::models::workflow_execution::WorkflowExecutionRecord;
 use crate::models::workflow_packages::WorkflowPackage;
 use crate::models::workflow_registry::WorkflowRegistryEntry;
 
@@ -517,8 +517,8 @@ impl From<UnifiedWorkflowExecution> for WorkflowExecutionRecord {
     fn from(u: UnifiedWorkflowExecution) -> Self {
         WorkflowExecutionRecord {
             id: u.id,
-            pipeline_name: u.pipeline_name,
-            pipeline_version: u.pipeline_version,
+            workflow_name: u.workflow_name,
+            workflow_version: u.workflow_version,
             status: u.status,
             context_id: u.context_id,
             started_at: u.started_at,
@@ -538,7 +538,7 @@ impl From<UnifiedTaskExecution> for TaskExecution {
     fn from(u: UnifiedTaskExecution) -> Self {
         TaskExecution {
             id: u.id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.workflow_execution_id,
             task_name: u.task_name,
             status: u.status,
             started_at: u.started_at,
@@ -566,7 +566,7 @@ impl From<UnifiedTaskExecutionMetadata> for TaskExecutionMetadata {
         TaskExecutionMetadata {
             id: u.id,
             task_execution_id: u.task_execution_id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.workflow_execution_id,
             task_name: u.task_name,
             context_id: u.context_id,
             created_at: u.created_at,
@@ -579,7 +579,7 @@ impl From<UnifiedRecoveryEvent> for RecoveryEvent {
     fn from(u: UnifiedRecoveryEvent) -> Self {
         RecoveryEvent {
             id: u.id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.workflow_execution_id,
             task_execution_id: u.task_execution_id,
             recovery_type: u.recovery_type,
             recovered_at: u.recovered_at,
@@ -594,7 +594,7 @@ impl From<UnifiedExecutionEvent> for ExecutionEvent {
     fn from(u: UnifiedExecutionEvent) -> Self {
         ExecutionEvent {
             id: u.id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.workflow_execution_id,
             task_execution_id: u.task_execution_id,
             event_type: u.event_type,
             event_data: u.event_data,
@@ -715,7 +715,7 @@ impl From<UnifiedScheduleExecution> for ScheduleExecution {
         ScheduleExecution {
             id: u.id,
             schedule_id: u.schedule_id,
-            pipeline_execution_id: u.pipeline_execution_id,
+            workflow_execution_id: u.workflow_execution_id,
             scheduled_time: u.scheduled_time,
             claimed_at: u.claimed_at,
             context_hash: u.context_hash,

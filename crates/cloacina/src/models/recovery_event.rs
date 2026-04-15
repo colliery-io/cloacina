@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecoveryEvent {
     pub id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_execution_id: Option<UniversalUuid>,
     pub recovery_type: String,
     pub recovered_at: UniversalTimestamp,
@@ -38,7 +38,7 @@ pub struct RecoveryEvent {
 /// Structure for creating new recovery event records (domain type).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewRecoveryEvent {
-    pub pipeline_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
     pub task_execution_id: Option<UniversalUuid>,
     pub recovery_type: String,
     pub details: Option<String>,
@@ -49,7 +49,7 @@ pub struct NewRecoveryEvent {
 pub enum RecoveryType {
     TaskReset,
     TaskAbandoned,
-    PipelineFailed,
+    WorkflowFailed,
     WorkflowUnavailable,
 }
 
@@ -58,7 +58,7 @@ impl RecoveryType {
         match self {
             RecoveryType::TaskReset => "task_reset",
             RecoveryType::TaskAbandoned => "task_abandoned",
-            RecoveryType::PipelineFailed => "pipeline_failed",
+            RecoveryType::WorkflowFailed => "workflow_failed",
             RecoveryType::WorkflowUnavailable => "workflow_unavailable",
         }
     }

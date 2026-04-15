@@ -53,7 +53,8 @@ async fn test_workflow_executes_sqlite() {
     let db_url = ":memory:";
     let config = DefaultRunnerConfig::builder()
         .enable_registry_reconciler(false)
-        .build();
+        .build()
+        .unwrap();
 
     let runner = DefaultRunner::with_config(db_url, config)
         .await

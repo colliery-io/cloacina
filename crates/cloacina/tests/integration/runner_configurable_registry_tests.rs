@@ -62,7 +62,7 @@ fn create_test_config(storage_backend: &str, temp_dir: Option<&TempDir>) -> Defa
         builder = builder.registry_storage_path(Some(dir.path().to_path_buf()));
     }
 
-    builder.build()
+    builder.build().unwrap()
 }
 
 /// Helper to get the appropriate database URL for testing
@@ -195,7 +195,8 @@ mod filesystem_tests {
             .registry_storage_path(Some(custom_registry_path.clone()))
             .registry_reconcile_interval(Duration::from_millis(100))
             .registry_enable_startup_reconciliation(false)
-            .build();
+            .build()
+            .unwrap();
 
         let db_url = get_database_url_for_test().await;
 
@@ -343,7 +344,8 @@ mod error_tests {
     async fn test_registry_disabled() {
         let config = DefaultRunnerConfig::builder()
             .enable_registry_reconciler(false) // Disable registry
-            .build();
+            .build()
+            .unwrap();
 
         let db_url = get_database_url_for_test().await;
 

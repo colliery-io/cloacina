@@ -39,10 +39,10 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
-        pipeline_executions (id) {
+        workflow_executions (id) {
             id -> DbUuid,
-            pipeline_name -> Text,
-            pipeline_version -> Text,
+            workflow_name -> Text,
+            workflow_version -> Text,
             status -> Text,
             context_id -> Nullable<DbUuid>,
             started_at -> DbTimestamp,
@@ -63,7 +63,7 @@ mod unified_schema {
 
         task_executions (id) {
             id -> DbUuid,
-            pipeline_execution_id -> DbUuid,
+            workflow_execution_id -> DbUuid,
             task_name -> Text,
             status -> Text,
             started_at -> Nullable<DbTimestamp>,
@@ -91,7 +91,7 @@ mod unified_schema {
 
         recovery_events (id) {
             id -> DbUuid,
-            pipeline_execution_id -> DbUuid,
+            workflow_execution_id -> DbUuid,
             task_execution_id -> Nullable<DbUuid>,
             recovery_type -> Text,
             recovered_at -> DbTimestamp,
@@ -105,11 +105,11 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
-        /// Execution events table for complete audit trail of task/pipeline state transitions.
+        /// Execution events table for complete audit trail of task/workflow state transitions.
         /// Append-only: events are never updated after creation.
         execution_events (sequence_num) {
             id -> DbUuid,
-            pipeline_execution_id -> DbUuid,
+            workflow_execution_id -> DbUuid,
             task_execution_id -> Nullable<DbUuid>,
             event_type -> Text,
             event_data -> Nullable<Text>,
@@ -139,7 +139,7 @@ mod unified_schema {
         task_execution_metadata (id) {
             id -> DbUuid,
             task_execution_id -> DbUuid,
-            pipeline_execution_id -> DbUuid,
+            workflow_execution_id -> DbUuid,
             task_name -> Text,
             context_id -> Nullable<DbUuid>,
             created_at -> DbTimestamp,
@@ -213,7 +213,7 @@ mod unified_schema {
         schedule_executions (id) {
             id -> DbUuid,
             schedule_id -> DbUuid,
-            pipeline_execution_id -> Nullable<DbUuid>,
+            workflow_execution_id -> Nullable<DbUuid>,
             scheduled_time -> Nullable<DbTimestamp>,
             claimed_at -> Nullable<DbTimestamp>,
             context_hash -> Nullable<Text>,
@@ -348,18 +348,18 @@ mod unified_schema {
         }
     }
 
-    diesel::joinable!(pipeline_executions -> contexts (context_id));
-    diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(workflow_executions -> contexts (context_id));
+    diesel::joinable!(task_executions -> workflow_executions (workflow_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
-    diesel::joinable!(task_execution_metadata -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(task_execution_metadata -> workflow_executions (workflow_execution_id));
     diesel::joinable!(task_execution_metadata -> contexts (context_id));
-    diesel::joinable!(recovery_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(recovery_events -> workflow_executions (workflow_execution_id));
     diesel::joinable!(recovery_events -> task_executions (task_execution_id));
-    diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(execution_events -> workflow_executions (workflow_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
     diesel::joinable!(schedule_executions -> schedules (schedule_id));
-    diesel::joinable!(schedule_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(schedule_executions -> workflow_executions (workflow_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         accumulator_boundaries,
@@ -368,7 +368,7 @@ mod unified_schema {
         execution_events,
         key_trust_acls,
         package_signatures,
-        pipeline_executions,
+        workflow_executions,
         reactor_state,
         recovery_events,
         schedule_executions,
@@ -401,10 +401,10 @@ mod postgres_schema {
     }
 
     diesel::table! {
-        pipeline_executions (id) {
+        workflow_executions (id) {
             id -> Uuid,
-            pipeline_name -> Varchar,
-            pipeline_version -> Varchar,
+            workflow_name -> Varchar,
+            workflow_version -> Varchar,
             status -> Varchar,
             context_id -> Nullable<Uuid>,
             started_at -> Timestamp,
@@ -422,7 +422,7 @@ mod postgres_schema {
     diesel::table! {
         task_executions (id) {
             id -> Uuid,
-            pipeline_execution_id -> Uuid,
+            workflow_execution_id -> Uuid,
             task_name -> Varchar,
             status -> Varchar,
             started_at -> Nullable<Timestamp>,
@@ -445,7 +445,7 @@ mod postgres_schema {
     diesel::table! {
         recovery_events (id) {
             id -> Uuid,
-            pipeline_execution_id -> Uuid,
+            workflow_execution_id -> Uuid,
             task_execution_id -> Nullable<Uuid>,
             recovery_type -> Varchar,
             recovered_at -> Timestamp,
@@ -458,7 +458,7 @@ mod postgres_schema {
     diesel::table! {
         execution_events (id) {
             id -> Uuid,
-            pipeline_execution_id -> Uuid,
+            workflow_execution_id -> Uuid,
             task_execution_id -> Nullable<Uuid>,
             event_type -> Varchar,
             event_data -> Nullable<Text>,
@@ -480,7 +480,7 @@ mod postgres_schema {
         task_execution_metadata (id) {
             id -> Uuid,
             task_execution_id -> Uuid,
-            pipeline_execution_id -> Uuid,
+            workflow_execution_id -> Uuid,
             task_name -> Varchar,
             context_id -> Nullable<Uuid>,
             created_at -> Timestamp,
@@ -538,7 +538,7 @@ mod postgres_schema {
         schedule_executions (id) {
             id -> Uuid,
             schedule_id -> Uuid,
-            pipeline_execution_id -> Nullable<Uuid>,
+            workflow_execution_id -> Nullable<Uuid>,
             scheduled_time -> Nullable<Timestamp>,
             claimed_at -> Nullable<Timestamp>,
             created_at -> Timestamp,
@@ -672,17 +672,17 @@ mod postgres_schema {
         }
     }
 
-    diesel::joinable!(pipeline_executions -> contexts (context_id));
-    diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(workflow_executions -> contexts (context_id));
+    diesel::joinable!(task_executions -> workflow_executions (workflow_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
-    diesel::joinable!(task_execution_metadata -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(task_execution_metadata -> workflow_executions (workflow_execution_id));
     diesel::joinable!(task_execution_metadata -> contexts (context_id));
-    diesel::joinable!(recovery_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(recovery_events -> workflow_executions (workflow_execution_id));
     diesel::joinable!(recovery_events -> task_executions (task_execution_id));
     diesel::joinable!(schedule_executions -> schedules (schedule_id));
-    diesel::joinable!(schedule_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(schedule_executions -> workflow_executions (workflow_execution_id));
     diesel::joinable!(workflow_packages -> workflow_registry (registry_id));
-    diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(execution_events -> workflow_executions (workflow_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
@@ -713,7 +713,7 @@ mod postgres_schema {
         execution_events,
         key_trust_acls,
         package_signatures,
-        pipeline_executions,
+        workflow_executions,
         reactor_state,
         recovery_events,
         schedule_executions,
@@ -738,7 +738,7 @@ mod postgres_schema {
         execution_events,
         key_trust_acls,
         package_signatures,
-        pipeline_executions,
+        workflow_executions,
         reactor_state,
         recovery_events,
         schedule_executions,
@@ -767,10 +767,10 @@ mod sqlite_schema {
     }
 
     diesel::table! {
-        pipeline_executions (id) {
+        workflow_executions (id) {
             id -> Binary,
-            pipeline_name -> Text,
-            pipeline_version -> Text,
+            workflow_name -> Text,
+            workflow_version -> Text,
             status -> Text,
             context_id -> Nullable<Binary>,
             started_at -> Text,
@@ -788,7 +788,7 @@ mod sqlite_schema {
     diesel::table! {
         task_executions (id) {
             id -> Binary,
-            pipeline_execution_id -> Binary,
+            workflow_execution_id -> Binary,
             task_name -> Text,
             status -> Text,
             started_at -> Nullable<Text>,
@@ -811,7 +811,7 @@ mod sqlite_schema {
     diesel::table! {
         recovery_events (id) {
             id -> Binary,
-            pipeline_execution_id -> Binary,
+            workflow_execution_id -> Binary,
             task_execution_id -> Nullable<Binary>,
             recovery_type -> Text,
             recovered_at -> Text,
@@ -824,7 +824,7 @@ mod sqlite_schema {
     diesel::table! {
         execution_events (sequence_num) {
             id -> Binary,
-            pipeline_execution_id -> Binary,
+            workflow_execution_id -> Binary,
             task_execution_id -> Nullable<Binary>,
             event_type -> Text,
             event_data -> Nullable<Text>,
@@ -846,7 +846,7 @@ mod sqlite_schema {
         task_execution_metadata (id) {
             id -> Binary,
             task_execution_id -> Binary,
-            pipeline_execution_id -> Binary,
+            workflow_execution_id -> Binary,
             task_name -> Text,
             context_id -> Nullable<Binary>,
             created_at -> Text,
@@ -904,7 +904,7 @@ mod sqlite_schema {
         schedule_executions (id) {
             id -> Binary,
             schedule_id -> Binary,
-            pipeline_execution_id -> Nullable<Binary>,
+            workflow_execution_id -> Nullable<Binary>,
             scheduled_time -> Nullable<Text>,
             claimed_at -> Nullable<Text>,
             created_at -> Text,
@@ -1006,16 +1006,16 @@ mod sqlite_schema {
         }
     }
 
-    diesel::joinable!(pipeline_executions -> contexts (context_id));
-    diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(workflow_executions -> contexts (context_id));
+    diesel::joinable!(task_executions -> workflow_executions (workflow_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
-    diesel::joinable!(task_execution_metadata -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(task_execution_metadata -> workflow_executions (workflow_execution_id));
     diesel::joinable!(task_execution_metadata -> contexts (context_id));
-    diesel::joinable!(recovery_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(recovery_events -> workflow_executions (workflow_execution_id));
     diesel::joinable!(recovery_events -> task_executions (task_execution_id));
     diesel::joinable!(schedule_executions -> schedules (schedule_id));
-    diesel::joinable!(schedule_executions -> pipeline_executions (pipeline_execution_id));
-    diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(schedule_executions -> workflow_executions (workflow_execution_id));
+    diesel::joinable!(execution_events -> workflow_executions (workflow_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
@@ -1026,7 +1026,7 @@ mod sqlite_schema {
         execution_events,
         key_trust_acls,
         package_signatures,
-        pipeline_executions,
+        workflow_executions,
         reactor_state,
         recovery_events,
         schedule_executions,

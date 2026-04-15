@@ -28,9 +28,9 @@
 
 mod config;
 mod cron_api;
-mod pipeline_executor_impl;
-mod pipeline_result;
 mod services;
+mod workflow_executor_impl;
+mod workflow_result;
 
 pub use config::{DefaultRunnerBuilder, DefaultRunnerConfig, DefaultRunnerConfigBuilder};
 
@@ -39,8 +39,8 @@ use tokio::sync::{broadcast, RwLock};
 
 use crate::dal::DAL;
 use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
-use crate::executor::pipeline_executor::WorkflowExecutionError;
 use crate::executor::types::ExecutorConfig;
+use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::executor::ThreadTaskExecutor;
 use crate::registry::traits::WorkflowRegistry;
 use crate::registry::RegistryReconciler;

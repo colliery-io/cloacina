@@ -21,7 +21,7 @@
 use std::sync::Arc;
 
 use crate::dal::DAL;
-use crate::executor::pipeline_executor::WorkflowExecutionError;
+use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::registry::traits::WorkflowRegistry;
 use crate::UniversalUuid;
 
