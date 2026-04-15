@@ -197,6 +197,13 @@ pub async fn reactor_ws(
     ws.on_upgrade(move |socket| handle_reactor_socket(socket, name, auth, registry))
 }
 
+/// Convert JSON bytes from a WebSocket client to bincode (internal wire format).
+fn json_to_bincode(json_bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let value: serde_json::Value =
+        serde_json::from_slice(json_bytes).map_err(|e| format!("invalid JSON: {}", e))?;
+    bincode::serialize(&value).map_err(|e| format!("bincode serialize failed: {}", e))
+}
+
 /// Handle an accepted accumulator WebSocket connection.
 ///
 /// Reads incoming messages and forwards them to all accumulators registered
@@ -212,14 +219,19 @@ async fn handle_accumulator_socket(
     while let Some(msg) = socket.recv().await {
         match msg {
             Ok(axum::extract::ws::Message::Binary(data)) => {
-                let bytes: Vec<u8> = data.into();
-                match registry.send_to_accumulator(&name, bytes).await {
+                // External clients send JSON (as binary or text frames).
+                // Convert to bincode (internal wire format) via serde_json::Value.
+                let json_bytes: &[u8] = &data;
+                let wire_bytes = match json_to_bincode(json_bytes) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        warn!(accumulator = %name, error = %e, "invalid JSON from WebSocket client");
+                        continue;
+                    }
+                };
+                match registry.send_to_accumulator(&name, wire_bytes).await {
                     Ok(count) => {
-                        debug!(
-                            accumulator = %name,
-                            recipients = count,
-                            "forwarded binary message"
-                        );
+                        debug!(accumulator = %name, recipients = count, "forwarded message (JSON→bincode)");
                     }
                     Err(e) => {
                         warn!(accumulator = %name, error = %e, "failed to forward message");
@@ -236,13 +248,20 @@ async fn handle_accumulator_socket(
                 }
             }
             Ok(axum::extract::ws::Message::Text(text)) => {
-                let bytes = text.as_bytes().to_vec();
-                match registry.send_to_accumulator(&name, bytes).await {
+                let json_bytes: &[u8] = text.as_bytes();
+                let wire_bytes = match json_to_bincode(json_bytes) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        warn!(accumulator = %name, error = %e, "invalid JSON from WebSocket client");
+                        continue;
+                    }
+                };
+                match registry.send_to_accumulator(&name, wire_bytes).await {
                     Ok(count) => {
                         debug!(
                             accumulator = %name,
                             recipients = count,
-                            "forwarded text message"
+                            "forwarded message (JSON→bincode)"
                         );
                     }
                     Err(e) => {

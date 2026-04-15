@@ -141,7 +141,7 @@ pub trait EventSource: Send + 'static {
 /// Handle for persisting accumulator state via the DAL.
 ///
 /// Wraps simple key-value checkpoint storage keyed by (graph_name, accumulator_name).
-/// Serialization uses the same debug-JSON/release-bincode pattern as boundary wire format.
+/// Serialization uses bincode wire format.
 #[derive(Clone)]
 pub struct CheckpointHandle {
     dal: crate::dal::unified::DAL,
@@ -227,7 +227,7 @@ pub struct AccumulatorContext {
 
 /// Sends serialized boundaries to the reactor.
 ///
-/// Wire format: bincode in release, JSON in debug.
+/// Wire format: bincode.
 /// Tracks a monotonically increasing sequence number per accumulator
 /// for deduplication and ordering guarantees.
 #[derive(Clone)]

@@ -69,34 +69,33 @@ impl From<String> for SourceName {
 }
 
 // ---------------------------------------------------------------------------
-// Serialization helpers (profile-aware: JSON in debug, bincode in release)
+// Serialization helpers (bincode wire format)
 // ---------------------------------------------------------------------------
 
-/// Serialize a value to bytes using the build-profile-appropriate format.
+/// Serialize a value to bincode bytes.
 ///
-/// - Release: bincode (fast, compact)
-/// - Debug: JSON (readable, inspectable in logs)
+/// Bincode is used for all internal wire formats (boundary channels,
+/// checkpoint persistence, accumulator-to-reactor messaging).
 pub fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, GraphError> {
-    #[cfg(debug_assertions)]
-    {
-        serde_json::to_vec(value).map_err(|e| GraphError::Serialization(e.to_string()))
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        bincode::serialize(value).map_err(|e| GraphError::Serialization(e.to_string()))
-    }
+    bincode::serialize(value).map_err(|e| GraphError::Serialization(e.to_string()))
 }
 
-/// Deserialize bytes to a value using the build-profile-appropriate format.
+/// Deserialize bincode bytes to a value.
 pub fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, GraphError> {
-    #[cfg(debug_assertions)]
-    {
-        serde_json::from_slice(bytes).map_err(|e| GraphError::Deserialization(e.to_string()))
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        bincode::deserialize(bytes).map_err(|e| GraphError::Deserialization(e.to_string()))
-    }
+    bincode::deserialize(bytes).map_err(|e| GraphError::Deserialization(e.to_string()))
+}
+
+/// Convert a JSON string to bincode bytes for a given type.
+///
+/// Convenience for external producers pushing events via WebSocket.
+/// The WebSocket handler calls this to convert incoming JSON to the
+/// internal bincode wire format before forwarding to accumulators.
+pub fn json_to_wire<T: Serialize + DeserializeOwned>(
+    json_str: &str,
+) -> Result<Vec<u8>, GraphError> {
+    let value: T =
+        serde_json::from_str(json_str).map_err(|e| GraphError::Serialization(e.to_string()))?;
+    serialize(&value)
 }
 
 // ---------------------------------------------------------------------------
@@ -108,9 +107,8 @@ pub fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, GraphError> {
 /// The reactor's receiver task updates this cache continuously. The executor
 /// takes a snapshot before calling the compiled graph function.
 ///
-/// Serialization format:
-/// - **Release builds**: bincode (compact binary, fast)
-/// - **Debug builds**: JSON (human-readable, inspectable)
+/// Serialization format: bincode (compact binary). The FFI packaging bridge
+/// converts bincode→JSON at the boundary for plugin compatibility.
 #[derive(Debug, Clone)]
 pub struct InputCache {
     entries: HashMap<SourceName, Vec<u8>>,

@@ -293,11 +293,12 @@ impl RegistryReconciler {
 
                         let scheduler_guard = self.reactive_scheduler.read().await;
                         if let Some(ref scheduler) = *scheduler_guard {
-                            let decl =
+                            let mut decl =
                                 crate::computation_graph::packaging_bridge::build_declaration_from_ffi(
                                     &graph_meta,
                                     library_data.clone(),
                                 );
+                            decl.tenant_id = Some(self.config.default_tenant_id.clone());
                             if let Err(e) = scheduler.load_graph(decl).await {
                                 warn!(
                                     "Failed to load computation graph '{}': {}",

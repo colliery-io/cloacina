@@ -184,25 +184,18 @@ async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCac
     let mut ffi_cache: HashMap<String, String> = HashMap::new();
     for source_name in cache_snapshot.sources() {
         if let Some(raw_bytes) = cache_snapshot.get_raw(source_name.as_str()) {
-            #[cfg(debug_assertions)]
-            {
-                let json_str = String::from_utf8_lossy(raw_bytes).to_string();
-                ffi_cache.insert(source_name.as_str().to_string(), json_str);
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                match bincode::deserialize::<serde_json::Value>(raw_bytes) {
-                    Ok(val) => {
-                        let json_str = serde_json::to_string(&val).unwrap_or_default();
-                        ffi_cache.insert(source_name.as_str().to_string(), json_str);
-                    }
-                    Err(e) => {
-                        return GraphResult::error(GraphError::Serialization(format!(
-                            "Failed to deserialize cache entry '{}' for FFI: {}",
-                            source_name.as_str(),
-                            e
-                        )));
-                    }
+            // Internal wire format is bincode — convert to JSON for FFI boundary
+            match bincode::deserialize::<serde_json::Value>(raw_bytes) {
+                Ok(val) => {
+                    let json_str = serde_json::to_string(&val).unwrap_or_default();
+                    ffi_cache.insert(source_name.as_str().to_string(), json_str);
+                }
+                Err(e) => {
+                    return GraphResult::error(GraphError::Serialization(format!(
+                        "Failed to deserialize cache entry '{}' for FFI: {}",
+                        source_name.as_str(),
+                        e
+                    )));
                 }
             }
         }
