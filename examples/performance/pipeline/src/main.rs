@@ -109,7 +109,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize runner with SQLite database using WAL mode for better concurrency
     let config = DefaultRunnerConfig::builder()
         .max_concurrent_tasks(args.concurrency)
-        .build();
+        .build()
+        .unwrap();
 
     // Clean up stale database from previous runs
     let _ = std::fs::remove_file("performance-pipeline.db");

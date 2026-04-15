@@ -254,7 +254,8 @@ def _build_and_install_cloaca_unified(venv_name):
     maturin_exe = venv.path / "bin" / "maturin"
     maturin_cmd = [
         str(maturin_exe), "build",
-        "--release"
+        "--release",
+        "--manylinux", "off",  # skip auditwheel repair (avoids libpq.so resolution)
     ]
 
     print(f"[DEBUG] Running: {' '.join(maturin_cmd)} in {crate_dir}", flush=True)

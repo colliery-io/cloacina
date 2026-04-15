@@ -351,7 +351,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_trigger_scheduling(true)
         .trigger_base_poll_interval(Duration::from_secs(1))
         .trigger_poll_timeout(Duration::from_secs(10))
-        .build();
+        .build()
+        .unwrap();
 
     // Clean up stale database from previous runs
     let _ = std::fs::remove_file("event_triggers.db");

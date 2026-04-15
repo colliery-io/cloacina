@@ -482,7 +482,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .cron_enable_recovery(true)
         .cron_poll_interval(Duration::from_secs(10)) // Check every 10 seconds for demo
         .cron_recovery_interval(Duration::from_secs(30)) // Recovery check every 30 seconds
-        .build();
+        .build()
+        .unwrap();
 
     // Clean up stale database from previous runs
     let _ = std::fs::remove_file("cronscheduling.db");
