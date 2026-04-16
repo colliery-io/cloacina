@@ -204,11 +204,10 @@ struct TestPassthroughAccumulator;
 
 #[async_trait::async_trait]
 impl cloacina::computation_graph::Accumulator for TestPassthroughAccumulator {
-    type Event = AlphaData;
     type Output = AlphaData;
 
-    fn process(&mut self, event: AlphaData) -> Option<AlphaData> {
-        Some(event)
+    fn process(&mut self, event: Vec<u8>) -> Option<AlphaData> {
+        serde_json::from_slice(&event).ok()
     }
 }
 
@@ -353,10 +352,9 @@ impl AccumulatorFactory for TestAccumulatorFactory {
 
         #[async_trait::async_trait]
         impl cloacina::computation_graph::Accumulator for Passthrough {
-            type Event = AlphaData;
             type Output = AlphaData;
-            fn process(&mut self, event: AlphaData) -> Option<AlphaData> {
-                Some(event)
+            fn process(&mut self, event: Vec<u8>) -> Option<AlphaData> {
+                serde_json::from_slice(&event).ok()
             }
         }
 
@@ -576,11 +574,14 @@ struct TestBatcher;
 
 #[async_trait::async_trait]
 impl BatchAccumulator for TestBatcher {
-    type Event = AlphaData;
     type Output = AlphaData;
 
-    fn process_batch(&mut self, events: Vec<AlphaData>) -> Option<AlphaData> {
-        let sum: f64 = events.iter().map(|e| e.value).sum();
+    fn process_batch(&mut self, events: Vec<Vec<u8>>) -> Option<AlphaData> {
+        let parsed: Vec<AlphaData> = events
+            .iter()
+            .filter_map(|raw| serde_json::from_slice(raw).ok())
+            .collect();
+        let sum: f64 = parsed.iter().map(|e| e.value).sum();
         Some(AlphaData { value: sum })
     }
 }
@@ -733,10 +734,9 @@ async fn test_when_all_waits_for_both_sources() {
     struct BetaPassthrough;
     #[async_trait::async_trait]
     impl cloacina::computation_graph::Accumulator for BetaPassthrough {
-        type Event = BetaData;
         type Output = BetaData;
-        fn process(&mut self, event: BetaData) -> Option<BetaData> {
-            Some(event)
+        fn process(&mut self, event: Vec<u8>) -> Option<BetaData> {
+            serde_json::from_slice(&event).ok()
         }
     }
 
@@ -1675,10 +1675,13 @@ mod resilience_tests {
         struct SumBatcher;
         #[async_trait::async_trait]
         impl cloacina::computation_graph::BatchAccumulator for SumBatcher {
-            type Event = AlphaData;
             type Output = AlphaData;
-            fn process_batch(&mut self, events: Vec<AlphaData>) -> Option<AlphaData> {
-                let sum: f64 = events.iter().map(|e| e.value).sum();
+            fn process_batch(&mut self, events: Vec<Vec<u8>>) -> Option<AlphaData> {
+                let parsed: Vec<AlphaData> = events
+                    .iter()
+                    .filter_map(|raw| serde_json::from_slice(raw).ok())
+                    .collect();
+                let sum: f64 = parsed.iter().map(|e| e.value).sum();
                 Some(AlphaData { value: sum })
             }
         }
@@ -1812,14 +1815,13 @@ mod resilience_tests {
 
                 #[async_trait::async_trait]
                 impl cloacina::computation_graph::Accumulator for MaybePanicAccumulator {
-                    type Event = AlphaData;
                     type Output = AlphaData;
-                    fn process(&mut self, event: AlphaData) -> Option<AlphaData> {
+                    fn process(&mut self, event: Vec<u8>) -> Option<AlphaData> {
                         self.count += 1;
                         if self.should_panic && self.count >= 2 {
                             panic!("intentional test panic after 2 events");
                         }
-                        Some(event)
+                        serde_json::from_slice(&event).ok()
                     }
                 }
 

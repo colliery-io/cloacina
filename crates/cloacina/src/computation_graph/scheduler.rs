@@ -718,10 +718,9 @@ mod tests {
 
             #[async_trait::async_trait]
             impl Accumulator for Passthrough {
-                type Event = TestEvent;
                 type Output = TestEvent;
-                fn process(&mut self, event: TestEvent) -> Option<TestEvent> {
-                    Some(event)
+                fn process(&mut self, event: Vec<u8>) -> Option<TestEvent> {
+                    serde_json::from_slice(&event).ok()
                 }
             }
 

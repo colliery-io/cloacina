@@ -28,7 +28,8 @@ use tokio::task::JoinHandle;
 use cloacina_workflow_plugin::{GraphExecutionRequest, GraphPackageMetadata};
 
 use super::accumulator::{
-    accumulator_runtime, AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender,
+    accumulator_runtime, accumulator_runtime_with_source, AccumulatorContext,
+    AccumulatorRuntimeConfig, BoundarySender,
 };
 use super::reactor::{CompiledGraphFn, InputStrategy, ReactionCriteria};
 use super::scheduler::{
@@ -180,14 +181,25 @@ pub fn build_declaration_from_ffi(
 async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult {
     let cache_snapshot = cache.snapshot();
 
-    // Serialize cache entries to JSON for the FFI boundary
+    // Recover raw bytes from bincode wire format, then interpret as UTF-8 JSON
+    // for the FFI boundary. The passthrough accumulator stores raw event bytes
+    // (typically JSON from WebSocket) which are bincode-serialized as Vec<u8>.
     let mut ffi_cache: HashMap<String, String> = HashMap::new();
     for source_name in cache_snapshot.sources() {
         if let Some(raw_bytes) = cache_snapshot.get_raw(source_name.as_str()) {
-            // Internal wire format is bincode — convert to JSON for FFI boundary
-            match bincode::deserialize::<serde_json::Value>(raw_bytes) {
-                Ok(val) => {
-                    let json_str = serde_json::to_string(&val).unwrap_or_default();
+            // Wire format is bincode(Vec<u8>) — recover the original bytes
+            match bincode::deserialize::<Vec<u8>>(raw_bytes) {
+                Ok(original_bytes) => {
+                    // Original bytes are JSON from WebSocket — convert to string
+                    let json_str = String::from_utf8(original_bytes).unwrap_or_else(|e| {
+                        tracing::warn!(
+                            source = source_name.as_str(),
+                            "cache entry is not valid UTF-8, hex-encoding: {}",
+                            e
+                        );
+                        // Fall back to hex encoding for non-UTF-8 data
+                        raw_bytes.iter().map(|b| format!("{:02x}", b)).collect()
+                    });
                     ffi_cache.insert(source_name.as_str().to_string(), json_str);
                 }
                 Err(e) => {
@@ -253,10 +265,9 @@ struct GenericPassthroughAccumulator;
 
 #[async_trait::async_trait]
 impl super::Accumulator for GenericPassthroughAccumulator {
-    type Event = serde_json::Value;
-    type Output = serde_json::Value;
+    type Output = Vec<u8>;
 
-    fn process(&mut self, event: serde_json::Value) -> Option<serde_json::Value> {
+    fn process(&mut self, event: Vec<u8>) -> Option<Vec<u8>> {
         Some(event)
     }
 }
@@ -297,9 +308,10 @@ impl AccumulatorFactory for PassthroughAccumulatorFactory {
 
 /// A stream-backed accumulator factory for FFI-loaded packages.
 ///
-/// Creates a passthrough accumulator with a background task that reads from a
-/// `StreamBackend` and pushes events into the accumulator's socket channel.
-/// The accumulator itself is still passthrough — the stream reader feeds it.
+/// Creates a passthrough accumulator with a `KafkaEventSource` that pulls raw
+/// bytes from a Kafka topic. The event source runs on its own task via
+/// `accumulator_runtime_with_source`. The socket channel remains available for
+/// out-of-band WebSocket pushes.
 pub struct StreamBackendAccumulatorFactory {
     /// Stream backend config from the package metadata.
     config: std::collections::HashMap<String, String>,
@@ -308,6 +320,76 @@ pub struct StreamBackendAccumulatorFactory {
 impl StreamBackendAccumulatorFactory {
     pub fn new(config: std::collections::HashMap<String, String>) -> Self {
         Self { config }
+    }
+}
+
+/// EventSource that reads raw bytes from a Kafka topic.
+#[cfg(feature = "kafka")]
+struct KafkaEventSource {
+    broker_var: String,
+    topic: String,
+    group: String,
+    extra: std::collections::HashMap<String, String>,
+    name: String,
+}
+
+#[cfg(feature = "kafka")]
+#[async_trait::async_trait]
+impl super::accumulator::EventSource for KafkaEventSource {
+    async fn run(
+        self,
+        events: mpsc::Sender<Vec<u8>>,
+        mut shutdown: watch::Receiver<bool>,
+    ) -> Result<(), super::accumulator::AccumulatorError> {
+        let broker_url = crate::var(&self.broker_var).map_err(|e| {
+            super::accumulator::AccumulatorError::Init(format!(
+                "cannot resolve broker var '{}': {}",
+                self.broker_var, e
+            ))
+        })?;
+
+        let stream_config = super::stream_backend::StreamConfig {
+            broker_url,
+            topic: self.topic,
+            group: self.group,
+            extra: self.extra,
+        };
+
+        use super::stream_backend::StreamBackend as _;
+        let mut backend = super::stream_backend::kafka::KafkaStreamBackend::connect(&stream_config)
+            .await
+            .map_err(|e| {
+                super::accumulator::AccumulatorError::Init(format!("Kafka connect failed: {}", e))
+            })?;
+
+        tracing::info!(accumulator = %self.name, "Kafka event source started");
+        loop {
+            tokio::select! {
+                result = backend.recv() => {
+                    match result {
+                        Ok(msg) => {
+                            tracing::debug!(
+                                accumulator = %self.name,
+                                offset = msg.offset,
+                                bytes = msg.payload.len(),
+                                "Kafka message received"
+                            );
+                            if events.send(msg.payload).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(accumulator = %self.name, "Kafka recv error: {}", e);
+                        }
+                    }
+                }
+                _ = shutdown.changed() => {
+                    tracing::debug!(accumulator = %self.name, "Kafka event source shutting down");
+                    break;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -329,28 +411,17 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
         let ctx = AccumulatorContext {
             output: sender,
             name: name.clone(),
-            shutdown: shutdown_rx.clone(),
+            shutdown: shutdown_rx,
             checkpoint,
             health: config.health_tx,
         };
 
-        // Spawn the passthrough accumulator runtime (handles socket → boundary)
-        let handle = tokio::spawn(accumulator_runtime(
-            GenericPassthroughAccumulator,
-            ctx,
-            socket_rx,
-            AccumulatorRuntimeConfig::default(),
-        ));
-
-        // Spawn the stream reader that feeds the accumulator's socket channel.
-        // Broker URL from CLOACINA_VAR_KAFKA_BROKER (or the "broker" config key), topic and group from package metadata.
         let topic = self.config.get("topic").cloned().unwrap_or_default();
         let group = self
             .config
             .get("group")
             .cloned()
             .unwrap_or_else(|| format!("{}_group", name));
-        // The "broker" config key is the var name to resolve (e.g., "KAFKA_BROKER")
         let broker_var = self
             .config
             .get("broker")
@@ -363,80 +434,35 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
 
-        let socket_tx_stream = socket_tx.clone();
-        let mut shutdown_stream = shutdown_rx;
-        let acc_name = name;
-
         #[cfg(feature = "kafka")]
-        tokio::spawn(async move {
-            let broker_url = match crate::var(&broker_var) {
-                Ok(url) => url,
-                Err(e) => {
-                    tracing::error!(accumulator = %acc_name, error = %e, "Cannot start stream reader");
-                    return;
-                }
-            };
-
-            let stream_config = super::stream_backend::StreamConfig {
-                broker_url,
+        let handle = {
+            let source = KafkaEventSource {
+                broker_var,
                 topic,
                 group,
                 extra: extra_config,
+                name: name.clone(),
             };
-
-            use super::stream_backend::StreamBackend as _;
-            match super::stream_backend::kafka::KafkaStreamBackend::connect(&stream_config).await {
-                Ok(mut backend) => {
-                    tracing::info!(accumulator = %acc_name, "Kafka stream reader started");
-                    loop {
-                        tokio::select! {
-                            result = backend.recv() => {
-                                match result {
-                                    Ok(msg) => {
-                                        // Forward raw payload to accumulator socket channel.
-                                        // The GenericPassthroughAccumulator's event type is
-                                        // serde_json::Value, so JSON payloads work directly.
-                                        // Non-JSON Kafka formats need a custom accumulator
-                                        // with a typed event source (not the socket path).
-                                        tracing::info!(
-                                            accumulator = %acc_name,
-                                            offset = msg.offset,
-                                            bytes = msg.payload.len(),
-                                            "Kafka message received"
-                                        );
-                                        if socket_tx_stream.send(msg.payload).await.is_err() {
-                                            break;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(accumulator = %acc_name, "Kafka recv error: {}", e);
-                                    }
-                                }
-                            }
-                            _ = shutdown_stream.changed() => {
-                                tracing::debug!(accumulator = %acc_name, "Kafka stream reader shutting down");
-                                break;
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(accumulator = %acc_name, "failed to connect to Kafka: {}", e);
-                }
-            }
-        });
+            tokio::spawn(accumulator_runtime_with_source(
+                GenericPassthroughAccumulator,
+                ctx,
+                socket_rx,
+                AccumulatorRuntimeConfig::default(),
+                source,
+            ))
+        };
 
         #[cfg(not(feature = "kafka"))]
-        {
-            let _ = (
-                topic,
-                group,
-                extra_config,
-                socket_tx_stream,
-                shutdown_stream,
-            );
-            tracing::error!(accumulator = %acc_name, "stream accumulator requires 'kafka' feature");
-        }
+        let handle = {
+            let _ = (topic, group, extra_config, broker_var);
+            tracing::error!(accumulator = %name, "stream accumulator requires 'kafka' feature");
+            tokio::spawn(accumulator_runtime(
+                GenericPassthroughAccumulator,
+                ctx,
+                socket_rx,
+                AccumulatorRuntimeConfig::default(),
+            ))
+        };
 
         (socket_tx, handle)
     }

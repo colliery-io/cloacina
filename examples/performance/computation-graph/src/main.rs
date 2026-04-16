@@ -197,10 +197,9 @@ struct OrderBookAccumulator;
 
 #[async_trait::async_trait]
 impl cloacina::computation_graph::Accumulator for OrderBookAccumulator {
-    type Event = OrderBookData;
     type Output = OrderBookData;
-    fn process(&mut self, event: OrderBookData) -> Option<OrderBookData> {
-        Some(event)
+    fn process(&mut self, event: Vec<u8>) -> Option<OrderBookData> {
+        cloacina::computation_graph::types::deserialize(&event).ok()
     }
 }
 
@@ -208,10 +207,9 @@ struct PricingAccumulator;
 
 #[async_trait::async_trait]
 impl cloacina::computation_graph::Accumulator for PricingAccumulator {
-    type Event = PricingData;
     type Output = PricingData;
-    fn process(&mut self, event: PricingData) -> Option<PricingData> {
-        Some(event)
+    fn process(&mut self, event: Vec<u8>) -> Option<PricingData> {
+        cloacina::computation_graph::types::deserialize(&event).ok()
     }
 }
 
