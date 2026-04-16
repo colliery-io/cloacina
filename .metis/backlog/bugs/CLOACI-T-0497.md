@@ -4,15 +4,15 @@ level: task
 title: "Validate server package lifecycle — repeated uploads, upgrades, rollbacks"
 short_code: "CLOACI-T-0497"
 created_at: 2026-04-16T12:38:22.860340+00:00
-updated_at: 2026-04-16T12:38:22.860340+00:00
+updated_at: 2026-04-16T15:45:01.498723+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -41,6 +41,10 @@ Validate the server's behavior for package lifecycle edge cases that have not be
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] Repeated upload of identical package: server should be idempotent (no duplicate graphs)
 - [ ] Upload of new version of existing package: server should unload old, load new (hot upgrade)
 - [ ] Rollback to previous version: same as upgrade, old version loads cleanly
@@ -58,11 +62,96 @@ Validate the server's behavior for package lifecycle edge cases that have not be
 4. Two concurrent uploads of A v1 — one succeeds, no split-brain.
 5. Delete package while graph is actively processing — clean shutdown.
 
-### Likely code paths to audit
-- Reconciler `reconcile()`: how does it handle version changes vs. same-version re-upload?
-- `ReactiveScheduler::load_graph()`: rejects duplicates by name — but does the reconciler call `unload_graph` first on upgrade?
-- Upload handler: does it overwrite or create a new row? How does the reconciler detect the change?
+### Design (from audit discussion)
+
+**Package identity model:**
+- `(name, version)` is the identity — one active row per pair
+- `content_hash` (SHA256 of archive bytes) determines whether content changed
+- UUID is immutable per content — new content = new UUID, old row superseded
+
+**Upload handler flow:**
+1. Unpack manifest → `(name, version)`
+2. Compute `SHA256(archive bytes)`
+3. Check DB for active `(name, version)`:
+   - **Same hash** → return existing UUID (idempotent no-op)
+   - **Different hash** → mark old row `superseded = true`, insert new row with new UUID (transactional)
+   - **Not exists** → insert new row
+4. Version upgrade (same name, different version): same flow — old version row gets superseded, new row inserted
+
+**Reconciler — no changes needed:**
+- Old UUID disappears from active set → existing unload path fires
+- New UUID appears → existing load path fires
+- The diff-by-UUID logic handles both sides naturally
+
+**Schema changes:**
+```sql
+ALTER TABLE workflow_packages ADD COLUMN content_hash TEXT NOT NULL;
+ALTER TABLE workflow_packages ADD COLUMN superseded BOOLEAN NOT NULL DEFAULT FALSE;
+-- Partial unique: only one active row per (name, version)
+CREATE UNIQUE INDEX idx_active_package ON workflow_packages(package_name, version) WHERE NOT superseded;
+```
+
+**Fixes all three bugs:**
+- Bug 1 (no upgrade path): supersede old row → reconciler unloads old UUID, loads new UUID
+- Bug 2 (concurrent upload race): partial unique index prevents duplicates at DB level
+- Bug 3 (rollback): re-uploading old version with different content supersedes current, creates new UUID
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-04-15: Code audit complete — 4 bugs found
+
+**Audit scope**: `workflows.rs` (upload handler), `workflow_registry/mod.rs` (register_workflow), `reconciler/mod.rs` (reconcile loop), `reconciler/loading.rs` (load/unload).
+
+#### Bug 1: No upgrade path — versions accumulate, never replace (P1)
+
+The reconciler diffs by **package UUID**, not by package name. Uploading v2 of a package creates a new DB row with a new UUID. The reconciler sees it as a brand new package and loads it alongside v1. Both versions run simultaneously.
+
+For CGs, `ReactiveScheduler::load_graph()` rejects duplicate graph names, so v2's graph silently fails to load while v1 keeps running. For workflows, both versions register — last-write-wins in the global workflow registry, but tasks from both versions remain in the task registry.
+
+**Fix needed**: The reconciler (or upload handler) needs "replace" semantics — when uploading a new version of an existing package name, the old version should be unloaded before the new one is loaded. Options:
+- Upload handler: on new version, mark old version as superseded (soft delete or status column)
+- Reconciler: group packages by name, only load the latest version, unload older ones
+- Explicit API: `PUT` to replace, `POST` to create. Reject if name exists with different version unless explicit upgrade flag.
+
+**Code refs**: `register_workflow` (`workflow_registry/mod.rs:282-292`) — duplicate check is `(name, version)` exact match. `reconcile()` (`reconciler/mod.rs:314`) — diffs by UUID set, no name-awareness.
+
+#### Bug 2: Concurrent upload race condition (P2)
+
+The duplicate check in `register_workflow` is SELECT-then-INSERT, not atomic:
+```
+1. Check: get_package_metadata(name, version) → None
+2. Insert: store_binary + store_package_metadata
+```
+Two concurrent uploads of the same `(name, version)` can both pass step 1 and both insert. Result: two DB rows with same name+version, different UUIDs. Reconciler loads both.
+
+**Fix needed**: Use a unique constraint on `(package_name, version)` in the DB schema, or use `INSERT ... ON CONFLICT DO NOTHING` and check the result.
+
+**Code refs**: `register_workflow` (`workflow_registry/mod.rs:283-314`).
+
+#### Bug 3: Rollback is same broken path as upgrade (P1)
+
+Re-uploading an old version (e.g., v1 after v2 is running) creates a third DB row. Now v1 and v2 are both loaded. There's no way to "roll back" without manually deleting v2 via the API first.
+
+**Fix needed**: Same as Bug 1 — replace semantics.
+
+#### Bug 4: Delete while running — works correctly (not a bug)
+
+The reconciler's `unload_package()` path is correct:
+- Removes from `loaded_packages` HashMap
+- Unregisters tasks from global task registry
+- Unregisters workflow from global workflow registry
+- Unregisters triggers
+- Calls `scheduler.unload_graph()` for CGs (shutdown accumulators/reactor)
+
+No fix needed. The unload path is solid.
+
+#### Summary
+
+| Scenario | Current behavior | Correct behavior | Bug? |
+|----------|-----------------|-------------------|------|
+| Repeated upload (same name+version) | Rejected with PackageExists | Rejected | OK |
+| Version upgrade (same name, new version) | Both versions loaded simultaneously | Old unloaded, new loaded | BUG |
+| Rollback (re-upload old version) | All versions accumulate | Old replaced by target version | BUG |
+| Concurrent uploads (same name+version) | Both succeed, both loaded | One wins, other rejected | BUG |
+| Delete while running | Clean unload of all components | Clean unload | OK |
+| Upload during active execution | N/A (upgrade doesn't replace) | Graceful shutdown then reload | BUG (no upgrade path) |
