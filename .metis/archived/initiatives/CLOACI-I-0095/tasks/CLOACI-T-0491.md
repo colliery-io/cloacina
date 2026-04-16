@@ -7,7 +7,7 @@ created_at: 2026-04-14T12:38:37.329965+00:00
 updated_at: 2026-04-14T14:47:06.570698+00:00
 parent: CLOACI-I-0095
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0095
 ## Objective
 
 Eliminate the dual-mode Runtime (`new()` vs `from_global()` with `use_globals` fallback). Replace with a single-path model: `Runtime::new()` snapshots globals, `Runtime::empty()` for isolation. Add computation graph and stream backend registry fields.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -34,6 +34,8 @@ Remove `#[serial]` annotations from tests that only needed them because of globa
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] Identify which `#[serial]` tests are serial due to global registries vs other reasons (DB, file system)
 - [ ] Convert registry-serial tests to use `Runtime::empty()` with local registration
 - [ ] Remove `#[serial]` from converted tests

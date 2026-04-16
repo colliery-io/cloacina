@@ -7,7 +7,7 @@ created_at: 2026-04-14T12:38:38.266032+00:00
 updated_at: 2026-04-14T14:47:06.107077+00:00
 parent: CLOACI-I-0095
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0095
 ## Objective
 
 Wire ReactiveScheduler's `load_graph()` to look up computation graph constructors via Runtime instead of `global_computation_graph_registry()`. Wire stream backend lookup through Runtime. Reconciler registers CG packages into Runtime after loading.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
