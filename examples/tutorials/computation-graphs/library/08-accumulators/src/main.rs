@@ -120,13 +120,14 @@ struct PricingAccumulator;
 
 #[async_trait::async_trait]
 impl cloacina::computation_graph::Accumulator for PricingAccumulator {
-    type Event = PricingUpdate;
     type Output = PricingSignal;
 
-    fn process(&mut self, event: PricingUpdate) -> Option<PricingSignal> {
+    fn process(&mut self, event: Vec<u8>) -> Option<PricingSignal> {
+        // Deserialize the incoming bytes — we know the sender uses types::serialize (bincode)
+        let update: PricingUpdate = cloacina::computation_graph::types::deserialize(&event).ok()?;
         // Passthrough: convert PricingUpdate → PricingSignal
         Some(PricingSignal {
-            price: event.mid_price,
+            price: update.mid_price,
             change_pct: 0.0, // raw — analysis happens in the graph
         })
     }

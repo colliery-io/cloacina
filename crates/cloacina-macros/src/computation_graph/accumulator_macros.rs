@@ -114,11 +114,11 @@ pub fn passthrough_accumulator_impl(
 
         #[async_trait::async_trait]
         impl cloacina::computation_graph::Accumulator for #struct_name {
-            type Event = #event_type;
             type Output = #output_type;
 
-            fn process(&mut self, event: Self::Event) -> Option<Self::Output> {
-                Some(#fn_name(event))
+            fn process(&mut self, event: Vec<u8>) -> Option<Self::Output> {
+                let parsed: #event_type = serde_json::from_slice(&event).ok()?;
+                Some(#fn_name(parsed))
             }
 
             // No run() override — socket-only (passthrough)
@@ -176,11 +176,11 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
 
             #[async_trait::async_trait]
             impl cloacina::computation_graph::Accumulator for #struct_name {
-                type Event = #event_type;
                 type Output = #output_type;
 
-                fn process(&mut self, event: Self::Event) -> Option<Self::Output> {
-                    Some(#fn_name(event, &mut self.state))
+                fn process(&mut self, event: Vec<u8>) -> Option<Self::Output> {
+                    let parsed: #event_type = serde_json::from_slice(&event).ok()?;
+                    Some(#fn_name(parsed, &mut self.state))
                 }
             }
         })
@@ -212,11 +212,11 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
 
             #[async_trait::async_trait]
             impl cloacina::computation_graph::Accumulator for #struct_name {
-                type Event = #event_type;
                 type Output = #output_type;
 
-                fn process(&mut self, event: Self::Event) -> Option<Self::Output> {
-                    Some(#fn_name(event))
+                fn process(&mut self, event: Vec<u8>) -> Option<Self::Output> {
+                    let parsed: #event_type = serde_json::from_slice(&event).ok()?;
+                    Some(#fn_name(parsed))
                 }
             }
         })
@@ -405,18 +405,21 @@ pub fn batch_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Res
 
         #[async_trait::async_trait]
         impl cloacina::computation_graph::BatchAccumulator for #struct_name {
-            type Event = #inner_event_type;
             type Output = #inner_output_type;
 
-            fn process_batch(&mut self, events: Vec<Self::Event>) -> Option<Self::Output> {
-                #fn_name(events)
+            fn process_batch(&mut self, events: Vec<Vec<u8>>) -> Option<Self::Output> {
+                let parsed: Vec<#inner_event_type> = events
+                    .iter()
+                    .filter_map(|raw| serde_json::from_slice(raw).ok())
+                    .collect();
+                #fn_name(parsed)
             }
         }
 
         impl #struct_name {
             pub fn config() -> cloacina::computation_graph::BatchAccumulatorConfig {
                 cloacina::computation_graph::BatchAccumulatorConfig {
-                    flush_interval: std::time::Duration::from_millis(#flush_interval_ms),
+                    flush_interval: Some(std::time::Duration::from_millis(#flush_interval_ms)),
                     max_buffer_size: #max_buffer_size_expr,
                 }
             }

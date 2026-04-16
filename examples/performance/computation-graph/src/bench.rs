@@ -81,10 +81,9 @@ struct BenchAccumulator;
 
 #[async_trait::async_trait]
 impl cloacina::computation_graph::Accumulator for BenchAccumulator {
-    type Event = BenchEvent;
     type Output = BenchEvent;
-    fn process(&mut self, event: BenchEvent) -> Option<BenchEvent> {
-        Some(event)
+    fn process(&mut self, event: Vec<u8>) -> Option<BenchEvent> {
+        cloacina::computation_graph::types::deserialize(&event).ok()
     }
 }
 

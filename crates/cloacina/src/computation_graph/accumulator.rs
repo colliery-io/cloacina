@@ -98,15 +98,13 @@ pub enum AccumulatorError {
 /// `process()` while the event source runs independently on its own task.
 #[async_trait::async_trait]
 pub trait Accumulator: Send + 'static {
-    /// The raw event type consumed from the source.
-    type Event: DeserializeOwned + Send + 'static;
-
     /// The typed boundary produced for the reactor.
     type Output: Serialize + Send + 'static;
 
-    /// Process a received event and optionally produce a boundary.
+    /// Process raw event bytes and optionally produce a boundary.
+    /// The implementor owns deserialization — the runtime is format-agnostic.
     /// Called sequentially by the processor task — no concurrent `&mut self`.
-    fn process(&mut self, event: Self::Event) -> Option<Self::Output>;
+    fn process(&mut self, event: Vec<u8>) -> Option<Self::Output>;
 
     /// Called on startup before first receive.
     /// Use to restore state from last checkpoint.
@@ -126,14 +124,11 @@ pub trait Accumulator: Send + 'static {
 /// For stream-backed sources, see also [`StreamBackend`](super::stream_backend::StreamBackend).
 #[async_trait::async_trait]
 pub trait EventSource: Send + 'static {
-    /// The event type pushed into the merge channel.
-    type Event: Send + 'static;
-
-    /// Run the event loop. Push events into `events` until shutdown fires or
-    /// the source is exhausted. The runtime will shut down if this returns.
+    /// Run the event loop. Push raw event bytes into `events` until shutdown
+    /// fires or the source is exhausted. The runtime shuts down if this returns.
     async fn run(
         self,
-        events: mpsc::Sender<Self::Event>,
+        events: mpsc::Sender<Vec<u8>>,
         shutdown: watch::Receiver<bool>,
     ) -> Result<(), AccumulatorError>;
 }
@@ -325,12 +320,12 @@ pub async fn accumulator_runtime<A: Accumulator>(
     socket_rx: mpsc::Receiver<Vec<u8>>,
     config: AccumulatorRuntimeConfig,
 ) {
-    accumulator_runtime_inner::<A, NoEventSource<A::Event>>(acc, ctx, socket_rx, config, None).await
+    accumulator_runtime_inner::<A, NoEventSource>(acc, ctx, socket_rx, config, None).await
 }
 
 /// Run an accumulator with an active event source that pulls events from
 /// an external system. The event source runs on its own task and pushes
-/// events into the merge channel concurrently with the socket receiver.
+/// raw bytes into the merge channel concurrently with the socket receiver.
 pub async fn accumulator_runtime_with_source<A, S>(
     acc: A,
     ctx: AccumulatorContext,
@@ -339,20 +334,19 @@ pub async fn accumulator_runtime_with_source<A, S>(
     source: S,
 ) where
     A: Accumulator,
-    S: EventSource<Event = A::Event>,
+    S: EventSource,
 {
     accumulator_runtime_inner(acc, ctx, socket_rx, config, Some(source)).await
 }
 
 /// Placeholder type for when no event source is provided.
-struct NoEventSource<E>(std::marker::PhantomData<E>);
+struct NoEventSource;
 
 #[async_trait::async_trait]
-impl<E: Send + 'static> EventSource for NoEventSource<E> {
-    type Event = E;
+impl EventSource for NoEventSource {
     async fn run(
         self,
-        _events: mpsc::Sender<E>,
+        _events: mpsc::Sender<Vec<u8>>,
         _shutdown: watch::Receiver<bool>,
     ) -> Result<(), AccumulatorError> {
         std::future::pending().await
@@ -360,7 +354,7 @@ impl<E: Send + 'static> EventSource for NoEventSource<E> {
 }
 
 /// Inner runtime shared by both `accumulator_runtime` and `accumulator_runtime_with_source`.
-async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Event>>(
+async fn accumulator_runtime_inner<A: Accumulator, S: EventSource>(
     mut acc: A,
     ctx: AccumulatorContext,
     socket_rx: mpsc::Receiver<Vec<u8>>,
@@ -376,8 +370,8 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Eve
         return;
     }
 
-    // Create merge channel
-    let (event_tx, mut event_rx) = mpsc::channel::<A::Event>(config.merge_channel_capacity);
+    // Create merge channel — carries raw bytes from all sources
+    let (event_tx, mut event_rx) = mpsc::channel::<Vec<u8>>(config.merge_channel_capacity);
 
     // Spawn event source task (or no-op wait if none provided)
     let name_loop = ctx.name.clone();
@@ -401,7 +395,7 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Eve
         })
     };
 
-    // Spawn socket receiver task
+    // Spawn socket receiver task — forwards raw bytes without deserialization
     let event_tx_socket = event_tx.clone();
     let mut shutdown_socket = ctx.shutdown.clone();
     let name_socket = ctx.name.clone();
@@ -410,16 +404,8 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Eve
         loop {
             tokio::select! {
                 Some(bytes) = socket_rx.recv() => {
-                    // Socket receives JSON from external sources (WebSocket, Kafka)
-                    match serde_json::from_slice::<A::Event>(&bytes) {
-                        Ok(event) => {
-                            if event_tx_socket.send(event).await.is_err() {
-                                break; // merge channel closed
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(name = %name_socket, "socket deserialize error: {}", e);
-                        }
+                    if event_tx_socket.send(bytes).await.is_err() {
+                        break; // merge channel closed
                     }
                 }
                 _ = shutdown_socket.changed() => {
@@ -572,15 +558,13 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
 /// - Shutdown (drains remaining buffer)
 #[async_trait::async_trait]
 pub trait BatchAccumulator: Send + 'static {
-    /// The raw event type buffered from the source.
-    type Event: DeserializeOwned + Send + 'static;
-
     /// The typed boundary produced from the batch.
     type Output: Serialize + Send + 'static;
 
-    /// Process a batch of events and optionally produce a boundary.
+    /// Process a batch of raw event bytes and optionally produce a boundary.
+    /// The implementor owns deserialization — the runtime is format-agnostic.
     /// Called when the buffer is flushed. Empty batches are never passed.
-    fn process_batch(&mut self, events: Vec<Self::Event>) -> Option<Self::Output>;
+    fn process_batch(&mut self, events: Vec<Vec<u8>>) -> Option<Self::Output>;
 }
 
 /// Configuration for the batch accumulator runtime.
@@ -619,21 +603,15 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
     socket_rx: mpsc::Receiver<Vec<u8>>,
     mut flush_rx: mpsc::Receiver<()>,
     config: BatchAccumulatorConfig,
-) where
-    B::Event: Serialize,
-{
+) {
     set_health(&ctx, AccumulatorHealth::Starting);
 
     // Restore buffered events from checkpoint if available
-    let mut buffer: Vec<B::Event> = Vec::new();
+    let mut buffer: Vec<Vec<u8>> = Vec::new();
     if let Some(ref handle) = ctx.checkpoint {
         match handle.load::<Vec<Vec<u8>>>().await {
             Ok(Some(raw_events)) => {
-                for raw in raw_events {
-                    if let Ok(event) = types::deserialize::<B::Event>(&raw) {
-                        buffer.push(event);
-                    }
-                }
+                buffer = raw_events;
                 if !buffer.is_empty() {
                     tracing::info!(name = %ctx.name, events = buffer.len(), "batch buffer restored from checkpoint");
                 }
@@ -661,28 +639,20 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
     loop {
         tokio::select! {
             Some(bytes) = socket_rx.recv() => {
-                // Socket receives JSON from external sources
-                match serde_json::from_slice::<B::Event>(&bytes) {
-                    Ok(event) => {
-                        buffer.push(event);
-                        // Persist buffer snapshot for crash resilience
-                        persist_batch_buffer(&ctx, &buffer).await;
-                        // Check size threshold
-                        if let Some(max) = config.max_buffer_size {
-                            if buffer.len() >= max {
-                                flush_batch(&mut acc, &mut buffer, &ctx).await;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(name = %ctx.name, "batch deserialize error: {}", e);
+                buffer.push(bytes);
+                // Persist buffer snapshot for crash resilience
+                persist_batch_buffer(&ctx, &buffer).await;
+                // Check size threshold
+                if let Some(max) = config.max_buffer_size {
+                    if buffer.len() >= max {
+                        flush_batch(&mut acc, &mut buffer, &ctx).await;
                     }
                 }
             }
             Some(()) = flush_rx.recv() => {
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
                 // Clear checkpoint after flush (buffer is empty)
-                persist_batch_buffer::<B::Event>(&ctx, &[]).await;
+                persist_batch_buffer(&ctx, &[]).await;
             }
             _ = async {
                 match timer.as_mut() {
@@ -703,14 +673,9 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
 }
 
 /// Persist batch buffer snapshot to DAL for crash resilience (best-effort).
-async fn persist_batch_buffer<E: Serialize>(ctx: &AccumulatorContext, buffer: &[E]) {
+async fn persist_batch_buffer(ctx: &AccumulatorContext, buffer: &[Vec<u8>]) {
     if let Some(ref handle) = ctx.checkpoint {
-        // Serialize each event to raw bytes, then save the vec of raw bytes
-        let raw: Vec<Vec<u8>> = buffer
-            .iter()
-            .filter_map(|e| types::serialize(e).ok())
-            .collect();
-        if let Err(e) = handle.save(&raw).await {
+        if let Err(e) = handle.save(&buffer.to_vec()).await {
             tracing::warn!(name = %ctx.name, "batch buffer checkpoint failed: {}", e);
         }
     }
@@ -719,7 +684,7 @@ async fn persist_batch_buffer<E: Serialize>(ctx: &AccumulatorContext, buffer: &[
 /// Flush the buffer through the batch accumulator and send boundary if produced.
 async fn flush_batch<B: BatchAccumulator>(
     acc: &mut B,
-    buffer: &mut Vec<B::Event>,
+    buffer: &mut Vec<Vec<u8>>,
     ctx: &AccumulatorContext,
 ) {
     if buffer.is_empty() {
@@ -926,12 +891,12 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Accumulator for DoubleAccumulator {
-        type Event = TestEvent;
         type Output = TestBoundary;
 
-        fn process(&mut self, event: TestEvent) -> Option<TestBoundary> {
+        fn process(&mut self, event: Vec<u8>) -> Option<TestBoundary> {
+            let parsed: TestEvent = serde_json::from_slice(&event).ok()?;
             Some(TestBoundary {
-                result: event.value * 2.0,
+                result: parsed.value * 2.0,
             })
         }
     }
@@ -1195,11 +1160,14 @@ mod tests {
 
     #[async_trait::async_trait]
     impl BatchAccumulator for SumBatchAccumulator {
-        type Event = TestEvent;
         type Output = TestBoundary;
 
-        fn process_batch(&mut self, events: Vec<TestEvent>) -> Option<TestBoundary> {
-            let sum: f64 = events.iter().map(|e| e.value).sum();
+        fn process_batch(&mut self, events: Vec<Vec<u8>>) -> Option<TestBoundary> {
+            let sum: f64 = events
+                .iter()
+                .filter_map(|raw| serde_json::from_slice::<TestEvent>(raw).ok())
+                .map(|e| e.value)
+                .sum();
             Some(TestBoundary { result: sum })
         }
     }
@@ -1442,14 +1410,14 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Accumulator for FilterAccumulator {
-        type Event = TestEvent;
         type Output = TestBoundary;
 
-        fn process(&mut self, event: TestEvent) -> Option<TestBoundary> {
+        fn process(&mut self, event: Vec<u8>) -> Option<TestBoundary> {
+            let parsed: TestEvent = serde_json::from_slice(&event).ok()?;
             // Only produce boundary for values > 5
-            if event.value > 5.0 {
+            if parsed.value > 5.0 {
                 Some(TestBoundary {
-                    result: event.value,
+                    result: parsed.value,
                 })
             } else {
                 None
