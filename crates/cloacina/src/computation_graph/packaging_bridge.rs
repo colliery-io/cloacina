@@ -393,28 +393,18 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
                             result = backend.recv() => {
                                 match result {
                                     Ok(msg) => {
-                                        // Kafka delivers JSON payloads — convert to bincode
-                                        // (internal wire format) before forwarding to accumulator.
-                                        let wire_bytes = match serde_json::from_slice::<serde_json::Value>(&msg.payload) {
-                                            Ok(value) => match bincode::serialize(&value) {
-                                                Ok(b) => b,
-                                                Err(e) => {
-                                                    tracing::warn!(accumulator = %acc_name, "failed to serialize Kafka msg to bincode: {}", e);
-                                                    continue;
-                                                }
-                                            },
-                                            Err(e) => {
-                                                tracing::warn!(accumulator = %acc_name, "invalid JSON from Kafka: {}", e);
-                                                continue;
-                                            }
-                                        };
+                                        // Forward raw payload to accumulator socket channel.
+                                        // The GenericPassthroughAccumulator's event type is
+                                        // serde_json::Value, so JSON payloads work directly.
+                                        // Non-JSON Kafka formats need a custom accumulator
+                                        // with a typed event source (not the socket path).
                                         tracing::info!(
                                             accumulator = %acc_name,
                                             offset = msg.offset,
-                                            bytes = wire_bytes.len(),
-                                            "Kafka message received (JSON→bincode)"
+                                            bytes = msg.payload.len(),
+                                            "Kafka message received"
                                         );
-                                        if socket_tx_stream.send(wire_bytes).await.is_err() {
+                                        if socket_tx_stream.send(msg.payload).await.is_err() {
                                             break;
                                         }
                                     }

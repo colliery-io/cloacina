@@ -410,7 +410,8 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Eve
         loop {
             tokio::select! {
                 Some(bytes) = socket_rx.recv() => {
-                    match types::deserialize::<A::Event>(&bytes) {
+                    // Socket receives JSON from external sources (WebSocket, Kafka)
+                    match serde_json::from_slice::<A::Event>(&bytes) {
                         Ok(event) => {
                             if event_tx_socket.send(event).await.is_err() {
                                 break; // merge channel closed
@@ -536,8 +537,8 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
                 }
             }
             Some(bytes) = socket_rx.recv() => {
-                // Socket events are deserialized as Output and sent directly
-                match types::deserialize::<P::Output>(&bytes) {
+                // Socket receives JSON from external sources
+                match serde_json::from_slice::<P::Output>(&bytes) {
                     Ok(output) => {
                         if let Err(e) = ctx.output.send(&output).await {
                             tracing::error!(name = %ctx.name, "socket boundary send failed: {}", e);
@@ -660,7 +661,8 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
     loop {
         tokio::select! {
             Some(bytes) = socket_rx.recv() => {
-                match types::deserialize::<B::Event>(&bytes) {
+                // Socket receives JSON from external sources
+                match serde_json::from_slice::<B::Event>(&bytes) {
                     Ok(event) => {
                         buffer.push(event);
                         // Persist buffer snapshot for crash resilience
@@ -845,7 +847,8 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
     loop {
         tokio::select! {
             Some(bytes) = socket_rx.recv() => {
-                match types::deserialize::<T>(&bytes) {
+                // Socket receives JSON from external sources
+                match serde_json::from_slice::<T>(&bytes) {
                     Ok(value) => {
                         // Append to buffer
                         acc.buffer.push_back(value);
@@ -975,7 +978,7 @@ mod tests {
 
         // Push an event via socket
         let event = TestEvent { value: 5.0 };
-        let event_bytes = types::serialize(&event).unwrap();
+        let event_bytes = serde_json::to_vec(&event).unwrap();
         socket_tx.send(event_bytes).await.unwrap();
 
         // Read the boundary
@@ -1013,7 +1016,7 @@ mod tests {
 
         // Push 3 events
         for v in [1.0, 2.0, 3.0] {
-            let bytes = types::serialize(&TestEvent { value: v }).unwrap();
+            let bytes = serde_json::to_vec(&TestEvent { value: v }).unwrap();
             socket_tx.send(bytes).await.unwrap();
         }
 
@@ -1230,7 +1233,7 @@ mod tests {
         // Push 3 events
         for v in [10.0, 20.0, 30.0] {
             socket_tx
-                .send(types::serialize(&TestEvent { value: v }).unwrap())
+                .send(serde_json::to_vec(&TestEvent { value: v }).unwrap())
                 .await
                 .unwrap();
         }
@@ -1285,7 +1288,7 @@ mod tests {
         // Push 5 events quickly (before timer fires)
         for v in [1.0, 2.0, 3.0, 4.0, 5.0] {
             socket_tx
-                .send(types::serialize(&TestEvent { value: v }).unwrap())
+                .send(serde_json::to_vec(&TestEvent { value: v }).unwrap())
                 .await
                 .unwrap();
         }
@@ -1373,7 +1376,7 @@ mod tests {
         // Push exactly 3 events — should trigger size-based flush
         for v in [10.0, 20.0, 30.0] {
             socket_tx
-                .send(types::serialize(&TestEvent { value: v }).unwrap())
+                .send(serde_json::to_vec(&TestEvent { value: v }).unwrap())
                 .await
                 .unwrap();
         }
@@ -1418,7 +1421,7 @@ mod tests {
         // Push events without triggering flush
         for v in [1.0, 2.0] {
             socket_tx
-                .send(types::serialize(&TestEvent { value: v }).unwrap())
+                .send(serde_json::to_vec(&TestEvent { value: v }).unwrap())
                 .await
                 .unwrap();
         }
@@ -1478,13 +1481,13 @@ mod tests {
 
         // Push event below threshold (should produce no boundary)
         socket_tx
-            .send(types::serialize(&TestEvent { value: 3.0 }).unwrap())
+            .send(serde_json::to_vec(&TestEvent { value: 3.0 }).unwrap())
             .await
             .unwrap();
 
         // Push event above threshold (should produce boundary)
         socket_tx
-            .send(types::serialize(&TestEvent { value: 10.0 }).unwrap())
+            .send(serde_json::to_vec(&TestEvent { value: 10.0 }).unwrap())
             .await
             .unwrap();
 

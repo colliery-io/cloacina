@@ -275,7 +275,10 @@ async fn test_end_to_end_accumulator_reactor_graph() {
 
     // Push event into accumulator socket → accumulator processes → boundary to reactor → graph fires
     let event = AlphaData { value: 7.0 };
-    socket_tx.send(serialize(&event).unwrap()).await.unwrap();
+    socket_tx
+        .send(serde_json::to_vec(&event).unwrap())
+        .await
+        .unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
@@ -297,7 +300,7 @@ async fn test_end_to_end_accumulator_reactor_graph() {
 
     // Push again — fires again with different value
     socket_tx
-        .send(serialize(&AlphaData { value: 99.0 }).unwrap())
+        .send(serde_json::to_vec(&AlphaData { value: 99.0 }).unwrap())
         .await
         .unwrap();
 
@@ -412,7 +415,7 @@ async fn test_reactive_scheduler_end_to_end() {
     // Push event via registry (simulates WebSocket push)
     let event = AlphaData { value: 5.0 };
     registry
-        .send_to_accumulator("alpha", serialize(&event).unwrap())
+        .send_to_accumulator("alpha", serde_json::to_vec(&event).unwrap())
         .await
         .unwrap();
 
@@ -437,7 +440,10 @@ async fn test_reactive_scheduler_end_to_end() {
 
     // Push again — reactor is paused, should NOT fire
     registry
-        .send_to_accumulator("alpha", serialize(&AlphaData { value: 10.0 }).unwrap())
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 10.0 }).unwrap(),
+        )
         .await
         .unwrap();
 
@@ -646,7 +652,7 @@ async fn test_batch_accumulator_to_reactor() {
     // Push 5 events quickly
     for v in [1.0, 2.0, 3.0, 4.0, 5.0] {
         socket_tx
-            .send(serialize(&AlphaData { value: v }).unwrap())
+            .send(serde_json::to_vec(&AlphaData { value: v }).unwrap())
             .await
             .unwrap();
     }
@@ -774,7 +780,7 @@ async fn test_when_all_waits_for_both_sources() {
 
     // Push alpha only — should NOT fire (WhenAll requires both)
     alpha_tx
-        .send(serialize(&AlphaData { value: 10.0 }).unwrap())
+        .send(serde_json::to_vec(&AlphaData { value: 10.0 }).unwrap())
         .await
         .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -786,7 +792,7 @@ async fn test_when_all_waits_for_both_sources() {
 
     // Push beta — now both dirty → should fire
     beta_tx
-        .send(serialize(&BetaData { estimate: 5.0 }).unwrap())
+        .send(serde_json::to_vec(&BetaData { estimate: 5.0 }).unwrap())
         .await
         .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -798,7 +804,7 @@ async fn test_when_all_waits_for_both_sources() {
 
     // Push alpha again — only alpha dirty → should NOT fire
     alpha_tx
-        .send(serialize(&AlphaData { value: 20.0 }).unwrap())
+        .send(serde_json::to_vec(&AlphaData { value: 20.0 }).unwrap())
         .await
         .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -810,7 +816,7 @@ async fn test_when_all_waits_for_both_sources() {
 
     // Push beta again — both dirty again → fires
     beta_tx
-        .send(serialize(&BetaData { estimate: 15.0 }).unwrap())
+        .send(serde_json::to_vec(&BetaData { estimate: 15.0 }).unwrap())
         .await
         .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -886,7 +892,7 @@ async fn test_sequential_input_strategy() {
     // Push 5 events rapidly — with Sequential, each should fire separately
     for v in [1.0, 2.0, 3.0, 4.0, 5.0] {
         socket_tx
-            .send(serialize(&AlphaData { value: v }).unwrap())
+            .send(serde_json::to_vec(&AlphaData { value: v }).unwrap())
             .await
             .unwrap();
     }
@@ -1272,7 +1278,7 @@ mod resilience_tests {
 
         // Push event → accumulator → reactor → graph fires → cache persisted
         socket_tx
-            .send(serialize(&AlphaData { value: 7.0 }).unwrap())
+            .send(serde_json::to_vec(&AlphaData { value: 7.0 }).unwrap())
             .await
             .unwrap();
 
@@ -1471,7 +1477,7 @@ mod resilience_tests {
         // Push 5 events
         for i in 1..=5 {
             socket_tx
-                .send(serialize(&AlphaData { value: i as f64 }).unwrap())
+                .send(serde_json::to_vec(&AlphaData { value: i as f64 }).unwrap())
                 .await
                 .unwrap();
         }
@@ -1559,7 +1565,7 @@ mod resilience_tests {
         // Push 3 values
         for v in [1.0, 2.0, 3.0] {
             socket_tx
-                .send(serialize(&AlphaData { value: v }).unwrap())
+                .send(serde_json::to_vec(&AlphaData { value: v }).unwrap())
                 .await
                 .unwrap();
         }
@@ -1687,7 +1693,7 @@ mod resilience_tests {
         // Push 4 events — they buffer without flushing
         for v in [10.0, 20.0, 30.0, 40.0] {
             socket_tx
-                .send(serialize(&AlphaData { value: v }).unwrap())
+                .send(serde_json::to_vec(&AlphaData { value: v }).unwrap())
                 .await
                 .unwrap();
         }
@@ -1861,13 +1867,16 @@ mod resilience_tests {
         // Push 2 events — accumulator will panic on the 2nd process()
         let event = AlphaData { value: 1.0 };
         registry
-            .send_to_accumulator("alpha", serialize(&event).unwrap())
+            .send_to_accumulator("alpha", serde_json::to_vec(&event).unwrap())
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         registry
-            .send_to_accumulator("alpha", serialize(&AlphaData { value: 2.0 }).unwrap())
+            .send_to_accumulator(
+                "alpha",
+                serde_json::to_vec(&AlphaData { value: 2.0 }).unwrap(),
+            )
             .await
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -1888,7 +1897,10 @@ mod resilience_tests {
 
         // Push another event — the respawned accumulator (spawn_num=1) won't panic
         registry
-            .send_to_accumulator("alpha", serialize(&AlphaData { value: 3.0 }).unwrap())
+            .send_to_accumulator(
+                "alpha",
+                serde_json::to_vec(&AlphaData { value: 3.0 }).unwrap(),
+            )
             .await
             .unwrap();
 

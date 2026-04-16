@@ -783,7 +783,7 @@ mod tests {
 
         // Push event via registry (simulating WebSocket push)
         let event = TestEvent { value: 42.0 };
-        let bytes = serialize(&event).unwrap();
+        let bytes = serde_json::to_vec(&event).unwrap();
         registry.send_to_accumulator("alpha", bytes).await.unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
