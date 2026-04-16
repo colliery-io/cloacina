@@ -594,7 +594,17 @@ impl Database {
         #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
         let pool = &self.pool;
 
-        pool.get().await
+        let conn = pool.get().await?;
+        // Ensure SQLite pragmas are set on every checkout — pragmas are per-connection
+        // and may be lost if the pool recycles the connection.
+        conn.interact(|conn| {
+            use diesel::prelude::*;
+            let _ = diesel::sql_query("PRAGMA journal_mode=WAL;").execute(conn);
+            let _ = diesel::sql_query("PRAGMA busy_timeout=30000;").execute(conn);
+        })
+        .await
+        .ok();
+        Ok(conn)
     }
 }
 
