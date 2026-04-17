@@ -68,4 +68,17 @@ Short-form for CHANGELOG:
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-04-17: Scope split — deferred to T-0509
+
+Attempted the full cleanup during I-0096 (see PR #70) but reverted: a
+non-trivial set of integration tests reads the process-global registries
+directly (`global_workflow_registry().read().contains_key(...)`,
+`is_trigger_registered(...)`, etc.). Rewriting them to read via `Runtime::new()`
+is straightforward but broader in scope than the initiative should hold. The
+ordering-bug fix the initiative was really about is already delivered through
+T-0505/6/7 (inventory-based seeding).
+
+Remaining work tracked as **CLOACI-T-0509** in the tech-debt backlog. When
+I-0096 closes, this task is effectively complete-in-spirit — the docs update
+and breaking-change note are still satisfied by the PR body and the runtime
+module docs. T-0509 handles the physical code cleanup.
