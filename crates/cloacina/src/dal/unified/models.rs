@@ -361,6 +361,8 @@ pub struct UnifiedWorkflowPackage {
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
     pub tenant_id: Option<String>,
+    pub content_hash: String,
+    pub superseded: UniversalBool,
 }
 
 #[derive(Debug, Insertable)]
@@ -377,6 +379,8 @@ pub struct NewUnifiedWorkflowPackage {
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
     pub tenant_id: Option<String>,
+    pub content_hash: String,
+    pub superseded: UniversalBool,
 }
 
 // ============================================================================
@@ -629,6 +633,8 @@ impl From<UnifiedWorkflowPackage> for WorkflowPackage {
             created_at: u.created_at,
             updated_at: u.updated_at,
             tenant_id: u.tenant_id,
+            content_hash: u.content_hash,
+            superseded: u.superseded.0,
         }
     }
 }

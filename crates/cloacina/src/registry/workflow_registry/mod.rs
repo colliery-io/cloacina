@@ -279,19 +279,25 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         let pkg_name = manifest.package.name.clone();
         let pkg_version = manifest.package.version.clone();
 
-        // 3. Check for duplicate
-        if self
-            .get_package_metadata(&pkg_name, &pkg_version)
-            .await?
-            .is_some()
-        {
-            return Err(RegistryError::PackageExists {
-                package_name: pkg_name,
-                version: pkg_version,
-            });
+        // 3. Content hash for idempotency + audit of what's installed.
+        let content_hash = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(&package_data);
+            format!("{:x}", hasher.finalize())
+        };
+
+        // 4. Look up the currently-active row for this package name.
+        //    - Same hash  → idempotent, return existing id (no storage churn, no supersede)
+        //    - Different  → supersede old + insert new atomically
+        //    - None       → insert new
+        let active = self.get_active_package_by_name(&pkg_name).await?;
+        if let Some((existing_id, _, ref existing_hash)) = active {
+            if existing_hash == &content_hash {
+                return Ok(existing_id);
+            }
         }
 
-        // 4. Build a lightweight PackageMetadata for storage (tasks populated at load time)
         let package_metadata = crate::registry::loader::package_loader::PackageMetadata {
             package_name: pkg_name,
             version: pkg_version,
@@ -303,12 +309,11 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             symbols: vec![],
         };
 
-        // 5. Store the source archive
         let registry_id = self.storage.store_binary(package_data).await?;
 
-        // 6. Store metadata in database
+        let old_id = active.map(|(id, _, _)| id);
         let package_id = self
-            .store_package_metadata(&registry_id, &package_metadata)
+            .supersede_and_insert(old_id, &registry_id, &package_metadata, &content_hash)
             .await?;
 
         Ok(package_id)

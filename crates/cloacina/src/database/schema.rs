@@ -174,6 +174,8 @@ mod unified_schema {
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
             tenant_id -> Nullable<Text>,
+            content_hash -> Text,
+            superseded -> DbBool,
         }
     }
 
@@ -509,6 +511,8 @@ mod postgres_schema {
             created_at -> Timestamp,
             updated_at -> Timestamp,
             tenant_id -> Nullable<Text>,
+            content_hash -> Text,
+            superseded -> Bool,
         }
     }
 
@@ -875,6 +879,8 @@ mod sqlite_schema {
             created_at -> Text,
             updated_at -> Text,
             tenant_id -> Nullable<Text>,
+            content_hash -> Text,
+            superseded -> Integer,
         }
     }
 

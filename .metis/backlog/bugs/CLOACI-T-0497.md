@@ -98,6 +98,51 @@ CREATE UNIQUE INDEX idx_active_package ON workflow_packages(package_name, versio
 
 ## Status Updates
 
+### 2026-04-16: Implementation landed — supersede-based upload flow
+
+Design: name is identity (one active row per package_name), version is a
+monotonically-increasing string the client uses to communicate recency, and
+content_hash (SHA256 of the archive) drives idempotency.
+
+Schema changes (migrations postgres/021, sqlite/018):
+- `content_hash TEXT NOT NULL DEFAULT ''`
+- `superseded BOOLEAN NOT NULL DEFAULT FALSE`
+- Partial unique index `(package_name) WHERE NOT superseded` — enforces one
+  active row per name at the DB level, closes Bug 2 (concurrent upload race).
+- Existing `UNIQUE(package_name, version)` kept as defense-in-depth.
+
+Upload handler (`register_workflow`) rewritten:
+1. Unpack manifest → (name, version).
+2. SHA256 the archive bytes → content_hash.
+3. Look up the active row for `name`:
+   - Same hash → return existing UUID (idempotent no-op; no storage churn).
+   - Different hash → transactional supersede-and-insert (UPDATE old row
+     `superseded = TRUE`, INSERT new row with new UUID + content_hash).
+   - None → INSERT new row.
+
+Reconciler requires no changes — its diff-by-UUID logic naturally unloads the
+superseded UUID and loads the newly-inserted UUID because the DAL read methods
+(`get_package_metadata`, `get_package_metadata_by_id`, `list_all_packages`) all
+filter on `superseded = FALSE`.
+
+Fixes all three bugs:
+- **Bug 1 (no upgrade path)**: supersede flips old row; reconciler unloads old
+  and loads new.
+- **Bug 2 (concurrent race)**: partial unique index rejects the second insert;
+  surfaced as `PackageExists`.
+- **Bug 3 (rollback)**: same path as upgrade — client uploads a new version with
+  old content; new row supersedes whatever was active.
+
+Unit tests added to `workflow_registry/database.rs`:
+- `test_supersede_and_insert_fresh_name`
+- `test_supersede_and_insert_replaces_old_active` (old UUID invisible via all
+  filtered reads; new UUID visible; list_all_packages returns only active)
+- `test_partial_unique_rejects_second_active_for_same_name`
+
+Server-mode end-to-end validation (repeated/upgrade/rollback/concurrent uploads
+against the HTTP API) is deferred to a separate soak-style task or the server
+soak harness.
+
 ### 2026-04-15: Code audit complete — 4 bugs found
 
 **Audit scope**: `workflows.rs` (upload handler), `workflow_registry/mod.rs` (register_workflow), `reconciler/mod.rs` (reconcile loop), `reconciler/loading.rs` (load/unload).

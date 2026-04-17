@@ -87,6 +87,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             created_at: now,
             updated_at: now,
             tenant_id: None,
+            content_hash: String::new(),
+            superseded: crate::database::universal_types::UniversalBool(false),
         };
 
         let package_name_for_error = package_metadata.package_name.clone();
@@ -146,6 +148,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             created_at: now,
             updated_at: now,
             tenant_id: None,
+            content_hash: String::new(),
+            superseded: crate::database::universal_types::UniversalBool(false),
         };
 
         conn.interact(move |conn| {
@@ -219,6 +223,10 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 workflow_packages::table
                     .filter(workflow_packages::package_name.eq(&package_name))
                     .filter(workflow_packages::version.eq(&version))
+                    .filter(
+                        workflow_packages::superseded
+                            .eq(crate::database::universal_types::UniversalBool(false)),
+                    )
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
@@ -264,6 +272,10 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 workflow_packages::table
                     .filter(workflow_packages::package_name.eq(&package_name))
                     .filter(workflow_packages::version.eq(&version))
+                    .filter(
+                        workflow_packages::superseded
+                            .eq(crate::database::universal_types::UniversalBool(false)),
+                    )
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
@@ -301,7 +313,14 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
         let package_records: Vec<UnifiedWorkflowPackage> = conn
-            .interact(move |conn| workflow_packages::table.load::<UnifiedWorkflowPackage>(conn))
+            .interact(move |conn| {
+                workflow_packages::table
+                    .filter(
+                        workflow_packages::superseded
+                            .eq(crate::database::universal_types::UniversalBool(false)),
+                    )
+                    .load::<UnifiedWorkflowPackage>(conn)
+            })
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
@@ -344,7 +363,14 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
         let package_records: Vec<UnifiedWorkflowPackage> = conn
-            .interact(move |conn| workflow_packages::table.load::<UnifiedWorkflowPackage>(conn))
+            .interact(move |conn| {
+                workflow_packages::table
+                    .filter(
+                        workflow_packages::superseded
+                            .eq(crate::database::universal_types::UniversalBool(false)),
+                    )
+                    .load::<UnifiedWorkflowPackage>(conn)
+            })
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
@@ -486,6 +512,10 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .interact(move |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::id.eq(pkg_id))
+                    .filter(
+                        workflow_packages::superseded
+                            .eq(crate::database::universal_types::UniversalBool(false)),
+                    )
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
@@ -541,6 +571,10 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .interact(move |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::id.eq(pkg_id))
+                    .filter(
+                        workflow_packages::superseded
+                            .eq(crate::database::universal_types::UniversalBool(false)),
+                    )
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
@@ -573,6 +607,180 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         } else {
             Ok(None)
         }
+    }
+
+    /// Look up the active package row for `name`, returning (id, registry_id, content_hash).
+    ///
+    /// Returns `Ok(None)` if no active row exists. Superseded rows are ignored.
+    pub(super) async fn get_active_package_by_name(
+        &self,
+        package_name: &str,
+    ) -> Result<Option<(Uuid, String, String)>, RegistryError> {
+        use crate::dal::unified::models::UnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalBool;
+
+        crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let name = package_name.to_string();
+                let record: Option<UnifiedWorkflowPackage> = conn
+                    .interact(move |conn| {
+                        workflow_packages::table
+                            .filter(workflow_packages::package_name.eq(&name))
+                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(record.map(|r| (r.id.0, r.registry_id.0.to_string(), r.content_hash)))
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let name = package_name.to_string();
+                let record: Option<UnifiedWorkflowPackage> = conn
+                    .interact(move |conn| {
+                        workflow_packages::table
+                            .filter(workflow_packages::package_name.eq(&name))
+                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(record.map(|r| (r.id.0, r.registry_id.0.to_string(), r.content_hash)))
+            }
+        )
+    }
+
+    /// Supersede the current active row for `old_id` (if provided) and insert a new
+    /// active row in the same transaction. Returns the new package UUID.
+    ///
+    /// Used by the upload handler to atomically replace a package version: the old
+    /// row is flagged `superseded = true` and a fresh row with the new content is
+    /// inserted. The partial unique index `(package_name) WHERE NOT superseded`
+    /// guarantees at most one active row per name even under concurrent uploads.
+    pub(super) async fn supersede_and_insert(
+        &self,
+        old_id: Option<Uuid>,
+        registry_id: &str,
+        package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
+        content_hash: &str,
+    ) -> Result<Uuid, RegistryError> {
+        use crate::dal::unified::models::NewUnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
+
+        let registry_uuid = Uuid::parse_str(registry_id).map_err(RegistryError::InvalidUuid)?;
+        let metadata =
+            serde_json::to_string(package_metadata).map_err(RegistryError::Serialization)?;
+        let storage_type = self.storage.storage_type();
+        let new_id = UniversalUuid::new_v4();
+        let now = UniversalTimestamp::now();
+
+        let new_row = NewUnifiedWorkflowPackage {
+            id: new_id,
+            registry_id: UniversalUuid(registry_uuid),
+            package_name: package_metadata.package_name.clone(),
+            version: package_metadata.version.clone(),
+            description: package_metadata.description.clone(),
+            author: package_metadata.author.clone(),
+            metadata,
+            storage_type: storage_type.as_str().to_string(),
+            created_at: now,
+            updated_at: now,
+            tenant_id: None,
+            content_hash: content_hash.to_string(),
+            superseded: UniversalBool(false),
+        };
+
+        let pkg_name = package_metadata.package_name.clone();
+        let pkg_version = package_metadata.version.clone();
+        let old_uuid = old_id.map(UniversalUuid);
+
+        crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    conn.transaction::<_, diesel::result::Error, _>(|tx| {
+                        if let Some(id) = old_uuid {
+                            diesel::update(
+                                workflow_packages::table.filter(workflow_packages::id.eq(id)),
+                            )
+                            .set(workflow_packages::superseded.eq(UniversalBool(true)))
+                            .execute(tx)?;
+                        }
+                        diesel::insert_into(workflow_packages::table)
+                            .values(&new_row)
+                            .execute(tx)?;
+                        Ok(new_id.0)
+                    })
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| match e {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::UniqueViolation,
+                        _,
+                    ) => RegistryError::PackageExists {
+                        package_name: pkg_name.clone(),
+                        version: pkg_version.clone(),
+                    },
+                    _ => RegistryError::Database(format!("Database error: {}", e)),
+                })
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    conn.transaction::<_, diesel::result::Error, _>(|tx| {
+                        if let Some(id) = old_uuid {
+                            diesel::update(
+                                workflow_packages::table.filter(workflow_packages::id.eq(id)),
+                            )
+                            .set(workflow_packages::superseded.eq(UniversalBool(true)))
+                            .execute(tx)?;
+                        }
+                        diesel::insert_into(workflow_packages::table)
+                            .values(&new_row)
+                            .execute(tx)?;
+                        Ok(new_id.0)
+                    })
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| match e {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::UniqueViolation,
+                        _,
+                    ) => RegistryError::PackageExists {
+                        package_name: pkg_name.clone(),
+                        version: pkg_version.clone(),
+                    },
+                    _ => RegistryError::Database(format!("Database error: {}", e)),
+                })
+            }
+        )
     }
 
     /// Delete package metadata by ID.
@@ -853,5 +1061,112 @@ mod tests {
             .delete_package_metadata_by_id(Uuid::new_v4())
             .await
             .unwrap();
+    }
+
+    // ========================================================================
+    // Package lifecycle tests (T-0497)
+    // ========================================================================
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_supersede_and_insert_fresh_name() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("pkg-a", "1");
+
+        let pkg_id = registry
+            .supersede_and_insert(None, &reg_id, &meta, "hash-v1")
+            .await
+            .unwrap();
+
+        let active = registry
+            .get_active_package_by_name("pkg-a")
+            .await
+            .unwrap()
+            .expect("should have active row");
+        assert_eq!(active.0, pkg_id);
+        assert_eq!(active.2, "hash-v1");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_supersede_and_insert_replaces_old_active() {
+        let registry = create_test_registry().await;
+        let reg_id_1 = Uuid::new_v4().to_string();
+        let reg_id_2 = Uuid::new_v4().to_string();
+        let meta_v1 = sample_metadata("pkg-b", "1");
+        let meta_v2 = sample_metadata("pkg-b", "2");
+
+        let id_v1 = registry
+            .supersede_and_insert(None, &reg_id_1, &meta_v1, "hash-v1")
+            .await
+            .unwrap();
+
+        let id_v2 = registry
+            .supersede_and_insert(Some(id_v1), &reg_id_2, &meta_v2, "hash-v2")
+            .await
+            .unwrap();
+        assert_ne!(id_v1, id_v2);
+
+        // Exactly one active row, and it's the new one.
+        let active = registry
+            .get_active_package_by_name("pkg-b")
+            .await
+            .unwrap()
+            .expect("should have active row");
+        assert_eq!(active.0, id_v2);
+        assert_eq!(active.2, "hash-v2");
+
+        // Old row is no longer visible through filtered reads.
+        assert!(registry
+            .get_package_metadata("pkg-b", "1")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(registry
+            .get_package_metadata_by_id(id_v1)
+            .await
+            .unwrap()
+            .is_none());
+
+        // New row is visible.
+        assert!(registry
+            .get_package_metadata("pkg-b", "2")
+            .await
+            .unwrap()
+            .is_some());
+
+        // list_all_packages returns only the active row.
+        let list = registry.list_all_packages().await.unwrap();
+        let names: Vec<_> = list.iter().filter(|w| w.package_name == "pkg-b").collect();
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0].id, id_v2);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_partial_unique_rejects_second_active_for_same_name() {
+        let registry = create_test_registry().await;
+        let reg_id_1 = Uuid::new_v4().to_string();
+        let reg_id_2 = Uuid::new_v4().to_string();
+        let meta_v1 = sample_metadata("pkg-c", "1");
+        let meta_v2 = sample_metadata("pkg-c", "2");
+
+        registry
+            .supersede_and_insert(None, &reg_id_1, &meta_v1, "hash-v1")
+            .await
+            .unwrap();
+
+        // Second insert without superseding the first must fail due to the
+        // partial unique index `(package_name) WHERE NOT superseded`.
+        let err = registry
+            .supersede_and_insert(None, &reg_id_2, &meta_v2, "hash-v2")
+            .await
+            .expect_err("second active insert should fail");
+        assert!(
+            matches!(err, RegistryError::PackageExists { .. }),
+            "expected PackageExists, got {:?}",
+            err
+        );
     }
 }
