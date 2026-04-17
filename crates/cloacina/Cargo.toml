@@ -28,6 +28,7 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 # Workspace dependencies
 async-trait.workspace = true
+inventory.workspace = true
 once_cell.workspace = true
 serde_json.workspace = true
 

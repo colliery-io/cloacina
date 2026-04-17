@@ -197,12 +197,8 @@ impl DefaultRunner {
             .await
             .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
 
-        // Seed a scoped runtime from the process-global registries.
-        let runtime = Arc::new({
-            let rt = Runtime::new();
-            rt.seed_from_globals();
-            rt
-        });
+        // Fresh inventory-seeded runtime.
+        let runtime = Arc::new(Runtime::new());
 
         // Create scheduler with the scoped runtime
         let scheduler =

@@ -321,6 +321,10 @@ impl DefaultRunner {
                 // the reconciler will see it because they share the same Arc.
                 registry_reconciler.set_reactive_scheduler_slot(self.reactive_scheduler.clone());
 
+                // Give the reconciler a handle to the runtime so package loads
+                // and unloads are mirrored into it.
+                registry_reconciler = registry_reconciler.with_runtime(self.runtime.clone());
+
                 // Start reconciler background service
                 let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
                 let reconciler_span = self.create_runner_span("registry_reconciler");

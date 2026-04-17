@@ -260,11 +260,7 @@ impl TaskScheduler {
 
         Self {
             dal,
-            runtime: {
-                let rt = Runtime::new();
-                rt.seed_from_globals();
-                Arc::new(rt)
-            },
+            runtime: Arc::new(Runtime::new()),
             instance_id: Uuid::new_v4(),
             poll_interval,
             dispatcher: None,

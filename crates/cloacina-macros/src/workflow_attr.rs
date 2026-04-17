@@ -537,6 +537,105 @@ fn generate_embedded_registration(
         quote! {}
     };
 
+    // Inventory entries for the workflow itself and each contained task.
+    // The TaskEntry constructor mirrors the full construction performed by the
+    // legacy `register_task_constructor` closure — trigger-rule rewriting,
+    // dep-namespace resolution, and the TaskWithNamespacedTriggers wrapper —
+    // so `Runtime::new()` can seed tasks directly from inventory without
+    // relying on the old global-registry side-effect path (T-0506).
+    let rewrite_trigger_rules_for_inventory = generate_trigger_rules_rewrite(tenant, workflow_name);
+    let task_inventory_entries: Vec<TokenStream2> = detected_tasks
+        .iter()
+        .map(|(task_id, fn_name)| {
+            let constructor_name = syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
+            let task_str = fn_name.to_string();
+            let parts: Vec<&str> = task_str.split('_').collect();
+            let pascal_case = parts
+                .iter()
+                .map(|part| {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                })
+                .collect::<String>();
+            let struct_name = syn::Ident::new(&format!("{}Task", pascal_case), fn_name.span());
+            let rewrite_body = rewrite_trigger_rules_for_inventory.clone();
+            quote! {
+                cloacina::inventory::submit! {
+                    cloacina::TaskEntry {
+                        namespace: || cloacina::TaskNamespace::new(
+                            #tenant,
+                            env!("CARGO_PKG_NAME"),
+                            #workflow_name,
+                            #task_id,
+                        ),
+                        constructor: || {
+                            let task = #mod_path_prefix::#constructor_name();
+                            let rewritten_trigger_rules = {
+                                let task_ref = &task;
+                                #rewrite_body
+                            };
+
+                            let dep_ids = #mod_path_prefix::#struct_name::dependency_task_ids();
+                            let pkg_name = env!("CARGO_PKG_NAME");
+                            let dep_namespaces: Vec<cloacina::TaskNamespace> = dep_ids
+                                .iter()
+                                .map(|dep_id| cloacina::TaskNamespace::new(
+                                    #tenant,
+                                    pkg_name,
+                                    #workflow_name,
+                                    dep_id,
+                                ))
+                                .collect();
+
+                            let task_with_deps = task.with_dependencies(dep_namespaces);
+
+                            struct TaskWithNamespacedTriggers<T> {
+                                inner: T,
+                                rewritten_trigger_rules: serde_json::Value,
+                            }
+
+                            #[async_trait::async_trait]
+                            impl<T: cloacina::Task> cloacina::Task for TaskWithNamespacedTriggers<T> {
+                                async fn execute(
+                                    &self,
+                                    context: cloacina::Context<serde_json::Value>,
+                                ) -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError>
+                                {
+                                    self.inner.execute(context).await
+                                }
+                                fn id(&self) -> &str { self.inner.id() }
+                                fn dependencies(&self) -> &[cloacina::TaskNamespace] {
+                                    self.inner.dependencies()
+                                }
+                                fn retry_policy(&self) -> cloacina::retry::RetryPolicy {
+                                    self.inner.retry_policy()
+                                }
+                                fn trigger_rules(&self) -> serde_json::Value {
+                                    self.rewritten_trigger_rules.clone()
+                                }
+                                fn code_fingerprint(&self) -> Option<String> {
+                                    self.inner.code_fingerprint()
+                                }
+                                fn requires_handle(&self) -> bool {
+                                    self.inner.requires_handle()
+                                }
+                            }
+
+                            std::sync::Arc::new(TaskWithNamespacedTriggers {
+                                inner: task_with_deps,
+                                rewritten_trigger_rules,
+                            })
+                                as std::sync::Arc<dyn cloacina::Task>
+                        },
+                    }
+                }
+            }
+        })
+        .collect();
+
     quote! {
         fn #workflow_constructor_name() -> cloacina::Workflow {
             let pkg_name = env!("CARGO_PKG_NAME");
@@ -564,6 +663,15 @@ fn generate_embedded_registration(
                 #workflow_constructor_name
             );
         }
+
+        cloacina::inventory::submit! {
+            cloacina::WorkflowEntry {
+                name: #workflow_name,
+                constructor: #workflow_constructor_name,
+            }
+        }
+
+        #(#task_inventory_entries)*
     }
 }
 

@@ -439,6 +439,15 @@ impl RegistryReconciler {
 
         let mut loaded_packages = self.loaded_packages.write().await;
         loaded_packages.insert(metadata.id, package_state);
+        drop(loaded_packages);
+
+        // If a Runtime is attached, re-seed it from the globals so the newly
+        // registered tasks/workflows/triggers/CGs are visible to executors.
+        // This is the transitional path: the package's #[ctor]s have already
+        // populated the globals; we copy them into the Runtime here.
+        if let Some(runtime) = &self.runtime {
+            runtime.seed_from_globals();
+        }
 
         Ok(())
     }
@@ -473,6 +482,23 @@ impl RegistryReconciler {
         // Unregister triggers from global trigger registry
         if !package_state.trigger_names.is_empty() {
             self.unregister_package_triggers(&package_state.trigger_names);
+        }
+
+        // Mirror removals through the runtime so executors drop the stale
+        // entries immediately.
+        if let Some(runtime) = &self.runtime {
+            for ns in &package_state.task_namespaces {
+                runtime.unregister_task(ns);
+            }
+            if let Some(workflow_name) = &package_state.workflow_name {
+                runtime.unregister_workflow(workflow_name);
+            }
+            for trigger_name in &package_state.trigger_names {
+                runtime.unregister_trigger(trigger_name);
+            }
+            if let Some(graph_name) = &package_state.graph_name {
+                runtime.unregister_computation_graph(graph_name);
+            }
         }
 
         // Unload computation graph from reactive scheduler

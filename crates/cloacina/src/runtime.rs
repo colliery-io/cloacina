@@ -77,13 +77,32 @@ struct RuntimeInner {
 }
 
 impl Runtime {
-    /// Create an empty runtime. Every namespace starts with no entries.
+    /// Create a runtime seeded with every macro-registered entry from the
+    /// `inventory` crate (tasks, workflows, triggers, computation graphs,
+    /// stream backends).
     ///
-    /// In embedded mode, follow this with [`seed_from_globals`] to pick up
-    /// anything that was registered via the `#[ctor]` constructors emitted by
-    /// the macros. Once inventory-based seeding lands (T-0506) that helper
-    /// will go away.
+    /// `inventory` collects entries in a linker section and is read lazily
+    /// after `main()`, so every entry registered by the `#[task]`,
+    /// `#[workflow]`, `#[trigger]`, `#[computation_graph]`, and stream-backend
+    /// macros in the current binary is visible here. For a blank-slate runtime
+    /// (used by isolation-sensitive tests), use [`Runtime::empty`] instead.
     pub fn new() -> Self {
+        let rt = Self::empty();
+        rt.seed_from_inventory();
+        // Transitional: also seed from the process-global registries so
+        // anything registered dynamically via `register_*_constructor` (e.g.
+        // Python bindings, test fixtures) is still visible. Removed in T-0508
+        // when the globals themselves go away.
+        rt.seed_from_globals();
+        rt
+    }
+
+    /// Create an empty runtime with no registered entries in any namespace.
+    ///
+    /// Use this when you want complete isolation — no macro-registered tasks,
+    /// workflows, triggers, CGs, or stream backends are installed. Intended
+    /// for unit tests; production code should generally use [`Runtime::new`].
+    pub fn empty() -> Self {
         Self {
             inner: Arc::new(RuntimeInner {
                 tasks: RwLock::new(HashMap::new()),
@@ -92,6 +111,43 @@ impl Runtime {
                 computation_graphs: RwLock::new(HashMap::new()),
                 stream_backends: RwLock::new(HashMap::new()),
             }),
+        }
+    }
+
+    /// Populate the runtime from the `inventory` entries emitted by the
+    /// macros.
+    fn seed_from_inventory(&self) {
+        use crate::inventory_entries::{
+            ComputationGraphEntry, StreamBackendEntry, TaskEntry, TriggerEntry, WorkflowEntry,
+        };
+
+        for entry in inventory::iter::<TaskEntry> {
+            let ns = (entry.namespace)();
+            let ctor = entry.constructor;
+            self.register_task(ns, move || ctor());
+        }
+
+        for entry in inventory::iter::<WorkflowEntry> {
+            let ctor = entry.constructor;
+            self.register_workflow(entry.name.to_string(), move || ctor());
+        }
+
+        for entry in inventory::iter::<TriggerEntry> {
+            let ctor = entry.constructor;
+            self.register_trigger(entry.name.to_string(), move || ctor());
+        }
+
+        for entry in inventory::iter::<ComputationGraphEntry> {
+            let ctor = entry.constructor;
+            self.register_computation_graph(entry.name.to_string(), move || ctor());
+        }
+
+        for entry in inventory::iter::<StreamBackendEntry> {
+            let factory = entry.factory;
+            self.register_stream_backend(
+                entry.type_name.to_string(),
+                Box::new(move |config| factory(config)),
+            );
         }
     }
 
@@ -476,7 +532,7 @@ mod tests {
 
     #[test]
     fn register_and_unregister_workflow() {
-        let rt = Runtime::new();
+        let rt = Runtime::empty();
         assert!(!rt.unregister_workflow("nope"));
 
         let wf = crate::workflow::Workflow::new("unit-test-wf");
@@ -494,7 +550,7 @@ mod tests {
         // Triggers need a Trigger trait impl; skip full integration here and
         // cover the lifecycle via the workflow test. The shape of the API is
         // identical across namespaces.
-        let rt = Runtime::new();
+        let rt = Runtime::empty();
         assert!(!rt.unregister_trigger("missing"));
         assert!(rt.get_trigger("missing").is_none());
         assert!(rt.trigger_names().is_empty());
@@ -502,7 +558,7 @@ mod tests {
 
     #[test]
     fn register_and_unregister_task() {
-        let rt = Runtime::new();
+        let rt = Runtime::empty();
         let ns = TaskNamespace::new("t", "p", "w", "task_a");
         assert!(!rt.unregister_task(&ns));
         assert!(!rt.has_task(&ns));
@@ -510,7 +566,7 @@ mod tests {
 
     #[test]
     fn stream_backend_roundtrip_names_only() {
-        let rt = Runtime::new();
+        let rt = Runtime::empty();
         assert!(!rt.has_stream_backend("mock"));
         assert!(rt.stream_backend_names().is_empty());
         assert!(!rt.unregister_stream_backend("mock"));
@@ -518,8 +574,8 @@ mod tests {
 
     #[test]
     fn runtimes_are_independent() {
-        let rt1 = Runtime::new();
-        let rt2 = Runtime::new();
+        let rt1 = Runtime::empty();
+        let rt2 = Runtime::empty();
         let wf = crate::workflow::Workflow::new("iso");
         rt1.register_workflow("iso".to_string(), move || wf.clone());
 
@@ -529,7 +585,7 @@ mod tests {
 
     #[test]
     fn debug_format_reports_sizes() {
-        let rt = Runtime::new();
+        let rt = Runtime::empty();
         let debug = format!("{:?}", rt);
         assert!(debug.contains("computation_graphs: 0"));
         assert!(debug.contains("stream_backends: 0"));

@@ -655,12 +655,8 @@ impl DefaultRunnerBuilder {
                 .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
         }
 
-        // Resolve runtime: use provided or seed a fresh one from the globals.
-        let runtime = Arc::new(self.runtime.unwrap_or_else(|| {
-            let rt = Runtime::new();
-            rt.seed_from_globals();
-            rt
-        }));
+        // Resolve runtime: use provided or a fresh inventory-seeded one.
+        let runtime = Arc::new(self.runtime.unwrap_or_else(Runtime::new));
 
         // Create scheduler with the scoped runtime
         let scheduler = TaskScheduler::with_poll_interval(

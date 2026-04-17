@@ -260,6 +260,13 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
                 || std::sync::Arc::new(#struct_name),
             );
         }
+
+        cloacina::inventory::submit! {
+            cloacina::TriggerEntry {
+                name: #trigger_name,
+                constructor: || std::sync::Arc::new(#struct_name) as std::sync::Arc<dyn cloacina::trigger::Trigger>,
+            }
+        }
     };
 
     // Packaged mode: just record metadata (trigger goes into manifest)
@@ -379,6 +386,13 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
                 #trigger_name,
                 || std::sync::Arc::new(#struct_name::new()),
             );
+        }
+
+        cloacina::inventory::submit! {
+            cloacina::TriggerEntry {
+                name: #trigger_name,
+                constructor: || std::sync::Arc::new(#struct_name::new()) as std::sync::Arc<dyn cloacina::trigger::Trigger>,
+            }
         }
     };
 

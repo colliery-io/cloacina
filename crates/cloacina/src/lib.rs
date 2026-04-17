@@ -504,6 +504,7 @@ pub mod error;
 pub mod execution_planner;
 pub mod executor;
 pub mod graph;
+pub mod inventory_entries;
 pub mod logging;
 pub mod models;
 pub mod packaging;
@@ -512,6 +513,10 @@ pub mod registry;
 pub mod retry;
 pub mod runner;
 pub mod runtime;
+
+// Re-export the `inventory` crate so macros can emit `cloacina::inventory::submit!`
+// without requiring users to add `inventory` as a direct dependency.
+pub use inventory;
 pub mod security;
 pub mod task;
 pub mod trigger;
@@ -559,6 +564,10 @@ pub use executor::{
 };
 pub use graph::{
     DependencyEdge, GraphEdge, GraphMetadata, GraphNode, TaskNode, WorkflowGraph, WorkflowGraphData,
+};
+pub use inventory_entries::{
+    ComputationGraphEntry, StreamBackendEntry, StreamBackendFactoryFn, TaskEntry, TriggerEntry,
+    WorkflowEntry,
 };
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use runner::DefaultRunnerBuilder;
