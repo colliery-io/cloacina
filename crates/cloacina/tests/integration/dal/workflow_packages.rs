@@ -16,6 +16,7 @@
 
 use crate::fixtures::get_or_init_fixture;
 use cloacina::models::workflow_packages::StorageType;
+use cloacina::registry::error::RegistryError;
 use cloacina::registry::loader::package_loader::PackageMetadata;
 use cloacina::registry::traits::RegistryStorage;
 
@@ -445,6 +446,13 @@ async fn test_store_package_with_invalid_uuid() {
 
 #[tokio::test]
 async fn test_package_versioning() {
+    // Under the supersede-based lifecycle (T-0497), only one row per package name is
+    // active at any time. Inserting a second version for the same name without first
+    // marking the predecessor as superseded would violate the partial unique index
+    // `(package_name) WHERE NOT superseded` — so the direct DAL path can only hold a
+    // single active version. The supersede-and-insert flow that lets a new version
+    // replace the old is exercised separately via `register_workflow_package` in
+    // the workflow_registry integration tests.
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -457,60 +465,56 @@ async fn test_package_versioning() {
 
     let package_name = "versioned_package".to_string();
 
-    // Store multiple versions of the same package
-    for version in ["1.0.0", "1.1.0", "2.0.0"] {
-        // Create a corresponding workflow_registry entry for each version
-        let storage = fixture.create_storage();
-        let mut workflow_registry_storage = storage;
-        let mock_binary = vec![1, 2, 3, 4]; // Mock binary data
-        let registry_id = workflow_registry_storage
-            .store_binary(mock_binary)
-            .await
-            .expect("Failed to store binary in registry");
-        let test_metadata = PackageMetadata {
-            package_name: package_name.clone(),
-            version: version.to_string(),
-            description: Some(format!("Version {} of the package", version)),
-            author: Some("Versioning Author".to_string()),
-            tasks: vec![],
-            graph_data: None,
-            architecture: "x86_64".to_string(),
-            symbols: vec![],
-        };
+    let storage = fixture.create_storage();
+    let mut workflow_registry_storage = storage;
+    let registry_id = workflow_registry_storage
+        .store_binary(vec![1, 2, 3, 4])
+        .await
+        .expect("Failed to store binary in registry");
+    let storage_type = workflow_registry_storage.storage_type();
 
-        let storage_type = workflow_registry_storage.storage_type();
-        workflow_packages_dal
-            .store_package_metadata(&registry_id, &test_metadata, storage_type, None)
-            .await
-            .unwrap_or_else(|_| panic!("Failed to store version {}", version));
-    }
+    let meta_v1 = PackageMetadata {
+        package_name: package_name.clone(),
+        version: "1.0.0".to_string(),
+        description: Some("Version 1.0.0 of the package".to_string()),
+        author: Some("Versioning Author".to_string()),
+        tasks: vec![],
+        graph_data: None,
+        architecture: "x86_64".to_string(),
+        symbols: vec![],
+    };
+    workflow_packages_dal
+        .store_package_metadata(&registry_id, &meta_v1, storage_type, None)
+        .await
+        .expect("Failed to store initial version");
 
-    // Verify we can retrieve each version individually
-    for version in ["1.0.0", "1.1.0", "2.0.0"] {
-        let retrieved = workflow_packages_dal
-            .get_package_metadata(&package_name, version)
-            .await
-            .expect("Failed to get package version");
+    // A second active row for the same name is rejected by the partial unique index.
+    let meta_v2 = PackageMetadata {
+        version: "1.1.0".to_string(),
+        description: Some("Version 1.1.0 of the package".to_string()),
+        ..meta_v1.clone()
+    };
+    let err = workflow_packages_dal
+        .store_package_metadata(&registry_id, &meta_v2, storage_type, None)
+        .await
+        .expect_err("second active insert for same name should be rejected");
+    matches!(err, RegistryError::PackageExists { .. });
 
-        assert!(retrieved.is_some());
-        let (_, metadata) = retrieved.unwrap();
-        assert_eq!(metadata.version, version);
-        assert_eq!(
-            metadata.description,
-            Some(format!("Version {} of the package", version))
-        );
-    }
+    // The original active row is still retrievable and is the sole listed entry.
+    let retrieved = workflow_packages_dal
+        .get_package_metadata(&package_name, "1.0.0")
+        .await
+        .expect("Failed to get package version");
+    assert!(retrieved.is_some());
 
-    // Verify all versions show up in the list
     let all_packages = workflow_packages_dal
         .list_all_packages()
         .await
         .expect("Failed to list all packages");
-
     let versioned_packages: Vec<_> = all_packages
         .iter()
         .filter(|p| p.package_name == package_name)
         .collect();
-
-    assert_eq!(versioned_packages.len(), 3);
+    assert_eq!(versioned_packages.len(), 1);
+    assert_eq!(versioned_packages[0].version, "1.0.0");
 }

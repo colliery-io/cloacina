@@ -4,3 +4,5 @@
 /Users/dstorey/Desktop/cloacina/crates/cloacina/src/dal/unified/workflow_packages.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/workflow_registry/database.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/workflow_registry/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/dal/workflow_packages.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/dal/workflow_registry.rs
