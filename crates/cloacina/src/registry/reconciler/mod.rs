@@ -164,6 +164,12 @@ pub struct RegistryReconciler {
     /// Configuration for reconciliation behavior
     pub(super) config: ReconcilerConfig,
 
+    /// Optional runtime handle. When set, the reconciler pushes
+    /// newly-loaded/unloaded registrations through the runtime so executors
+    /// looking up tasks/workflows/triggers/CGs/stream backends stay in sync
+    /// with dynamic package loads.
+    pub(super) runtime: Option<Arc<crate::Runtime>>,
+
     /// Tracking of currently loaded packages
     pub(super) loaded_packages: Arc<tokio::sync::RwLock<HashMap<WorkflowPackageId, PackageState>>>,
 
@@ -202,6 +208,7 @@ impl RegistryReconciler {
         Ok(Self {
             registry,
             config,
+            runtime: None,
             loaded_packages: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             package_loader,
             task_registrar,
@@ -209,6 +216,14 @@ impl RegistryReconciler {
             interval,
             reactive_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
         })
+    }
+
+    /// Attach a Runtime to this reconciler. Package load/unload operations
+    /// will push registrations through the runtime so executors see the
+    /// same view as the reconciler.
+    pub fn with_runtime(mut self, runtime: Arc<crate::Runtime>) -> Self {
+        self.runtime = Some(runtime);
+        self
     }
 
     /// Set the reactive scheduler for computation graph package routing.

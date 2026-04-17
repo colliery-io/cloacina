@@ -3,3 +3,6 @@
 /Users/dstorey/Desktop/cloacina/crates/cloacina/src/execution_planner/mod.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacina/src/runner/default_runner/config.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacina/src/runner/default_runner/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/reconciler/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/reconciler/loading.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/runner/default_runner/services.rs
