@@ -1,0 +1,4 @@
+DROP INDEX IF EXISTS idx_active_package_per_name;
+-- SQLite 3.35+ supports DROP COLUMN.
+ALTER TABLE workflow_packages DROP COLUMN superseded;
+ALTER TABLE workflow_packages DROP COLUMN content_hash;

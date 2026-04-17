@@ -23,7 +23,7 @@
 use super::models::{NewUnifiedWorkflowPackage, UnifiedWorkflowPackage};
 use super::DAL;
 use crate::database::schema::unified::workflow_packages;
-use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::models::workflow_packages::WorkflowPackage;
 use crate::registry::error::RegistryError;
 use crate::registry::loader::package_loader::PackageMetadata;
@@ -104,6 +104,8 @@ impl<'a> WorkflowPackagesDAL<'a> {
             created_at: now,
             updated_at: now,
             tenant_id: tenant_id_owned,
+            content_hash: String::new(),
+            superseded: UniversalBool(false),
         };
 
         let package_name_clone = package_metadata.package_name.clone();
@@ -165,6 +167,8 @@ impl<'a> WorkflowPackagesDAL<'a> {
             created_at: now,
             updated_at: now,
             tenant_id: tenant_id_owned,
+            content_hash: String::new(),
+            superseded: UniversalBool(false),
         };
 
         let package_name_clone = package_metadata.package_name.clone();

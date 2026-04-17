@@ -4,14 +4,14 @@ level: initiative
 title: "Runtime Registry Unification — Eliminate #[ctor] Dependency"
 short_code: "CLOACI-I-0096"
 created_at: 2026-04-14T23:54:12.881539+00:00
-updated_at: 2026-04-14T23:54:12.881539+00:00
+updated_at: 2026-04-17T02:35:58.633319+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -95,4 +95,41 @@ Same as I-0095 Phase 1 but without the snapshot:
 
 ## Implementation Plan
 
-Phase 1 (explicit registration) is the hardest — it changes the macro codegen and all callers. Phases 2-4 follow naturally once explicit registration is in place. This is a larger effort than I-0095 and should be planned carefully with full test suite validation at each step.
+### Updated design (2026-04-16)
+
+Runtime becomes a single flat unified registry holding all 5 namespaces:
+tasks, workflows, triggers, computation graphs, and stream backends. Every
+entry is individually register-able and **unregister-able** by key. This is a
+change from the earlier draft — workflows and triggers were treated as static
+(register once, live forever), but the same dynamic lifecycle that CGs need
+(add/remove at runtime, package unload) applies to workflows and triggers too.
+Unifying the lifecycle simplifies the reconciler and enables hot-swap in
+embedded mode.
+
+Replace `#[ctor]` with the `inventory` crate: macros emit `inventory::submit!`
+entries collected in a linker section and read lazily after `main()`. This
+preserves the "annotate and it works" UX for embedded mode while eliminating
+the ordering bug that sank I-0095. `Runtime::new()` iterates inventory at
+construction to seed itself; the seed is just a convenience — nothing prevents
+callers from `unregister_*` on any entry afterwards.
+
+The `from_global()` / `use_globals` split goes away. Single code path: create
+Runtime → seed from inventory (automatic) → optionally register/unregister
+explicitly. Reconciler's package-unload path switches from a parallel "unregister
+from global + registrar cleanup" dance to a uniform `runtime.unregister_*(key)`
+for every namespace.
+
+This is a pre-1.0 breaking change for embedded users: the macros still emit
+auto-registration entries, but users that constructed `Runtime::new()` expecting
+it to be truly empty (rather than inventory-seeded) will see a behavior change.
+Documented in T5.
+
+### Task breakdown
+
+- **T1** Runtime unification — extend Runtime with CG + stream backend fields; add `register_*` and `unregister_*` for all 5 namespaces; remove `from_global()` / `use_globals`.
+- **T2** Macro codegen flip — `#[task]`, `#[workflow]`, `#[trigger]`, `#[computation_graph]`, and the stream backend registration macro emit `inventory::submit!` instead of `#[ctor]`.
+- **T3** Runtime seeding from inventory — `Runtime::new()` iterates inventory and populates. Drop the global static registries entirely.
+- **T4** Reconciler + DefaultRunner wiring — package-unload paths switch to `runtime.unregister_*`; DefaultRunner constructs Runtime → seed → hand to executor.
+- **T5** Cleanup & docs — remove `ctor` dep, remove `register_*_constructor` globals + `global_*_registry` modules, document the new contract and breaking change.
+
+Dependency order is T1 → T2 → T3 → T4 → T5.

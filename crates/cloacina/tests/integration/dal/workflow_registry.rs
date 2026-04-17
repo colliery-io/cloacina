@@ -539,15 +539,15 @@ async fn test_list_packages_with_fs_storage() {
 
 #[tokio::test]
 #[serial]
-async fn test_register_duplicate_package() {
-    // Test with database storage
-    test_register_duplicate_package_with_db_storage().await;
-    // Test with filesystem storage
-    test_register_duplicate_package_with_fs_storage().await;
+async fn test_register_duplicate_package_is_idempotent() {
+    // Under the supersede-based lifecycle (T-0497), uploading identical bytes is an
+    // idempotent no-op — the handler detects the matching content_hash on the active
+    // row and returns the existing UUID without touching storage.
+    test_register_duplicate_package_idempotent_with_db_storage().await;
+    test_register_duplicate_package_idempotent_with_fs_storage().await;
 }
 
-async fn test_register_duplicate_package_with_db_storage() {
-    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+async fn test_register_duplicate_package_idempotent_with_db_storage() {
     let package_data = get_mock_package();
 
     let fixture = get_or_init_fixture().await;
@@ -561,30 +561,23 @@ async fn test_register_duplicate_package_with_db_storage() {
     let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
-    // Register the package first time - should succeed
-    let _package_id = registry_dal
+    let first_id = registry_dal
         .register_workflow_package(package_data.clone())
         .await
         .expect("Failed to register workflow package first time");
 
-    // Try to register the same package again - should fail
-    let result = registry_dal.register_workflow_package(package_data).await;
+    let second_id = registry_dal
+        .register_workflow_package(package_data)
+        .await
+        .expect("Re-upload of identical bytes should be idempotent, not an error");
 
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        RegistryError::PackageExists {
-            package_name,
-            version: _,
-        } => {
-            assert_eq!(package_name, "packaged-workflow-example");
-            // Version will be the real fingerprint from the package
-        }
-        other => panic!("Expected PackageExists error, got: {:?}", other),
-    }
+    assert_eq!(
+        first_id, second_id,
+        "Idempotent re-upload must return the existing package UUID"
+    );
 }
 
-async fn test_register_duplicate_package_with_fs_storage() {
-    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+async fn test_register_duplicate_package_idempotent_with_fs_storage() {
     let package_data = get_mock_package();
 
     let fixture = get_or_init_fixture().await;
@@ -598,26 +591,17 @@ async fn test_register_duplicate_package_with_fs_storage() {
     let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
-    // Register the package first time - should succeed
-    let _package_id = registry_dal
+    let first_id = registry_dal
         .register_workflow_package(package_data.clone())
         .await
         .expect("Failed to register workflow package first time");
 
-    // Try to register the same package again - should fail
-    let result = registry_dal.register_workflow_package(package_data).await;
+    let second_id = registry_dal
+        .register_workflow_package(package_data)
+        .await
+        .expect("Re-upload of identical bytes should be idempotent, not an error");
 
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        RegistryError::PackageExists {
-            package_name,
-            version: _,
-        } => {
-            assert_eq!(package_name, "packaged-workflow-example");
-            // Version will be the real fingerprint from the package
-        }
-        other => panic!("Expected PackageExists error, got: {:?}", other),
-    }
+    assert_eq!(first_id, second_id);
 }
 
 #[tokio::test]

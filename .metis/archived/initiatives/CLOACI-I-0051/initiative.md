@@ -7,7 +7,7 @@ created_at: 2026-03-26T05:35:16.350475+00:00
 updated_at: 2026-03-26T05:35:16.350475+00:00
 parent: CLOACI-V-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"
@@ -47,6 +47,10 @@ Three hardening efforts previously completed on the `archive/cloacina-server-wee
 **Non-Goals:**
 - New features unrelated to hardening
 - Performance optimization work
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
