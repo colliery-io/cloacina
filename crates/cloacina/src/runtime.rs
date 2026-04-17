@@ -106,6 +106,18 @@ impl Runtime {
     /// Planned for removal alongside the globals once T-0506 lands
     /// (inventory-seeded `Runtime::new`).
     pub fn seed_from_globals(&self) {
+        // The #[workflow] macro registers tasks lazily — they only land in the
+        // global task registry as a side-effect of calling the workflow
+        // constructor. Fire every known constructor once before copying tasks
+        // so the task registry is actually populated.
+        {
+            let global = crate::workflow::global_workflow_registry();
+            let g = global.read();
+            for (_, ctor) in g.iter() {
+                let _ = ctor(); // discard: we only want the registration side-effect
+            }
+        }
+
         // Tasks
         {
             let global = crate::task::global_task_registry();
