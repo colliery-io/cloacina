@@ -292,6 +292,23 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                     },
                 );
             }
+
+            #[cfg(not(test))]
+            #[cfg(not(feature = "packaged"))]
+            crate::inventory::submit! {
+                crate::ComputationGraphEntry {
+                    name: #mod_name_str,
+                    constructor: || crate::ComputationGraphRegistration {
+                        graph_fn: std::sync::Arc::new(|cache: crate::computation_graph::InputCache| {
+                            Box::pin(async move {
+                                #compiled_fn_name(&cache).await
+                            })
+                        }),
+                        accumulator_names: vec![#(#accumulator_names.to_string()),*],
+                        reaction_mode: #reaction_mode_str.to_string(),
+                    },
+                }
+            }
         };
         (fn_body, ctor)
     } else {
@@ -325,6 +342,23 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                         }
                     },
                 );
+            }
+
+            #[cfg(not(test))]
+            #[cfg(not(feature = "packaged"))]
+            cloacina::inventory::submit! {
+                cloacina::ComputationGraphEntry {
+                    name: #mod_name_str,
+                    constructor: || cloacina_computation_graph::ComputationGraphRegistration {
+                        graph_fn: std::sync::Arc::new(|cache: cloacina_computation_graph::InputCache| {
+                            Box::pin(async move {
+                                #compiled_fn_name(&cache).await
+                            })
+                        }),
+                        accumulator_names: vec![#(#accumulator_names.to_string()),*],
+                        reaction_mode: #reaction_mode_str.to_string(),
+                    },
+                }
             }
         };
         (fn_body, ctor)

@@ -96,6 +96,51 @@ pub mod parallel_execution {
 }
 
 #[test]
+fn test_workflow_macro_emits_inventory_entries() {
+    // Smoke test for T-0505: confirm that `#[workflow]` and `#[task]` emit
+    // `inventory::submit!` entries in addition to the legacy `#[ctor]`
+    // registration. The runtime will read these once T-0506 lands.
+    let workflow_names: Vec<&'static str> = inventory::iter::<cloacina::WorkflowEntry>
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    assert!(
+        workflow_names.contains(&"document_processing"),
+        "WorkflowEntry for document_processing should be present in inventory; saw {:?}",
+        workflow_names
+    );
+    assert!(
+        workflow_names.contains(&"parallel_execution"),
+        "WorkflowEntry for parallel_execution should be present in inventory; saw {:?}",
+        workflow_names
+    );
+
+    // Each task in the two workflows should appear in inventory too.
+    let task_namespaces: Vec<String> = inventory::iter::<cloacina::TaskEntry>
+        .into_iter()
+        .map(|entry| (entry.namespace)().to_string())
+        .collect();
+
+    let expected_ids = [
+        "fetch_document",
+        "extract_text",
+        "generate_embeddings",
+        "store_embeddings",
+        "task_a",
+        "task_b",
+        "task_c",
+    ];
+    for id in expected_ids {
+        assert!(
+            task_namespaces.iter().any(|ns| ns.ends_with(id)),
+            "TaskEntry for {} should be present in inventory; saw {:?}",
+            id,
+            task_namespaces
+        );
+    }
+}
+
+#[test]
 fn test_workflow_execution_levels() {
     let _ = tracing_subscriber::fmt::try_init();
 

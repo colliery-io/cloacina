@@ -537,6 +537,34 @@ fn generate_embedded_registration(
         quote! {}
     };
 
+    // Inventory entries for the workflow itself and each contained task.
+    // These land at module scope and are read by `Runtime::new()` post-main
+    // (T-0506). Emitted alongside the existing `#[ctor]` registration so
+    // nothing observable changes until inventory-based seeding takes over.
+    let task_inventory_entries: Vec<TokenStream2> = detected_tasks
+        .iter()
+        .map(|(task_id, fn_name)| {
+            let constructor_name = syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
+            quote! {
+                cloacina::inventory::submit! {
+                    cloacina::TaskEntry {
+                        namespace: || cloacina::TaskNamespace::new(
+                            #tenant,
+                            env!("CARGO_PKG_NAME"),
+                            #workflow_name,
+                            #task_id,
+                        ),
+                        constructor: || {
+                            let task = #mod_path_prefix::#constructor_name();
+                            std::sync::Arc::new(task)
+                                as std::sync::Arc<dyn cloacina::Task>
+                        },
+                    }
+                }
+            }
+        })
+        .collect();
+
     quote! {
         fn #workflow_constructor_name() -> cloacina::Workflow {
             let pkg_name = env!("CARGO_PKG_NAME");
@@ -564,6 +592,15 @@ fn generate_embedded_registration(
                 #workflow_constructor_name
             );
         }
+
+        cloacina::inventory::submit! {
+            cloacina::WorkflowEntry {
+                name: #workflow_name,
+                constructor: #workflow_constructor_name,
+            }
+        }
+
+        #(#task_inventory_entries)*
     }
 }
 
