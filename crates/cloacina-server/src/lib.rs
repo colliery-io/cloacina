@@ -14,10 +14,13 @@
  *  limitations under the License.
  */
 
-//! API server mode — HTTP service backed by Postgres.
+//! Cloacina HTTP API server library.
 //!
-//! Starts an axum HTTP server with health/ready/metrics endpoints.
-//! Later tasks add auth, tenant management, workflow upload, and execution APIs.
+//! Extracted from `cloacinactl serve` into its own crate (T-0510). Exposes a
+//! single `run()` entrypoint that boots the axum HTTP server with auth, tenant
+//! management, workflow upload, and execution APIs.
+
+pub mod routes;
 
 use anyhow::{Context, Result};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
@@ -93,12 +96,12 @@ impl TenantDatabaseCache {
 pub struct AppState {
     pub database: Database,
     pub runner: Arc<DefaultRunner>,
-    pub key_cache: Arc<crate::server::auth::KeyCache>,
+    pub key_cache: Arc<crate::routes::auth::KeyCache>,
     pub endpoint_registry: EndpointRegistry,
     pub reactive_scheduler: Arc<ReactiveScheduler>,
     pub security_config: SecurityConfig,
     /// Short-lived WebSocket auth tickets (single-use, TTL-based).
-    pub ws_tickets: Arc<crate::server::auth::WsTicketStore>,
+    pub ws_tickets: Arc<crate::routes::auth::WsTicketStore>,
     /// Prometheus metrics handle for rendering /metrics endpoint.
     pub metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
     /// Per-tenant database connection cache for schema isolation.
@@ -234,14 +237,14 @@ pub async fn run(
     let state = AppState {
         database: runner.database().clone(),
         runner: Arc::new(runner),
-        key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
+        key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
         endpoint_registry,
         reactive_scheduler,
         security_config: SecurityConfig {
             require_signatures,
             ..SecurityConfig::default()
         },
-        ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
+        ws_tickets: Arc::new(crate::routes::auth::WsTicketStore::new(
             std::time::Duration::from_secs(60),
         )),
         metrics_handle,
@@ -360,103 +363,103 @@ fn build_router(state: AppState) -> Router {
     // Authenticated routes — behind auth middleware
     let auth_routes = Router::new()
         // Key management
-        .route("/auth/keys", post(crate::server::keys::create_key))
-        .route("/auth/keys", get(crate::server::keys::list_keys))
+        .route("/auth/keys", post(crate::routes::keys::create_key))
+        .route("/auth/keys", get(crate::routes::keys::list_keys))
         .route(
             "/auth/keys/{key_id}",
-            delete(crate::server::keys::revoke_key),
+            delete(crate::routes::keys::revoke_key),
         )
         // WebSocket ticket exchange (single-use, short-lived)
         .route(
             "/auth/ws-ticket",
-            post(crate::server::keys::create_ws_ticket),
+            post(crate::routes::keys::create_ws_ticket),
         )
         // Tenant management
-        .route("/tenants", post(crate::server::tenants::create_tenant))
-        .route("/tenants", get(crate::server::tenants::list_tenants))
+        .route("/tenants", post(crate::routes::tenants::create_tenant))
+        .route("/tenants", get(crate::routes::tenants::list_tenants))
         .route(
             "/tenants/{schema_name}",
-            delete(crate::server::tenants::remove_tenant),
+            delete(crate::routes::tenants::remove_tenant),
         )
         // Tenant-scoped key creation (admin-only)
         .route(
             "/tenants/{tenant_id}/keys",
-            post(crate::server::keys::create_tenant_key),
+            post(crate::routes::keys::create_tenant_key),
         )
         // Workflow packages (tenant-scoped)
         .route(
             "/tenants/{tenant_id}/workflows",
-            post(crate::server::workflows::upload_workflow),
+            post(crate::routes::workflows::upload_workflow),
         )
         .route(
             "/tenants/{tenant_id}/workflows",
-            get(crate::server::workflows::list_workflows),
+            get(crate::routes::workflows::list_workflows),
         )
         .route(
             "/tenants/{tenant_id}/workflows/{name}",
-            get(crate::server::workflows::get_workflow),
+            get(crate::routes::workflows::get_workflow),
         )
         .route(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
-            delete(crate::server::workflows::delete_workflow),
+            delete(crate::routes::workflows::delete_workflow),
         )
         // Trigger schedules (tenant-scoped, read-only)
         .route(
             "/tenants/{tenant_id}/triggers",
-            get(crate::server::triggers::list_triggers),
+            get(crate::routes::triggers::list_triggers),
         )
         .route(
             "/tenants/{tenant_id}/triggers/{name}",
-            get(crate::server::triggers::get_trigger),
+            get(crate::routes::triggers::get_trigger),
         )
         // Executions (tenant-scoped)
         .route(
             "/tenants/{tenant_id}/workflows/{name}/execute",
-            post(crate::server::executions::execute_workflow),
+            post(crate::routes::executions::execute_workflow),
         )
         .route(
             "/tenants/{tenant_id}/executions",
-            get(crate::server::executions::list_executions),
+            get(crate::routes::executions::list_executions),
         )
         .route(
             "/tenants/{tenant_id}/executions/{exec_id}",
-            get(crate::server::executions::get_execution),
+            get(crate::routes::executions::get_execution),
         )
         .route(
             "/tenants/{tenant_id}/executions/{exec_id}/events",
-            get(crate::server::executions::get_execution_events),
+            get(crate::routes::executions::get_execution_events),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
-            crate::server::auth::require_auth,
+            crate::routes::auth::require_auth,
         ));
 
     // Reactive health routes — behind auth
     let reactive_health_routes = Router::new()
         .route(
             "/v1/health/accumulators",
-            get(crate::server::health_reactive::list_accumulators),
+            get(crate::routes::health_reactive::list_accumulators),
         )
         .route(
             "/v1/health/reactors",
-            get(crate::server::health_reactive::list_reactors),
+            get(crate::routes::health_reactive::list_reactors),
         )
         .route(
             "/v1/health/reactors/{name}",
-            get(crate::server::health_reactive::get_reactor),
+            get(crate::routes::health_reactive::get_reactor),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
-            crate::server::auth::require_auth,
+            crate::routes::auth::require_auth,
         ));
 
     // WebSocket routes — auth handled in the handler (before upgrade)
     let ws_routes = Router::new()
         .route(
             "/v1/ws/accumulator/{name}",
-            get(crate::server::ws::accumulator_ws),
+            get(crate::routes::ws::accumulator_ws),
         )
-        .route("/v1/ws/reactor/{name}", get(crate::server::ws::reactor_ws));
+        .route("/v1/ws/reactor/{name}", get(crate::routes::ws::reactor_ws));
 
     // Public routes — no auth
     Router::new()
@@ -668,11 +671,11 @@ mod tests {
         AppState {
             database: runner.database().clone(),
             runner: Arc::new(runner),
-            key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
+            key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
             endpoint_registry: EndpointRegistry::new(),
             reactive_scheduler: Arc::new(ReactiveScheduler::new(EndpointRegistry::new())),
             security_config: SecurityConfig::default(),
-            ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
+            ws_tickets: Arc::new(crate::routes::auth::WsTicketStore::new(
                 std::time::Duration::from_secs(60),
             )),
             metrics_handle: test_metrics_handle,

@@ -35,8 +35,8 @@ use cloacina::computation_graph::types::InputCache;
 use cloacina::computation_graph::SourceName;
 
 use super::auth::{validate_token, AuthenticatedKey};
-use crate::commands::serve::AppState;
-use crate::server::error::ApiError;
+use crate::routes::error::ApiError;
+use crate::AppState;
 
 /// Query parameter for passing a single-use ticket on WebSocket upgrade.
 ///

@@ -35,8 +35,8 @@ use tracing::warn;
 
 use cloacina::dal::unified::api_keys::ApiKeyInfo;
 
-use crate::commands::serve::AppState;
-use crate::server::error::ApiError;
+use crate::routes::error::ApiError;
+use crate::AppState;
 
 /// Authenticated key info inserted into request extensions.
 #[derive(Clone, Debug)]

@@ -1,8 +1,4 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/workflow_attr.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/runtime.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/execution_planner/mod.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/runner/default_runner/config.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/runner/default_runner/mod.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/reconciler/mod.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/reconciler/loading.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/runner/default_runner/services.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/lib.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/main.rs
+/Users/dstorey/Desktop/cloacina/.angreal/cloacina/ws_integration.py

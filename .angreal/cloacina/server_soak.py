@@ -27,7 +27,7 @@ def build_server():
     """Build the server binary (debug for host dep injection)."""
     print("Building cloacinactl server (debug)...")
     subprocess.run(
-        ["cargo", "build", "-p", "cloacinactl"],
+        ["cargo", "build", "-p", "cloacina-server"],
         check=True,
     )
     print("Server binary built.")
@@ -35,7 +35,7 @@ def build_server():
 
 def find_server_binary():
     """Find the server binary path."""
-    binary = Path("target/debug/cloacinactl")
+    binary = Path("target/debug/cloacina-server")
     if not binary.exists():
         raise FileNotFoundError(f"Server binary not found at {binary}.")
     return str(binary)
@@ -933,7 +933,7 @@ def server_soak():
         server_env["CLOACINA_VAR_KAFKA_BROKER"] = "localhost:9092"
 
         server_proc = subprocess.Popen(
-            [server_binary, "serve", "--home", str(soak_home),
+            [server_binary, "--home", str(soak_home),
              "--database-url", db_url, "--bind", "127.0.0.1:18080",
              "--bootstrap-key", bootstrap_key],
             stdout=subprocess.PIPE,

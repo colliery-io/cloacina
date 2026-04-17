@@ -21,12 +21,12 @@ from .cloacina_utils import print_section_header, print_final_success
 def build_server():
     """Build the server binary."""
     print("Building cloacinactl server (debug)...")
-    subprocess.run(["cargo", "build", "-p", "cloacinactl"], check=True)
+    subprocess.run(["cargo", "build", "-p", "cloacina-server"], check=True)
 
 
 def find_server_binary():
     """Find the server binary path."""
-    binary = Path("target/debug/cloacinactl")
+    binary = Path("target/debug/cloacina-server")
     if not binary.exists():
         raise FileNotFoundError(f"Server binary not found at {binary}.")
     return str(binary)
@@ -166,7 +166,6 @@ def ws_integration_test():
         server_proc = subprocess.Popen(
             [
                 server_binary,
-                "serve",
                 "--home",
                 str(test_home),
                 "--database-url",

@@ -28,9 +28,9 @@ use axum::{
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use crate::commands::serve::AppState;
-use crate::server::auth::AuthenticatedKey;
-use crate::server::error::ApiError;
+use crate::routes::auth::AuthenticatedKey;
+use crate::routes::error::ApiError;
+use crate::AppState;
 
 /// Allowed roles for API keys.
 #[derive(Deserialize, Debug, Clone)]

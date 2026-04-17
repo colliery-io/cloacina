@@ -27,7 +27,7 @@ use axum::{
     Json,
 };
 
-use crate::commands::serve::AppState;
+use crate::AppState;
 
 /// GET /v1/health/accumulators — list all registered accumulators with health status.
 pub async fn list_accumulators(State(state): State<AppState>) -> impl IntoResponse {

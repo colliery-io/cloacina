@@ -22,7 +22,6 @@ use std::path::PathBuf;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod commands;
-mod server;
 
 /// cloacinactl — Cloacina task orchestration engine
 #[derive(Parser)]
@@ -54,28 +53,6 @@ enum Commands {
         /// Reconciler poll interval in milliseconds (file watcher handles immediate detection)
         #[arg(long, default_value = "500")]
         poll_interval: u64,
-    },
-
-    /// Run the API server — HTTP service backed by Postgres with auth and multi-tenancy
-    Serve {
-        /// Address to bind the HTTP server to (default: localhost only)
-        #[arg(long, default_value = "127.0.0.1:8080")]
-        bind: std::net::SocketAddr,
-
-        /// Database URL (overrides config file and DATABASE_URL env var)
-        #[arg(long, env = "DATABASE_URL")]
-        database_url: Option<String>,
-
-        /// Bootstrap API key (used instead of auto-generating on first startup).
-        /// If provided and no keys exist, this key is registered as the admin key.
-        #[arg(long, env = "CLOACINA_BOOTSTRAP_KEY")]
-        bootstrap_key: Option<String>,
-
-        /// Require package signatures for workflow uploads.
-        /// When enabled, unsigned packages are rejected at upload time.
-        /// Default: false (high-trust environments).
-        #[arg(long, env = "CLOACINA_REQUIRE_SIGNATURES")]
-        require_signatures: bool,
     },
 
     /// Manage configuration (get/set/list values in ~/.cloacina/config.toml)
@@ -152,25 +129,6 @@ async fn main() -> Result<()> {
         } => {
             // Daemon sets up its own logging (file + stderr)
             commands::daemon::run(cli.home, watch_dirs, poll_interval, cli.verbose).await?;
-        }
-
-        Commands::Serve {
-            bind,
-            database_url,
-            bootstrap_key,
-            require_signatures,
-        } => {
-            let db_url =
-                commands::config::resolve_database_url(database_url.as_deref(), &config_path)?;
-            commands::serve::run(
-                cli.home,
-                bind,
-                db_url,
-                cli.verbose,
-                bootstrap_key,
-                require_signatures,
-            )
-            .await?;
         }
 
         Commands::Config { command } => match command {

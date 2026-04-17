@@ -20,6 +20,5 @@ pub mod cleanup_events;
 pub mod config;
 pub mod daemon;
 pub mod health;
-pub mod serve;
 pub mod status;
 pub mod watcher;
