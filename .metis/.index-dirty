@@ -15,3 +15,5 @@
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/server/health.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/shared/mod.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/shared/pid.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/config.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/shared/client_ctx.rs

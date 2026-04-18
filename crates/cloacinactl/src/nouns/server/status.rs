@@ -17,15 +17,22 @@
 use anyhow::{Context, Result};
 use std::time::Duration;
 
+use crate::commands::config::CloacinaConfig;
+use crate::shared::client_ctx::ClientContext;
 use crate::GlobalOpts;
 
 pub async fn run(globals: &GlobalOpts) -> Result<()> {
-    let Some(server_url) = globals.server.clone() else {
-        println!("no server configured (pass --server or set a profile in T-0512)");
-        std::process::exit(2);
+    let config = CloacinaConfig::load(&globals.home.join("config.toml"));
+    let ctx = match ClientContext::resolve(globals, &config) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("server:     unconfigured");
+            println!("  {e:#}");
+            std::process::exit(2);
+        }
     };
 
-    let health_url = format!("{}/health", server_url.trim_end_matches('/'));
+    let health_url = format!("{}/health", ctx.server.trim_end_matches('/'));
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()?;
@@ -38,18 +45,18 @@ pub async fn run(globals: &GlobalOpts) -> Result<()> {
 
     match response {
         Ok(r) if r.status().is_success() => {
-            println!("server:     {server_url}");
+            println!("server:     {}", ctx.server);
             println!("  reachable: yes (HTTP {})", r.status().as_u16());
             println!("  endpoint:  {health_url}");
             Ok(())
         }
         Ok(r) => {
-            println!("server:     {server_url}");
+            println!("server:     {}", ctx.server);
             println!("  reachable: yes, but status HTTP {}", r.status().as_u16());
             std::process::exit(2);
         }
         Err(e) => {
-            println!("server:     {server_url}");
+            println!("server:     {}", ctx.server);
             println!("  reachable: no ({e:#})");
             std::process::exit(2);
         }

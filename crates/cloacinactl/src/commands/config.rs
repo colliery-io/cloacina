@@ -23,6 +23,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
@@ -34,11 +35,32 @@ pub struct CloacinaConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub database_url: Option<String>,
 
+    /// Named server-targeting profile selected by default when no `--profile`
+    /// flag is supplied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_profile: Option<String>,
+
+    /// Named profiles keyed by name. Selected via `--profile <NAME>` or
+    /// `default_profile`.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub profiles: BTreeMap<String, Profile>,
+
     /// Daemon-specific settings.
     pub daemon: DaemonSection,
 
     /// Watch directory settings.
     pub watch: WatchSection,
+}
+
+/// A named server-targeting profile.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Profile {
+    /// Base URL of the `cloacina-server` to talk to.
+    pub server: String,
+    /// API key. Accepts raw literal, `env:VAR`, or `file:PATH`. `keyring:NAME`
+    /// is rejected in v1 (deferred).
+    pub api_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,6 +332,91 @@ pub fn run_list(config_path: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Run `cloacinactl config profile set <NAME> <URL> --api-key <K> [--default]`.
+pub fn run_profile_set(
+    config_path: &Path,
+    name: &str,
+    server: &str,
+    api_key: &str,
+    default: bool,
+) -> Result<()> {
+    let mut config = CloacinaConfig::load(config_path);
+    config.profiles.insert(
+        name.to_string(),
+        Profile {
+            server: server.to_string(),
+            api_key: api_key.to_string(),
+        },
+    );
+    if default {
+        config.default_profile = Some(name.to_string());
+    }
+    config.save(config_path)?;
+    let marker = if default { " (default)" } else { "" };
+    println!("profile '{name}' set → {server}{marker}");
+    Ok(())
+}
+
+/// Run `cloacinactl config profile list`.
+pub fn run_profile_list(config_path: &Path) -> Result<()> {
+    let config = CloacinaConfig::load(config_path);
+    if config.profiles.is_empty() {
+        println!("(no profiles configured)");
+        return Ok(());
+    }
+    let default = config.default_profile.as_deref();
+    for (name, profile) in &config.profiles {
+        let marker = if Some(name.as_str()) == default {
+            "*"
+        } else {
+            " "
+        };
+        let redacted = redact_secret(&profile.api_key);
+        println!("{marker} {name:<20} {:<40} {redacted}", profile.server);
+    }
+    Ok(())
+}
+
+/// Run `cloacinactl config profile use <NAME>`.
+pub fn run_profile_use(config_path: &Path, name: &str) -> Result<()> {
+    let mut config = CloacinaConfig::load(config_path);
+    if !config.profiles.contains_key(name) {
+        anyhow::bail!("no profile named '{name}'");
+    }
+    config.default_profile = Some(name.to_string());
+    config.save(config_path)?;
+    println!("default profile → {name}");
+    Ok(())
+}
+
+/// Run `cloacinactl config profile delete <NAME>`.
+pub fn run_profile_delete(config_path: &Path, name: &str) -> Result<()> {
+    let mut config = CloacinaConfig::load(config_path);
+    if config.profiles.remove(name).is_none() {
+        anyhow::bail!("no profile named '{name}'");
+    }
+    if config.default_profile.as_deref() == Some(name) {
+        config.default_profile = None;
+    }
+    config.save(config_path)?;
+    println!("profile '{name}' deleted");
+    Ok(())
+}
+
+/// Short redacted form of a secret for display.
+///
+/// Scheme prefixes (`env:`, `file:`, `keyring:`) pass through unchanged — they
+/// don't contain the actual secret. Raw literals show first/last 4 chars.
+fn redact_secret(raw: &str) -> String {
+    if raw.starts_with("env:") || raw.starts_with("file:") || raw.starts_with("keyring:") {
+        return raw.to_string();
+    }
+    if raw.len() <= 8 {
+        return "<short>".to_string();
+    }
+    format!("{}…{}", &raw[..4], &raw[raw.len() - 4..])
 }
 
 /// Resolve database_url from CLI arg or config file.

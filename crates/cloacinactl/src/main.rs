@@ -139,6 +139,35 @@ enum ConfigCommands {
 
     /// List all configuration values
     List,
+
+    /// Manage server-targeting profiles.
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileCommands {
+    /// Upsert a profile by name.
+    Set {
+        /// Profile name.
+        name: String,
+        /// Server URL.
+        server: String,
+        /// API key (raw, `env:VAR`, or `file:PATH`).
+        #[arg(long)]
+        api_key: String,
+        /// Also set this profile as the default.
+        #[arg(long)]
+        default: bool,
+    },
+    /// List profiles; default marked with `*`.
+    List,
+    /// Set the default profile.
+    Use { name: String },
+    /// Remove a profile; clears default_profile if it was the default.
+    Delete { name: String },
 }
 
 #[derive(Subcommand)]
@@ -178,6 +207,27 @@ async fn main() -> Result<()> {
                 commands::config::run_set(&config_path, &key, &value)
             }
             ConfigCommands::List => commands::config::run_list(&config_path),
+            ConfigCommands::Profile { command } => match command {
+                ProfileCommands::Set {
+                    name,
+                    server,
+                    api_key,
+                    default,
+                } => commands::config::run_profile_set(
+                    &config_path,
+                    &name,
+                    &server,
+                    &api_key,
+                    default,
+                ),
+                ProfileCommands::List => commands::config::run_profile_list(&config_path),
+                ProfileCommands::Use { name } => {
+                    commands::config::run_profile_use(&config_path, &name)
+                }
+                ProfileCommands::Delete { name } => {
+                    commands::config::run_profile_delete(&config_path, &name)
+                }
+            },
         },
 
         Commands::Admin { command } => {

@@ -17,15 +17,21 @@
 use anyhow::Result;
 use std::time::Duration;
 
+use crate::commands::config::CloacinaConfig;
+use crate::shared::client_ctx::ClientContext;
 use crate::GlobalOpts;
 
 pub async fn run(globals: &GlobalOpts) -> Result<()> {
-    let Some(server_url) = globals.server.as_deref() else {
-        eprintln!("down");
-        std::process::exit(2);
+    let config = CloacinaConfig::load(&globals.home.join("config.toml"));
+    let ctx = match ClientContext::resolve(globals, &config) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("down");
+            std::process::exit(2);
+        }
     };
 
-    let health_url = format!("{}/health", server_url.trim_end_matches('/'));
+    let health_url = format!("{}/health", ctx.server.trim_end_matches('/'));
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
