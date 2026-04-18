@@ -24,6 +24,7 @@ kafka = ["cloacina/kafka"]
 cloacina = { path = "../cloacina", default-features = false }
 cloacina-workflow-plugin = { version = "0.5.1", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
+clap_complete = "4"
 anyhow.workspace = true
 fidius-core = "0.0.5"
 tempfile = "3.2"

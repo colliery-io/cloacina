@@ -22,7 +22,8 @@
 //! is a documented exception — a composite view over daemon + server.
 
 use anyhow::Result;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -148,6 +149,12 @@ enum Commands {
         #[command(subcommand)]
         command: AdminCommands,
     },
+
+    /// Emit a shell completion script (bash, zsh, fish, powershell).
+    Completions {
+        /// Target shell.
+        shell: Shell,
+    },
 }
 
 #[derive(Subcommand)]
@@ -270,6 +277,13 @@ async fn run() -> std::result::Result<(), CliError> {
                 }
             },
         },
+
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+            Ok(())
+        }
 
         Commands::Admin { command } => {
             use tracing_subscriber::{fmt, prelude::*, EnvFilter};
