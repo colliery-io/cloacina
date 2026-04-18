@@ -56,6 +56,29 @@ pub struct CliClient {
     whoami_cache: OnceLock<WhoAmI>,
 }
 
+/// Prompt the user for destructive-op confirmation unless stdin isn't a TTY
+/// (in which case CI scripts are running and should pass --force explicitly).
+pub fn confirm_destructive(action: &str) -> Result<(), CliError> {
+    use std::io::{self, BufRead, IsTerminal, Write};
+    if !io::stdin().is_terminal() {
+        return Err(CliError::UserError(format!(
+            "refusing to {action} without --force (stdin is not a TTY)"
+        )));
+    }
+    print!("{action}? [y/N] ");
+    io::stdout().flush().ok();
+    let mut line = String::new();
+    io::stdin()
+        .lock()
+        .read_line(&mut line)
+        .map_err(CliError::Io)?;
+    if line.trim().eq_ignore_ascii_case("y") {
+        Ok(())
+    } else {
+        Err(CliError::UserError("cancelled".into()))
+    }
+}
+
 impl CliClient {
     pub fn new(ctx: ClientContext) -> Result<Arc<Self>, CliError> {
         let http = reqwest::Client::builder()

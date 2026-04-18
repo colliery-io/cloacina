@@ -22,3 +22,4 @@ pub mod client_ctx;
 pub mod error;
 pub mod output;
 pub mod pid;
+pub mod render;

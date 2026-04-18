@@ -22,8 +22,14 @@ use anyhow::Result;
 use crate::GlobalOpts;
 
 pub mod daemon;
+pub mod execution;
+pub mod graph;
+pub mod key;
 pub mod package;
 pub mod server;
+pub mod tenant;
+pub mod trigger;
+pub mod workflow;
 
 /// Composite status — runs daemon status + server status and prints both.
 /// The one documented exception to the strict noun-verb rule.

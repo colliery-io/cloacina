@@ -32,7 +32,7 @@ mod shared;
 
 use shared::error::CliError;
 
-use nouns::{daemon, package, server};
+use nouns::{daemon, execution, graph, key, package, server, tenant, trigger, workflow};
 
 /// cloacinactl — Cloacina task orchestration engine
 #[derive(Parser)]
@@ -115,6 +115,24 @@ enum Commands {
 
     /// Package — build, pack, upload, and inspect .cloacina archives
     Package(package::PackageCmd),
+
+    /// Workflow — named task DAGs registered in packages
+    Workflow(workflow::WorkflowCmd),
+
+    /// Graph — computation graphs
+    Graph(graph::GraphCmd),
+
+    /// Execution — runtime instances of a workflow
+    Execution(execution::ExecutionCmd),
+
+    /// Tenant — create/list/delete tenants (admin key)
+    Tenant(tenant::TenantCmd),
+
+    /// Key — API key lifecycle
+    Key(key::KeyCmd),
+
+    /// Trigger — registered event triggers
+    Trigger(trigger::TriggerCmd),
 
     /// Composite status: daemon + server side by side.
     Status,
@@ -216,6 +234,12 @@ async fn run() -> std::result::Result<(), CliError> {
         Commands::Daemon(cmd) => cmd.run(&cli.globals).await,
         Commands::Server(cmd) => cmd.run(&cli.globals).await,
         Commands::Package(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Workflow(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Graph(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Execution(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Tenant(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Key(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Trigger(cmd) => return cmd.run(&cli.globals).await,
         Commands::Status => nouns::top_level_status(&cli.globals).await,
 
         Commands::Config { command } => match command {

@@ -12,3 +12,10 @@
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/inspect.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/delete.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/workflow/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/shared/render.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/execution/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/graph/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/tenant/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/key/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/trigger/mod.rs
