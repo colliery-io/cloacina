@@ -56,16 +56,30 @@ pub(crate) async fn run(config: CompilerConfig, shutdown: CancellationToken) -> 
             _ = poll_ticker.tick() => {
                 match registry.claim_next_build().await {
                     Ok(Some(claim)) => {
-                        // STUB (T-0520): immediately mark success with empty
-                        // cdylib bytes. T-0521 replaces with real cargo build.
                         info!(
                             package_id = %claim.id,
                             package_name = %claim.package_name,
                             version = %claim.version,
-                            "claimed build (stub: marking success with empty artifact)"
+                            "claimed build"
                         );
-                        if let Err(e) = registry.mark_build_success(claim.id, Vec::new()).await {
-                            warn!(%e, "stub mark_build_success failed");
+                        match crate::build::execute_build(&registry, claim.id, &config).await {
+                            crate::build::BuildOutcome::Success(bytes) => {
+                                if let Err(e) =
+                                    registry.mark_build_success(claim.id, bytes).await
+                                {
+                                    warn!(%e, "mark_build_success failed");
+                                }
+                            }
+                            crate::build::BuildOutcome::Failed(err) => {
+                                warn!(
+                                    package_id = %claim.id,
+                                    package_name = %claim.package_name,
+                                    "build failed"
+                                );
+                                if let Err(e) = registry.mark_build_failed(claim.id, &err).await {
+                                    warn!(%e, "mark_build_failed failed");
+                                }
+                            }
                         }
                     }
                     Ok(None) => {}

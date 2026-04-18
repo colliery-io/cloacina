@@ -1,6 +1,11 @@
 {
   "files": {
     "crates/cloacina-build/src/lib.rs": "ce3026f9287c1be2e393764cddd3956a6e0954cadf22118a5ebbeadcbbce8007",
+    "crates/cloacina-compiler/src/config.rs": "20aa87b381dbbf25e7a85516596716b7446980c1febd01cc827357c55b123224",
+    "crates/cloacina-compiler/src/health.rs": "a7e21ef1c44152ba55b40cfe576c01e6f8c7188f84cb7d3de6cc90088dee83c5",
+    "crates/cloacina-compiler/src/lib.rs": "6b8c126fd81a28121317991d08b7bf7b8ef2efe898bcb8cef38191345c2f0a10",
+    "crates/cloacina-compiler/src/loopp.rs": "8692aa62396f518833af60a1f9b670384c349fd1e387d0ddf05ac3571e2ef9ac",
+    "crates/cloacina-compiler/src/main.rs": "08d8ab1766dcbf6e560a0c5c681fe0ed5225fca34c7b51496ae1b5b5809cc90c",
     "crates/cloacina-computation-graph/src/lib.rs": "131ed64765fa45b17ff397937bd6efa56daf1cdf70eee56943416abe2d32a60e",
     "crates/cloacina-macros/src/computation_graph/accumulator_macros.rs": "5547a43a430ae1fc0505288d86397c660b1a190d67c1f6578e9947bdb77a3305",
     "crates/cloacina-macros/src/computation_graph/codegen.rs": "6e8d1df256b084fe79d18eed41102b7962c50707b128f2edc34605c2ee511969",

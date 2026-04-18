@@ -17,6 +17,7 @@
 //! cloacina-compiler library — entrypoint `run()` exposed so integration tests
 //! and the binary main both share the same code path.
 
+mod build;
 mod config;
 mod health;
 mod loopp;
