@@ -3,13 +3,15 @@ id: t5-package-verbs-build-pack
 level: task
 title: "T5: package verbs — build/pack/publish/upload/list/inspect/delete"
 short_code: "CLOACI-T-0514"
+created_at: 2026-04-17T17:00:00+00:00
+updated_at: 2026-04-18T01:40:07.687524+00:00
 parent: CLOACI-I-0098
 blocked_by: [CLOACI-T-0513]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -25,6 +27,10 @@ CLOACI-I-0098 — cloacinactl CLI redesign
 ## Objective
 
 Implement the full `package` noun verb surface. Two local verbs (`build`, `pack`), four server verbs (`upload`, `list`, `inspect`, `delete`), and one composite (`publish` = build + pack + upload).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

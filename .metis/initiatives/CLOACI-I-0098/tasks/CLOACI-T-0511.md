@@ -3,13 +3,15 @@ id: t2-cloacinactl-top-level-reshape
 level: task
 title: "T2: cloacinactl top-level reshape — global flags + daemon/server noun-verb"
 short_code: "CLOACI-T-0511"
+created_at: 2026-04-17T17:00:00+00:00
+updated_at: 2026-04-18T01:40:05.007927+00:00
 parent: CLOACI-I-0098
 blocked_by: [CLOACI-T-0510]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +29,10 @@ CLOACI-I-0098 — cloacinactl CLI redesign
 Rewrite `cloacinactl`'s `main.rs` and top-level command structure to match the ADR/spec. Every operation becomes noun-verb; runtime services (`daemon`, `server`) get their own verbs (`start`/`stop`/`status`/`health`). Global flag handling is put in place so downstream tasks (T3-T7) can hang their subcommands off a stable skeleton.
 
 This task produces a working CLI with `daemon` and `server` nouns wired end-to-end. Client nouns (package, workflow, etc.) come in later tasks.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

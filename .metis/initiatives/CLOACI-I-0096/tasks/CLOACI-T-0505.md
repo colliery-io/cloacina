@@ -4,14 +4,14 @@ level: task
 title: "T2: Flip macro codegen from #[ctor] to inventory::submit!"
 short_code: "CLOACI-T-0505"
 created_at: 2026-04-17T02:36:03.933789+00:00
-updated_at: 2026-04-17T02:36:03.933789+00:00
+updated_at: 2026-04-18T01:40:00.073139+00:00
 parent: CLOACI-I-0096
 blocked_by: [CLOACI-T-0504]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,10 @@ CLOACI-I-0096 — Runtime Registry Unification
 Change the macro codegen so that `#[task]`, `#[workflow]`, `#[trigger]`, `#[computation_graph]`, and any stream backend registration macros emit `inventory::submit!` entries instead of `#[ctor::ctor]` functions. Inventory collects entries in a linker section and exposes them via `inventory::iter::<Entry>()`, read lazily after `main()` — so the ordering bug that killed I-0095 cannot recur.
 
 T2 adds the inventory emission **alongside** the existing `#[ctor]` emission. Nothing reads inventory yet; that's T3. Keeping both registration paths live lets us land T2 without breaking anything.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

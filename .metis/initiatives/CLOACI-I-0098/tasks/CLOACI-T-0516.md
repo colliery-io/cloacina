@@ -3,13 +3,15 @@ id: t7-tenant-key-trigger-verbs
 level: task
 title: "T7: tenant + key + trigger verbs"
 short_code: "CLOACI-T-0516"
+created_at: 2026-04-17T17:00:00+00:00
+updated_at: 2026-04-18T01:40:09.654308+00:00
 parent: CLOACI-I-0098
 blocked_by: [CLOACI-T-0513]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -25,6 +27,10 @@ CLOACI-I-0098 — cloacinactl CLI redesign
 ## Objective
 
 Implement the admin and observation nouns: `tenant` (admin-only), `key` (admin + tenant), `trigger` (read-only).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

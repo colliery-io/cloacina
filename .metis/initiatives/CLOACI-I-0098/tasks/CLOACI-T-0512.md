@@ -3,13 +3,15 @@ id: t3-profile-model-config-profile
 level: task
 title: "T3: Profile model + config profile commands"
 short_code: "CLOACI-T-0512"
+created_at: 2026-04-17T17:00:00+00:00
+updated_at: 2026-04-18T01:40:05.790202+00:00
 parent: CLOACI-I-0098
 blocked_by: [CLOACI-T-0511]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -25,6 +27,10 @@ CLOACI-I-0098 — cloacinactl CLI redesign
 ## Objective
 
 Implement profile-based server targeting per ADR-0003 §3. Profiles live in `~/.cloacina/config.toml` alongside the existing `[daemon]` section. Flag precedence resolves `--server`, `--api-key`, `--tenant` for every client command before it makes HTTP calls. Introduce `config profile` verbs for management.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

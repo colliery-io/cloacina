@@ -4,14 +4,14 @@ level: task
 title: "T4: Reconciler and DefaultRunner wiring — use runtime.unregister_* on package unload"
 short_code: "CLOACI-T-0507"
 created_at: 2026-04-17T02:36:06.544064+00:00
-updated_at: 2026-04-17T02:36:06.544064+00:00
+updated_at: 2026-04-18T01:40:02.019943+00:00
 parent: CLOACI-I-0096
 blocked_by: [CLOACI-T-0506]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,10 @@ CLOACI-I-0096 — Runtime Registry Unification
 Migrate the reconciler, `DefaultRunner`, and any other callers of the global static registries to use Runtime instead. After T4, no code path outside the macros themselves touches `global_task_registry()` / `register_task_constructor()` / `computation_graph::global_registry::*`.
 
 The reconciler's package-unload path is the big one: it currently does a bespoke dance through `TaskRegistrar::unregister_package_tasks`, `global_workflow_registry().remove()`, and the CG global registry. With Runtime unified, all of these become `runtime.unregister_*(key)` calls driven by the loaded package's manifest.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -4,14 +4,14 @@ level: initiative
 title: "cloacinactl — CLI Redesign and Rebuild"
 short_code: "CLOACI-I-0098"
 created_at: 2026-04-17T17:00:46.328374+00:00
-updated_at: 2026-04-17T18:01:32.849203+00:00
+updated_at: 2026-04-18T01:38:40.832520+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

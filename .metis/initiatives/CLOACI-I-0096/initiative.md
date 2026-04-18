@@ -4,14 +4,14 @@ level: initiative
 title: "Runtime Registry Unification — Eliminate #[ctor] Dependency"
 short_code: "CLOACI-I-0096"
 created_at: 2026-04-14T23:54:12.881539+00:00
-updated_at: 2026-04-17T02:35:58.633319+00:00
+updated_at: 2026-04-18T01:38:50.490394+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

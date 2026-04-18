@@ -3,13 +3,15 @@ id: t9-end-to-end-cli-integration
 level: task
 title: "T9: End-to-end CLI integration tests against a running server fixture"
 short_code: "CLOACI-T-0518"
+created_at: 2026-04-17T17:00:00+00:00
+updated_at: 2026-04-18T01:40:13.448556+00:00
 parent: CLOACI-I-0098
 blocked_by: [CLOACI-T-0517]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -25,6 +27,10 @@ CLOACI-I-0098 — cloacinactl CLI redesign
 ## Objective
 
 Lock the CLI contract with real end-to-end tests. Each test spawns a `cloacina-server` fixture, runs `cloacinactl` as a subprocess, and asserts against stdout/stderr/exit-code. This is the regression harness for everything the spec defines.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -3,13 +3,15 @@ id: t4-output-formatting-foundation
 level: task
 title: "T4: Output formatting foundation + exit codes + HTTP client helper"
 short_code: "CLOACI-T-0513"
+created_at: 2026-04-17T17:00:00+00:00
+updated_at: 2026-04-18T01:40:06.902671+00:00
 parent: CLOACI-I-0098
 blocked_by: [CLOACI-T-0512]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -25,6 +27,10 @@ CLOACI-I-0098 — cloacinactl CLI redesign
 ## Objective
 
 Build the shared plumbing every client command will call into: a typed output layer (table/json/yaml/id), standardized exit codes, and an HTTP client wrapper that handles auth, tenant resolution, and error-to-exit-code mapping. After this task, T5-T7 (package/workflow/etc. verbs) can be small glue on top.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -3,13 +3,15 @@ id: t1-extract-cloacina-server-binary
 level: task
 title: "T1: Extract cloacina-server binary from cloacinactl serve"
 short_code: "CLOACI-T-0510"
+created_at: 2026-04-17T17:00:00+00:00
+updated_at: 2026-04-18T01:40:04.032057+00:00
 parent: CLOACI-I-0098
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -25,6 +27,10 @@ CLOACI-I-0098 — cloacinactl CLI redesign
 ## Objective
 
 Extract the HTTP API server code currently wired up under `cloacinactl serve` into its own binary named `cloacina-server`. Behavior is identical — this is pure packaging. Downstream tasks (T2 + T-0501) depend on `cloacina-server` existing as a separable artifact.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
