@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-18T00:54:25Z | 444 files | JavaScript, Python, Rust
+> Generated: 2026-04-18T01:09:29Z | 462 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -357,17 +357,42 @@
 │           │   │   ├── start.rs
 │           │   │   ├── status.rs
 │           │   │   └── stop.rs
+│           │   ├── execution/
+│           │   │   └── mod.rs
+│           │   ├── graph/
+│           │   │   └── mod.rs
+│           │   ├── key/
+│           │   │   └── mod.rs
 │           │   ├── mod.rs
-│           │   └── server/
-│           │       ├── health.rs
-│           │       ├── mod.rs
-│           │       ├── start.rs
-│           │       ├── status.rs
-│           │       └── stop.rs
+│           │   ├── package/
+│           │   │   ├── build.rs
+│           │   │   ├── delete.rs
+│           │   │   ├── inspect.rs
+│           │   │   ├── list.rs
+│           │   │   ├── mod.rs
+│           │   │   ├── pack.rs
+│           │   │   ├── publish.rs
+│           │   │   └── upload.rs
+│           │   ├── server/
+│           │   │   ├── health.rs
+│           │   │   ├── mod.rs
+│           │   │   ├── start.rs
+│           │   │   ├── status.rs
+│           │   │   └── stop.rs
+│           │   ├── tenant/
+│           │   │   └── mod.rs
+│           │   ├── trigger/
+│           │   │   └── mod.rs
+│           │   └── workflow/
+│           │       └── mod.rs
 │           └── shared/
+│               ├── client.rs
 │               ├── client_ctx.rs
+│               ├── error.rs
 │               ├── mod.rs
-│               └── pid.rs
+│               ├── output.rs
+│               ├── pid.rs
+│               └── render.rs
 ├── docs/
 │   └── themes/
 │       └── hugo-geekdoc/
@@ -6705,20 +6730,21 @@
 
 #### crates/cloacinactl/src/main.rs
 
-- pub `GlobalOpts` struct L47-83 — `{ verbose: bool, home: PathBuf, profile: Option<String>, server: Option<String>,...` — is a documented exception — a composite view over daemon + server.
-- pub `OutputFormat` enum L86-93 — `Table | Json | Yaml | Id` — is a documented exception — a composite view over daemon + server.
-- pub `effective_output` function L96-102 — `(&self) -> OutputFormat` — is a documented exception — a composite view over daemon + server.
--  `commands` module L28 — `-` — is a documented exception — a composite view over daemon + server.
--  `nouns` module L29 — `-` — is a documented exception — a composite view over daemon + server.
--  `shared` module L30 — `-` — is a documented exception — a composite view over daemon + server.
--  `Cli` struct L38-44 — `{ globals: GlobalOpts, command: Commands }` — cloacinactl — Cloacina task orchestration engine
--  `GlobalOpts` type L95-103 — `= GlobalOpts` — is a documented exception — a composite view over daemon + server.
--  `Commands` enum L106-127 — `Daemon | Server | Status | Config | Admin` — is a documented exception — a composite view over daemon + server.
--  `ConfigCommands` enum L130-148 — `Get | Set | List | Profile` — is a documented exception — a composite view over daemon + server.
--  `ProfileCommands` enum L151-171 — `Set | List | Use | Delete` — is a documented exception — a composite view over daemon + server.
--  `AdminCommands` enum L174-186 — `CleanupEvents` — is a documented exception — a composite view over daemon + server.
--  `default_home` function L188-192 — `() -> PathBuf` — is a documented exception — a composite view over daemon + server.
--  `main` function L195-260 — `() -> Result<()>` — is a documented exception — a composite view over daemon + server.
+- pub `GlobalOpts` struct L51-87 — `{ verbose: bool, home: PathBuf, profile: Option<String>, server: Option<String>,...` — is a documented exception — a composite view over daemon + server.
+- pub `OutputFormat` enum L90-97 — `Table | Json | Yaml | Id` — is a documented exception — a composite view over daemon + server.
+- pub `effective_output` function L100-106 — `(&self) -> OutputFormat` — is a documented exception — a composite view over daemon + server.
+-  `commands` module L30 — `-` — is a documented exception — a composite view over daemon + server.
+-  `nouns` module L31 — `-` — is a documented exception — a composite view over daemon + server.
+-  `shared` module L32 — `-` — is a documented exception — a composite view over daemon + server.
+-  `Cli` struct L42-48 — `{ globals: GlobalOpts, command: Commands }` — cloacinactl — Cloacina task orchestration engine
+-  `GlobalOpts` type L99-107 — `= GlobalOpts` — is a documented exception — a composite view over daemon + server.
+-  `Commands` enum L110-158 — `Daemon | Server | Package | Workflow | Graph | Execution | Tenant | Key | Trigge...` — is a documented exception — a composite view over daemon + server.
+-  `ConfigCommands` enum L161-179 — `Get | Set | List | Profile` — is a documented exception — a composite view over daemon + server.
+-  `ProfileCommands` enum L182-202 — `Set | List | Use | Delete` — is a documented exception — a composite view over daemon + server.
+-  `AdminCommands` enum L205-217 — `CleanupEvents` — is a documented exception — a composite view over daemon + server.
+-  `default_home` function L219-223 — `() -> PathBuf` — is a documented exception — a composite view over daemon + server.
+-  `main` function L226-234 — `() -> ExitCode` — is a documented exception — a composite view over daemon + server.
+-  `run` function L236-316 — `() -> std::result::Result<(), CliError>` — is a documented exception — a composite view over daemon + server.
 
 ### crates/cloacinactl/src/nouns/daemon
 
@@ -6751,6 +6777,42 @@
 
 - pub `run` function L22-30 — `(globals: &GlobalOpts, force: bool) -> Result<()>`
 
+### crates/cloacinactl/src/nouns/execution
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/nouns/execution/mod.rs
+
+- pub `ExecutionCmd` struct L29-32 — `{ verb: ExecutionVerb }` — `cloacinactl execution <verb>`.
+- pub `run` function L62-111 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl execution <verb>`.
+-  `ExecutionVerb` enum L35-59 — `List | Status | Events | Cancel` — `cloacinactl execution <verb>`.
+-  `ExecutionCmd` type L61-112 — `= ExecutionCmd` — `cloacinactl execution <verb>`.
+
+### crates/cloacinactl/src/nouns/graph
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/nouns/graph/mod.rs
+
+- pub `GraphCmd` struct L29-32 — `{ verb: GraphVerb }` — `cloacinactl graph <verb>` — computation graphs.
+- pub `run` function L43-72 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl graph <verb>` — computation graphs.
+-  `GraphVerb` enum L35-40 — `List | Status | Pause | Resume` — `cloacinactl graph <verb>` — computation graphs.
+-  `GraphCmd` type L42-73 — `= GraphCmd` — `cloacinactl graph <verb>` — computation graphs.
+
+### crates/cloacinactl/src/nouns/key
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/nouns/key/mod.rs
+
+- pub `KeyCmd` struct L27-30 — `{ verb: KeyVerb }`
+- pub `Role` enum L33-37 — `Admin | Write | Read`
+- pub `run` function L71-118 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
+-  `KeyVerb` enum L40-58 — `Create | List | Revoke`
+-  `KeyVerb` type L60-68 — `= KeyVerb`
+-  `role_str` function L61-67 — `(r: Role) -> &'static str`
+-  `KeyCmd` type L70-119 — `= KeyCmd`
+
 ### crates/cloacinactl/src/nouns
 
 > *Semantic summary to be generated by AI agent.*
@@ -6758,8 +6820,64 @@
 #### crates/cloacinactl/src/nouns/mod.rs
 
 - pub `daemon` module L24 — `-` — methods on the noun's `Cmd` struct.
-- pub `server` module L25 — `-` — methods on the noun's `Cmd` struct.
-- pub `top_level_status` function L29-42 — `(globals: &GlobalOpts) -> Result<()>` — Composite status — runs daemon status + server status and prints both.
+- pub `execution` module L25 — `-` — methods on the noun's `Cmd` struct.
+- pub `graph` module L26 — `-` — methods on the noun's `Cmd` struct.
+- pub `key` module L27 — `-` — methods on the noun's `Cmd` struct.
+- pub `package` module L28 — `-` — methods on the noun's `Cmd` struct.
+- pub `server` module L29 — `-` — methods on the noun's `Cmd` struct.
+- pub `tenant` module L30 — `-` — methods on the noun's `Cmd` struct.
+- pub `trigger` module L31 — `-` — methods on the noun's `Cmd` struct.
+- pub `workflow` module L32 — `-` — methods on the noun's `Cmd` struct.
+- pub `top_level_status` function L36-49 — `(globals: &GlobalOpts) -> Result<()>` — Composite status — runs daemon status + server status and prints both.
+
+### crates/cloacinactl/src/nouns/package
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/nouns/package/build.rs
+
+- pub `run` function L22-55 — `(dir: &Path, release: bool) -> Result<(), CliError>`
+
+#### crates/cloacinactl/src/nouns/package/delete.rs
+
+- pub `run` function L25-45 — `(globals: &GlobalOpts, id: &str, force: bool) -> Result<(), CliError>`
+
+#### crates/cloacinactl/src/nouns/package/inspect.rs
+
+- pub `run` function L25-62 — `(globals: &GlobalOpts, id: &str) -> Result<(), CliError>`
+-  `json_str` function L64-69 — `(v: &Value, key: &str) -> String`
+
+#### crates/cloacinactl/src/nouns/package/list.rs
+
+- pub `run` function L25-48 — `(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliError>`
+-  `render_list` function L50-101 — `(items: &[Value], format: OutputFormat) -> Result<(), CliError>`
+-  `truncate_id` function L103-109 — `(id: &str) -> String`
+
+#### crates/cloacinactl/src/nouns/package/mod.rs
+
+- pub `build` module L26 — `-` — inspect / delete.
+- pub `delete` module L27 — `-` — inspect / delete.
+- pub `inspect` module L28 — `-` — inspect / delete.
+- pub `list` module L29 — `-` — inspect / delete.
+- pub `pack` module L30 — `-` — inspect / delete.
+- pub `publish` module L31 — `-` — inspect / delete.
+- pub `upload` module L32 — `-` — inspect / delete.
+- pub `PackageCmd` struct L35-38 — `{ verb: PackageVerb }` — inspect / delete.
+- pub `run` function L85-99 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — inspect / delete.
+-  `PackageVerb` enum L41-82 — `Build | Pack | Publish | Upload | List | Inspect | Delete` — inspect / delete.
+-  `PackageCmd` type L84-100 — `= PackageCmd` — inspect / delete.
+
+#### crates/cloacinactl/src/nouns/package/pack.rs
+
+- pub `run` function L21-44 — `(dir: &Path, out: Option<&Path>, sign: Option<&Path>) -> Result<(), CliError>`
+
+#### crates/cloacinactl/src/nouns/package/publish.rs
+
+- pub `run` function L23-44 — `( globals: &GlobalOpts, dir: &Path, release: bool, sign: Option<&Path>, ) -> Res...`
+
+#### crates/cloacinactl/src/nouns/package/upload.rs
+
+- pub `run` function L26-68 — `(globals: &GlobalOpts, file: &Path) -> Result<(), CliError>`
 
 ### crates/cloacinactl/src/nouns/server
 
@@ -6793,9 +6911,62 @@
 
 - pub `run` function L22-37 — `(globals: &GlobalOpts, force: bool) -> Result<()>`
 
+### crates/cloacinactl/src/nouns/tenant
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/nouns/tenant/mod.rs
+
+- pub `TenantCmd` struct L27-30 — `{ verb: TenantVerb }`
+- pub `run` function L48-75 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
+-  `TenantVerb` enum L33-45 — `Create | List | Delete`
+-  `TenantCmd` type L47-76 — `= TenantCmd`
+
+### crates/cloacinactl/src/nouns/trigger
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/nouns/trigger/mod.rs
+
+- pub `TriggerCmd` struct L27-30 — `{ verb: TriggerVerb }`
+- pub `run` function L39-54 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
+-  `TriggerVerb` enum L33-36 — `List | Inspect`
+-  `TriggerCmd` type L38-55 — `= TriggerCmd`
+
+### crates/cloacinactl/src/nouns/workflow
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/nouns/workflow/mod.rs
+
+- pub `WorkflowCmd` struct L30-33 — `{ verb: WorkflowVerb }` — `cloacinactl workflow <verb>`.
+- pub `run` function L58-110 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl workflow <verb>`.
+-  `WorkflowVerb` enum L36-55 — `List | Inspect | Run | Enable | Disable` — `cloacinactl workflow <verb>`.
+-  `WorkflowCmd` type L57-111 — `= WorkflowCmd` — `cloacinactl workflow <verb>`.
+-  `load_context` function L113-126 — `(source: Option<&str>) -> Result<serde_json::Value, CliError>` — `cloacinactl workflow <verb>`.
+
 ### crates/cloacinactl/src/shared
 
 > *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/shared/client.rs
+
+- pub `KeyScope` enum L36-41 — `Admin | Tenant` — Scope of the caller's API key as reported by `GET /v1/keys/self`.
+- pub `WhoAmI` struct L45-50 — `{ scope: KeyScope, role: Option<String> }` — What `whoami` returns.
+- pub `CliClient` struct L53-57 — `{ ctx: ClientContext, http: reqwest::Client, whoami_cache: OnceLock<WhoAmI> }` — Shared HTTP client used by every verb handler.
+- pub `confirm_destructive` function L61-80 — `(action: &str) -> Result<(), CliError>` — Prompt the user for destructive-op confirmation unless stdin isn't a TTY
+- pub `new` function L83-94 — `(ctx: ClientContext) -> Result<Arc<Self>, CliError>` — rule from ADR-0003 §4.
+- pub `ctx` function L96-98 — `(&self) -> &ClientContext` — rule from ADR-0003 §4.
+- pub `get` function L133-140 — `(&self, path: &str) -> Result<T, CliError>` — Typed GET.
+- pub `post` function L143-156 — `( &self, path: &str, body: &B, ) -> Result<T, CliError>` — Typed POST (JSON body).
+- pub `delete` function L159-172 — `(&self, path: &str) -> Result<(), CliError>` — DELETE without a response body.
+- pub `whoami` function L175-183 — `(&self) -> Result<&WhoAmI, CliError>` — Cache-aware `GET /v1/keys/self`.
+- pub `require_tenant` function L191-212 — `( &self, tenant_scoped_command: bool, ) -> Result<Option<String>, CliError>` — Resolve the tenant to use for the current command per ADR §4.
+-  `CliClient` type L82-213 — `= CliClient` — rule from ADR-0003 §4.
+-  `url` function L100-104 — `(&self, path: &str) -> String` — rule from ADR-0003 §4.
+-  `apply_auth` function L106-116 — `( &self, req: reqwest::RequestBuilder, tenant: Option<&str>, ) -> reqwest::Reque...` — rule from ADR-0003 §4.
+-  `send` function L118-121 — `(&self, req: reqwest::RequestBuilder) -> Result<Response, CliError>` — rule from ADR-0003 §4.
+-  `parse_response` function L123-130 — `(response: Response) -> Result<T, CliError>` — rule from ADR-0003 §4.
 
 #### crates/cloacinactl/src/shared/client_ctx.rs
 
@@ -6813,10 +6984,53 @@
 -  `file_scheme` function L191-196 — `()` — that client-side commands use to hit the server.
 -  `keyring_scheme_deferred` function L199-202 — `()` — that client-side commands use to hit the server.
 
+#### crates/cloacinactl/src/shared/error.rs
+
+- pub `CliError` enum L23-41 — `UserError | Network | NotFound | Auth | ServerReject | Io | Other` — Typed CLI errors.
+- pub `exit_code` function L45-55 — `(&self) -> i32` — Exit code for this error, per ADR-0003 §6.
+- pub `from_reqwest` function L58-60 — `(err: reqwest::Error) -> Self` — Build a `CliError` from a reqwest error.
+- pub `from_status` function L63-73 — `(status: u16, body: serde_json::Value) -> Self` — Build a `CliError` from an HTTP response status + body.
+-  `CliError` type L43-74 — `= CliError` — Error types and exit-code mapping per ADR-0003.
+-  `extract_message` function L76-87 — `(body: &serde_json::Value) -> String` — Error types and exit-code mapping per ADR-0003.
+-  `CliError` type L89-109 — `= CliError` — Error types and exit-code mapping per ADR-0003.
+-  `fmt` function L90-108 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — Error types and exit-code mapping per ADR-0003.
+-  `CliError` type L111 — `= CliError` — Error types and exit-code mapping per ADR-0003.
+-  `CliError` type L113-117 — `= CliError` — Error types and exit-code mapping per ADR-0003.
+-  `from` function L114-116 — `(e: std::io::Error) -> Self` — Error types and exit-code mapping per ADR-0003.
+-  `CliError` type L119-123 — `= CliError` — Error types and exit-code mapping per ADR-0003.
+-  `from` function L120-122 — `(e: reqwest::Error) -> Self` — Error types and exit-code mapping per ADR-0003.
+-  `CliError` type L125-129 — `= CliError` — Error types and exit-code mapping per ADR-0003.
+-  `from` function L126-128 — `(e: anyhow::Error) -> Self` — Error types and exit-code mapping per ADR-0003.
+-  `tests` module L132-184 — `-` — Error types and exit-code mapping per ADR-0003.
+-  `exit_codes_match_adr` function L136-156 — `()` — Error types and exit-code mapping per ADR-0003.
+-  `from_status_maps_correctly` function L159-176 — `()` — Error types and exit-code mapping per ADR-0003.
+-  `message_extraction_prefers_structured_error` function L179-183 — `()` — Error types and exit-code mapping per ADR-0003.
+
 #### crates/cloacinactl/src/shared/mod.rs
 
-- pub `client_ctx` module L20 — `-` — Helpers shared across nouns: PID-file management, Unix socket client,
-- pub `pid` module L21 — `-` — exec helpers, etc.
+- pub `client` module L20 — `-` — Helpers shared across nouns: PID-file management, Unix socket client,
+- pub `client_ctx` module L21 — `-` — exec helpers, etc.
+- pub `error` module L22 — `-` — exec helpers, etc.
+- pub `output` module L23 — `-` — exec helpers, etc.
+- pub `pid` module L24 — `-` — exec helpers, etc.
+- pub `render` module L25 — `-` — exec helpers, etc.
+
+#### crates/cloacinactl/src/shared/output.rs
+
+- pub `Renderable` interface L27-30 — `{ fn render() }` — Something the CLI can render in any supported `OutputFormat`.
+- pub `emit` function L34-39 — `(value: &T, format: OutputFormat) -> io::Result<()>` — Convenience: render any serializable + table-renderable type using `format`,
+- pub `render_serialized` function L45-68 — `( value: &T, format: OutputFormat, out: &mut dyn Write, ) -> io::Result<()>` — Generic serde-based rendering for `Json` and `Yaml` formats.
+- pub `Redacted` struct L75 — `-` — A string redacted to its first/last 4 chars for human display.
+- pub `short` function L78-87 — `(&self) -> String` — secrets.
+- pub `raw` function L89-91 — `(&self) -> &str` — secrets.
+-  `Redacted` type L77-92 — `= Redacted` — secrets.
+-  `Redacted` type L94-98 — `= Redacted` — secrets.
+-  `fmt` function L95-97 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — secrets.
+-  `Redacted` type L100-106 — `impl Serialize for Redacted` — secrets.
+-  `serialize` function L101-105 — `(&self, s: S) -> Result<S::Ok, S::Error>` — secrets.
+-  `tests` module L109-129 — `-` — secrets.
+-  `redacted_short_form` function L113-121 — `()` — secrets.
+-  `redacted_json_is_raw` function L124-128 — `()` — secrets.
 
 #### crates/cloacinactl/src/shared/pid.rs
 
@@ -6826,6 +7040,13 @@
 - pub `remove` function L51-60 — `(path: &Path) -> Result<()>` — Remove the PID file, ignoring "not found" errors.
 - pub `signal_and_wait` function L64-97 — `(pid: u32, force: bool, timeout: Duration) -> Result<()>` — Send SIGTERM (or SIGKILL if `force`) to `pid` and wait up to `timeout` for
 -  `libc_signal` module L99-101 — `-` — PID-file read/write/signal helpers used by `daemon stop` and `server stop`.
+
+#### crates/cloacinactl/src/shared/render.rs
+
+- pub `list` function L26-56 — `(body: &Value, format: OutputFormat) -> Result<(), CliError>` — catalog-style listings; can be replaced with per-type renderers later.
+- pub `object` function L58-98 — `(body: &Value, format: OutputFormat) -> Result<(), CliError>` — catalog-style listings; can be replaced with per-type renderers later.
+-  `table` function L100-130 — `(items: &[Value]) -> Result<(), CliError>` — catalog-style listings; can be replaced with per-type renderers later.
+-  `truncate` function L132-138 — `(s: &str, max: usize) -> String` — catalog-style listings; can be replaced with per-type renderers later.
 
 ### docs/themes/hugo-geekdoc/static/js
 
