@@ -28,14 +28,19 @@ pub async fn run(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliEr
     let output = ctx.output;
     let client = CliClient::new(ctx)?;
 
-    let body: Value = client.get("/v1/workflows").await?;
-    let items: Vec<Value> = body.as_array().cloned().unwrap_or_default();
+    let tenant = client.ctx().tenant_segment().to_string();
+    let body: Value = client.get(&format!("/tenants/{tenant}/workflows")).await?;
+    let items: Vec<Value> = body
+        .get("workflows")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     let items: Vec<Value> = match filter {
         Some(pat) => items
             .into_iter()
             .filter(|v| {
-                v.get("name")
+                v.get("package_name")
                     .and_then(|n| n.as_str())
                     .map(|n| n.contains(pat))
                     .unwrap_or(false)
@@ -71,8 +76,8 @@ fn render_list(items: &[Value], format: OutputFormat) -> Result<(), CliError> {
                 return Ok(());
             }
             println!(
-                "{:<12} {:<30} {:<10} {:<20} {}",
-                "ID", "NAME", "VERSION", "UPLOADED", "TENANT"
+                "{:<12} {:<30} {:<10} {:<20}",
+                "ID", "NAME", "VERSION", "CREATED"
             );
             for item in items {
                 let id = item
@@ -80,20 +85,16 @@ fn render_list(items: &[Value], format: OutputFormat) -> Result<(), CliError> {
                     .and_then(|v| v.as_str())
                     .map(truncate_id)
                     .unwrap_or_else(|| "?".into());
-                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                let version = item.get("version").and_then(|v| v.as_str()).unwrap_or("?");
-                let uploaded = item
-                    .get("uploaded_at")
+                let name = item
+                    .get("package_name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("?");
-                let tenant = item
-                    .get("tenant")
+                let version = item.get("version").and_then(|v| v.as_str()).unwrap_or("?");
+                let created = item
+                    .get("created_at")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("public");
-                println!(
-                    "{:<12} {:<30} {:<10} {:<20} {}",
-                    id, name, version, uploaded, tenant
-                );
+                    .unwrap_or("?");
+                println!("{:<12} {:<30} {:<10} {:<20}", id, name, version, created);
             }
         }
     }

@@ -28,7 +28,10 @@ pub async fn run(globals: &GlobalOpts, id: &str) -> Result<(), CliError> {
     let output = ctx.output;
     let client = CliClient::new(ctx)?;
 
-    let body: Value = client.get(&format!("/v1/workflows/{id}")).await?;
+    let tenant = client.ctx().tenant_segment().to_string();
+    let body: Value = client
+        .get(&format!("/tenants/{tenant}/workflows/{id}"))
+        .await?;
 
     match output {
         OutputFormat::Json => {

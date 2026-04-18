@@ -41,13 +41,10 @@ enum KeyVerb {
     /// Create an API key. Tenant scope inferred from the calling key unless
     /// admin + `--role admin`.
     Create {
+        /// Human-readable name/label for the key.
+        name: String,
         #[arg(long, value_enum, default_value_t = Role::Read)]
         role: Role,
-        /// TTL (e.g. "30d").
-        #[arg(long)]
-        ttl: Option<String>,
-        #[arg(long)]
-        description: Option<String>,
     },
     List,
     Revoke {
@@ -74,26 +71,22 @@ impl KeyCmd {
         let output = ctx.output;
         let client = CliClient::new(ctx)?;
         match self.verb {
-            KeyVerb::Create {
-                role,
-                ttl,
-                description,
-            } => {
+            KeyVerb::Create { name, role } => {
                 let body = serde_json::json!({
+                    "name": name,
                     "role": KeyVerb::role_str(role),
-                    "ttl": ttl,
-                    "description": description,
                 });
-                let resp: serde_json::Value = client.post("/v1/keys", &body).await?;
+                let resp: serde_json::Value = client.post("/auth/keys", &body).await?;
 
                 // One-time-only warning for human output.
                 if matches!(output, OutputFormat::Table) {
                     let id = resp.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                    let secret = resp
-                        .get("secret")
+                    let plaintext = resp
+                        .get("key")
+                        .or_else(|| resp.get("secret"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("<none>");
-                    println!("created key: {secret}");
+                    println!("created key: {plaintext}");
                     println!("ID:          {id}");
                     println!("role:        {}", KeyVerb::role_str(role));
                     println!("NOTE: this is the only time the secret will be shown. Save it now.");
@@ -103,14 +96,15 @@ impl KeyCmd {
                 }
             }
             KeyVerb::List => {
-                let body: serde_json::Value = client.get("/v1/keys").await?;
-                render::list(&body, output)
+                let body: serde_json::Value = client.get("/auth/keys").await?;
+                let keys = body.get("keys").cloned().unwrap_or(body);
+                render::list(&keys, output)
             }
             KeyVerb::Revoke { id, force } => {
                 if !force {
                     crate::shared::client::confirm_destructive(&format!("revoke key {id}"))?;
                 }
-                client.delete(&format!("/v1/keys/{id}")).await?;
+                client.delete(&format!("/auth/keys/{id}")).await?;
                 println!("revoked {id}");
                 Ok(())
             }

@@ -76,6 +76,14 @@ impl ClientContext {
             no_color: opts.no_color,
         })
     }
+
+    /// Tenant segment to inject into tenant-scoped server routes
+    /// (`/tenants/{tenant}/...`). Uses `--tenant` when set, otherwise
+    /// falls back to `"default"` — the tenant every single-tenant install
+    /// starts with.
+    pub fn tenant_segment(&self) -> &str {
+        self.tenant.as_deref().unwrap_or("default")
+    }
 }
 
 /// Resolve an api-key value that may carry a scheme prefix.

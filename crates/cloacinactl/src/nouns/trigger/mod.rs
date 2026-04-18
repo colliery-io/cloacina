@@ -41,13 +41,17 @@ impl TriggerCmd {
         let ctx = ClientContext::resolve(globals, &config).map_err(CliError::Other)?;
         let output = ctx.output;
         let client = CliClient::new(ctx)?;
+        let tenant = client.ctx().tenant_segment().to_string();
         match self.verb {
             TriggerVerb::List => {
-                let body: serde_json::Value = client.get("/v1/triggers").await?;
+                let body: serde_json::Value =
+                    client.get(&format!("/tenants/{tenant}/triggers")).await?;
                 render::list(&body, output)
             }
             TriggerVerb::Inspect { name } => {
-                let body: serde_json::Value = client.get(&format!("/v1/triggers/{name}")).await?;
+                let body: serde_json::Value = client
+                    .get(&format!("/tenants/{tenant}/triggers/{name}"))
+                    .await?;
                 render::object(&body, output)
             }
         }
