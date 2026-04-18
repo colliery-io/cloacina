@@ -1,0 +1,46 @@
+---
+# cloacina — single-machine dev setup (SQLite)
+#
+# Server + compiler sharing one SQLite database file via a named volume.
+# Good for local dev / demos; don't run this in production — SQLite doesn't
+# offer the concurrency model the build queue needs under real load.
+#
+# Usage:
+#   docker compose -f deploy/docker-compose/cloacina-sqlite.yml up -d
+
+services:
+  cloacina-server:
+    image: ghcr.io/colliery-io/cloacina-server:latest
+    # build:
+    #   context: ../..
+    #   dockerfile: deploy/docker/server.Dockerfile
+    command:
+      - "--bind"
+      - "0.0.0.0:8080"
+      - "--database-url"
+      - "sqlite:///var/lib/cloacina/cloacina.db"
+    ports:
+      - "8080:8080"
+    volumes:
+      - cloacina-data:/var/lib/cloacina
+
+  cloacina-compiler:
+    image: ghcr.io/colliery-io/cloacina-compiler:latest
+    # build:
+    #   context: ../..
+    #   dockerfile: deploy/docker/compiler.Dockerfile
+    command:
+      - "--bind"
+      - "0.0.0.0:9000"
+      - "--database-url"
+      - "sqlite:///var/lib/cloacina/cloacina.db"
+    ports:
+      - "9000:9000"
+    # Shares the same DB file and /var/lib/cloacina scratch.
+    volumes:
+      - cloacina-data:/var/lib/cloacina
+    depends_on:
+      - cloacina-server
+
+volumes:
+  cloacina-data:

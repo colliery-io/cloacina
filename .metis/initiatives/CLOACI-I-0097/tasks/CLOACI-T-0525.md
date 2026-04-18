@@ -4,14 +4,14 @@ level: task
 title: "T7: cloacinactl compiler noun — start/stop/status/health"
 short_code: "CLOACI-T-0525"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-18T15:03:31.090573+00:00
 parent: CLOACI-I-0097
 blocked_by: [CLOACI-T-0524]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Add a `compiler` noun to `cloacinactl` with the same verb set as `server` (from I-0098). `start` execs `cloacina-compiler`; `stop` uses a PID file; `status`/`health` probe the compiler's own HTTP endpoint.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

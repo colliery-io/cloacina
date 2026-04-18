@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-18T14:32:38Z | 467 files | JavaScript, Python, Rust
+> Generated: 2026-04-18T15:03:37Z | 472 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -358,6 +358,12 @@
 │           │   └── watcher.rs
 │           ├── main.rs
 │           ├── nouns/
+│           │   ├── compiler/
+│           │   │   ├── health.rs
+│           │   │   ├── mod.rs
+│           │   │   ├── start.rs
+│           │   │   ├── status.rs
+│           │   │   └── stop.rs
 │           │   ├── daemon/
 │           │   │   ├── health.rs
 │           │   │   ├── mod.rs
@@ -4046,7 +4052,9 @@
 - pub `mark_build_failed` function L1191-1250 — `( &self, package_id: Uuid, error: &str, ) -> Result<(), RegistryError>` — Record a failed build.
 - pub `heartbeat_build` function L1254-1305 — `(&self, package_id: Uuid) -> Result<(), RegistryError>` — Refresh `build_claimed_at` so the stale-build sweeper doesn't reset us.
 - pub `sweep_stale_builds` function L1309-1380 — `( &self, stale_threshold: std::time::Duration, ) -> Result<usize, RegistryError>` — Reset rows stuck in `building` whose last heartbeat is older than
-- pub `ClaimedBuild` struct L1449-1455 — `{ id: Uuid, registry_id: Uuid, package_name: String, version: String, metadata: ...` — A build row claimed by the compiler.
+- pub `build_queue_stats` function L1452-1556 — `(&self) -> Result<BuildQueueStats, RegistryError>` — Summary telemetry for the compiler service's `/v1/status` endpoint.
+- pub `BuildQueueStats` struct L1561-1567 — `{ pending: u64, building: u64, last_success_at: Option<chrono::DateTime<chrono::...` — Snapshot of the build queue for the compiler's status endpoint.
+- pub `ClaimedBuild` struct L1572-1578 — `{ id: Uuid, registry_id: Uuid, package_name: String, version: String, metadata: ...` — A build row claimed by the compiler.
 -  `store_package_metadata` function L37-64 — `( &self, registry_id: &str, package_metadata: &crate::registry::loader::package_...` — Store package metadata in the database.
 -  `store_package_metadata_postgres` function L67-129 — `( &self, registry_uuid: Uuid, package_metadata: &crate::registry::loader::packag...` — Database operations for workflow registry metadata storage.
 -  `store_package_metadata_sqlite` function L132-192 — `( &self, registry_uuid: Uuid, package_metadata: &crate::registry::loader::packag...` — Database operations for workflow registry metadata storage.
@@ -4070,29 +4078,29 @@
 -  `delete_package_metadata_by_id_sqlite` function L997-1021 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
 -  `MAX_ERR` variable L1199 — `: usize` — Database operations for workflow registry metadata storage.
 -  `find_success_by_hash` function L1386-1443 — `( &self, hash: &str, ) -> Result<Option<(Uuid, Vec<u8>)>, RegistryError>` — Look up the most recently-compiled artifact for `content_hash`, across
--  `ClaimedBuild` type L1457-1467 — `= ClaimedBuild` — Database operations for workflow registry metadata storage.
--  `from` function L1458-1466 — `(u: crate::dal::unified::models::UnifiedWorkflowPackage) -> Self` — Database operations for workflow registry metadata storage.
--  `tests` module L1470-2008 — `-` — Database operations for workflow registry metadata storage.
--  `create_test_registry` function L1477-1488 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
--  `sample_metadata` function L1491-1509 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
--  `test_store_and_get_package_metadata` function L1513-1540 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_not_found` function L1544-1552 — `()` — Database operations for workflow registry metadata storage.
--  `test_list_all_packages` function L1556-1586 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata` function L1590-1624 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id` function L1628-1649 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id_not_found` function L1653-1661 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata_by_id` function L1665-1685 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_nonexistent_does_not_error` function L1689-1701 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_fresh_name` function L1709-1726 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_replaces_old_active` function L1730-1791 — `()` — Database operations for workflow registry metadata storage.
--  `test_partial_unique_rejects_second_active_for_same_name` function L1795-1818 — `()` — Database operations for workflow registry metadata storage.
--  `test_claim_next_build_returns_pending_row` function L1826-1841 — `()` — Database operations for workflow registry metadata storage.
--  `test_mark_build_success_flips_state_and_writes_bytes` function L1845-1868 — `()` — Database operations for workflow registry metadata storage.
--  `test_mark_build_failed_writes_error` function L1872-1885 — `()` — Database operations for workflow registry metadata storage.
--  `test_heartbeat_updates_claim_timestamp_only_while_building` function L1889-1908 — `()` — Database operations for workflow registry metadata storage.
--  `test_sweep_stale_builds_resets_old_rows` function L1912-1932 — `()` — Database operations for workflow registry metadata storage.
--  `test_find_success_by_hash_returns_matching_artifact` function L1936-1973 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_with_prebuilt_skips_queue` function L1977-2007 — `()` — Database operations for workflow registry metadata storage.
+-  `ClaimedBuild` type L1580-1590 — `= ClaimedBuild` — Database operations for workflow registry metadata storage.
+-  `from` function L1581-1589 — `(u: crate::dal::unified::models::UnifiedWorkflowPackage) -> Self` — Database operations for workflow registry metadata storage.
+-  `tests` module L1593-2131 — `-` — Database operations for workflow registry metadata storage.
+-  `create_test_registry` function L1600-1611 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
+-  `sample_metadata` function L1614-1632 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
+-  `test_store_and_get_package_metadata` function L1636-1663 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_not_found` function L1667-1675 — `()` — Database operations for workflow registry metadata storage.
+-  `test_list_all_packages` function L1679-1709 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata` function L1713-1747 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id` function L1751-1772 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id_not_found` function L1776-1784 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata_by_id` function L1788-1808 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_nonexistent_does_not_error` function L1812-1824 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_fresh_name` function L1832-1849 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_replaces_old_active` function L1853-1914 — `()` — Database operations for workflow registry metadata storage.
+-  `test_partial_unique_rejects_second_active_for_same_name` function L1918-1941 — `()` — Database operations for workflow registry metadata storage.
+-  `test_claim_next_build_returns_pending_row` function L1949-1964 — `()` — Database operations for workflow registry metadata storage.
+-  `test_mark_build_success_flips_state_and_writes_bytes` function L1968-1991 — `()` — Database operations for workflow registry metadata storage.
+-  `test_mark_build_failed_writes_error` function L1995-2008 — `()` — Database operations for workflow registry metadata storage.
+-  `test_heartbeat_updates_claim_timestamp_only_while_building` function L2012-2031 — `()` — Database operations for workflow registry metadata storage.
+-  `test_sweep_stale_builds_resets_old_rows` function L2035-2055 — `()` — Database operations for workflow registry metadata storage.
+-  `test_find_success_by_hash_returns_matching_artifact` function L2059-2096 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_with_prebuilt_skips_queue` function L2100-2130 — `()` — Database operations for workflow registry metadata storage.
 
 #### crates/cloacina/src/registry/workflow_registry/filesystem.rs
 
@@ -5838,23 +5846,24 @@
 
 #### crates/cloacina-compiler/src/health.rs
 
--  `serve` function L26-50 — `(bind: SocketAddr, shutdown: CancellationToken)` — `cloacinactl compiler status` / `health` (T-0525).
--  `health` function L52-54 — `() -> Json<serde_json::Value>` — `cloacinactl compiler status` / `health` (T-0525).
--  `status` function L56-66 — `() -> Json<serde_json::Value>` — `cloacinactl compiler status` / `health` (T-0525).
+-  `Registry` type L29 — `= Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>` — `cloacinactl compiler status` / `health`.
+-  `serve` function L31-56 — `(bind: SocketAddr, registry: Registry, shutdown: CancellationToken)` — `cloacinactl compiler status` / `health`.
+-  `health` function L58-60 — `() -> Json<serde_json::Value>` — `cloacinactl compiler status` / `health`.
+-  `status` function L62-77 — `(State(registry): State<Registry>) -> Json<serde_json::Value>` — `cloacinactl compiler status` / `health`.
 
 #### crates/cloacina-compiler/src/lib.rs
 
-- pub `run` function L34-69 — `(config: CompilerConfig) -> Result<()>` — Start the compiler service.
+- pub `run` function L39-88 — `(config: CompilerConfig) -> Result<()>` — Start the compiler service.
 -  `build` module L20 — `-` — cloacina-compiler library — entrypoint `run()` exposed so integration tests
 -  `config` module L21 — `-` — and the binary main both share the same code path.
 -  `health` module L22 — `-` — and the binary main both share the same code path.
 -  `loopp` module L23 — `-` — and the binary main both share the same code path.
--  `install_logging` function L71-95 — `(config: &CompilerConfig) -> Result<tracing_appender::non_blocking::WorkerGuard>` — and the binary main both share the same code path.
+-  `install_logging` function L90-114 — `(config: &CompilerConfig) -> Result<tracing_appender::non_blocking::WorkerGuard>` — and the binary main both share the same code path.
 
 #### crates/cloacina-compiler/src/loopp.rs
 
--  `run_build_with_heartbeat` function L39-84 — `( registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>, package_id: uuid:...` — Run a single build with a heartbeat task running alongside it.
--  `run` function L86-138 — `(config: CompilerConfig, shutdown: CancellationToken) -> Result<()>` — stale.
+-  `run_build_with_heartbeat` function L37-82 — `( registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>, package_id: uuid:...` — Run a single build with a heartbeat task running alongside it.
+-  `run` function L84-126 — `( registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>, config: CompilerC...` — stale.
 
 #### crates/cloacina-compiler/src/main.rs
 
@@ -6672,44 +6681,47 @@
 
 #### crates/cloacinactl/src/commands/config.rs
 
-- pub `CloacinaConfig` struct L33-53 — `{ database_url: Option<String>, default_profile: Option<String>, profiles: BTree...` — Full configuration file structure.
-- pub `Profile` struct L58-64 — `{ server: String, api_key: String }` — A named server-targeting profile.
-- pub `DaemonSection` struct L68-86 — `{ poll_interval_ms: u64, log_level: String, shutdown_timeout_s: u64, watcher_deb...` — - Config value lookup for commands that need database_url etc.
-- pub `WatchSection` struct L105-107 — `{ directories: Vec<String> }` — - Config value lookup for commands that need database_url etc.
-- pub `load` function L112-141 — `(path: &Path) -> Self` — Load config from a TOML file.
-- pub `save` function L144-154 — `(&self, path: &Path) -> Result<()>` — Save config to a TOML file.
-- pub `resolve_watch_dirs` function L157-170 — `(&self) -> Vec<PathBuf>` — Resolve watch directories from config, expanding `~` to home dir.
-- pub `get` function L173-177 — `(&self, key: &str) -> Option<String>` — Get a config value by dotted key path (e.g., "daemon.poll_interval_ms").
-- pub `set` function L180-192 — `(&mut self, key: &str, value: &str) -> Result<()>` — Set a config value by dotted key path.
-- pub `list` function L195-203 — `(&self) -> Vec<(String, String)>` — List all config key-value pairs.
-- pub `run_get` function L301-312 — `(config_path: &Path, key: &str) -> Result<()>` — Run `cloacinactl config get <key>`.
-- pub `run_set` function L315-321 — `(config_path: &Path, key: &str, value: &str) -> Result<()>` — Run `cloacinactl config set <key> <value>`.
-- pub `run_list` function L324-335 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config list`.
-- pub `run_profile_set` function L338-360 — `( config_path: &Path, name: &str, server: &str, api_key: &str, default: bool, ) ...` — Run `cloacinactl config profile set <NAME> <URL> --api-key <K> [--default]`.
-- pub `run_profile_list` function L363-380 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config profile list`.
-- pub `run_profile_use` function L383-392 — `(config_path: &Path, name: &str) -> Result<()>` — Run `cloacinactl config profile use <NAME>`.
-- pub `run_profile_delete` function L395-406 — `(config_path: &Path, name: &str) -> Result<()>` — Run `cloacinactl config profile delete <NAME>`.
-- pub `resolve_database_url` function L423-437 — `(cli_url: Option<&str>, config_path: &Path) -> Result<String>` — Resolve database_url from CLI arg or config file.
--  `DaemonSection` type L88-101 — `impl Default for DaemonSection` — - Config value lookup for commands that need database_url etc.
--  `default` function L89-100 — `() -> Self` — - Config value lookup for commands that need database_url etc.
--  `CloacinaConfig` type L109-204 — `= CloacinaConfig` — - Config value lookup for commands that need database_url etc.
--  `resolve_key` function L207-214 — `(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value>` — Resolve a dotted key path in a TOML value tree.
--  `set_key` function L217-263 — `(root: &mut toml::Value, key: &str, value: &str) -> Result<()>` — Set a value at a dotted key path in a TOML value tree.
--  `collect_pairs` function L266-282 — `(value: &toml::Value, prefix: &str, pairs: &mut Vec<(String, String)>)` — Collect all leaf key-value pairs with dotted paths.
--  `format_value` function L285-298 — `(value: &toml::Value) -> String` — Format a TOML value for display.
--  `redact_secret` function L412-420 — `(raw: &str) -> String` — Short redacted form of a secret for display.
--  `tests` module L440-588 — `-` — - Config value lookup for commands that need database_url etc.
--  `config_defaults_are_sensible` function L445-457 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_load_missing_file_returns_defaults` function L460-464 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_load_valid_toml` function L467-495 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_load_invalid_toml_returns_defaults` function L498-507 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_load_partial_toml_fills_defaults` function L510-520 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_resolve_watch_dirs_expands_tilde` function L523-534 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_resolve_watch_dirs_empty` function L537-540 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_save_and_reload_roundtrip` function L543-559 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_get_dotted_key` function L562-570 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_set_dotted_key` function L573-577 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_list_returns_all_keys` function L580-587 — `()` — - Config value lookup for commands that need database_url etc.
+- pub `CloacinaConfig` struct L33-56 — `{ database_url: Option<String>, default_profile: Option<String>, profiles: BTree...` — Full configuration file structure.
+- pub `Profile` struct L61-67 — `{ server: String, api_key: String }` — A named server-targeting profile.
+- pub `DaemonSection` struct L71-89 — `{ poll_interval_ms: u64, log_level: String, shutdown_timeout_s: u64, watcher_deb...` — - Config value lookup for commands that need database_url etc.
+- pub `CompilerSection` struct L108-112 — `{ local_addr: String }` — - Config value lookup for commands that need database_url etc.
+- pub `WatchSection` struct L124-126 — `{ directories: Vec<String> }` — - Config value lookup for commands that need database_url etc.
+- pub `load` function L131-160 — `(path: &Path) -> Self` — Load config from a TOML file.
+- pub `save` function L163-173 — `(&self, path: &Path) -> Result<()>` — Save config to a TOML file.
+- pub `resolve_watch_dirs` function L176-189 — `(&self) -> Vec<PathBuf>` — Resolve watch directories from config, expanding `~` to home dir.
+- pub `get` function L192-196 — `(&self, key: &str) -> Option<String>` — Get a config value by dotted key path (e.g., "daemon.poll_interval_ms").
+- pub `set` function L199-211 — `(&mut self, key: &str, value: &str) -> Result<()>` — Set a config value by dotted key path.
+- pub `list` function L214-222 — `(&self) -> Vec<(String, String)>` — List all config key-value pairs.
+- pub `run_get` function L320-331 — `(config_path: &Path, key: &str) -> Result<()>` — Run `cloacinactl config get <key>`.
+- pub `run_set` function L334-340 — `(config_path: &Path, key: &str, value: &str) -> Result<()>` — Run `cloacinactl config set <key> <value>`.
+- pub `run_list` function L343-354 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config list`.
+- pub `run_profile_set` function L357-379 — `( config_path: &Path, name: &str, server: &str, api_key: &str, default: bool, ) ...` — Run `cloacinactl config profile set <NAME> <URL> --api-key <K> [--default]`.
+- pub `run_profile_list` function L382-399 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config profile list`.
+- pub `run_profile_use` function L402-411 — `(config_path: &Path, name: &str) -> Result<()>` — Run `cloacinactl config profile use <NAME>`.
+- pub `run_profile_delete` function L414-425 — `(config_path: &Path, name: &str) -> Result<()>` — Run `cloacinactl config profile delete <NAME>`.
+- pub `resolve_database_url` function L442-456 — `(cli_url: Option<&str>, config_path: &Path) -> Result<String>` — Resolve database_url from CLI arg or config file.
+-  `DaemonSection` type L91-104 — `impl Default for DaemonSection` — - Config value lookup for commands that need database_url etc.
+-  `default` function L92-103 — `() -> Self` — - Config value lookup for commands that need database_url etc.
+-  `CompilerSection` type L114-120 — `impl Default for CompilerSection` — - Config value lookup for commands that need database_url etc.
+-  `default` function L115-119 — `() -> Self` — - Config value lookup for commands that need database_url etc.
+-  `CloacinaConfig` type L128-223 — `= CloacinaConfig` — - Config value lookup for commands that need database_url etc.
+-  `resolve_key` function L226-233 — `(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value>` — Resolve a dotted key path in a TOML value tree.
+-  `set_key` function L236-282 — `(root: &mut toml::Value, key: &str, value: &str) -> Result<()>` — Set a value at a dotted key path in a TOML value tree.
+-  `collect_pairs` function L285-301 — `(value: &toml::Value, prefix: &str, pairs: &mut Vec<(String, String)>)` — Collect all leaf key-value pairs with dotted paths.
+-  `format_value` function L304-317 — `(value: &toml::Value) -> String` — Format a TOML value for display.
+-  `redact_secret` function L431-439 — `(raw: &str) -> String` — Short redacted form of a secret for display.
+-  `tests` module L459-607 — `-` — - Config value lookup for commands that need database_url etc.
+-  `config_defaults_are_sensible` function L464-476 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_missing_file_returns_defaults` function L479-483 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_valid_toml` function L486-514 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_invalid_toml_returns_defaults` function L517-526 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_partial_toml_fills_defaults` function L529-539 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_resolve_watch_dirs_expands_tilde` function L542-553 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_resolve_watch_dirs_empty` function L556-559 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_save_and_reload_roundtrip` function L562-578 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_get_dotted_key` function L581-589 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_set_dotted_key` function L592-596 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_list_returns_all_keys` function L599-606 — `()` — - Config value lookup for commands that need database_url etc.
 
 #### crates/cloacinactl/src/commands/daemon.rs
 
@@ -6787,13 +6799,46 @@
 -  `shared` module L32 — `-` — is a documented exception — a composite view over daemon + server.
 -  `Cli` struct L42-48 — `{ globals: GlobalOpts, command: Commands }` — cloacinactl — Cloacina task orchestration engine
 -  `GlobalOpts` type L99-107 — `= GlobalOpts` — is a documented exception — a composite view over daemon + server.
--  `Commands` enum L110-158 — `Daemon | Server | Package | Workflow | Graph | Execution | Tenant | Key | Trigge...` — is a documented exception — a composite view over daemon + server.
--  `ConfigCommands` enum L161-179 — `Get | Set | List | Profile` — is a documented exception — a composite view over daemon + server.
--  `ProfileCommands` enum L182-202 — `Set | List | Use | Delete` — is a documented exception — a composite view over daemon + server.
--  `AdminCommands` enum L205-217 — `CleanupEvents` — is a documented exception — a composite view over daemon + server.
--  `default_home` function L219-223 — `() -> PathBuf` — is a documented exception — a composite view over daemon + server.
--  `main` function L226-234 — `() -> ExitCode` — is a documented exception — a composite view over daemon + server.
--  `run` function L236-316 — `() -> std::result::Result<(), CliError>` — is a documented exception — a composite view over daemon + server.
+-  `Commands` enum L110-161 — `Daemon | Server | Compiler | Package | Workflow | Graph | Execution | Tenant | K...` — is a documented exception — a composite view over daemon + server.
+-  `ConfigCommands` enum L164-182 — `Get | Set | List | Profile` — is a documented exception — a composite view over daemon + server.
+-  `ProfileCommands` enum L185-205 — `Set | List | Use | Delete` — is a documented exception — a composite view over daemon + server.
+-  `AdminCommands` enum L208-220 — `CleanupEvents` — is a documented exception — a composite view over daemon + server.
+-  `default_home` function L222-226 — `() -> PathBuf` — is a documented exception — a composite view over daemon + server.
+-  `main` function L229-237 — `() -> ExitCode` — is a documented exception — a composite view over daemon + server.
+-  `run` function L239-320 — `() -> std::result::Result<(), CliError>` — is a documented exception — a composite view over daemon + server.
+
+### crates/cloacinactl/src/nouns/compiler
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/nouns/compiler/health.rs
+
+- pub `run` function L24-49 — `(globals: &GlobalOpts) -> Result<()>`
+
+#### crates/cloacinactl/src/nouns/compiler/mod.rs
+
+- pub `health` module L25 — `-` — `cloacinactl compiler <verb>` — cloacina-compiler lifecycle + probes.
+- pub `start` module L26 — `-` — `cloacinactl compiler <verb>` — cloacina-compiler lifecycle + probes.
+- pub `status` module L27 — `-` — `cloacinactl compiler <verb>` — cloacina-compiler lifecycle + probes.
+- pub `stop` module L28 — `-` — `cloacinactl compiler <verb>` — cloacina-compiler lifecycle + probes.
+- pub `CompilerCmd` struct L31-34 — `{ verb: CompilerVerb }` — `cloacinactl compiler <verb>` — cloacina-compiler lifecycle + probes.
+- pub `run` function L75-100 — `(self, globals: &GlobalOpts) -> Result<()>` — `cloacinactl compiler <verb>` — cloacina-compiler lifecycle + probes.
+-  `CompilerVerb` enum L37-72 — `Start | Stop | Status | Health` — `cloacinactl compiler <verb>` — cloacina-compiler lifecycle + probes.
+-  `CompilerCmd` type L74-101 — `= CompilerCmd` — `cloacinactl compiler <verb>` — cloacina-compiler lifecycle + probes.
+
+#### crates/cloacinactl/src/nouns/compiler/start.rs
+
+- pub `run` function L26-67 — `( globals: &GlobalOpts, bind: SocketAddr, database_url: Option<String>, poll_int...`
+
+#### crates/cloacinactl/src/nouns/compiler/status.rs
+
+- pub `run` function L23-89 — `(globals: &GlobalOpts) -> Result<()>`
+-  `fmt_ts` function L91-96 — `(body: &serde_json::Value, key: &str) -> String`
+-  `compiler_base_url` function L98-104 — `(local_addr: &str) -> String`
+
+#### crates/cloacinactl/src/nouns/compiler/stop.rs
+
+- pub `run` function L22-36 — `(globals: &GlobalOpts, force: bool) -> Result<()>`
 
 ### crates/cloacinactl/src/nouns/daemon
 
@@ -6868,16 +6913,17 @@
 
 #### crates/cloacinactl/src/nouns/mod.rs
 
-- pub `daemon` module L24 — `-` — methods on the noun's `Cmd` struct.
-- pub `execution` module L25 — `-` — methods on the noun's `Cmd` struct.
-- pub `graph` module L26 — `-` — methods on the noun's `Cmd` struct.
-- pub `key` module L27 — `-` — methods on the noun's `Cmd` struct.
-- pub `package` module L28 — `-` — methods on the noun's `Cmd` struct.
-- pub `server` module L29 — `-` — methods on the noun's `Cmd` struct.
-- pub `tenant` module L30 — `-` — methods on the noun's `Cmd` struct.
-- pub `trigger` module L31 — `-` — methods on the noun's `Cmd` struct.
-- pub `workflow` module L32 — `-` — methods on the noun's `Cmd` struct.
-- pub `top_level_status` function L36-49 — `(globals: &GlobalOpts) -> Result<()>` — Composite status — runs daemon status + server status and prints both.
+- pub `compiler` module L24 — `-` — methods on the noun's `Cmd` struct.
+- pub `daemon` module L25 — `-` — methods on the noun's `Cmd` struct.
+- pub `execution` module L26 — `-` — methods on the noun's `Cmd` struct.
+- pub `graph` module L27 — `-` — methods on the noun's `Cmd` struct.
+- pub `key` module L28 — `-` — methods on the noun's `Cmd` struct.
+- pub `package` module L29 — `-` — methods on the noun's `Cmd` struct.
+- pub `server` module L30 — `-` — methods on the noun's `Cmd` struct.
+- pub `tenant` module L31 — `-` — methods on the noun's `Cmd` struct.
+- pub `trigger` module L32 — `-` — methods on the noun's `Cmd` struct.
+- pub `workflow` module L33 — `-` — methods on the noun's `Cmd` struct.
+- pub `top_level_status` function L37-56 — `(globals: &GlobalOpts) -> Result<()>` — Composite status — runs daemon + server + compiler status and prints all three.
 
 ### crates/cloacinactl/src/nouns/package
 
