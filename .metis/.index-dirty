@@ -2,3 +2,16 @@
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/mod.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/main.rs
 /Users/dstorey/Desktop/cloacina/.angreal/cloacina/ws_integration.py
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/daemon/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/daemon/start.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/daemon/stop.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/daemon/status.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/daemon/health.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/server/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/server/start.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/server/stop.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/server/status.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/server/health.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/shared/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/shared/pid.rs
