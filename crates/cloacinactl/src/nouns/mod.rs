@@ -22,6 +22,7 @@ use anyhow::Result;
 use crate::GlobalOpts;
 
 pub mod daemon;
+pub mod package;
 pub mod server;
 
 /// Composite status — runs daemon status + server status and prints both.

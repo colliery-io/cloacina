@@ -32,7 +32,7 @@ mod shared;
 
 use shared::error::CliError;
 
-use nouns::{daemon, server};
+use nouns::{daemon, package, server};
 
 /// cloacinactl — Cloacina task orchestration engine
 #[derive(Parser)]
@@ -112,6 +112,9 @@ enum Commands {
 
     /// Server — cloacina-server HTTP API
     Server(server::ServerCmd),
+
+    /// Package — build, pack, upload, and inspect .cloacina archives
+    Package(package::PackageCmd),
 
     /// Composite status: daemon + server side by side.
     Status,
@@ -212,6 +215,7 @@ async fn run() -> std::result::Result<(), CliError> {
     (match cli.command {
         Commands::Daemon(cmd) => cmd.run(&cli.globals).await,
         Commands::Server(cmd) => cmd.run(&cli.globals).await,
+        Commands::Package(cmd) => return cmd.run(&cli.globals).await,
         Commands::Status => nouns::top_level_status(&cli.globals).await,
 
         Commands::Config { command } => match command {

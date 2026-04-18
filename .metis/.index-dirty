@@ -3,3 +3,12 @@
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/shared/client.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/shared/mod.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/main.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/build.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/pack.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/upload.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/publish.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/list.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/inspect.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/delete.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/mod.rs
