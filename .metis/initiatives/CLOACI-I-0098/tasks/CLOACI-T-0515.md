@@ -3,13 +3,15 @@ id: t6-workflow-execution-graph-verbs
 level: task
 title: "T6: workflow + execution + graph verbs"
 short_code: "CLOACI-T-0515"
+created_at: 2026-04-17T17:00:00+00:00
+updated_at: 2026-04-18T01:40:08.831219+00:00
 parent: CLOACI-I-0098
 blocked_by: [CLOACI-T-0513]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -25,6 +27,10 @@ CLOACI-I-0098 — cloacinactl CLI redesign
 ## Objective
 
 Implement the `workflow`, `execution`, and `graph` nouns. These three are the main "driving the platform" surface: users trigger workflows, watch executions, and manage computation graphs.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

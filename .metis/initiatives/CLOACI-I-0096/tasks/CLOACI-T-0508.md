@@ -4,14 +4,14 @@ level: task
 title: "T5: Cleanup — remove ctor dep, global_*_registry modules, document breaking change"
 short_code: "CLOACI-T-0508"
 created_at: 2026-04-17T02:36:07.299628+00:00
-updated_at: 2026-04-17T02:36:07.299628+00:00
+updated_at: 2026-04-18T01:40:03.113067+00:00
 parent: CLOACI-I-0096
 blocked_by: [CLOACI-T-0507]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0096 — Runtime Registry Unification
 ## Objective
 
 Delete the now-vestigial `#[ctor]` emission and the global static registries. After T4 nothing in the engine reads them, so removing them is safe. Document the Runtime lifecycle contract and the breaking change for embedded users.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

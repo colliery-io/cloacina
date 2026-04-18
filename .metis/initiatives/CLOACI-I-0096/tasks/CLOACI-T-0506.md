@@ -4,14 +4,14 @@ level: task
 title: "T3: Runtime::new() seeds from inventory — drop global static registries"
 short_code: "CLOACI-T-0506"
 created_at: 2026-04-17T02:36:04.995217+00:00
-updated_at: 2026-04-17T02:36:04.995217+00:00
+updated_at: 2026-04-18T01:40:01.175644+00:00
 parent: CLOACI-I-0096
 blocked_by: [CLOACI-T-0505]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,10 @@ CLOACI-I-0096 — Runtime Registry Unification
 Make `Runtime::new()` iterate the inventory entries from T2 and populate itself. This makes Runtime the single source of truth for registry state. Once complete, the global static registries (`global_task_registry()`, `global_workflow_registry()`, `global_trigger_registry()`, `computation_graph/global_registry.rs`, stream backend globals) can go away in T5.
 
 This is where the breaking change lands: previously `Runtime::new()` returned an empty runtime and `Runtime::from_global()` was the seeded one. After T3, `Runtime::new()` is inventory-seeded. Users who want a truly empty runtime (for isolated tests that want *nothing* registered) use `Runtime::empty()`.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

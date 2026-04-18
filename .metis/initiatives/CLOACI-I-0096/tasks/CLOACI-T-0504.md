@@ -4,14 +4,14 @@ level: task
 title: "T1: Unify Runtime registries — CG + stream backend fields, register/unregister for all 5 namespaces"
 short_code: "CLOACI-T-0504"
 created_at: 2026-04-17T02:36:02.745997+00:00
-updated_at: 2026-04-17T02:36:02.745997+00:00
+updated_at: 2026-04-18T01:39:59.353674+00:00
 parent: CLOACI-I-0096
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,10 @@ CLOACI-I-0096 — Runtime Registry Unification
 Extend `Runtime` to cover computation graphs and stream backends (currently accessed via separate global statics) and add symmetric `unregister_*` methods for every namespace. Drop the `from_global()` / `use_globals` split so there is a single Runtime shape.
 
 This task **does not** touch the macros or remove the global statics — those stay in place so existing callers keep working. T1 is purely additive: new Runtime surface area, old surface area still functions.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

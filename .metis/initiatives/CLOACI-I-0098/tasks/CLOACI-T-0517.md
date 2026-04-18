@@ -3,13 +3,15 @@ id: t8-shell-completions-bash-zsh-fish
 level: task
 title: "T8: Shell completions (bash, zsh, fish, powershell)"
 short_code: "CLOACI-T-0517"
+created_at: 2026-04-17T17:00:00+00:00
+updated_at: 2026-04-18T01:40:12.974652+00:00
 parent: CLOACI-I-0098
 blocked_by: [CLOACI-T-0514, CLOACI-T-0515, CLOACI-T-0516]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -25,6 +27,10 @@ CLOACI-I-0098 — cloacinactl CLI redesign
 ## Objective
 
 Emit shell completion scripts for the four supported shells via `clap_complete`.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

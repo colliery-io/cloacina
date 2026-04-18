@@ -7,7 +7,7 @@ created_at: 2026-04-16T12:38:21.811404+00:00
 updated_at: 2026-04-16T12:38:21.811404+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -38,6 +38,8 @@ Audit and design the full `cloacinactl` CLI command surface. Today the CLI has g
 ### Business Justification
 - **User Value**: Consistent, discoverable CLI makes the platform easier to adopt. Missing commands force users into raw API calls or manual steps.
 - **Effort Estimate**: M (design pass, not full implementation)
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
