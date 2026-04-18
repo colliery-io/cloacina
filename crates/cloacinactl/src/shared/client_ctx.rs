@@ -78,11 +78,11 @@ impl ClientContext {
     }
 
     /// Tenant segment to inject into tenant-scoped server routes
-    /// (`/tenants/{tenant}/...`). Uses `--tenant` when set, otherwise
-    /// falls back to `"default"` — the tenant every single-tenant install
-    /// starts with.
+    /// (`/v1/tenants/{tenant}/...`). Uses `--tenant` when set, otherwise
+    /// falls back to `"public"` — the admin-schema tenant the server
+    /// treats specially (no per-tenant schema creation required).
     pub fn tenant_segment(&self) -> &str {
-        self.tenant.as_deref().unwrap_or("default")
+        self.tenant.as_deref().unwrap_or("public")
     }
 }
 

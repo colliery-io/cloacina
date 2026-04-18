@@ -30,7 +30,7 @@ pub async fn run(globals: &GlobalOpts, id: &str) -> Result<(), CliError> {
 
     let tenant = client.ctx().tenant_segment().to_string();
     let body: Value = client
-        .get(&format!("/tenants/{tenant}/workflows/{id}"))
+        .get(&format!("/v1/tenants/{tenant}/workflows/{id}"))
         .await?;
 
     match output {

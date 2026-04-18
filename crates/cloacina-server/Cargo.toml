@@ -57,3 +57,6 @@ opentelemetry_sdk = { version = "0.31", optional = true, features = ["rt-tokio"]
 
 [dev-dependencies]
 serial_test = "3"
+
+[build-dependencies]
+cloacina-build = { version = "0.5.1", path = "../cloacina-build" }

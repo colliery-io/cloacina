@@ -126,6 +126,31 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         WorkflowRegistry::register_workflow(self, package_data).await
     }
 
+    /// Get the source archive bytes for a package the compiler service has
+    /// claimed. Unlike `get_workflow_package_by_id`, this does *not* filter
+    /// by `build_status = 'success'` — the compiler needs to read source for
+    /// rows currently in `building` state, which the reconciler-facing filter
+    /// would hide. Still excludes superseded rows.
+    pub async fn get_source_for_build(
+        &self,
+        package_id: Uuid,
+    ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, RegistryError> {
+        let ins = match self.inspect_package_by_id(package_id).await? {
+            Some(ins) => ins,
+            None => return Ok(None),
+        };
+        let registry_id = ins.metadata.registry_id.to_string();
+        let package_data = match self.storage.retrieve_binary(&registry_id).await? {
+            Some(data) => data,
+            None => {
+                return Err(RegistryError::Internal(
+                    "Package metadata exists but binary data is missing".to_string(),
+                ));
+            }
+        };
+        Ok(Some((ins.metadata, package_data)))
+    }
+
     /// Get a workflow package by its UUID.
     ///
     /// Returns the package metadata and binary data if found.

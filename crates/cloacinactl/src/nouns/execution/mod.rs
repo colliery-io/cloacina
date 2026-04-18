@@ -77,13 +77,13 @@ impl ExecutionCmd {
                     query.push_str(&format!("&status={s}"));
                 }
                 let body: serde_json::Value = client
-                    .get(&format!("/tenants/{tenant}/executions{query}"))
+                    .get(&format!("/v1/tenants/{tenant}/executions{query}"))
                     .await?;
                 render::list(&body, output)
             }
             ExecutionVerb::Status { id } => {
                 let body: serde_json::Value = client
-                    .get(&format!("/tenants/{tenant}/executions/{id}"))
+                    .get(&format!("/v1/tenants/{tenant}/executions/{id}"))
                     .await?;
                 render::object(&body, output)
             }
@@ -93,7 +93,7 @@ impl ExecutionCmd {
                         "--follow streaming is tracked under spec Open Items; not in v1".into(),
                     ));
                 }
-                let mut path = format!("/tenants/{tenant}/executions/{id}/events");
+                let mut path = format!("/v1/tenants/{tenant}/executions/{id}/events");
                 if let Some(s) = since {
                     path.push_str(&format!("?since={s}"));
                 }

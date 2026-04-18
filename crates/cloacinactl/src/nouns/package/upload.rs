@@ -42,7 +42,7 @@ pub async fn run(globals: &GlobalOpts, file: &Path) -> Result<(), CliError> {
     let http = reqwest::Client::new();
     let tenant = ctx.tenant_segment();
     let url = format!(
-        "{}/tenants/{}/workflows",
+        "{}/v1/tenants/{}/workflows",
         ctx.server.trim_end_matches('/'),
         tenant
     );

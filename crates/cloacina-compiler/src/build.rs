@@ -56,7 +56,7 @@ async fn run_build(
     config: &CompilerConfig,
 ) -> Result<Vec<u8>, String> {
     let (meta, source_bytes) = registry
-        .get_workflow_package_by_id(package_id)
+        .get_source_for_build(package_id)
         .await
         .map_err(|e| format!("failed to load source for {package_id}: {e}"))?
         .ok_or_else(|| format!("package {package_id} disappeared between claim and build"))?;

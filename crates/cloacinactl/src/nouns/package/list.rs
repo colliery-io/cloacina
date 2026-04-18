@@ -29,7 +29,9 @@ pub async fn run(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliEr
     let client = CliClient::new(ctx)?;
 
     let tenant = client.ctx().tenant_segment().to_string();
-    let body: Value = client.get(&format!("/tenants/{tenant}/workflows")).await?;
+    let body: Value = client
+        .get(&format!("/v1/tenants/{tenant}/workflows"))
+        .await?;
     let items: Vec<Value> = body
         .get("workflows")
         .and_then(|v| v.as_array())

@@ -59,8 +59,9 @@ impl WorkflowCmd {
         let tenant = client.ctx().tenant_segment().to_string();
         match self.verb {
             WorkflowVerb::List { package } => {
-                let body: serde_json::Value =
-                    client.get(&format!("/tenants/{tenant}/workflows")).await?;
+                let body: serde_json::Value = client
+                    .get(&format!("/v1/tenants/{tenant}/workflows"))
+                    .await?;
                 let workflows = body.get("workflows").cloned().unwrap_or(body.clone());
                 let filtered = match (package, workflows.as_array()) {
                     (Some(pat), Some(items)) => serde_json::Value::Array(
@@ -81,7 +82,7 @@ impl WorkflowCmd {
             }
             WorkflowVerb::Inspect { name } => {
                 let body: serde_json::Value = client
-                    .get(&format!("/tenants/{tenant}/workflows/{name}"))
+                    .get(&format!("/v1/tenants/{tenant}/workflows/{name}"))
                     .await?;
                 render::object(&body, output)
             }
@@ -89,7 +90,7 @@ impl WorkflowCmd {
                 let body = load_context(context.as_deref())?;
                 let resp: serde_json::Value = client
                     .post(
-                        &format!("/tenants/{tenant}/workflows/{name}/execute"),
+                        &format!("/v1/tenants/{tenant}/workflows/{name}/execute"),
                         &body,
                     )
                     .await?;

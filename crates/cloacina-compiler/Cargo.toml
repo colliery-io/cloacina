@@ -45,3 +45,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 [dev-dependencies]
 serial_test = "3"
+
+[build-dependencies]
+cloacina-build = { version = "0.5.1", path = "../cloacina-build" }

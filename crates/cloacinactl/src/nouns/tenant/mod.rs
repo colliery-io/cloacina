@@ -56,18 +56,18 @@ impl TenantCmd {
                     "name": name,
                     "description": description,
                 });
-                let resp: serde_json::Value = client.post("/tenants", &body).await?;
+                let resp: serde_json::Value = client.post("/v1/tenants", &body).await?;
                 render::object(&resp, output)
             }
             TenantVerb::List => {
-                let body: serde_json::Value = client.get("/tenants").await?;
+                let body: serde_json::Value = client.get("/v1/tenants").await?;
                 render::list(&body, output)
             }
             TenantVerb::Delete { name, force } => {
                 if !force {
                     crate::shared::client::confirm_destructive(&format!("delete tenant {name}"))?;
                 }
-                client.delete(&format!("/tenants/{name}")).await?;
+                client.delete(&format!("/v1/tenants/{name}")).await?;
                 println!("deleted tenant {name}");
                 Ok(())
             }

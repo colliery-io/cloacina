@@ -44,7 +44,7 @@ pub async fn run(globals: &GlobalOpts, id: &str, force: bool) -> Result<(), CliE
     // Server's delete handler is keyed on (name, version). Look up the row
     // first so users can pass a UUID or a package name.
     let body: serde_json::Value = client
-        .get(&format!("/tenants/{tenant}/workflows/{id}"))
+        .get(&format!("/v1/tenants/{tenant}/workflows/{id}"))
         .await?;
     let name = body
         .get("package_name")
@@ -56,7 +56,7 @@ pub async fn run(globals: &GlobalOpts, id: &str, force: bool) -> Result<(), CliE
         .ok_or_else(|| CliError::UserError("workflow response missing version".to_string()))?;
 
     client
-        .delete(&format!("/tenants/{tenant}/workflows/{name}/{version}"))
+        .delete(&format!("/v1/tenants/{tenant}/workflows/{name}/{version}"))
         .await?;
     println!("deleted {id}");
     Ok(())

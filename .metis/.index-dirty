@@ -1,7 +1,6 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/upload.rs
-/Users/dstorey/Desktop/cloacina/examples/fixtures/compiler-happy-rust/src/lib.rs
-/Users/dstorey/Desktop/cloacina/examples/fixtures/compiler-broken-rust/src/lib.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/shared/client_ctx.rs
 /Users/dstorey/Desktop/cloacina/.angreal/cloacina/compiler_e2e.py
-/Users/dstorey/Desktop/cloacina/.angreal/cloacina/__init__.py
-/Users/dstorey/Desktop/cloacina/.angreal/task_project.py
-/Users/dstorey/Desktop/cloacina/.angreal/cloacina/cloacinactl_e2e.py
+/Users/dstorey/Desktop/cloacina/crates/cloacina-server/build.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/nouns/package/upload.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/workflow_registry/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-compiler/src/build.rs

@@ -47,6 +47,14 @@ def _build_binaries():
 
 
 def _start_postgres():
+    # Reset the container + volume so each run gets a fresh DB. Otherwise
+    # `register_workflow`'s content-hash dedup returns stale rows from prior
+    # runs (e.g. a previous failed build with the same fixture bytes).
+    subprocess.run(
+        ["docker", "compose", "-f", ".angreal/docker-compose.yaml", "down", "-v"],
+        cwd=REPO_ROOT,
+        check=False,
+    )
     subprocess.run(
         ["docker", "compose", "-f", ".angreal/docker-compose.yaml", "up", "-d", "postgres"],
         cwd=REPO_ROOT,
@@ -67,7 +75,12 @@ def _start_postgres():
     raise RuntimeError("Postgres not ready after 30s")
 
 
-def _wait_http(url: str, label: str, timeout_s: float = 30.0):
+def _wait_http(
+    url: str,
+    label: str,
+    timeout_s: float = 30.0,
+    proc: subprocess.Popen | None = None,
+):
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         try:
@@ -75,7 +88,31 @@ def _wait_http(url: str, label: str, timeout_s: float = 30.0):
                 return
         except Exception:
             time.sleep(0.5)
-    raise RuntimeError(f"{label} at {url} never came up within {timeout_s}s")
+        if proc is not None and proc.poll() is not None:
+            # Service died before /health responded; dump stderr for diagnosis.
+            err = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+            raise RuntimeError(
+                f"{label} exited with code {proc.returncode} before /health came up.\n"
+                f"STDERR:\n{err}"
+            )
+    # Service is still running but /health isn't answering. Kill it so we can
+    # safely drain stderr without blocking on a live pipe.
+    err = ""
+    if proc is not None and proc.poll() is None:
+        proc.send_signal(signal.SIGTERM)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+    if proc is not None and proc.stderr is not None:
+        try:
+            err = proc.stderr.read().decode(errors="replace")
+        except Exception:
+            pass
+    raise RuntimeError(
+        f"{label} at {url} never came up within {timeout_s}s.\nSTDERR tail:\n{err}"
+    )
 
 
 def _cloacinactl(home: Path, *args, check=True, env=None):
@@ -142,6 +179,25 @@ def _poll_build_status(
     )
 
 
+def _port_free(port: int) -> bool:
+    """True if no process is LISTENing on `port`."""
+    r = subprocess.run(
+        ["lsof", f"-iTCP:{port}", "-sTCP:LISTEN"],
+        capture_output=True,
+        text=True,
+    )
+    return r.returncode != 0 or not r.stdout.strip()
+
+
+def _assert_ports_free(*ports: int):
+    for p in ports:
+        if not _port_free(p):
+            raise RuntimeError(
+                f"port {p} is already in use — kill the stale process before re-running. "
+                f"`lsof -iTCP:{p} -sTCP:LISTEN` will tell you what owns it."
+            )
+
+
 def _kill(proc: subprocess.Popen | None):
     if proc is None or proc.poll() is not None:
         return
@@ -161,6 +217,7 @@ def compiler_e2e():
     print_section_header("cloacina-compiler e2e")
     _build_binaries()
     _start_postgres()
+    _assert_ports_free(18083, 19003)
 
     db_url = "postgres://cloacina:cloacina@localhost:5432/cloacina"
     bootstrap_key = "test-bootstrap-compiler-e2e"
@@ -174,10 +231,16 @@ def compiler_e2e():
     server_proc: subprocess.Popen | None = None
     compiler_proc: subprocess.Popen | None = None
 
-    with tempfile.TemporaryDirectory(prefix="compiler-e2e-") as home_s:
-        home = Path(home_s)
+    # Don't use TemporaryDirectory — we want the logs to survive past an
+    # exception so CI / local runs can inspect them after the fact.
+    home = Path(tempfile.mkdtemp(prefix="compiler-e2e-"))
+    print(f"compiler-e2e home: {home}")
+    if True:
         try:
             # --- start server ---
+            # Pipe stderr/stdout through to our terminal so we can see errors
+            # live; capturing to PIPE hides failures like auth exceptions.
+            server_log = open(home / "server.log", "w")
             server_proc = subprocess.Popen(
                 [
                     "target/debug/cloacina-server",
@@ -185,15 +248,17 @@ def compiler_e2e():
                     "--database-url", db_url,
                     "--bind", server_bind,
                     "--bootstrap-key", bootstrap_key,
+                    "--verbose",
                 ],
                 cwd=REPO_ROOT,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=server_log,
+                stderr=subprocess.STDOUT,
             )
-            _wait_http(f"{server_url}/health", "server")
+            _wait_http(f"{server_url}/health", "server", proc=server_proc)
             print("  ok: server up")
 
             # --- start compiler ---
+            compiler_log = open(home / "compiler.log", "w")
             compiler_proc = subprocess.Popen(
                 [
                     "target/debug/cloacina-compiler",
@@ -201,12 +266,20 @@ def compiler_e2e():
                     "--database-url", db_url,
                     "--bind", compiler_bind,
                     "--poll-interval-ms", "500",
+                    "--verbose",
                 ],
                 cwd=REPO_ROOT,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=compiler_log,
+                stderr=subprocess.STDOUT,
             )
-            _wait_http(f"{compiler_url}/health", "compiler")
+            # Compiler runs migrations + spins up build loop before binding its
+            # HTTP endpoint, so give it more runway than the server.
+            _wait_http(
+                f"{compiler_url}/health",
+                "compiler",
+                timeout_s=60.0,
+                proc=compiler_proc,
+            )
             print("  ok: compiler up")
 
             # --- configure CLI profile ---
@@ -251,6 +324,17 @@ def compiler_e2e():
             )
 
             print_final_success("cloacina-compiler e2e")
+        except BaseException:
+            # On any failure, dump the tail of each service log so the CI
+            # transcript has enough to diagnose without re-running.
+            for label in ("server", "compiler"):
+                log = home / f"{label}.log"
+                if log.exists():
+                    print(f"\n---- last 80 lines of {label}.log ----")
+                    lines = log.read_text(errors="replace").splitlines()
+                    for line in lines[-80:]:
+                        print(line)
+            raise
         finally:
             _kill(compiler_proc)
             _kill(server_proc)

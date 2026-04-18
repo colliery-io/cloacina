@@ -44,13 +44,14 @@ impl TriggerCmd {
         let tenant = client.ctx().tenant_segment().to_string();
         match self.verb {
             TriggerVerb::List => {
-                let body: serde_json::Value =
-                    client.get(&format!("/tenants/{tenant}/triggers")).await?;
+                let body: serde_json::Value = client
+                    .get(&format!("/v1/tenants/{tenant}/triggers"))
+                    .await?;
                 render::list(&body, output)
             }
             TriggerVerb::Inspect { name } => {
                 let body: serde_json::Value = client
-                    .get(&format!("/tenants/{tenant}/triggers/{name}"))
+                    .get(&format!("/v1/tenants/{tenant}/triggers/{name}"))
                     .await?;
                 render::object(&body, output)
             }

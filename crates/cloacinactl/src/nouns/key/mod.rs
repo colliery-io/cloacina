@@ -76,7 +76,7 @@ impl KeyCmd {
                     "name": name,
                     "role": KeyVerb::role_str(role),
                 });
-                let resp: serde_json::Value = client.post("/auth/keys", &body).await?;
+                let resp: serde_json::Value = client.post("/v1/auth/keys", &body).await?;
 
                 // One-time-only warning for human output.
                 if matches!(output, OutputFormat::Table) {
@@ -96,7 +96,7 @@ impl KeyCmd {
                 }
             }
             KeyVerb::List => {
-                let body: serde_json::Value = client.get("/auth/keys").await?;
+                let body: serde_json::Value = client.get("/v1/auth/keys").await?;
                 let keys = body.get("keys").cloned().unwrap_or(body);
                 render::list(&keys, output)
             }
@@ -104,7 +104,7 @@ impl KeyCmd {
                 if !force {
                     crate::shared::client::confirm_destructive(&format!("revoke key {id}"))?;
                 }
-                client.delete(&format!("/auth/keys/{id}")).await?;
+                client.delete(&format!("/v1/auth/keys/{id}")).await?;
                 println!("revoked {id}");
                 Ok(())
             }

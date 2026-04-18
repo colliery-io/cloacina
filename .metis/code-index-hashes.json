@@ -1,6 +1,7 @@
 {
   "files": {
     "crates/cloacina-build/src/lib.rs": "ce3026f9287c1be2e393764cddd3956a6e0954cadf22118a5ebbeadcbbce8007",
+    "crates/cloacina-compiler/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",
     "crates/cloacina-compiler/src/build.rs": "2e38176911552a95f3315baf2b3b0e80d816aad59860e84235b7f9c5dcfd0b44",
     "crates/cloacina-compiler/src/config.rs": "20aa87b381dbbf25e7a85516596716b7446980c1febd01cc827357c55b123224",
     "crates/cloacina-compiler/src/health.rs": "6cb21656d04fd0e0fcc28ed13771f957dd76fa220c010384d12691a595739814",
@@ -306,7 +307,7 @@
     "crates/cloacinactl/src/nouns/package/mod.rs": "b936c3d75ef62535d3439773f63955b3823157beff4713325153290d318e818c",
     "crates/cloacinactl/src/nouns/package/pack.rs": "210d7130366f7ba19ac18fc6781762e06e9cc0aff17b35637e1b246e0e726b95",
     "crates/cloacinactl/src/nouns/package/publish.rs": "e13c3683ce86c9bbfd42a3ae496874a5110980a2b32d9797101f5e254f1ba5f3",
-    "crates/cloacinactl/src/nouns/package/upload.rs": "008b23f8c01529e29afcd28e41068801cbed4ea84471474d88aced5d6d1005de",
+    "crates/cloacinactl/src/nouns/package/upload.rs": "e468a56748a7168293c1aa8d4551893a22985434ec7108155b8fdc89e31ec5a1",
     "crates/cloacinactl/src/nouns/reactor/mod.rs": "e72ce82274693370323a2f6930de0a4566d00c434843d88f9a78af4c29a8cc73",
     "crates/cloacinactl/src/nouns/server/health.rs": "1306a0f4349f1e4c9ada3632b9cdb108521d5cbc63d8d0cdd53a0c8beb848b9e",
     "crates/cloacinactl/src/nouns/server/mod.rs": "096006186c180237af8c2d689a273de3ec5ca7f554102210337e761c820f3905",
@@ -401,6 +402,8 @@
     "examples/features/workflows/validation-failures/src/duplicate_task_ids.rs": "6aa3d19aafb89aebccf463227408b7e26c56e3fdc57fcd177ceaf3b5b82f1005",
     "examples/features/workflows/validation-failures/src/missing_dependency.rs": "70f7c5726890fad09cfb364593e734782418e524ee48484514c4d1836e1152d7",
     "examples/features/workflows/validation-failures/src/missing_workflow_task.rs": "9e306990a439016badff53bfe950405c25111398e4e2b554354388873312d01f",
+    "examples/fixtures/compiler-broken-rust/src/lib.rs": "ece5d5f5395ec3f7082a8c655ece5db3e471a6bba8c7fb92786335335256ec79",
+    "examples/fixtures/compiler-happy-rust/src/lib.rs": "a2301b25e3a98cba299d72de78d37933ea594541b5616cac35c0cd444548702e",
     "examples/performance/computation-graph/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",
     "examples/performance/computation-graph/src/bench.rs": "cacbe04cb64e9e5c8a5730cf097b624dd63a41d9c30936dd1e00034a12d972ee",
     "examples/performance/computation-graph/src/main.rs": "d8bced5b735b860b5de06e4f10f487a18657056ab135dea4e68c1fcfd73ce562",
