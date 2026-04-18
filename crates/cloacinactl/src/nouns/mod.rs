@@ -24,6 +24,7 @@ use crate::GlobalOpts;
 pub mod compiler;
 pub mod daemon;
 pub mod execution;
+pub mod graph;
 pub mod key;
 pub mod package;
 pub mod server;
