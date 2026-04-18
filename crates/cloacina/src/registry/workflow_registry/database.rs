@@ -689,9 +689,34 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
         content_hash: &str,
     ) -> Result<Uuid, RegistryError> {
+        self.supersede_and_insert_with_prebuilt(
+            old_id,
+            registry_id,
+            package_metadata,
+            content_hash,
+            None,
+        )
+        .await
+    }
+
+    /// Same as `supersede_and_insert` but optionally pre-populates
+    /// `compiled_data` + `build_status = 'success'` for the new row. Used by
+    /// the content-hash artifact reuse path (T-0523): when a prior row with
+    /// the same content_hash already has a compiled artifact, the new row
+    /// skips the build queue.
+    pub(super) async fn supersede_and_insert_with_prebuilt(
+        &self,
+        old_id: Option<Uuid>,
+        registry_id: &str,
+        package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
+        content_hash: &str,
+        prebuilt: Option<Vec<u8>>,
+    ) -> Result<Uuid, RegistryError> {
         use crate::dal::unified::models::NewUnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
-        use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
+        use crate::database::universal_types::{
+            UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
+        };
 
         let registry_uuid = Uuid::parse_str(registry_id).map_err(RegistryError::InvalidUuid)?;
         let metadata =
@@ -699,6 +724,15 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let storage_type = self.storage.storage_type();
         let new_id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
+
+        let (build_status, compiled_data, compiled_at) = match prebuilt {
+            Some(bytes) => (
+                "success".to_string(),
+                Some(UniversalBinary::new(bytes)),
+                Some(now),
+            ),
+            None => ("pending".to_string(), None, None),
+        };
 
         let new_row = NewUnifiedWorkflowPackage {
             id: new_id,
@@ -714,11 +748,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             tenant_id: None,
             content_hash: content_hash.to_string(),
             superseded: UniversalBool(false),
-            compiled_data: None,
-            build_status: "pending".to_string(),
+            compiled_data,
+            build_status,
             build_error: None,
             build_claimed_at: None,
-            compiled_at: None,
+            compiled_at,
         };
 
         let pkg_name = package_metadata.package_name.clone();
@@ -1222,6 +1256,69 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             }
         )
     }
+
+    /// Look up the most recently-compiled artifact for `content_hash`, across
+    /// all rows including superseded ones. Returns `(row_id, compiled_bytes)`
+    /// when found. Used by the upload handler to skip the build queue when an
+    /// identical artifact already exists.
+    pub(super) async fn find_success_by_hash(
+        &self,
+        hash: &str,
+    ) -> Result<Option<(Uuid, Vec<u8>)>, RegistryError> {
+        use crate::dal::unified::models::UnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+
+        let hash = hash.to_string();
+        crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let hash_inner = hash.clone();
+                let record: Option<UnifiedWorkflowPackage> = conn
+                    .interact(move |conn| {
+                        use diesel::prelude::*;
+                        workflow_packages::table
+                            .filter(workflow_packages::content_hash.eq(&hash_inner))
+                            .filter(workflow_packages::build_status.eq("success"))
+                            .filter(workflow_packages::compiled_data.is_not_null())
+                            .order(workflow_packages::compiled_at.desc())
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(record.and_then(|r| r.compiled_data.map(|b| (r.id.0, b.into_inner()))))
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let hash_inner = hash.clone();
+                let record: Option<UnifiedWorkflowPackage> = conn
+                    .interact(move |conn| {
+                        use diesel::prelude::*;
+                        workflow_packages::table
+                            .filter(workflow_packages::content_hash.eq(&hash_inner))
+                            .filter(workflow_packages::build_status.eq("success"))
+                            .filter(workflow_packages::compiled_data.is_not_null())
+                            .order(workflow_packages::compiled_at.desc())
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(record.and_then(|r| r.compiled_data.map(|b| (r.id.0, b.into_inner()))))
+            }
+        )
+    }
 }
 
 /// A build row claimed by the compiler. Everything the compiler needs to
@@ -1678,5 +1775,80 @@ mod tests {
         // Next claim picks it up again.
         let re_claimed = registry.claim_next_build().await.unwrap();
         assert!(re_claimed.is_some());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_find_success_by_hash_returns_matching_artifact() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("hash-reuse-pkg", "1");
+
+        // No match when nothing has been built.
+        assert!(registry
+            .find_success_by_hash("abc")
+            .await
+            .unwrap()
+            .is_none());
+
+        let pkg_id = registry
+            .supersede_and_insert(None, &reg_id, &meta, "abc")
+            .await
+            .unwrap();
+
+        // Still no match — row is pending, not success.
+        assert!(registry
+            .find_success_by_hash("abc")
+            .await
+            .unwrap()
+            .is_none());
+
+        registry.claim_next_build().await.unwrap();
+        registry
+            .mark_build_success(pkg_id, vec![0xDE, 0xAD, 0xBE, 0xEF])
+            .await
+            .unwrap();
+
+        let hit = registry
+            .find_success_by_hash("abc")
+            .await
+            .unwrap()
+            .expect("should find the artifact");
+        assert_eq!(hit.0, pkg_id);
+        assert_eq!(hit.1, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_supersede_and_insert_with_prebuilt_skips_queue() {
+        let registry = create_test_registry().await;
+        let reg_id_a = Uuid::new_v4().to_string();
+        let reg_id_b = Uuid::new_v4().to_string();
+        let meta_a = sample_metadata("prebuilt-a", "1");
+        let meta_b = sample_metadata("prebuilt-b", "1");
+
+        let prebuilt = vec![0xCA, 0xFE, 0xBA, 0xBE];
+        // Insert package A as already-successful via the prebuilt path.
+        registry
+            .supersede_and_insert_with_prebuilt(
+                None,
+                &reg_id_a,
+                &meta_a,
+                "shared-hash",
+                Some(prebuilt.clone()),
+            )
+            .await
+            .unwrap();
+
+        // It's already success, so claim_next_build returns None.
+        assert!(registry.claim_next_build().await.unwrap().is_none());
+
+        // Insert package B as pending (normal path) so we can confirm the
+        // queue still works when no prebuilt is supplied.
+        registry
+            .supersede_and_insert(None, &reg_id_b, &meta_b, "other-hash")
+            .await
+            .unwrap();
+        assert!(registry.claim_next_build().await.unwrap().is_some());
     }
 }

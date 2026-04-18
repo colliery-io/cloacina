@@ -312,8 +312,21 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         let registry_id = self.storage.store_binary(package_data).await?;
 
         let old_id = active.map(|(id, _, _)| id);
+
+        // Content-hash artifact reuse (T-0523): if an earlier row compiled the
+        // same bytes successfully, skip the build queue and pre-populate the
+        // new row as `success` with the existing compiled_data.
+        let prebuilt = self.find_success_by_hash(&content_hash).await?;
+        let prebuilt_bytes = prebuilt.map(|(_, bytes)| bytes);
+
         let package_id = self
-            .supersede_and_insert(old_id, &registry_id, &package_metadata, &content_hash)
+            .supersede_and_insert_with_prebuilt(
+                old_id,
+                &registry_id,
+                &package_metadata,
+                &content_hash,
+                prebuilt_bytes,
+            )
             .await?;
 
         Ok(package_id)
