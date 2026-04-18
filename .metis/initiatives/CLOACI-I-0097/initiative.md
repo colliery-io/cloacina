@@ -4,14 +4,14 @@ level: initiative
 title: "Compiler Service — Extract Build Pipeline, Cache Artifacts, Service Orchestration"
 short_code: "CLOACI-I-0097"
 created_at: 2026-04-16T15:31:44.386277+00:00
-updated_at: 2026-04-16T15:31:44.386277+00:00
+updated_at: 2026-04-18T01:49:42.482516+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -20,8 +20,6 @@ initiative_id: compiler-service-extract-build
 ---
 
 # Compiler Service — Extract Build Pipeline, Cache Artifacts, Service Orchestration Initiative
-
-*This template includes sections for various types of initiatives. Delete sections that don't apply to your specific use case.*
 
 ## Context
 
@@ -115,12 +113,27 @@ After: `load_package()` → check `build_status = success` → read `compiled_da
 
 **Upload-time compilation (compile in the HTTP handler)**: Blocks the upload request for minutes. Bad UX. Also doesn't solve the "multiple instances" problem. Rejected.
 
+## Design decisions
+
+Locked in ADR-0004.
+
+1. **Separate binary `cloacina-compiler`** (mirrors `cloacina-server` from I-0098). `cloacinactl compiler` is a nested noun with start/stop/status/health verbs that `exec`s the binary.
+2. **Heartbeat-based dead-build reset** (not a timeout). The compiler updates `build_claimed_at` every `compiler.heartbeat_interval_s` (default 10) while a build is in flight; a sweeper resets rows whose heartbeat is older than `compiler.stale_threshold_s` (default 60). Both configurable in `~/.cloacina/config.toml`.
+3. **Polyglot packages flow through the compiler.** A package may contain Rust tasks, Python tasks, or both. The compiler runs whatever build steps the manifest declares (Rust → `cargo build`; pure-Python → no-op, mark success). No upload-handler special-case.
+4. **Content-hash dedup reuses artifacts.** The supersede-and-insert flow from T-0497 already guarantees identical byte uploads short-circuit to the existing row. On a different-hash upload, the compiler may still reuse an earlier `compiled_data` entry if a row with matching content_hash already has `build_status = success`.
+5. **Local `cloacinactl package build` stays.** Keeps "does this compile?" smoke-testing on the workstation, independent of having a server.
+6. **Service-pair orchestration by documentation, not tooling.** Docker Compose template + "run both binaries" runbook. No `cloacinactl up` launcher in v1.
+
 ## Implementation Plan
 
-To be decomposed into tasks after design review. Rough phases:
-1. Schema migration — add compiled_data + build_status columns
-2. Compiler service — `cloacinactl compiler` subcommand, DB queue poll loop, build execution
-3. Artifact persistence — compiler writes cdylib bytes to DB on success
-4. Reconciler refactor — load from `compiled_data` instead of compiling, skip non-ready packages
-5. Orchestration — `cloacinactl up` convenience launcher, Docker Compose template, docs
-6. Integration tests — upload → compile → load → execute end-to-end
+Nine tasks, dep-stacked (1 → 2 → 3 → 4/5 parallel → 6 → 7 → 8 → 9):
+
+1. **Schema + DAL** — migration adding `compiled_data`, `build_status`, `build_error`, `build_claimed_at`, `compiled_at`. Filter helpers for the queue (`pending`, `NOT superseded`, claim-by-UPDATE ... RETURNING).
+2. **Extract `cloacina-compiler` binary** — new crate with its own `main` + lib; shares Diesel types with `cloacina`.
+3. **Compiler build loop** — claim → unpack → `cargo build` (language-dispatch per manifest) → persist cdylib → mark success/fail.
+4. **Heartbeat + stale-build sweeper** — compiler updates `build_claimed_at` while building; sweeper resets rows whose heartbeat is stale. Config-driven thresholds.
+5. **Upload handler — enqueue on upload** — new rows default to `pending`. Short-circuit: if another row has the same `content_hash` and `build_status = success`, copy its `compiled_data` into the new row and skip the queue.
+6. **Reconciler refactor** — load from `compiled_data`; skip rows where `build_status != success`. Retire inline `cargo build` from the reconciler.
+7. **`cloacinactl compiler` noun** — start/stop/status/health verbs mirroring `server`; execs `cloacina-compiler`.
+8. **Operational — Docker Compose template + docs** — two-process layout (server + compiler), local SQLite and Postgres variants, K8s example.
+9. **Integration tests** — upload → queue pending → compiler picks up → build succeeds → reconciler loads → execution runs. Also exercises the failed-build path and the stale-build reset path.
