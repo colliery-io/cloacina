@@ -14,12 +14,12 @@
  *  limitations under the License.
  */
 
-//! `cloacinactl graph <verb>` — computation graphs loaded in the server's
+//! `cloacinactl reactor <verb>` — computation graphs loaded in the server's
 //! reactive scheduler.
 //!
 //! Backed by the server's `/v1/health/reactors*` + `/v1/health/accumulators`
-//! endpoints. Computation graphs are called "reactors" internally; the CLI
-//! surfaces the operator-facing term.
+//! endpoints. Matches the server's internal naming (a reactive computation
+//! graph = a reactor).
 
 use clap::{Args, Subcommand};
 
@@ -31,39 +31,39 @@ use crate::shared::render;
 use crate::GlobalOpts;
 
 #[derive(Args)]
-pub struct GraphCmd {
+pub struct ReactorCmd {
     #[command(subcommand)]
-    verb: GraphVerb,
+    verb: ReactorVerb,
 }
 
 #[derive(Subcommand)]
-enum GraphVerb {
-    /// List loaded computation graphs with health + pause state.
+enum ReactorVerb {
+    /// List loaded reactors with health + pause state.
     List,
-    /// Show a single graph's health, accumulators, and pause state.
+    /// Show a single reactor's health, accumulators, and pause state.
     Status { name: String },
-    /// List accumulators across all loaded graphs with health.
+    /// List accumulators across all loaded reactors with health.
     Accumulators,
 }
 
-impl GraphCmd {
+impl ReactorCmd {
     pub async fn run(self, globals: &GlobalOpts) -> Result<(), CliError> {
         let config = CloacinaConfig::load(&globals.home.join("config.toml"));
         let ctx = ClientContext::resolve(globals, &config).map_err(CliError::Other)?;
         let output = ctx.output;
         let client = CliClient::new(ctx)?;
         match self.verb {
-            GraphVerb::List => {
+            ReactorVerb::List => {
                 let body: serde_json::Value = client.get("/v1/health/reactors").await?;
                 let reactors = body.get("reactors").cloned().unwrap_or(body);
                 render::list(&reactors, output)
             }
-            GraphVerb::Status { name } => {
+            ReactorVerb::Status { name } => {
                 let body: serde_json::Value =
                     client.get(&format!("/v1/health/reactors/{name}")).await?;
                 render::object(&body, output)
             }
-            GraphVerb::Accumulators => {
+            ReactorVerb::Accumulators => {
                 let body: serde_json::Value = client.get("/v1/health/accumulators").await?;
                 let accs = body.get("accumulators").cloned().unwrap_or(body);
                 render::list(&accs, output)

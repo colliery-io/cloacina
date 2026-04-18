@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-18T15:03:37Z | 472 files | JavaScript, Python, Rust
+> Generated: 2026-04-18T16:29:01Z | 472 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -6878,9 +6878,9 @@
 #### crates/cloacinactl/src/nouns/execution/mod.rs
 
 - pub `ExecutionCmd` struct L29-32 — `{ verb: ExecutionVerb }` — `cloacinactl execution <verb>`.
-- pub `run` function L62-111 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl execution <verb>`.
--  `ExecutionVerb` enum L35-59 — `List | Status | Events | Cancel` — `cloacinactl execution <verb>`.
--  `ExecutionCmd` type L61-112 — `= ExecutionCmd` — `cloacinactl execution <verb>`.
+- pub `run` function L60-104 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl execution <verb>`.
+-  `ExecutionVerb` enum L35-57 — `List | Status | Events` — `cloacinactl execution <verb>`.
+-  `ExecutionCmd` type L59-105 — `= ExecutionCmd` — `cloacinactl execution <verb>`.
 
 ### crates/cloacinactl/src/nouns/graph
 
@@ -6888,10 +6888,10 @@
 
 #### crates/cloacinactl/src/nouns/graph/mod.rs
 
-- pub `GraphCmd` struct L29-32 — `{ verb: GraphVerb }` — `cloacinactl graph <verb>` — computation graphs.
-- pub `run` function L43-72 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl graph <verb>` — computation graphs.
--  `GraphVerb` enum L35-40 — `List | Status | Pause | Resume` — `cloacinactl graph <verb>` — computation graphs.
--  `GraphCmd` type L42-73 — `= GraphCmd` — `cloacinactl graph <verb>` — computation graphs.
+- pub `GraphCmd` struct L34-37 — `{ verb: GraphVerb }` — surfaces the operator-facing term.
+- pub `run` function L50-72 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — surfaces the operator-facing term.
+-  `GraphVerb` enum L40-47 — `List | Status | Accumulators` — surfaces the operator-facing term.
+-  `GraphCmd` type L49-73 — `= GraphCmd` — surfaces the operator-facing term.
 
 ### crates/cloacinactl/src/nouns/key
 
@@ -6901,11 +6901,11 @@
 
 - pub `KeyCmd` struct L27-30 — `{ verb: KeyVerb }`
 - pub `Role` enum L33-37 — `Admin | Write | Read`
-- pub `run` function L71-118 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
--  `KeyVerb` enum L40-58 — `Create | List | Revoke`
--  `KeyVerb` type L60-68 — `= KeyVerb`
--  `role_str` function L61-67 — `(r: Role) -> &'static str`
--  `KeyCmd` type L70-119 — `= KeyCmd`
+- pub `run` function L68-112 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
+-  `KeyVerb` enum L40-55 — `Create | List | Revoke`
+-  `KeyVerb` type L57-65 — `= KeyVerb`
+-  `role_str` function L58-64 — `(r: Role) -> &'static str`
+-  `KeyCmd` type L67-113 — `= KeyCmd`
 
 ### crates/cloacinactl/src/nouns
 
@@ -6935,18 +6935,18 @@
 
 #### crates/cloacinactl/src/nouns/package/delete.rs
 
-- pub `run` function L25-45 — `(globals: &GlobalOpts, id: &str, force: bool) -> Result<(), CliError>`
+- pub `run` function L25-63 — `(globals: &GlobalOpts, id: &str, force: bool) -> Result<(), CliError>`
 
 #### crates/cloacinactl/src/nouns/package/inspect.rs
 
-- pub `run` function L25-66 — `(globals: &GlobalOpts, id: &str) -> Result<(), CliError>`
--  `json_str` function L68-73 — `(v: &Value, key: &str) -> String`
+- pub `run` function L25-69 — `(globals: &GlobalOpts, id: &str) -> Result<(), CliError>`
+-  `json_str` function L71-76 — `(v: &Value, key: &str) -> String`
 
 #### crates/cloacinactl/src/nouns/package/list.rs
 
-- pub `run` function L25-48 — `(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliError>`
--  `render_list` function L50-101 — `(items: &[Value], format: OutputFormat) -> Result<(), CliError>`
--  `truncate_id` function L103-109 — `(id: &str) -> String`
+- pub `run` function L25-53 — `(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliError>`
+-  `render_list` function L55-102 — `(items: &[Value], format: OutputFormat) -> Result<(), CliError>`
+-  `truncate_id` function L104-110 — `(id: &str) -> String`
 
 #### crates/cloacinactl/src/nouns/package/mod.rs
 
@@ -6972,7 +6972,7 @@
 
 #### crates/cloacinactl/src/nouns/package/upload.rs
 
-- pub `run` function L26-68 — `(globals: &GlobalOpts, file: &Path) -> Result<(), CliError>`
+- pub `run` function L26-75 — `(globals: &GlobalOpts, file: &Path) -> Result<(), CliError>`
 
 ### crates/cloacinactl/src/nouns/server
 
@@ -7024,9 +7024,9 @@
 #### crates/cloacinactl/src/nouns/trigger/mod.rs
 
 - pub `TriggerCmd` struct L27-30 — `{ verb: TriggerVerb }`
-- pub `run` function L39-54 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
+- pub `run` function L39-58 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
 -  `TriggerVerb` enum L33-36 — `List | Inspect`
--  `TriggerCmd` type L38-55 — `= TriggerCmd`
+-  `TriggerCmd` type L38-59 — `= TriggerCmd`
 
 ### crates/cloacinactl/src/nouns/workflow
 
@@ -7035,10 +7035,10 @@
 #### crates/cloacinactl/src/nouns/workflow/mod.rs
 
 - pub `WorkflowCmd` struct L30-33 — `{ verb: WorkflowVerb }` — `cloacinactl workflow <verb>`.
-- pub `run` function L58-110 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl workflow <verb>`.
--  `WorkflowVerb` enum L36-55 — `List | Inspect | Run | Enable | Disable` — `cloacinactl workflow <verb>`.
--  `WorkflowCmd` type L57-111 — `= WorkflowCmd` — `cloacinactl workflow <verb>`.
--  `load_context` function L113-126 — `(source: Option<&str>) -> Result<serde_json::Value, CliError>` — `cloacinactl workflow <verb>`.
+- pub `run` function L54-108 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl workflow <verb>`.
+-  `WorkflowVerb` enum L36-51 — `List | Inspect | Run` — `cloacinactl workflow <verb>`.
+-  `WorkflowCmd` type L53-109 — `= WorkflowCmd` — `cloacinactl workflow <verb>`.
+-  `load_context` function L111-124 — `(source: Option<&str>) -> Result<serde_json::Value, CliError>` — `cloacinactl workflow <verb>`.
 
 ### crates/cloacinactl/src/shared
 
@@ -7046,38 +7046,35 @@
 
 #### crates/cloacinactl/src/shared/client.rs
 
-- pub `KeyScope` enum L36-41 — `Admin | Tenant` — Scope of the caller's API key as reported by `GET /v1/keys/self`.
-- pub `WhoAmI` struct L45-50 — `{ scope: KeyScope, role: Option<String> }` — What `whoami` returns.
-- pub `CliClient` struct L53-57 — `{ ctx: ClientContext, http: reqwest::Client, whoami_cache: OnceLock<WhoAmI> }` — Shared HTTP client used by every verb handler.
-- pub `confirm_destructive` function L61-80 — `(action: &str) -> Result<(), CliError>` — Prompt the user for destructive-op confirmation unless stdin isn't a TTY
-- pub `new` function L83-94 — `(ctx: ClientContext) -> Result<Arc<Self>, CliError>` — rule from ADR-0003 §4.
-- pub `ctx` function L96-98 — `(&self) -> &ClientContext` — rule from ADR-0003 §4.
-- pub `get` function L133-140 — `(&self, path: &str) -> Result<T, CliError>` — Typed GET.
-- pub `post` function L143-156 — `( &self, path: &str, body: &B, ) -> Result<T, CliError>` — Typed POST (JSON body).
-- pub `delete` function L159-172 — `(&self, path: &str) -> Result<(), CliError>` — DELETE without a response body.
-- pub `whoami` function L175-183 — `(&self) -> Result<&WhoAmI, CliError>` — Cache-aware `GET /v1/keys/self`.
-- pub `require_tenant` function L191-212 — `( &self, tenant_scoped_command: bool, ) -> Result<Option<String>, CliError>` — Resolve the tenant to use for the current command per ADR §4.
--  `CliClient` type L82-213 — `= CliClient` — rule from ADR-0003 §4.
--  `url` function L100-104 — `(&self, path: &str) -> String` — rule from ADR-0003 §4.
--  `apply_auth` function L106-116 — `( &self, req: reqwest::RequestBuilder, tenant: Option<&str>, ) -> reqwest::Reque...` — rule from ADR-0003 §4.
--  `send` function L118-121 — `(&self, req: reqwest::RequestBuilder) -> Result<Response, CliError>` — rule from ADR-0003 §4.
--  `parse_response` function L123-130 — `(response: Response) -> Result<T, CliError>` — rule from ADR-0003 §4.
+- pub `CliClient` struct L31-34 — `{ ctx: ClientContext, http: reqwest::Client }` — Shared HTTP client used by every verb handler.
+- pub `confirm_destructive` function L38-57 — `(action: &str) -> Result<(), CliError>` — Prompt the user for destructive-op confirmation unless stdin isn't a TTY
+- pub `new` function L60-67 — `(ctx: ClientContext) -> Result<Arc<Self>, CliError>` — exposes a `ClientContext` for tenant/path resolution at each call site.
+- pub `ctx` function L69-71 — `(&self) -> &ClientContext` — exposes a `ClientContext` for tenant/path resolution at each call site.
+- pub `get` function L100-103 — `(&self, path: &str) -> Result<T, CliError>` — Typed GET.
+- pub `post` function L106-115 — `( &self, path: &str, body: &B, ) -> Result<T, CliError>` — Typed POST (JSON body).
+- pub `delete` function L118-127 — `(&self, path: &str) -> Result<(), CliError>` — DELETE without a response body.
+-  `CliClient` type L59-128 — `= CliClient` — exposes a `ClientContext` for tenant/path resolution at each call site.
+-  `url` function L73-77 — `(&self, path: &str) -> String` — exposes a `ClientContext` for tenant/path resolution at each call site.
+-  `apply_auth` function L79-83 — `(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder` — exposes a `ClientContext` for tenant/path resolution at each call site.
+-  `send` function L85-88 — `(&self, req: reqwest::RequestBuilder) -> Result<Response, CliError>` — exposes a `ClientContext` for tenant/path resolution at each call site.
+-  `parse_response` function L90-97 — `(response: Response) -> Result<T, CliError>` — exposes a `ClientContext` for tenant/path resolution at each call site.
 
 #### crates/cloacinactl/src/shared/client_ctx.rs
 
 - pub `ClientContext` struct L29-35 — `{ server: String, api_key: String, tenant: Option<String>, output: OutputFormat,...` — Resolved client context — everything a client command needs to talk to the
 - pub `resolve` function L40-78 — `(opts: &GlobalOpts, config: &CloacinaConfig) -> Result<Self>` — Resolve against the precedence rule from ADR-0003 §3:
-- pub `resolve_api_key_scheme` function L82-97 — `(raw: &str) -> Result<String>` — Resolve an api-key value that may carry a scheme prefix.
--  `ClientContext` type L37-79 — `= ClientContext` — that client-side commands use to hit the server.
--  `read_key_file` function L99-108 — `(path: &Path) -> Result<String>` — that client-side commands use to hit the server.
--  `tests` module L111-203 — `-` — that client-side commands use to hit the server.
--  `opts` function L116-130 — `(overrides: impl FnOnce(&mut GlobalOpts)) -> GlobalOpts` — that client-side commands use to hit the server.
--  `explicit_flag_wins` function L133-150 — `()` — that client-side commands use to hit the server.
--  `named_profile_wins_over_default` function L153-173 — `()` — that client-side commands use to hit the server.
--  `no_config_errors` function L176-180 — `()` — that client-side commands use to hit the server.
--  `env_scheme` function L183-188 — `()` — that client-side commands use to hit the server.
--  `file_scheme` function L191-196 — `()` — that client-side commands use to hit the server.
--  `keyring_scheme_deferred` function L199-202 — `()` — that client-side commands use to hit the server.
+- pub `tenant_segment` function L84-86 — `(&self) -> &str` — Tenant segment to inject into tenant-scoped server routes
+- pub `resolve_api_key_scheme` function L90-105 — `(raw: &str) -> Result<String>` — Resolve an api-key value that may carry a scheme prefix.
+-  `ClientContext` type L37-87 — `= ClientContext` — that client-side commands use to hit the server.
+-  `read_key_file` function L107-116 — `(path: &Path) -> Result<String>` — that client-side commands use to hit the server.
+-  `tests` module L119-211 — `-` — that client-side commands use to hit the server.
+-  `opts` function L124-138 — `(overrides: impl FnOnce(&mut GlobalOpts)) -> GlobalOpts` — that client-side commands use to hit the server.
+-  `explicit_flag_wins` function L141-158 — `()` — that client-side commands use to hit the server.
+-  `named_profile_wins_over_default` function L161-181 — `()` — that client-side commands use to hit the server.
+-  `no_config_errors` function L184-188 — `()` — that client-side commands use to hit the server.
+-  `env_scheme` function L191-196 — `()` — that client-side commands use to hit the server.
+-  `file_scheme` function L199-204 — `()` — that client-side commands use to hit the server.
+-  `keyring_scheme_deferred` function L207-210 — `()` — that client-side commands use to hit the server.
 
 #### crates/cloacinactl/src/shared/error.rs
 
