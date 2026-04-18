@@ -37,7 +37,7 @@ pub async fn run(globals: &GlobalOpts, file: &Path) -> Result<(), CliError> {
         .file_name(filename)
         .mime_str("application/octet-stream")
         .map_err(CliError::from_reqwest)?;
-    let form = multipart::Form::new().part("package", part);
+    let form = multipart::Form::new().part("file", part);
 
     let http = reqwest::Client::new();
     let tenant = ctx.tenant_segment();

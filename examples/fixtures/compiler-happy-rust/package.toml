@@ -1,0 +1,14 @@
+# Minimal cloacina package used by the compiler-e2e harness. Deliberately has
+# no cloacina dependency so the compiler can build it without host-workspace
+# path rewriting. Exercises the build-queue + heartbeat + artifact-persist
+# path, not the FFI-load path (reconciler integration is a follow-up task).
+[package]
+name = "compiler-happy-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+language = "rust"
+description = "compiler-e2e happy-path fixture (no cloacina deps)"

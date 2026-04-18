@@ -72,7 +72,11 @@ def _cloacinactl(home: Path, *args, env=None, check=True):
     return proc.returncode, proc.stdout, proc.stderr
 
 
-@cloacina.command(name="cli-e2e", about="run end-to-end cloacinactl integration tests (T-0518)")
+@cloacina()
+@angreal.command(
+    name="cli-e2e",
+    about="run end-to-end cloacinactl integration tests (T-0518)",
+)
 def cli_e2e():
     print_section_header("cloacinactl e2e")
     _build_binaries()

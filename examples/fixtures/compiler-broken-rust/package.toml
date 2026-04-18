@@ -1,0 +1,14 @@
+# Failed-build fixture for the compiler-e2e harness. Structurally identical
+# to compiler-happy-rust but src/lib.rs has a deliberate compile error —
+# the compiler service should mark the row `failed` with `build_error`
+# populated.
+[package]
+name = "compiler-broken-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+language = "rust"
+description = "compiler-e2e failed-build fixture"

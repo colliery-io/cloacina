@@ -1,0 +1,11 @@
+# Standalone — no workspace inheritance, no cloacina deps. Keeps the fixture
+# buildable from any unpack directory without path-rewriting gymnastics.
+[workspace]
+
+[package]
+name = "compiler_happy_rust"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
