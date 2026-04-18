@@ -178,7 +178,7 @@
     "crates/cloacina/src/registry/storage/mod.rs": "c60bb9d006661d210e9a1c42de3e2f9f0a0418307e576d270bc49e87cc4a0eef",
     "crates/cloacina/src/registry/traits.rs": "564a9de132a5694b5e316dc474520a790174d02302ba18b5e296115dab1cd37c",
     "crates/cloacina/src/registry/types.rs": "541d0ceb8e61a82b39540d015cd8f424cfddb98f9e0b1ea5f56a3a04eacf6597",
-    "crates/cloacina/src/registry/workflow_registry/database.rs": "36ab6bcbeed78c81d766c3fe8dd435320042a05d4af44d7c2d7d20d8484bcb8b",
+    "crates/cloacina/src/registry/workflow_registry/database.rs": "9980946a8932518dc8145f4a9f2f4e391049ace39b2d63e231ec0c3501fe7ea9",
     "crates/cloacina/src/registry/workflow_registry/filesystem.rs": "f2cfe55a8fbc8e3358c388a842ba1a1211f1fa22c43f4a9600184663d11aab0b",
     "crates/cloacina/src/registry/workflow_registry/mod.rs": "a69b4d18e588f33ea67f2c731277d19568000ad191146e3e10d79e2be14a6b96",
     "crates/cloacina/src/registry/workflow_registry/package.rs": "759677ba0e55b876968b9ef8f3bf6106b2c2af7624b9319586fa67a9ac67d2cf",

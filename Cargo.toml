@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/cloacina", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph"]
+members = ["crates/cloacina", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph"]
 exclude = ["examples/*"]
 resolver = "2"
 

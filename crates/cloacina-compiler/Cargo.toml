@@ -1,0 +1,46 @@
+[package]
+name = "cloacina-compiler"
+version.workspace = true
+edition = "2021"
+description = "Build service for Cloacina packages — compiles source into cdylib artifacts and persists them in the DB for runtime instances to load."
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[lib]
+name = "cloacina_compiler"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cloacina-compiler"
+path = "src/main.rs"
+
+[features]
+default = ["postgres"]
+postgres = ["cloacina/postgres"]
+sqlite = ["cloacina/sqlite"]
+
+[dependencies]
+cloacina = { path = "../cloacina", default-features = false }
+clap.workspace = true
+anyhow.workspace = true
+dirs = "6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+axum = { version = "0.8" }
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tempfile = "3"
+fidius-core = "0.0.5"
+chrono = { version = "0.4" }
+tracing = { version = "0.1" }
+tracing-appender = { version = "0.2" }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[dev-dependencies]
+serial_test = "3"

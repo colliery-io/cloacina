@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-18T12:42:37Z | 462 files | JavaScript, Python, Rust
+> Generated: 2026-04-18T12:49:13Z | 462 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4058,12 +4058,12 @@
 
 #### crates/cloacina/src/registry/workflow_registry/database.rs
 
-- pub `claim_next_build` function L873-964 — `(&self) -> Result<Option<ClaimedBuild>, RegistryError>` — A pending build claimed by the compiler.
-- pub `mark_build_success` function L968-1028 — `( &self, package_id: Uuid, compiled: Vec<u8>, ) -> Result<(), RegistryError>` — Record a successful build.
-- pub `mark_build_failed` function L1031-1090 — `( &self, package_id: Uuid, error: &str, ) -> Result<(), RegistryError>` — Record a failed build.
-- pub `heartbeat_build` function L1094-1145 — `(&self, package_id: Uuid) -> Result<(), RegistryError>` — Refresh `build_claimed_at` so the stale-build sweeper doesn't reset us.
-- pub `sweep_stale_builds` function L1149-1220 — `( &self, stale_threshold: std::time::Duration, ) -> Result<usize, RegistryError>` — Reset rows stuck in `building` whose last heartbeat is older than
-- pub `ClaimedBuild` struct L1226-1232 — `{ id: Uuid, registry_id: Uuid, package_name: String, version: String, metadata: ...` — A build row claimed by the compiler.
+- pub `claim_next_build` function L873-968 — `(&self) -> Result<Option<ClaimedBuild>, RegistryError>` — A pending build claimed by the compiler.
+- pub `mark_build_success` function L972-1032 — `( &self, package_id: Uuid, compiled: Vec<u8>, ) -> Result<(), RegistryError>` — Record a successful build.
+- pub `mark_build_failed` function L1035-1094 — `( &self, package_id: Uuid, error: &str, ) -> Result<(), RegistryError>` — Record a failed build.
+- pub `heartbeat_build` function L1098-1149 — `(&self, package_id: Uuid) -> Result<(), RegistryError>` — Refresh `build_claimed_at` so the stale-build sweeper doesn't reset us.
+- pub `sweep_stale_builds` function L1153-1224 — `( &self, stale_threshold: std::time::Duration, ) -> Result<usize, RegistryError>` — Reset rows stuck in `building` whose last heartbeat is older than
+- pub `ClaimedBuild` struct L1230-1236 — `{ id: Uuid, registry_id: Uuid, package_name: String, version: String, metadata: ...` — A build row claimed by the compiler.
 -  `store_package_metadata` function L29-56 — `( &self, registry_id: &str, package_metadata: &crate::registry::loader::package_...` — Store package metadata in the database.
 -  `store_package_metadata_postgres` function L59-121 — `( &self, registry_uuid: Uuid, package_metadata: &crate::registry::loader::packag...` — Database operations for workflow registry metadata storage.
 -  `store_package_metadata_sqlite` function L124-184 — `( &self, registry_uuid: Uuid, package_metadata: &crate::registry::loader::packag...` — Database operations for workflow registry metadata storage.
@@ -4084,28 +4084,28 @@
 -  `delete_package_metadata_by_id` function L802-812 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by ID.
 -  `delete_package_metadata_by_id_postgres` function L815-838 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
 -  `delete_package_metadata_by_id_sqlite` function L841-865 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
--  `MAX_ERR` variable L1039 — `: usize` — Database operations for workflow registry metadata storage.
--  `ClaimedBuild` type L1234-1244 — `= ClaimedBuild` — Database operations for workflow registry metadata storage.
--  `from` function L1235-1243 — `(u: crate::dal::unified::models::UnifiedWorkflowPackage) -> Self` — Database operations for workflow registry metadata storage.
--  `tests` module L1247-1678 — `-` — Database operations for workflow registry metadata storage.
--  `create_test_registry` function L1254-1265 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
--  `sample_metadata` function L1268-1286 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
--  `test_store_and_get_package_metadata` function L1290-1310 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_not_found` function L1314-1322 — `()` — Database operations for workflow registry metadata storage.
--  `test_list_all_packages` function L1326-1352 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata` function L1356-1385 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id` function L1389-1405 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id_not_found` function L1409-1417 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata_by_id` function L1421-1441 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_nonexistent_does_not_error` function L1445-1457 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_fresh_name` function L1465-1482 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_replaces_old_active` function L1486-1537 — `()` — Database operations for workflow registry metadata storage.
--  `test_partial_unique_rejects_second_active_for_same_name` function L1541-1564 — `()` — Database operations for workflow registry metadata storage.
--  `test_claim_next_build_returns_pending_row` function L1572-1587 — `()` — Database operations for workflow registry metadata storage.
--  `test_mark_build_success_flips_state_and_writes_bytes` function L1591-1613 — `()` — Database operations for workflow registry metadata storage.
--  `test_mark_build_failed_writes_error` function L1617-1630 — `()` — Database operations for workflow registry metadata storage.
--  `test_heartbeat_updates_claim_timestamp_only_while_building` function L1634-1653 — `()` — Database operations for workflow registry metadata storage.
--  `test_sweep_stale_builds_resets_old_rows` function L1657-1677 — `()` — Database operations for workflow registry metadata storage.
+-  `MAX_ERR` variable L1043 — `: usize` — Database operations for workflow registry metadata storage.
+-  `ClaimedBuild` type L1238-1248 — `= ClaimedBuild` — Database operations for workflow registry metadata storage.
+-  `from` function L1239-1247 — `(u: crate::dal::unified::models::UnifiedWorkflowPackage) -> Self` — Database operations for workflow registry metadata storage.
+-  `tests` module L1251-1682 — `-` — Database operations for workflow registry metadata storage.
+-  `create_test_registry` function L1258-1269 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
+-  `sample_metadata` function L1272-1290 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
+-  `test_store_and_get_package_metadata` function L1294-1314 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_not_found` function L1318-1326 — `()` — Database operations for workflow registry metadata storage.
+-  `test_list_all_packages` function L1330-1356 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata` function L1360-1389 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id` function L1393-1409 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id_not_found` function L1413-1421 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata_by_id` function L1425-1445 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_nonexistent_does_not_error` function L1449-1461 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_fresh_name` function L1469-1486 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_replaces_old_active` function L1490-1541 — `()` — Database operations for workflow registry metadata storage.
+-  `test_partial_unique_rejects_second_active_for_same_name` function L1545-1568 — `()` — Database operations for workflow registry metadata storage.
+-  `test_claim_next_build_returns_pending_row` function L1576-1591 — `()` — Database operations for workflow registry metadata storage.
+-  `test_mark_build_success_flips_state_and_writes_bytes` function L1595-1617 — `()` — Database operations for workflow registry metadata storage.
+-  `test_mark_build_failed_writes_error` function L1621-1634 — `()` — Database operations for workflow registry metadata storage.
+-  `test_heartbeat_updates_claim_timestamp_only_while_building` function L1638-1657 — `()` — Database operations for workflow registry metadata storage.
+-  `test_sweep_stale_builds_resets_old_rows` function L1661-1681 — `()` — Database operations for workflow registry metadata storage.
 
 #### crates/cloacina/src/registry/workflow_registry/filesystem.rs
 
