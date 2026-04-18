@@ -89,6 +89,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             tenant_id: None,
             content_hash: String::new(),
             superseded: crate::database::universal_types::UniversalBool(false),
+            compiled_data: None,
+            build_status: "pending".to_string(),
+            build_error: None,
+            build_claimed_at: None,
+            compiled_at: None,
         };
 
         let package_name_for_error = package_metadata.package_name.clone();
@@ -150,6 +155,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             tenant_id: None,
             content_hash: String::new(),
             superseded: crate::database::universal_types::UniversalBool(false),
+            compiled_data: None,
+            build_status: "pending".to_string(),
+            build_error: None,
+            build_claimed_at: None,
+            compiled_at: None,
         };
 
         conn.interact(move |conn| {
@@ -704,6 +714,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             tenant_id: None,
             content_hash: content_hash.to_string(),
             superseded: UniversalBool(false),
+            compiled_data: None,
+            build_status: "pending".to_string(),
+            build_error: None,
+            build_claimed_at: None,
+            compiled_at: None,
         };
 
         let pkg_name = package_metadata.package_name.clone();
@@ -847,6 +862,384 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         Ok(())
+    }
+
+    // ========================================================================
+    // Build queue (CLOACI-I-0097)
+    // ========================================================================
+
+    /// A pending build claimed by the compiler. Contains everything the
+    /// compiler needs to fetch the source and produce a cdylib.
+    pub async fn claim_next_build(&self) -> Result<Option<ClaimedBuild>, RegistryError> {
+        use crate::dal::unified::models::UnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalTimestamp};
+
+        let now = UniversalTimestamp::now();
+        crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let claimed: Option<UnifiedWorkflowPackage> = conn
+                    .interact(move |conn| {
+                        conn.transaction::<_, diesel::result::Error, _>(|tx| {
+                            use diesel::prelude::*;
+                            let candidate: Option<UnifiedWorkflowPackage> =
+                                workflow_packages::table
+                                    .filter(workflow_packages::build_status.eq("pending"))
+                                    .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                                    .order(workflow_packages::created_at.asc())
+                                    .limit(1)
+                                    .first::<UnifiedWorkflowPackage>(tx)
+                                    .optional()?;
+                            let Some(mut row) = candidate else {
+                                return Ok(None);
+                            };
+                            diesel::update(
+                                workflow_packages::table.filter(workflow_packages::id.eq(row.id)),
+                            )
+                            .set((
+                                workflow_packages::build_status.eq("building"),
+                                workflow_packages::build_claimed_at.eq(Some(now)),
+                                workflow_packages::build_error.eq::<Option<String>>(None),
+                            ))
+                            .execute(tx)?;
+                            row.build_status = "building".to_string();
+                            row.build_claimed_at = Some(now);
+                            row.build_error = None;
+                            Ok(Some(row))
+                        })
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(claimed.map(Into::into))
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let claimed: Option<UnifiedWorkflowPackage> = conn
+                    .interact(move |conn| {
+                        conn.transaction::<_, diesel::result::Error, _>(|tx| {
+                            use diesel::prelude::*;
+                            let candidate: Option<UnifiedWorkflowPackage> =
+                                workflow_packages::table
+                                    .filter(workflow_packages::build_status.eq("pending"))
+                                    .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                                    .order(workflow_packages::created_at.asc())
+                                    .limit(1)
+                                    .first::<UnifiedWorkflowPackage>(tx)
+                                    .optional()?;
+                            let Some(mut row) = candidate else {
+                                return Ok(None);
+                            };
+                            diesel::update(
+                                workflow_packages::table.filter(workflow_packages::id.eq(row.id)),
+                            )
+                            .set((
+                                workflow_packages::build_status.eq("building"),
+                                workflow_packages::build_claimed_at.eq(Some(now)),
+                                workflow_packages::build_error.eq::<Option<String>>(None),
+                            ))
+                            .execute(tx)?;
+                            row.build_status = "building".to_string();
+                            row.build_claimed_at = Some(now);
+                            row.build_error = None;
+                            Ok(Some(row))
+                        })
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(claimed.map(Into::into))
+            }
+        )
+    }
+
+    /// Record a successful build. Writes the compiled bytes and transitions
+    /// the row to `success`.
+    pub async fn mark_build_success(
+        &self,
+        package_id: Uuid,
+        compiled: Vec<u8>,
+    ) -> Result<(), RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{
+            UniversalBinary, UniversalTimestamp, UniversalUuid,
+        };
+
+        let pid = UniversalUuid(package_id);
+        let now = UniversalTimestamp::now();
+        let bytes = UniversalBinary::new(compiled);
+        crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set((
+                            workflow_packages::build_status.eq("success"),
+                            workflow_packages::compiled_data.eq(Some(bytes)),
+                            workflow_packages::compiled_at.eq(Some(now)),
+                            workflow_packages::build_error.eq::<Option<String>>(None),
+                        ))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(())
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set((
+                            workflow_packages::build_status.eq("success"),
+                            workflow_packages::compiled_data.eq(Some(bytes)),
+                            workflow_packages::compiled_at.eq(Some(now)),
+                            workflow_packages::build_error.eq::<Option<String>>(None),
+                        ))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(())
+            }
+        )
+    }
+
+    /// Record a failed build.
+    pub async fn mark_build_failed(
+        &self,
+        package_id: Uuid,
+        error: &str,
+    ) -> Result<(), RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        const MAX_ERR: usize = 64 * 1024;
+        let truncated = if error.len() > MAX_ERR {
+            let start = error.len() - MAX_ERR;
+            error[start..].to_string()
+        } else {
+            error.to_string()
+        };
+        let pid = UniversalUuid(package_id);
+        crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set((
+                            workflow_packages::build_status.eq("failed"),
+                            workflow_packages::build_error.eq(Some(truncated)),
+                        ))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(())
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set((
+                            workflow_packages::build_status.eq("failed"),
+                            workflow_packages::build_error.eq(Some(truncated)),
+                        ))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(())
+            }
+        )
+    }
+
+    /// Refresh `build_claimed_at` so the stale-build sweeper doesn't reset us.
+    /// No-op if the row is no longer in `building` state.
+    pub async fn heartbeat_build(&self, package_id: Uuid) -> Result<(), RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+
+        let pid = UniversalUuid(package_id);
+        let now = UniversalTimestamp::now();
+        crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .filter(workflow_packages::build_status.eq("building")),
+                    )
+                    .set(workflow_packages::build_claimed_at.eq(Some(now)))
+                    .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(())
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .filter(workflow_packages::build_status.eq("building")),
+                    )
+                    .set(workflow_packages::build_claimed_at.eq(Some(now)))
+                    .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(())
+            }
+        )
+    }
+
+    /// Reset rows stuck in `building` whose last heartbeat is older than
+    /// `stale_threshold`. Returns the number of rows reset.
+    pub async fn sweep_stale_builds(
+        &self,
+        stale_threshold: std::time::Duration,
+    ) -> Result<usize, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalTimestamp;
+
+        let cutoff = UniversalTimestamp(
+            chrono::Utc::now()
+                - chrono::Duration::from_std(stale_threshold)
+                    .unwrap_or_else(|_| chrono::Duration::seconds(60)),
+        );
+        crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let n: usize = conn
+                    .interact(move |conn| {
+                        use diesel::prelude::*;
+                        diesel::update(
+                            workflow_packages::table
+                                .filter(workflow_packages::build_status.eq("building"))
+                                .filter(workflow_packages::build_claimed_at.lt(Some(cutoff))),
+                        )
+                        .set((
+                            workflow_packages::build_status.eq("pending"),
+                            workflow_packages::build_claimed_at
+                                .eq::<Option<UniversalTimestamp>>(None),
+                            workflow_packages::build_error
+                                .eq(Some("(reset after stale heartbeat)".to_string())),
+                        ))
+                        .execute(conn)
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(n)
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let n: usize = conn
+                    .interact(move |conn| {
+                        use diesel::prelude::*;
+                        diesel::update(
+                            workflow_packages::table
+                                .filter(workflow_packages::build_status.eq("building"))
+                                .filter(workflow_packages::build_claimed_at.lt(Some(cutoff))),
+                        )
+                        .set((
+                            workflow_packages::build_status.eq("pending"),
+                            workflow_packages::build_claimed_at
+                                .eq::<Option<UniversalTimestamp>>(None),
+                            workflow_packages::build_error
+                                .eq(Some("(reset after stale heartbeat)".to_string())),
+                        ))
+                        .execute(conn)
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+                Ok(n)
+            }
+        )
+    }
+}
+
+/// A build row claimed by the compiler. Everything the compiler needs to
+/// locate the source and write back results.
+#[derive(Debug, Clone)]
+pub struct ClaimedBuild {
+    pub id: Uuid,
+    pub registry_id: Uuid,
+    pub package_name: String,
+    pub version: String,
+    pub metadata: String,
+}
+
+impl From<crate::dal::unified::models::UnifiedWorkflowPackage> for ClaimedBuild {
+    fn from(u: crate::dal::unified::models::UnifiedWorkflowPackage) -> Self {
+        ClaimedBuild {
+            id: u.id.0,
+            registry_id: u.registry_id.0,
+            package_name: u.package_name,
+            version: u.version,
+            metadata: u.metadata,
+        }
     }
 }
 
@@ -1168,5 +1561,118 @@ mod tests {
             "expected PackageExists, got {:?}",
             err
         );
+    }
+
+    // ========================================================================
+    // Build queue tests (CLOACI-I-0097)
+    // ========================================================================
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_claim_next_build_returns_pending_row() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("claim-pkg", "1");
+        let pkg_id = registry
+            .supersede_and_insert(None, &reg_id, &meta, "hash-claim")
+            .await
+            .unwrap();
+
+        let claimed = registry.claim_next_build().await.unwrap().expect("row");
+        assert_eq!(claimed.id, pkg_id);
+        assert_eq!(claimed.package_name, "claim-pkg");
+
+        // Second claim sees nothing — it's `building` now.
+        assert!(registry.claim_next_build().await.unwrap().is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_mark_build_success_flips_state_and_writes_bytes() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("ok-pkg", "1");
+        let pkg_id = registry
+            .supersede_and_insert(None, &reg_id, &meta, "hash-ok")
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap();
+
+        registry
+            .mark_build_success(pkg_id, vec![0xAA, 0xBB, 0xCC])
+            .await
+            .unwrap();
+
+        // Row now reachable again via the normal read methods
+        let found = registry
+            .get_package_metadata("ok-pkg", "1")
+            .await
+            .unwrap()
+            .expect("should still be visible");
+        assert_eq!(found.0, reg_id);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_mark_build_failed_writes_error() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("bad-pkg", "1");
+        let pkg_id = registry
+            .supersede_and_insert(None, &reg_id, &meta, "hash-bad")
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap();
+        registry
+            .mark_build_failed(pkg_id, "compile error on line 42")
+            .await
+            .unwrap();
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_heartbeat_updates_claim_timestamp_only_while_building() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("hb-pkg", "1");
+        let pkg_id = registry
+            .supersede_and_insert(None, &reg_id, &meta, "hash-hb")
+            .await
+            .unwrap();
+
+        // Not yet building → heartbeat is no-op (doesn't error).
+        registry.heartbeat_build(pkg_id).await.unwrap();
+
+        // Claim → building → heartbeat updates.
+        registry.claim_next_build().await.unwrap();
+        registry.heartbeat_build(pkg_id).await.unwrap();
+
+        // Mark success → heartbeat no-ops again.
+        registry.mark_build_success(pkg_id, vec![]).await.unwrap();
+        registry.heartbeat_build(pkg_id).await.unwrap();
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_sweep_stale_builds_resets_old_rows() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("stale-pkg", "1");
+        registry
+            .supersede_and_insert(None, &reg_id, &meta, "hash-stale")
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap();
+
+        // Threshold of zero means every `building` row looks stale.
+        let n = registry
+            .sweep_stale_builds(std::time::Duration::from_secs(0))
+            .await
+            .unwrap();
+        assert_eq!(n, 1, "expected one row reset to pending");
+
+        // Next claim picks it up again.
+        let re_claimed = registry.claim_next_build().await.unwrap();
+        assert!(re_claimed.is_some());
     }
 }

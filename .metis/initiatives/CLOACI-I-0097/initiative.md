@@ -4,14 +4,14 @@ level: initiative
 title: "Compiler Service — Extract Build Pipeline, Cache Artifacts, Service Orchestration"
 short_code: "CLOACI-I-0097"
 created_at: 2026-04-16T15:31:44.386277+00:00
-updated_at: 2026-04-18T01:49:42.482516+00:00
+updated_at: 2026-04-18T02:13:40.890381+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/active"
 
 
 exit_criteria_met: false
