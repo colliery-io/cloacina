@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-18T01:09:29Z | 462 files | JavaScript, Python, Rust
+> Generated: 2026-04-18T12:42:37Z | 462 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1605,52 +1605,52 @@
 - pub `NewUnifiedScheduleExecution` struct L314-324 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `UnifiedWorkflowRegistryEntry` struct L332-336 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `NewUnifiedWorkflowRegistryEntry` struct L340-344 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowPackage` struct L352-366 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowPackage` struct L370-384 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSigningKey` struct L392-401 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSigningKey` struct L405-413 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTrustedKey` struct L421-429 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTrustedKey` struct L433-440 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedKeyTrustAcl` struct L448-454 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedKeyTrustAcl` struct L458-463 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L471-477 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L481-487 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedAccumulatorCheckpoint` struct L742-749 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedAccumulatorCheckpoint` struct L753-760 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedAccumulatorBoundary` struct L764-772 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedAccumulatorBoundary` struct L776-784 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedReactorState` struct L788-796 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedReactorState` struct L800-808 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedStateAccumulatorBuffer` struct L812-820 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedStateAccumulatorBuffer` struct L824-832 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
--  `DbContext` type L509-518 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L510-517 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowExecutionRecord` type L520-539 — `= WorkflowExecutionRecord` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L521-538 — `(u: UnifiedWorkflowExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L541-566 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L542-565 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L568-580 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L569-579 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L582-595 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L583-594 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L597-610 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L598-609 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L612-620 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L613-619 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L622-640 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L623-639 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L642-655 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L643-654 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L657-669 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L658-668 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L671-681 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L672-680 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L683-693 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L684-692 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `Schedule` type L695-717 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L696-716 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ScheduleExecution` type L719-734 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L720-733 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowPackage` struct L352-371 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowPackage` struct L375-394 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSigningKey` struct L402-411 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSigningKey` struct L415-423 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTrustedKey` struct L431-439 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTrustedKey` struct L443-450 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedKeyTrustAcl` struct L458-464 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedKeyTrustAcl` struct L468-473 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L481-487 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L491-497 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorCheckpoint` struct L757-764 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorCheckpoint` struct L768-775 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorBoundary` struct L779-787 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorBoundary` struct L791-799 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedReactorState` struct L803-811 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedReactorState` struct L815-823 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedStateAccumulatorBuffer` struct L827-835 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedStateAccumulatorBuffer` struct L839-847 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `DbContext` type L519-528 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L520-527 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowExecutionRecord` type L530-549 — `= WorkflowExecutionRecord` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L531-548 — `(u: UnifiedWorkflowExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L551-576 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L552-575 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L578-590 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L579-589 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L592-605 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L593-604 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L607-620 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L608-619 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L622-630 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L623-629 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L632-655 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L633-654 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L657-670 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L658-669 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L672-684 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L673-683 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L686-696 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L687-695 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L698-708 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L699-707 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `Schedule` type L710-732 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L711-731 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ScheduleExecution` type L734-749 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L735-748 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 
 #### crates/cloacina/src/dal/unified/recovery_event.rs
 
@@ -1800,34 +1800,34 @@
 - pub `WorkflowPackagesDAL` struct L35-37 — `{ dal: &'a DAL }` — Data access layer for workflow package operations with runtime backend selection.
 - pub `new` function L41-43 — `(dal: &'a DAL) -> Self` — Creates a new WorkflowPackagesDAL instance.
 - pub `store_package_metadata` function L46-70 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — Store package metadata in the database.
-- pub `get_package_metadata` function L199-211 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — Retrieve package metadata from the database.
-- pub `get_package_metadata_by_id` function L288-297 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — Retrieve package metadata by UUID from the database.
-- pub `list_all_packages` function L366-372 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — List all packages in the registry.
-- pub `delete_package_metadata` function L411-423 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Delete package metadata from the database.
-- pub `delete_package_metadata_by_id` function L488-498 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by UUID from the database.
--  `store_package_metadata_postgres` function L73-133 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
--  `store_package_metadata_sqlite` function L136-196 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
--  `get_package_metadata_postgres` function L214-248 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
--  `get_package_metadata_sqlite` function L251-285 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
--  `get_package_metadata_by_id_postgres` function L300-330 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — at runtime based on the database connection type.
--  `get_package_metadata_by_id_sqlite` function L333-363 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — at runtime based on the database connection type.
--  `list_all_packages_postgres` function L375-390 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — at runtime based on the database connection type.
--  `list_all_packages_sqlite` function L393-408 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — at runtime based on the database connection type.
--  `delete_package_metadata_postgres` function L426-454 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
--  `delete_package_metadata_sqlite` function L457-485 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
--  `delete_package_metadata_by_id_postgres` function L501-523 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
--  `delete_package_metadata_by_id_sqlite` function L526-548 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
--  `tests` module L552-803 — `-` — at runtime based on the database connection type.
--  `unique_dal` function L558-568 — `() -> DAL` — at runtime based on the database connection type.
--  `sample_metadata` function L571-589 — `(name: &str, version: &str) -> PackageMetadata` — at runtime based on the database connection type.
--  `test_store_and_get_package_metadata` function L593-622 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_not_found` function L626-635 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_by_id` function L639-663 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_by_id_not_found` function L667-676 — `()` — at runtime based on the database connection type.
--  `test_list_all_packages` function L680-712 — `()` — at runtime based on the database connection type.
--  `test_delete_package_metadata` function L716-752 — `()` — at runtime based on the database connection type.
--  `test_delete_package_metadata_by_id` function L756-785 — `()` — at runtime based on the database connection type.
--  `test_delete_nonexistent_does_not_error` function L789-802 — `()` — at runtime based on the database connection type.
+- pub `get_package_metadata` function L209-221 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — Retrieve package metadata from the database.
+- pub `get_package_metadata_by_id` function L298-307 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — Retrieve package metadata by UUID from the database.
+- pub `list_all_packages` function L376-382 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — List all packages in the registry.
+- pub `delete_package_metadata` function L421-433 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Delete package metadata from the database.
+- pub `delete_package_metadata_by_id` function L498-508 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by UUID from the database.
+-  `store_package_metadata_postgres` function L73-138 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
+-  `store_package_metadata_sqlite` function L141-206 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
+-  `get_package_metadata_postgres` function L224-258 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
+-  `get_package_metadata_sqlite` function L261-295 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
+-  `get_package_metadata_by_id_postgres` function L310-340 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — at runtime based on the database connection type.
+-  `get_package_metadata_by_id_sqlite` function L343-373 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — at runtime based on the database connection type.
+-  `list_all_packages_postgres` function L385-400 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — at runtime based on the database connection type.
+-  `list_all_packages_sqlite` function L403-418 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — at runtime based on the database connection type.
+-  `delete_package_metadata_postgres` function L436-464 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
+-  `delete_package_metadata_sqlite` function L467-495 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
+-  `delete_package_metadata_by_id_postgres` function L511-533 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
+-  `delete_package_metadata_by_id_sqlite` function L536-558 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
+-  `tests` module L562-813 — `-` — at runtime based on the database connection type.
+-  `unique_dal` function L568-578 — `() -> DAL` — at runtime based on the database connection type.
+-  `sample_metadata` function L581-599 — `(name: &str, version: &str) -> PackageMetadata` — at runtime based on the database connection type.
+-  `test_store_and_get_package_metadata` function L603-632 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_not_found` function L636-645 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_by_id` function L649-673 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_by_id_not_found` function L677-686 — `()` — at runtime based on the database connection type.
+-  `test_list_all_packages` function L690-722 — `()` — at runtime based on the database connection type.
+-  `test_delete_package_metadata` function L726-762 — `()` — at runtime based on the database connection type.
+-  `test_delete_package_metadata_by_id` function L766-795 — `()` — at runtime based on the database connection type.
+-  `test_delete_nonexistent_does_not_error` function L799-812 — `()` — at runtime based on the database connection type.
 
 #### crates/cloacina/src/dal/unified/workflow_registry.rs
 
@@ -2166,12 +2166,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L1052-1054 — `-`
-- pub `postgres` module L1059-1061 — `-`
-- pub `sqlite` module L1064-1066 — `-`
--  `unified_schema` module L25-387 — `-`
--  `postgres_schema` module L394-759 — `-`
--  `sqlite_schema` module L762-1047 — `-`
+- pub `unified` module L1067-1069 — `-`
+- pub `postgres` module L1074-1076 — `-`
+- pub `sqlite` module L1079-1081 — `-`
+-  `unified_schema` module L25-392 — `-`
+-  `postgres_schema` module L399-769 — `-`
+-  `sqlite_schema` module L772-1062 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -2966,16 +2966,16 @@
 
 - pub `StorageType` enum L27-32 — `Database | Filesystem` — Storage type for workflow binary data.
 - pub `as_str` function L35-40 — `(&self) -> &'static str` — These are API-level types; backend-specific models handle database storage.
-- pub `WorkflowPackage` struct L62-76 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — Domain model for workflow package metadata.
-- pub `NewWorkflowPackage` struct L80-88 — `{ registry_id: UniversalUuid, package_name: String, version: String, description...` — Model for creating new workflow package metadata entries (domain type).
-- pub `new` function L91-109 — `( registry_id: UniversalUuid, package_name: String, version: String, description...` — These are API-level types; backend-specific models handle database storage.
+- pub `WorkflowPackage` struct L62-81 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — Domain model for workflow package metadata.
+- pub `NewWorkflowPackage` struct L85-93 — `{ registry_id: UniversalUuid, package_name: String, version: String, description...` — Model for creating new workflow package metadata entries (domain type).
+- pub `new` function L96-114 — `( registry_id: UniversalUuid, package_name: String, version: String, description...` — These are API-level types; backend-specific models handle database storage.
 -  `StorageType` type L34-41 — `= StorageType` — These are API-level types; backend-specific models handle database storage.
 -  `StorageType` type L43-52 — `= StorageType` — These are API-level types; backend-specific models handle database storage.
 -  `Err` type L44 — `= std::convert::Infallible` — These are API-level types; backend-specific models handle database storage.
 -  `from_str` function L46-51 — `(s: &str) -> Result<Self, Self::Err>` — These are API-level types; backend-specific models handle database storage.
 -  `StorageType` type L54-58 — `= StorageType` — These are API-level types; backend-specific models handle database storage.
 -  `fmt` function L55-57 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — These are API-level types; backend-specific models handle database storage.
--  `NewWorkflowPackage` type L90-110 — `= NewWorkflowPackage` — These are API-level types; backend-specific models handle database storage.
+-  `NewWorkflowPackage` type L95-115 — `= NewWorkflowPackage` — These are API-level types; backend-specific models handle database storage.
 
 #### crates/cloacina/src/models/workflow_registry.rs
 
@@ -4058,40 +4058,54 @@
 
 #### crates/cloacina/src/registry/workflow_registry/database.rs
 
+- pub `claim_next_build` function L873-964 — `(&self) -> Result<Option<ClaimedBuild>, RegistryError>` — A pending build claimed by the compiler.
+- pub `mark_build_success` function L968-1028 — `( &self, package_id: Uuid, compiled: Vec<u8>, ) -> Result<(), RegistryError>` — Record a successful build.
+- pub `mark_build_failed` function L1031-1090 — `( &self, package_id: Uuid, error: &str, ) -> Result<(), RegistryError>` — Record a failed build.
+- pub `heartbeat_build` function L1094-1145 — `(&self, package_id: Uuid) -> Result<(), RegistryError>` — Refresh `build_claimed_at` so the stale-build sweeper doesn't reset us.
+- pub `sweep_stale_builds` function L1149-1220 — `( &self, stale_threshold: std::time::Duration, ) -> Result<usize, RegistryError>` — Reset rows stuck in `building` whose last heartbeat is older than
+- pub `ClaimedBuild` struct L1226-1232 — `{ id: Uuid, registry_id: Uuid, package_name: String, version: String, metadata: ...` — A build row claimed by the compiler.
 -  `store_package_metadata` function L29-56 — `( &self, registry_id: &str, package_metadata: &crate::registry::loader::package_...` — Store package metadata in the database.
--  `store_package_metadata_postgres` function L59-116 — `( &self, registry_uuid: Uuid, package_metadata: &crate::registry::loader::packag...` — Database operations for workflow registry metadata storage.
--  `store_package_metadata_sqlite` function L119-174 — `( &self, registry_uuid: Uuid, package_metadata: &crate::registry::loader::packag...` — Database operations for workflow registry metadata storage.
--  `get_package_metadata` function L177-195 — `( &self, package_name: &str, version: &str, ) -> Result< Option<( String, crate:...` — Retrieve package metadata from the database.
--  `get_package_metadata_postgres` function L198-244 — `( &self, package_name: &str, version: &str, ) -> Result< Option<( String, crate:...` — Database operations for workflow registry metadata storage.
--  `get_package_metadata_sqlite` function L247-293 — `( &self, package_name: &str, version: &str, ) -> Result< Option<( String, crate:...` — Database operations for workflow registry metadata storage.
--  `list_all_packages` function L296-302 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
--  `list_all_packages_postgres` function L305-352 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — Database operations for workflow registry metadata storage.
--  `list_all_packages_sqlite` function L355-402 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — Database operations for workflow registry metadata storage.
--  `delete_package_metadata` function L405-417 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Delete package metadata from the database.
--  `delete_package_metadata_postgres` function L420-449 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
--  `delete_package_metadata_sqlite` function L452-481 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
--  `get_package_metadata_by_id` function L484-493 — `( &self, package_id: Uuid, ) -> Result<Option<(String, WorkflowMetadata)>, Regis...` — Get package metadata by ID.
--  `get_package_metadata_by_id_postgres` function L496-551 — `( &self, package_id: Uuid, ) -> Result<Option<(String, WorkflowMetadata)>, Regis...` — Database operations for workflow registry metadata storage.
--  `get_package_metadata_by_id_sqlite` function L554-610 — `( &self, package_id: Uuid, ) -> Result<Option<(String, WorkflowMetadata)>, Regis...` — Database operations for workflow registry metadata storage.
--  `get_active_package_by_name` function L615-666 — `( &self, package_name: &str, ) -> Result<Option<(Uuid, String, String)>, Registr...` — Look up the active package row for `name`, returning (id, registry_id, content_hash).
--  `supersede_and_insert` function L675-784 — `( &self, old_id: Option<Uuid>, registry_id: &str, package_metadata: &crate::regi...` — Supersede the current active row for `old_id` (if provided) and insert a new
--  `delete_package_metadata_by_id` function L787-797 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by ID.
--  `delete_package_metadata_by_id_postgres` function L800-823 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
--  `delete_package_metadata_by_id_sqlite` function L826-850 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
--  `tests` module L854-1172 — `-` — Database operations for workflow registry metadata storage.
--  `create_test_registry` function L861-872 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
--  `sample_metadata` function L875-893 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
--  `test_store_and_get_package_metadata` function L897-917 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_not_found` function L921-929 — `()` — Database operations for workflow registry metadata storage.
--  `test_list_all_packages` function L933-959 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata` function L963-992 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id` function L996-1012 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id_not_found` function L1016-1024 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata_by_id` function L1028-1048 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_nonexistent_does_not_error` function L1052-1064 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_fresh_name` function L1072-1089 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_replaces_old_active` function L1093-1144 — `()` — Database operations for workflow registry metadata storage.
--  `test_partial_unique_rejects_second_active_for_same_name` function L1148-1171 — `()` — Database operations for workflow registry metadata storage.
+-  `store_package_metadata_postgres` function L59-121 — `( &self, registry_uuid: Uuid, package_metadata: &crate::registry::loader::packag...` — Database operations for workflow registry metadata storage.
+-  `store_package_metadata_sqlite` function L124-184 — `( &self, registry_uuid: Uuid, package_metadata: &crate::registry::loader::packag...` — Database operations for workflow registry metadata storage.
+-  `get_package_metadata` function L187-205 — `( &self, package_name: &str, version: &str, ) -> Result< Option<( String, crate:...` — Retrieve package metadata from the database.
+-  `get_package_metadata_postgres` function L208-254 — `( &self, package_name: &str, version: &str, ) -> Result< Option<( String, crate:...` — Database operations for workflow registry metadata storage.
+-  `get_package_metadata_sqlite` function L257-303 — `( &self, package_name: &str, version: &str, ) -> Result< Option<( String, crate:...` — Database operations for workflow registry metadata storage.
+-  `list_all_packages` function L306-312 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
+-  `list_all_packages_postgres` function L315-362 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — Database operations for workflow registry metadata storage.
+-  `list_all_packages_sqlite` function L365-412 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — Database operations for workflow registry metadata storage.
+-  `delete_package_metadata` function L415-427 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Delete package metadata from the database.
+-  `delete_package_metadata_postgres` function L430-459 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
+-  `delete_package_metadata_sqlite` function L462-491 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
+-  `get_package_metadata_by_id` function L494-503 — `( &self, package_id: Uuid, ) -> Result<Option<(String, WorkflowMetadata)>, Regis...` — Get package metadata by ID.
+-  `get_package_metadata_by_id_postgres` function L506-561 — `( &self, package_id: Uuid, ) -> Result<Option<(String, WorkflowMetadata)>, Regis...` — Database operations for workflow registry metadata storage.
+-  `get_package_metadata_by_id_sqlite` function L564-620 — `( &self, package_id: Uuid, ) -> Result<Option<(String, WorkflowMetadata)>, Regis...` — Database operations for workflow registry metadata storage.
+-  `get_active_package_by_name` function L625-676 — `( &self, package_name: &str, ) -> Result<Option<(Uuid, String, String)>, Registr...` — Look up the active package row for `name`, returning (id, registry_id, content_hash).
+-  `supersede_and_insert` function L685-799 — `( &self, old_id: Option<Uuid>, registry_id: &str, package_metadata: &crate::regi...` — Supersede the current active row for `old_id` (if provided) and insert a new
+-  `delete_package_metadata_by_id` function L802-812 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by ID.
+-  `delete_package_metadata_by_id_postgres` function L815-838 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
+-  `delete_package_metadata_by_id_sqlite` function L841-865 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
+-  `MAX_ERR` variable L1039 — `: usize` — Database operations for workflow registry metadata storage.
+-  `ClaimedBuild` type L1234-1244 — `= ClaimedBuild` — Database operations for workflow registry metadata storage.
+-  `from` function L1235-1243 — `(u: crate::dal::unified::models::UnifiedWorkflowPackage) -> Self` — Database operations for workflow registry metadata storage.
+-  `tests` module L1247-1678 — `-` — Database operations for workflow registry metadata storage.
+-  `create_test_registry` function L1254-1265 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
+-  `sample_metadata` function L1268-1286 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
+-  `test_store_and_get_package_metadata` function L1290-1310 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_not_found` function L1314-1322 — `()` — Database operations for workflow registry metadata storage.
+-  `test_list_all_packages` function L1326-1352 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata` function L1356-1385 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id` function L1389-1405 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id_not_found` function L1409-1417 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata_by_id` function L1421-1441 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_nonexistent_does_not_error` function L1445-1457 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_fresh_name` function L1465-1482 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_replaces_old_active` function L1486-1537 — `()` — Database operations for workflow registry metadata storage.
+-  `test_partial_unique_rejects_second_active_for_same_name` function L1541-1564 — `()` — Database operations for workflow registry metadata storage.
+-  `test_claim_next_build_returns_pending_row` function L1572-1587 — `()` — Database operations for workflow registry metadata storage.
+-  `test_mark_build_success_flips_state_and_writes_bytes` function L1591-1613 — `()` — Database operations for workflow registry metadata storage.
+-  `test_mark_build_failed_writes_error` function L1617-1630 — `()` — Database operations for workflow registry metadata storage.
+-  `test_heartbeat_updates_claim_timestamp_only_while_building` function L1634-1653 — `()` — Database operations for workflow registry metadata storage.
+-  `test_sweep_stale_builds_resets_old_rows` function L1657-1677 — `()` — Database operations for workflow registry metadata storage.
 
 #### crates/cloacina/src/registry/workflow_registry/filesystem.rs
 

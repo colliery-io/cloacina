@@ -888,12 +888,16 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .interact(move |conn| {
                         conn.transaction::<_, diesel::result::Error, _>(|tx| {
                             use diesel::prelude::*;
+                            // FOR UPDATE SKIP LOCKED so concurrent compiler
+                            // instances don't block on each other's claims.
                             let candidate: Option<UnifiedWorkflowPackage> =
                                 workflow_packages::table
                                     .filter(workflow_packages::build_status.eq("pending"))
                                     .filter(workflow_packages::superseded.eq(UniversalBool(false)))
                                     .order(workflow_packages::created_at.asc())
                                     .limit(1)
+                                    .for_update()
+                                    .skip_locked()
                                     .first::<UnifiedWorkflowPackage>(tx)
                                     .optional()?;
                             let Some(mut row) = candidate else {
