@@ -15,18 +15,24 @@
  */
 
 //! Local HTTP endpoint for /health and /v1/status. Consumed by
-//! `cloacinactl compiler status` / `health` (T-0525).
+//! `cloacinactl compiler status` / `health`.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
-use axum::{routing::get, Json, Router};
+use axum::{extract::State, routing::get, Json, Router};
+use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
+use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-pub(crate) async fn serve(bind: SocketAddr, shutdown: CancellationToken) {
+type Registry = Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>;
+
+pub(crate) async fn serve(bind: SocketAddr, registry: Registry, shutdown: CancellationToken) {
     let app = Router::new()
         .route("/health", get(health))
-        .route("/v1/status", get(status));
+        .route("/v1/status", get(status))
+        .with_state(registry);
 
     let listener = match tokio::net::TcpListener::bind(bind).await {
         Ok(l) => l,
@@ -53,14 +59,19 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok" }))
 }
 
-async fn status() -> Json<serde_json::Value> {
-    // T-0525 wires real queue-depth + last-build telemetry.
-    Json(serde_json::json!({
-        "status": "ok",
-        "pending": null,
-        "building": null,
-        "last_success_at": null,
-        "last_failure_at": null,
-        "heartbeat_at": null,
-    }))
+async fn status(State(registry): State<Registry>) -> Json<serde_json::Value> {
+    match registry.build_queue_stats().await {
+        Ok(stats) => Json(serde_json::json!({
+            "status": "ok",
+            "pending": stats.pending,
+            "building": stats.building,
+            "last_success_at": stats.last_success_at.map(|t| t.to_rfc3339()),
+            "last_failure_at": stats.last_failure_at.map(|t| t.to_rfc3339()),
+            "heartbeat_at": stats.heartbeat_at.map(|t| t.to_rfc3339()),
+        })),
+        Err(e) => Json(serde_json::json!({
+            "status": "degraded",
+            "error": format!("{}", e),
+        })),
+    }
 }

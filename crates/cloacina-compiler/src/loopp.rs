@@ -22,8 +22,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
-use cloacina::dal::DAL;
-use cloacina::database::Database;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
@@ -83,21 +81,11 @@ async fn run_build_with_heartbeat(
     }
 }
 
-pub(crate) async fn run(config: CompilerConfig, shutdown: CancellationToken) -> Result<()> {
-    let database = Database::new(&config.database_url, "", 5);
-    database
-        .run_migrations()
-        .await
-        .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
-
-    let storage = UnifiedRegistryStorage::new(database.clone());
-    let registry = Arc::new(
-        WorkflowRegistryImpl::new(storage, database.clone())
-            .map_err(|e| anyhow::anyhow!("failed to construct workflow registry: {e}"))?,
-    );
-
-    let _dal = DAL::new(database);
-
+pub(crate) async fn run(
+    registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>,
+    config: CompilerConfig,
+    shutdown: CancellationToken,
+) -> Result<()> {
     let mut poll_ticker = tokio::time::interval(config.poll_interval);
     poll_ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut sweep_ticker = tokio::time::interval(config.sweep_interval);

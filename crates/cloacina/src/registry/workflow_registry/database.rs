@@ -1441,6 +1441,129 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             }
         )
     }
+
+    /// Summary telemetry for the compiler service's `/v1/status` endpoint.
+    ///
+    /// Returns pending/building counts (superseded rows excluded) plus the
+    /// most recent success/failure/heartbeat timestamps across all rows.
+    /// Timestamps are computed by loading one row per bucket ordered by the
+    /// relevant column — DbTimestamp doesn't support `MAX` aggregation, so
+    /// `ORDER BY … DESC LIMIT 1` is the simplest portable substitute.
+    pub async fn build_queue_stats(&self) -> Result<BuildQueueStats, RegistryError> {
+        use crate::dal::unified::models::UnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalBool;
+
+        crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(
+                    move |conn| -> Result<BuildQueueStats, diesel::result::Error> {
+                        let pending = workflow_packages::table
+                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                            .filter(workflow_packages::build_status.eq("pending"))
+                            .count()
+                            .get_result::<i64>(conn)?;
+                        let building = workflow_packages::table
+                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                            .filter(workflow_packages::build_status.eq("building"))
+                            .count()
+                            .get_result::<i64>(conn)?;
+                        let last_success: Option<UnifiedWorkflowPackage> = workflow_packages::table
+                            .filter(workflow_packages::build_status.eq("success"))
+                            .order(workflow_packages::compiled_at.desc())
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()?;
+                        let last_failure: Option<UnifiedWorkflowPackage> = workflow_packages::table
+                            .filter(workflow_packages::build_status.eq("failed"))
+                            .order(workflow_packages::updated_at.desc())
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()?;
+                        let heartbeat_row: Option<UnifiedWorkflowPackage> =
+                            workflow_packages::table
+                                .filter(workflow_packages::build_status.eq("building"))
+                                .order(workflow_packages::build_claimed_at.desc())
+                                .first::<UnifiedWorkflowPackage>(conn)
+                                .optional()?;
+                        Ok(BuildQueueStats {
+                            pending: pending as u64,
+                            building: building as u64,
+                            last_success_at: last_success.and_then(|r| r.compiled_at.map(|t| t.0)),
+                            last_failure_at: last_failure.map(|r| r.updated_at.0),
+                            heartbeat_at: heartbeat_row
+                                .and_then(|r| r.build_claimed_at.map(|t| t.0)),
+                        })
+                    },
+                )
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(
+                    move |conn| -> Result<BuildQueueStats, diesel::result::Error> {
+                        let pending = workflow_packages::table
+                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                            .filter(workflow_packages::build_status.eq("pending"))
+                            .count()
+                            .get_result::<i64>(conn)?;
+                        let building = workflow_packages::table
+                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                            .filter(workflow_packages::build_status.eq("building"))
+                            .count()
+                            .get_result::<i64>(conn)?;
+                        let last_success: Option<UnifiedWorkflowPackage> = workflow_packages::table
+                            .filter(workflow_packages::build_status.eq("success"))
+                            .order(workflow_packages::compiled_at.desc())
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()?;
+                        let last_failure: Option<UnifiedWorkflowPackage> = workflow_packages::table
+                            .filter(workflow_packages::build_status.eq("failed"))
+                            .order(workflow_packages::updated_at.desc())
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()?;
+                        let heartbeat_row: Option<UnifiedWorkflowPackage> =
+                            workflow_packages::table
+                                .filter(workflow_packages::build_status.eq("building"))
+                                .order(workflow_packages::build_claimed_at.desc())
+                                .first::<UnifiedWorkflowPackage>(conn)
+                                .optional()?;
+                        Ok(BuildQueueStats {
+                            pending: pending as u64,
+                            building: building as u64,
+                            last_success_at: last_success.and_then(|r| r.compiled_at.map(|t| t.0)),
+                            last_failure_at: last_failure.map(|r| r.updated_at.0),
+                            heartbeat_at: heartbeat_row
+                                .and_then(|r| r.build_claimed_at.map(|t| t.0)),
+                        })
+                    },
+                )
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            }
+        )
+    }
+}
+
+/// Snapshot of the build queue for the compiler's status endpoint.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BuildQueueStats {
+    pub pending: u64,
+    pub building: u64,
+    pub last_success_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_failure_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// A build row claimed by the compiler. Everything the compiler needs to

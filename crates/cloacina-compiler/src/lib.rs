@@ -24,7 +24,12 @@ mod loopp;
 
 pub use config::CompilerConfig;
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
+use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
+use cloacina::database::Database;
+use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_appender::rolling;
@@ -43,6 +48,18 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
         "cloacina-compiler starting"
     );
 
+    // Registry is shared between the build loop and the /v1/status endpoint.
+    let database = Database::new(&config.database_url, "", 5);
+    database
+        .run_migrations()
+        .await
+        .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
+    let storage = UnifiedRegistryStorage::new(database.clone());
+    let registry = Arc::new(
+        WorkflowRegistryImpl::new(storage, database)
+            .map_err(|e| anyhow::anyhow!("failed to construct workflow registry: {e}"))?,
+    );
+
     let shutdown = CancellationToken::new();
     let signal_shutdown = shutdown.clone();
     tokio::spawn(async move {
@@ -52,12 +69,14 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
         }
     });
 
-    // Local HTTP endpoint for status / health probes (T-0525 will consume).
+    // Local HTTP endpoint for status / health probes — cloacinactl compiler
+    // status / health talk to this.
     let http_shutdown = shutdown.clone();
-    let http_handle = tokio::spawn(health::serve(config.bind, http_shutdown));
+    let http_registry = Arc::clone(&registry);
+    let http_handle = tokio::spawn(health::serve(config.bind, http_registry, http_shutdown));
 
-    // Main queue + sweeper loop (T-0521 / T-0522 fill in the real build logic).
-    loopp::run(config, shutdown.clone()).await?;
+    // Main queue + sweeper loop.
+    loopp::run(registry, config, shutdown.clone()).await?;
 
     shutdown.cancel();
     if let Err(e) = http_handle.await {
