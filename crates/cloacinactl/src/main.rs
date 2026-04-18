@@ -15,68 +15,128 @@
  */
 
 //! cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+//!
+//! Structure: strict noun-verb (`<noun> <verb>`). Runtime services (`daemon`,
+//! `server`) expose `start`/`stop`/`status`/`health`. Client nouns (`package`,
+//! `workflow`, etc.) land in later tasks of I-0098. `status` at the top level
+//! is a documented exception — a composite view over daemon + server.
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 use std::path::PathBuf;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use std::process::ExitCode;
 
 mod commands;
-mod server;
+mod nouns;
+mod shared;
+
+use shared::error::CliError;
+
+use nouns::{daemon, execution, graph, key, package, server, tenant, trigger, workflow};
 
 /// cloacinactl — Cloacina task orchestration engine
 #[derive(Parser)]
 #[command(name = "cloacinactl")]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Enable verbose logging
-    #[arg(short, long, global = true)]
-    verbose: bool,
-
-    /// Cloacina home directory
-    #[arg(long, global = true, default_value_os_t = default_home())]
-    home: PathBuf,
+    #[command(flatten)]
+    globals: GlobalOpts,
 
     #[command(subcommand)]
     command: Commands,
 }
 
+#[derive(Args, Clone)]
+pub struct GlobalOpts {
+    /// Enable verbose logging
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
+    /// Cloacina home directory
+    #[arg(long, global = true, default_value_os_t = default_home())]
+    pub home: PathBuf,
+
+    /// Named profile from `~/.cloacina/config.toml` (profile resolution lands in T-0512).
+    #[arg(long, global = true)]
+    pub profile: Option<String>,
+
+    /// Override the profile's server URL.
+    #[arg(long, global = true)]
+    pub server: Option<String>,
+
+    /// Override the profile's API key (accepts `env:VAR` or `file:PATH`).
+    #[arg(long, global = true)]
+    pub api_key: Option<String>,
+
+    /// Tenant to target (required for admin keys on tenant-scoped commands).
+    #[arg(long, global = true)]
+    pub tenant: Option<String>,
+
+    /// Shortcut for `-o json`.
+    #[arg(long, global = true)]
+    pub json: bool,
+
+    /// Output format (default table).
+    #[arg(short = 'o', long = "output", global = true, value_enum)]
+    pub output: Option<OutputFormat>,
+
+    /// Disable ANSI colors.
+    #[arg(long, global = true)]
+    pub no_color: bool,
+}
+
+#[derive(Copy, Clone, Debug, Default, ValueEnum)]
+pub enum OutputFormat {
+    #[default]
+    Table,
+    Json,
+    Yaml,
+    /// One ID per line — useful for piping.
+    Id,
+}
+
+impl GlobalOpts {
+    pub fn effective_output(&self) -> OutputFormat {
+        if self.json {
+            OutputFormat::Json
+        } else {
+            self.output.unwrap_or_default()
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Commands {
-    /// Run the daemon — a lightweight local scheduler that watches directories
-    /// for .cloacina packages and runs their cron schedules and triggers
-    Daemon {
-        /// Directories to watch for .cloacina packages (repeatable).
-        /// The default packages directory (~/.cloacina/packages/) is always watched.
-        #[arg(long = "watch-dir")]
-        watch_dirs: Vec<PathBuf>,
+    /// Daemon — lightweight local scheduler
+    Daemon(daemon::DaemonCmd),
 
-        /// Reconciler poll interval in milliseconds (file watcher handles immediate detection)
-        #[arg(long, default_value = "500")]
-        poll_interval: u64,
-    },
+    /// Server — cloacina-server HTTP API
+    Server(server::ServerCmd),
 
-    /// Run the API server — HTTP service backed by Postgres with auth and multi-tenancy
-    Serve {
-        /// Address to bind the HTTP server to (default: localhost only)
-        #[arg(long, default_value = "127.0.0.1:8080")]
-        bind: std::net::SocketAddr,
+    /// Package — build, pack, upload, and inspect .cloacina archives
+    Package(package::PackageCmd),
 
-        /// Database URL (overrides config file and DATABASE_URL env var)
-        #[arg(long, env = "DATABASE_URL")]
-        database_url: Option<String>,
+    /// Workflow — named task DAGs registered in packages
+    Workflow(workflow::WorkflowCmd),
 
-        /// Bootstrap API key (used instead of auto-generating on first startup).
-        /// If provided and no keys exist, this key is registered as the admin key.
-        #[arg(long, env = "CLOACINA_BOOTSTRAP_KEY")]
-        bootstrap_key: Option<String>,
+    /// Graph — computation graphs
+    Graph(graph::GraphCmd),
 
-        /// Require package signatures for workflow uploads.
-        /// When enabled, unsigned packages are rejected at upload time.
-        /// Default: false (high-trust environments).
-        #[arg(long, env = "CLOACINA_REQUIRE_SIGNATURES")]
-        require_signatures: bool,
-    },
+    /// Execution — runtime instances of a workflow
+    Execution(execution::ExecutionCmd),
+
+    /// Tenant — create/list/delete tenants (admin key)
+    Tenant(tenant::TenantCmd),
+
+    /// Key — API key lifecycle
+    Key(key::KeyCmd),
+
+    /// Trigger — registered event triggers
+    Trigger(trigger::TriggerCmd),
+
+    /// Composite status: daemon + server side by side.
+    Status,
 
     /// Manage configuration (get/set/list values in ~/.cloacina/config.toml)
     Config {
@@ -90,8 +150,11 @@ enum Commands {
         command: AdminCommands,
     },
 
-    /// Show the status of the running daemon
-    Status,
+    /// Emit a shell completion script (bash, zsh, fish, powershell).
+    Completions {
+        /// Target shell.
+        shell: Shell,
+    },
 }
 
 #[derive(Subcommand)]
@@ -103,37 +166,56 @@ enum ConfigCommands {
     },
 
     /// Set a configuration value
-    Set {
-        /// Config key (e.g., "database_url", "daemon.poll_interval_ms")
-        key: String,
-
-        /// Value to set
-        value: String,
-    },
+    Set { key: String, value: String },
 
     /// List all configuration values
     List,
+
+    /// Manage server-targeting profiles.
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileCommands {
+    /// Upsert a profile by name.
+    Set {
+        /// Profile name.
+        name: String,
+        /// Server URL.
+        server: String,
+        /// API key (raw, `env:VAR`, or `file:PATH`).
+        #[arg(long)]
+        api_key: String,
+        /// Also set this profile as the default.
+        #[arg(long)]
+        default: bool,
+    },
+    /// List profiles; default marked with `*`.
+    List,
+    /// Set the default profile.
+    Use { name: String },
+    /// Remove a profile; clears default_profile if it was the default.
+    Delete { name: String },
 }
 
 #[derive(Subcommand)]
 enum AdminCommands {
     /// Clean up old execution events from the database
     CleanupEvents {
-        /// Database URL (overrides config file and DATABASE_URL env var)
         #[arg(long, env = "DATABASE_URL")]
         database_url: Option<String>,
 
-        /// Delete events older than this duration (e.g., "90d", "30d", "7d", "24h")
         #[arg(long, default_value = "90d")]
         older_than: String,
 
-        /// Preview what would be deleted without actually deleting
         #[arg(long)]
         dry_run: bool,
     },
 }
 
-/// Default home directory (~/.cloacina/).
 fn default_home() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -141,57 +223,71 @@ fn default_home() -> PathBuf {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> ExitCode {
+    match run().await {
+        Ok(()) => ExitCode::from(0),
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::from(e.exit_code() as u8)
+        }
+    }
+}
+
+async fn run() -> std::result::Result<(), CliError> {
     let cli = Cli::parse();
-    let config_path = cli.home.join("config.toml");
+    let config_path = cli.globals.home.join("config.toml");
 
-    match cli.command {
-        Commands::Daemon {
-            watch_dirs,
-            poll_interval,
-        } => {
-            // Daemon sets up its own logging (file + stderr)
-            commands::daemon::run(cli.home, watch_dirs, poll_interval, cli.verbose).await?;
-        }
-
-        Commands::Serve {
-            bind,
-            database_url,
-            bootstrap_key,
-            require_signatures,
-        } => {
-            let db_url =
-                commands::config::resolve_database_url(database_url.as_deref(), &config_path)?;
-            commands::serve::run(
-                cli.home,
-                bind,
-                db_url,
-                cli.verbose,
-                bootstrap_key,
-                require_signatures,
-            )
-            .await?;
-        }
+    (match cli.command {
+        Commands::Daemon(cmd) => cmd.run(&cli.globals).await,
+        Commands::Server(cmd) => cmd.run(&cli.globals).await,
+        Commands::Package(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Workflow(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Graph(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Execution(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Tenant(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Key(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Trigger(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Status => nouns::top_level_status(&cli.globals).await,
 
         Commands::Config { command } => match command {
-            ConfigCommands::Get { key } => {
-                commands::config::run_get(&config_path, &key)?;
-            }
+            ConfigCommands::Get { key } => commands::config::run_get(&config_path, &key),
             ConfigCommands::Set { key, value } => {
-                commands::config::run_set(&config_path, &key, &value)?;
+                commands::config::run_set(&config_path, &key, &value)
             }
-            ConfigCommands::List => {
-                commands::config::run_list(&config_path)?;
-            }
+            ConfigCommands::List => commands::config::run_list(&config_path),
+            ConfigCommands::Profile { command } => match command {
+                ProfileCommands::Set {
+                    name,
+                    server,
+                    api_key,
+                    default,
+                } => commands::config::run_profile_set(
+                    &config_path,
+                    &name,
+                    &server,
+                    &api_key,
+                    default,
+                ),
+                ProfileCommands::List => commands::config::run_profile_list(&config_path),
+                ProfileCommands::Use { name } => {
+                    commands::config::run_profile_use(&config_path, &name)
+                }
+                ProfileCommands::Delete { name } => {
+                    commands::config::run_profile_delete(&config_path, &name)
+                }
+            },
         },
 
-        Commands::Status => {
-            commands::status::run(cli.home).await?;
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+            Ok(())
         }
 
         Commands::Admin { command } => {
-            // Standard stderr logging for admin commands
-            let filter = if cli.verbose {
+            use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+            let filter = if cli.globals.verbose {
                 EnvFilter::new("debug")
             } else {
                 EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
@@ -211,11 +307,10 @@ async fn main() -> Result<()> {
                         database_url.as_deref(),
                         &config_path,
                     )?;
-                    commands::cleanup_events::run(&db_url, &older_than, dry_run).await?;
+                    commands::cleanup_events::run(&db_url, &older_than, dry_run).await
                 }
             }
         }
-    }
-
-    Ok(())
+    })
+    .map_err(CliError::from)
 }

@@ -28,9 +28,9 @@ use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
-use crate::commands::serve::AppState;
-use crate::server::auth::AuthenticatedKey;
-use crate::server::error::ApiError;
+use crate::routes::auth::AuthenticatedKey;
+use crate::routes::error::ApiError;
+use crate::AppState;
 
 /// POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
 pub async fn upload_workflow(

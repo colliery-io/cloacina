@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025-2026 Colliery Software
+ *  Copyright 2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,11 +14,17 @@
  *  limitations under the License.
  */
 
-//! CLI command implementations.
+use anyhow::{Context, Result};
 
-pub mod cleanup_events;
-pub mod config;
-pub mod daemon;
-pub mod health;
-pub mod status;
-pub mod watcher;
+use crate::shared::pid;
+use crate::GlobalOpts;
+
+pub async fn run(globals: &GlobalOpts, force: bool) -> Result<()> {
+    let pid_path = globals.home.join("daemon.pid");
+    let p = pid::read(&pid_path).context("no daemon PID file — daemon is not running")?;
+
+    pid::signal_and_wait(p, force, std::time::Duration::from_secs(10))?;
+    let _ = pid::remove(&pid_path);
+    println!("daemon stopped (pid {p})");
+    Ok(())
+}

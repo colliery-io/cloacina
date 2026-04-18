@@ -23,9 +23,9 @@ use axum::{
 };
 use tracing::warn;
 
-use crate::commands::serve::AppState;
-use crate::server::auth::AuthenticatedKey;
-use crate::server::error::ApiError;
+use crate::routes::auth::AuthenticatedKey;
+use crate::routes::error::ApiError;
+use crate::AppState;
 
 /// GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
 pub async fn list_triggers(

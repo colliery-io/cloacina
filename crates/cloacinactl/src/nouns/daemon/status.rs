@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025-2026 Colliery Software
+ *  Copyright 2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,11 +14,10 @@
  *  limitations under the License.
  */
 
-//! CLI command implementations.
+use anyhow::Result;
 
-pub mod cleanup_events;
-pub mod config;
-pub mod daemon;
-pub mod health;
-pub mod status;
-pub mod watcher;
+use crate::GlobalOpts;
+
+pub async fn run(globals: &GlobalOpts) -> Result<()> {
+    crate::commands::status::run(globals.home.clone()).await
+}

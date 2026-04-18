@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025-2026 Colliery Software
+ *  Copyright 2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,11 +14,12 @@
  *  limitations under the License.
  */
 
-//! CLI command implementations.
+//! Helpers shared across nouns: PID-file management, Unix socket client,
+//! exec helpers, etc.
 
-pub mod cleanup_events;
-pub mod config;
-pub mod daemon;
-pub mod health;
-pub mod status;
-pub mod watcher;
+pub mod client;
+pub mod client_ctx;
+pub mod error;
+pub mod output;
+pub mod pid;
+pub mod render;

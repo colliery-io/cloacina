@@ -24,11 +24,11 @@ from .cloacina_utils import print_section_header, print_final_success
 def build_server():
     """Build the server binary."""
     print("Building cloacinactl server (debug)...")
-    subprocess.run(["cargo", "build", "-p", "cloacinactl"], check=True)
+    subprocess.run(["cargo", "build", "-p", "cloacina-server"], check=True)
 
 
 def find_server_binary():
-    binary = Path("target/debug/cloacinactl")
+    binary = Path("target/debug/cloacina-server")
     if not binary.exists():
         raise FileNotFoundError(f"Server binary not found at {binary}.")
     return str(binary)
@@ -143,7 +143,7 @@ def auth_integration_test():
         stderr_file = open(stderr_path, "w")
 
         server_proc = subprocess.Popen(
-            [server_binary, "serve", "--home", str(test_home),
+            [server_binary, "--home", str(test_home),
              "--database-url", db_url, "--bind", "127.0.0.1:18082",
              "--bootstrap-key", bootstrap_key],
             stdout=subprocess.PIPE,

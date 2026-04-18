@@ -30,9 +30,9 @@ use tracing::{info, warn};
 
 use cloacina::database::{DatabaseAdmin, TenantConfig};
 
-use crate::commands::serve::AppState;
-use crate::server::auth::AuthenticatedKey;
-use crate::server::error::ApiError;
+use crate::routes::auth::AuthenticatedKey;
+use crate::routes::error::ApiError;
+use crate::AppState;
 
 /// Request body for creating a tenant.
 #[derive(Deserialize)]
