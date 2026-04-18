@@ -220,16 +220,25 @@ pub struct LoadedWorkflow {
     /// Full metadata from the database
     pub metadata: WorkflowMetadata,
 
-    /// Binary data from registry storage
+    /// Source archive (.cloacina bzip2 tar) from registry storage
     pub package_data: Vec<u8>,
+
+    /// Compiled cdylib bytes produced by the compiler service.
+    /// `None` for pure-Python packages; `Some` for Rust/mixed packages.
+    pub compiled_data: Option<Vec<u8>>,
 }
 
 impl LoadedWorkflow {
     /// Create a new loaded workflow.
-    pub fn new(metadata: WorkflowMetadata, package_data: Vec<u8>) -> Self {
+    pub fn new(
+        metadata: WorkflowMetadata,
+        package_data: Vec<u8>,
+        compiled_data: Option<Vec<u8>>,
+    ) -> Self {
         Self {
             metadata,
             package_data,
+            compiled_data,
         }
     }
 }

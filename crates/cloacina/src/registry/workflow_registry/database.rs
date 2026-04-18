@@ -24,6 +24,14 @@ use crate::registry::error::RegistryError;
 use crate::registry::traits::RegistryStorage;
 use crate::registry::types::WorkflowMetadata;
 
+/// Result of inspecting a package — full metadata plus the raw build state.
+#[derive(Debug, Clone)]
+pub struct InspectedPackage {
+    pub metadata: WorkflowMetadata,
+    pub build_status: String,
+    pub build_error: Option<String>,
+}
+
 impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     /// Store package metadata in the database.
     pub(super) async fn store_package_metadata(
@@ -183,7 +191,12 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(id.0)
     }
 
-    /// Retrieve package metadata from the database.
+    /// Retrieve package metadata + compiled artifact for a successfully-built package.
+    ///
+    /// Filters to `superseded = false AND build_status = 'success'` so pending /
+    /// building / failed rows are invisible to the reconciler. Returns the
+    /// registry_id (source archive key), decoded package metadata, and the
+    /// compiled cdylib bytes (None for pure-Python packages).
     pub(super) async fn get_package_metadata(
         &self,
         package_name: &str,
@@ -192,6 +205,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Option<(
             String,
             crate::registry::loader::package_loader::PackageMetadata,
+            Option<Vec<u8>>,
         )>,
         RegistryError,
     > {
@@ -213,6 +227,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Option<(
             String,
             crate::registry::loader::package_loader::PackageMetadata,
+            Option<Vec<u8>>,
         )>,
         RegistryError,
     > {
@@ -237,6 +252,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                         workflow_packages::superseded
                             .eq(crate::database::universal_types::UniversalBool(false)),
                     )
+                    .filter(workflow_packages::build_status.eq("success"))
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
@@ -247,7 +263,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         if let Some(record) = package_record {
             let metadata: crate::registry::loader::package_loader::PackageMetadata =
                 serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-            Ok(Some((record.registry_id.0.to_string(), metadata)))
+            let compiled = record.compiled_data.map(|b| b.into_inner());
+            Ok(Some((record.registry_id.0.to_string(), metadata, compiled)))
         } else {
             Ok(None)
         }
@@ -262,6 +279,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Option<(
             String,
             crate::registry::loader::package_loader::PackageMetadata,
+            Option<Vec<u8>>,
         )>,
         RegistryError,
     > {
@@ -286,6 +304,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                         workflow_packages::superseded
                             .eq(crate::database::universal_types::UniversalBool(false)),
                     )
+                    .filter(workflow_packages::build_status.eq("success"))
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
@@ -296,7 +315,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         if let Some(record) = package_record {
             let metadata: crate::registry::loader::package_loader::PackageMetadata =
                 serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-            Ok(Some((record.registry_id.0.to_string(), metadata)))
+            let compiled = record.compiled_data.map(|b| b.into_inner());
+            Ok(Some((record.registry_id.0.to_string(), metadata, compiled)))
         } else {
             Ok(None)
         }
@@ -329,6 +349,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                         workflow_packages::superseded
                             .eq(crate::database::universal_types::UniversalBool(false)),
                     )
+                    .filter(workflow_packages::build_status.eq("success"))
                     .load::<UnifiedWorkflowPackage>(conn)
             })
             .await
@@ -379,6 +400,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                         workflow_packages::superseded
                             .eq(crate::database::universal_types::UniversalBool(false)),
                     )
+                    .filter(workflow_packages::build_status.eq("success"))
                     .load::<UnifiedWorkflowPackage>(conn)
             })
             .await
@@ -490,11 +512,15 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(())
     }
 
-    /// Get package metadata by ID.
+    /// Get package metadata + compiled artifact by ID for a successfully-built package.
+    ///
+    /// Filters to `superseded = false AND build_status = 'success'`. Returns the
+    /// registry_id (source archive key), decoded metadata, and compiled cdylib
+    /// bytes (None for pure-Python packages).
     pub(super) async fn get_package_metadata_by_id(
         &self,
         package_id: Uuid,
-    ) -> Result<Option<(String, WorkflowMetadata)>, RegistryError> {
+    ) -> Result<Option<(String, WorkflowMetadata, Option<Vec<u8>>)>, RegistryError> {
         crate::dispatch_backend!(
             self.database.backend(),
             self.get_package_metadata_by_id_postgres(package_id).await,
@@ -506,7 +532,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     async fn get_package_metadata_by_id_postgres(
         &self,
         package_id: Uuid,
-    ) -> Result<Option<(String, WorkflowMetadata)>, RegistryError> {
+    ) -> Result<Option<(String, WorkflowMetadata, Option<Vec<u8>>)>, RegistryError> {
         use crate::dal::unified::models::UnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::UniversalUuid;
@@ -526,6 +552,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                         workflow_packages::superseded
                             .eq(crate::database::universal_types::UniversalBool(false)),
                     )
+                    .filter(workflow_packages::build_status.eq("success"))
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
@@ -537,6 +564,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             let package_metadata: crate::registry::loader::package_loader::PackageMetadata =
                 serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
 
+            let compiled = record.compiled_data.map(|b| b.into_inner());
             let workflow_metadata = WorkflowMetadata {
                 id: record.id.0,
                 registry_id: record.registry_id.0,
@@ -554,7 +582,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 updated_at: record.updated_at.0,
             };
 
-            Ok(Some((record.registry_id.0.to_string(), workflow_metadata)))
+            Ok(Some((
+                record.registry_id.0.to_string(),
+                workflow_metadata,
+                compiled,
+            )))
         } else {
             Ok(None)
         }
@@ -564,7 +596,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     async fn get_package_metadata_by_id_sqlite(
         &self,
         package_id: Uuid,
-    ) -> Result<Option<(String, WorkflowMetadata)>, RegistryError> {
+    ) -> Result<Option<(String, WorkflowMetadata, Option<Vec<u8>>)>, RegistryError> {
         use crate::dal::unified::models::UnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::UniversalUuid;
@@ -585,6 +617,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                         workflow_packages::superseded
                             .eq(crate::database::universal_types::UniversalBool(false)),
                     )
+                    .filter(workflow_packages::build_status.eq("success"))
                     .first::<UnifiedWorkflowPackage>(conn)
                     .optional()
             })
@@ -596,6 +629,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             let package_metadata: crate::registry::loader::package_loader::PackageMetadata =
                 serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
 
+            let compiled = record.compiled_data.map(|b| b.into_inner());
             let workflow_metadata = WorkflowMetadata {
                 id: record.id.0,
                 registry_id: record.registry_id.0,
@@ -613,7 +647,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 updated_at: record.updated_at.0,
             };
 
-            Ok(Some((record.registry_id.0.to_string(), workflow_metadata)))
+            Ok(Some((
+                record.registry_id.0.to_string(),
+                workflow_metadata,
+                compiled,
+            )))
         } else {
             Ok(None)
         }
@@ -830,6 +868,90 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 })
             }
         )
+    }
+
+    /// Inspect a package by ID — returns metadata plus `build_status` /
+    /// `build_error` regardless of build outcome. Unlike `get_package_metadata_by_id`
+    /// this does not filter by `build_status = 'success'`, so operators can
+    /// surface pending / building / failed rows through `package inspect`.
+    ///
+    /// Only `superseded = false` rows are returned — superseded history is
+    /// out of scope here.
+    pub async fn inspect_package_by_id(
+        &self,
+        package_id: Uuid,
+    ) -> Result<Option<InspectedPackage>, RegistryError> {
+        use crate::dal::unified::models::UnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalUuid};
+
+        let pkg_id = UniversalUuid(package_id);
+
+        let record: Option<UnifiedWorkflowPackage> = crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    workflow_packages::table
+                        .filter(workflow_packages::id.eq(pkg_id))
+                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    workflow_packages::table
+                        .filter(workflow_packages::id.eq(pkg_id))
+                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+
+        let Some(record) = record else {
+            return Ok(None);
+        };
+
+        let package_metadata: crate::registry::loader::package_loader::PackageMetadata =
+            serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
+
+        Ok(Some(InspectedPackage {
+            metadata: WorkflowMetadata {
+                id: record.id.0,
+                registry_id: record.registry_id.0,
+                package_name: record.package_name,
+                version: record.version,
+                description: record.description,
+                author: record.author,
+                tasks: package_metadata
+                    .tasks
+                    .iter()
+                    .map(|t| t.local_id.clone())
+                    .collect(),
+                schedules: Vec::new(),
+                created_at: record.created_at.0,
+                updated_at: record.updated_at.0,
+            },
+            build_status: record.build_status,
+            build_error: record.build_error,
+        }))
     }
 
     /// Delete package metadata by ID.
@@ -1399,12 +1521,19 @@ mod tests {
             .unwrap();
         assert_ne!(pkg_id, Uuid::nil());
 
+        // Filtered reads require build_status = 'success'
+        registry.claim_next_build().await.unwrap();
+        registry
+            .mark_build_success(pkg_id, Vec::new())
+            .await
+            .unwrap();
+
         let result = registry
             .get_package_metadata("reg-pkg", "1.0.0")
             .await
             .unwrap();
         assert!(result.is_some());
-        let (reg_id, retrieved) = result.unwrap();
+        let (reg_id, retrieved, _compiled) = result.unwrap();
         assert_eq!(reg_id, registry_id);
         assert_eq!(retrieved.package_name, "reg-pkg");
         assert_eq!(retrieved.version, "1.0.0");
@@ -1431,18 +1560,22 @@ mod tests {
         let list = registry.list_all_packages().await.unwrap();
         assert!(list.is_empty());
 
-        // Store two packages
+        // Store two packages and mark both as successfully built.
         let reg_id = Uuid::new_v4().to_string();
         let meta1 = sample_metadata("list-a", "1.0.0");
         let meta2 = sample_metadata("list-b", "2.0.0");
-        registry
+        let id1 = registry
             .store_package_metadata(&reg_id, &meta1)
             .await
             .unwrap();
-        registry
+        let id2 = registry
             .store_package_metadata(&reg_id, &meta2)
             .await
             .unwrap();
+        for id in [id1, id2] {
+            registry.claim_next_build().await.unwrap();
+            registry.mark_build_success(id, Vec::new()).await.unwrap();
+        }
 
         let list = registry.list_all_packages().await.unwrap();
         assert_eq!(list.len(), 2);
@@ -1459,8 +1592,13 @@ mod tests {
         let reg_id = Uuid::new_v4().to_string();
         let meta = sample_metadata("del-pkg", "1.0.0");
 
-        registry
+        let pkg_id = registry
             .store_package_metadata(&reg_id, &meta)
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap();
+        registry
+            .mark_build_success(pkg_id, Vec::new())
             .await
             .unwrap();
 
@@ -1496,10 +1634,15 @@ mod tests {
             .store_package_metadata(&reg_id, &meta)
             .await
             .unwrap();
+        registry.claim_next_build().await.unwrap();
+        registry
+            .mark_build_success(pkg_id, Vec::new())
+            .await
+            .unwrap();
 
         let result = registry.get_package_metadata_by_id(pkg_id).await.unwrap();
         assert!(result.is_some());
-        let (_, wf_meta) = result.unwrap();
+        let (_, wf_meta, _compiled) = result.unwrap();
         assert_eq!(wf_meta.package_name, "by-id-pkg");
         assert_eq!(wf_meta.version, "3.0.0");
         assert!(wf_meta.tasks.contains(&"my_task".to_string()));
@@ -1595,12 +1738,22 @@ mod tests {
             .supersede_and_insert(None, &reg_id_1, &meta_v1, "hash-v1")
             .await
             .unwrap();
+        registry.claim_next_build().await.unwrap();
+        registry
+            .mark_build_success(id_v1, Vec::new())
+            .await
+            .unwrap();
 
         let id_v2 = registry
             .supersede_and_insert(Some(id_v1), &reg_id_2, &meta_v2, "hash-v2")
             .await
             .unwrap();
         assert_ne!(id_v1, id_v2);
+        registry.claim_next_build().await.unwrap();
+        registry
+            .mark_build_success(id_v2, Vec::new())
+            .await
+            .unwrap();
 
         // Exactly one active row, and it's the new one.
         let active = registry
@@ -1711,6 +1864,7 @@ mod tests {
             .unwrap()
             .expect("should still be visible");
         assert_eq!(found.0, reg_id);
+        assert_eq!(found.2, Some(vec![0xAA, 0xBB, 0xCC]));
     }
 
     #[cfg(feature = "sqlite")]

@@ -31,7 +31,6 @@
 //! - `ReconcileResult`: Result of a reconciliation operation
 //! - `PackageState`: Tracking loaded package state
 
-mod extraction;
 mod loading;
 
 use std::collections::{HashMap, HashSet};

@@ -199,6 +199,36 @@ pub async fn get_workflow(
         Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };
 
+    // Use inspect_package_by_id when `name` parses as a UUID so operators can
+    // drill into pending / building / failed rows. Falls back to the list-scan
+    // by package_name for the human-friendly lookup path.
+    if let Ok(pkg_id) = uuid::Uuid::parse_str(&name) {
+        match registry.inspect_package_by_id(pkg_id).await {
+            Ok(Some(ins)) => {
+                return Json(serde_json::json!({
+                    "tenant_id": tenant_id,
+                    "id": ins.metadata.id.to_string(),
+                    "package_name": ins.metadata.package_name,
+                    "version": ins.metadata.version,
+                    "description": ins.metadata.description,
+                    "tasks": ins.metadata.tasks,
+                    "created_at": ins.metadata.created_at.to_rfc3339(),
+                    "build_status": ins.build_status,
+                    "build_error": ins.build_error,
+                }))
+                .into_response();
+            }
+            Ok(None) => {
+                return ApiError::not_found(
+                    "workflow_not_found",
+                    format!("workflow '{}' not found", name),
+                )
+                .into_response();
+            }
+            Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        }
+    }
+
     match registry.list_workflows().await {
         Ok(workflows) => {
             let found = workflows.into_iter().find(|w| w.package_name == name);
@@ -211,6 +241,7 @@ pub async fn get_workflow(
                     "description": w.description,
                     "tasks": w.tasks,
                     "created_at": w.created_at.to_rfc3339(),
+                    "build_status": "success",
                 }))
                 .into_response(),
                 None => ApiError::not_found(

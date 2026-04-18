@@ -51,11 +51,15 @@ pub async fn run(globals: &GlobalOpts, id: &str) -> Result<(), CliError> {
         }
         OutputFormat::Table => {
             // Human-ish summary.
-            println!("ID:       {}", json_str(&body, "id"));
-            println!("Name:     {}", json_str(&body, "name"));
-            println!("Version:  {}", json_str(&body, "version"));
-            println!("Tenant:   {}", json_str(&body, "tenant"));
-            println!("Uploaded: {}", json_str(&body, "uploaded_at"));
+            println!("ID:           {}", json_str(&body, "id"));
+            println!("Name:         {}", json_str(&body, "package_name"));
+            println!("Version:      {}", json_str(&body, "version"));
+            println!("Tenant:       {}", json_str(&body, "tenant_id"));
+            println!("Created:      {}", json_str(&body, "created_at"));
+            println!("Build status: {}", json_str(&body, "build_status"));
+            if let Some(err) = body.get("build_error").and_then(|v| v.as_str()) {
+                println!("Build error:  {}", err);
+            }
         }
     }
     Ok(())

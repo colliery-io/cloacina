@@ -270,6 +270,7 @@ impl WorkflowRegistry for FilesystemWorkflowRegistry {
                 Ok(Some(LoadedWorkflow {
                     metadata: metadata.clone(),
                     package_data,
+                    compiled_data: None,
                 }))
             }
             None => Ok(None),

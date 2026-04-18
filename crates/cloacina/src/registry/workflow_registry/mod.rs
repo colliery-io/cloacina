@@ -134,10 +134,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         package_id: Uuid,
     ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, RegistryError> {
         // Get metadata from database
-        let (registry_id, metadata) = match self.get_package_metadata_by_id(package_id).await? {
-            Some(data) => data,
-            None => return Ok(None),
-        };
+        let (registry_id, metadata, _compiled) =
+            match self.get_package_metadata_by_id(package_id).await? {
+                Some(data) => data,
+                None => return Ok(None),
+            };
 
         // Get binary data from storage
         let package_data = match self.storage.retrieve_binary(&registry_id).await? {
@@ -197,10 +198,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         package_id: Uuid,
     ) -> Result<(), RegistryError> {
         // Get package metadata to find the registry_id for storage cleanup
-        let (registry_id, _metadata) = match self.get_package_metadata_by_id(package_id).await? {
-            Some(data) => data,
-            None => return Ok(()), // Idempotent - already doesn't exist
-        };
+        let (registry_id, _metadata, _compiled) =
+            match self.get_package_metadata_by_id(package_id).await? {
+                Some(data) => data,
+                None => return Ok(()), // Idempotent - already doesn't exist
+            };
 
         // Unregister tasks from global registry
         if let Some(_namespaces) = self.loaded_packages.remove(&package_id) {
@@ -337,14 +339,14 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         package_name: &str,
         version: &str,
     ) -> Result<Option<LoadedWorkflow>, RegistryError> {
-        // 1. Get metadata from database
-        let (registry_id, package_metadata) =
+        // 1. Get metadata + compiled bytes from database (success rows only)
+        let (registry_id, package_metadata, compiled_data) =
             match self.get_package_metadata(package_name, version).await? {
                 Some(data) => data,
                 None => return Ok(None),
             };
 
-        // 2. Retrieve binary data from storage
+        // 2. Retrieve source archive from storage
         let package_data = match self.storage.retrieve_binary(&registry_id).await? {
             Some(data) => data,
             None => {
@@ -375,6 +377,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         Ok(Some(LoadedWorkflow {
             metadata: workflow_metadata,
             package_data,
+            compiled_data,
         }))
     }
 
@@ -388,7 +391,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         version: &str,
     ) -> Result<(), RegistryError> {
         // 1. Get package metadata to find the package ID
-        let (registry_id, _) = self
+        let (registry_id, _, _) = self
             .get_package_metadata(package_name, version)
             .await?
             .ok_or_else(|| RegistryError::PackageNotFound {
