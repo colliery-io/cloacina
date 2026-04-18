@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-17T02:24:26Z | 428 files | JavaScript, Python, Rust
+> Generated: 2026-04-18T00:54:25Z | 444 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -94,6 +94,7 @@
 │   │   │   │   ├── types.rs
 │   │   │   │   └── workflow_executor.rs
 │   │   │   ├── graph.rs
+│   │   │   ├── inventory_entries.rs
 │   │   │   ├── lib.rs
 │   │   │   ├── logging.rs
 │   │   │   ├── models/
@@ -301,6 +302,21 @@
 │   │       ├── tasks.rs
 │   │       ├── trigger_attr.rs
 │   │       └── workflow_attr.rs
+│   ├── cloacina-server/
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── main.rs
+│   │       └── routes/
+│   │           ├── auth.rs
+│   │           ├── error.rs
+│   │           ├── executions.rs
+│   │           ├── health_reactive.rs
+│   │           ├── keys.rs
+│   │           ├── mod.rs
+│   │           ├── tenants.rs
+│   │           ├── triggers.rs
+│   │           ├── workflows.rs
+│   │           └── ws.rs
 │   ├── cloacina-testing/
 │   │   └── src/
 │   │       ├── assertions.rs
@@ -331,21 +347,27 @@
 │           │   ├── daemon.rs
 │           │   ├── health.rs
 │           │   ├── mod.rs
-│           │   ├── serve.rs
 │           │   ├── status.rs
 │           │   └── watcher.rs
 │           ├── main.rs
-│           └── server/
-│               ├── auth.rs
-│               ├── error.rs
-│               ├── executions.rs
-│               ├── health_reactive.rs
-│               ├── keys.rs
+│           ├── nouns/
+│           │   ├── daemon/
+│           │   │   ├── health.rs
+│           │   │   ├── mod.rs
+│           │   │   ├── start.rs
+│           │   │   ├── status.rs
+│           │   │   └── stop.rs
+│           │   ├── mod.rs
+│           │   └── server/
+│           │       ├── health.rs
+│           │       ├── mod.rs
+│           │       ├── start.rs
+│           │       ├── status.rs
+│           │       └── stop.rs
+│           └── shared/
+│               ├── client_ctx.rs
 │               ├── mod.rs
-│               ├── tenants.rs
-│               ├── triggers.rs
-│               ├── workflows.rs
-│               └── ws.rs
+│               └── pid.rs
 ├── docs/
 │   └── themes/
 │       └── hugo-geekdoc/
@@ -1141,6 +1163,15 @@
 -  `test_task_count` function L479-500 — `()` — - Graph algorithms for analysis and optimization
 -  `test_task_ids_iterator` function L503-521 — `()` — - Graph algorithms for analysis and optimization
 
+#### crates/cloacina/src/inventory_entries.rs
+
+- pub `TaskEntry` struct L44-50 — `{ namespace: fn() -> TaskNamespace, constructor: fn() -> Arc<dyn Task> }` — Task entry emitted by `#[task]`.
+- pub `WorkflowEntry` struct L54-57 — `{ name: &'static str, constructor: fn() -> Workflow }` — Workflow entry emitted by `#[workflow]`.
+- pub `TriggerEntry` struct L61-64 — `{ name: &'static str, constructor: fn() -> Arc<dyn Trigger> }` — Trigger entry emitted by `#[trigger]`.
+- pub `ComputationGraphEntry` struct L68-71 — `{ name: &'static str, constructor: fn() -> ComputationGraphRegistration }` — Computation graph entry emitted by `#[computation_graph]`.
+- pub `StreamBackendFactoryFn` type L80-83 — `= fn( StreamConfig, ) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamBacken...` — Stream-backend entry emitted by the stream-backend registration helper.
+- pub `StreamBackendEntry` struct L85-88 — `{ type_name: &'static str, factory: StreamBackendFactoryFn }` — together with the removal of the global static registries.
+
 #### crates/cloacina/src/lib.rs
 
 - pub `prelude` module L453-486 — `-` — Prelude module for convenient imports.
@@ -1157,21 +1188,22 @@
 - pub `execution_planner` module L504 — `-` — Task readiness evaluation, workflow processing, and stale claim sweeping.
 - pub `executor` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `graph` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `logging` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `models` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `packaging` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `python` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `registry` module L511 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `retry` module L512 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runner` module L513 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runtime` module L514 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `security` module L515 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task` module L516 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger` module L517 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `var` module L518 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `workflow` module L519 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `setup_test` function L528-530 — `()` — - [`retry`]: Retry policies and backoff strategies
--  `cloaca` function L592-654 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
+- pub `inventory_entries` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `logging` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `models` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `packaging` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `python` module L511 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `registry` module L512 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `retry` module L513 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runner` module L514 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runtime` module L515 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `security` module L520 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task` module L521 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger` module L522 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `var` module L523 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `workflow` module L524 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `setup_test` function L533-535 — `()` — - [`retry`]: Retry policies and backoff strategies
+-  `cloaca` function L601-663 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -1183,41 +1215,50 @@
 
 #### crates/cloacina/src/runtime.rs
 
-- pub `TaskConstructorFn` type L47 — `= Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>` — Type alias for task constructor functions.
-- pub `WorkflowConstructorFn` type L50 — `= Box<dyn Fn() -> Workflow + Send + Sync>` — Type alias for workflow constructor functions.
-- pub `TriggerConstructorFn` type L53 — `= Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>` — Type alias for trigger constructor functions.
-- pub `Runtime` struct L66-68 — `{ inner: Arc<RuntimeInner> }` — A scoped runtime holding isolated registries for tasks, workflows, and triggers.
-- pub `new` function L85-94 — `() -> Self` — Create an empty runtime with no registered tasks, workflows, or triggers.
-- pub `from_global` function L101-110 — `() -> Self` — Create a runtime that delegates to the process-global registries.
-- pub `register_task` function L117-123 — `(&self, namespace: TaskNamespace, constructor: F)` — Register a task constructor for the given namespace.
-- pub `get_task` function L129-142 — `(&self, namespace: &TaskNamespace) -> Option<Arc<dyn Task>>` — Look up and instantiate a task by namespace.
-- pub `has_task` function L145-156 — `(&self, namespace: &TaskNamespace) -> bool` — Check if a task is registered for the given namespace.
-- pub `register_workflow` function L163-169 — `(&self, name: String, constructor: F)` — Register a workflow constructor by name.
-- pub `get_workflow` function L175-188 — `(&self, name: &str) -> Option<Workflow>` — Look up and instantiate a workflow by name.
-- pub `workflow_names` function L191-194 — `(&self) -> Vec<String>` — Get all registered workflow names.
-- pub `all_workflows` function L197-200 — `(&self) -> Vec<Workflow>` — Get all registered workflows (instantiated).
-- pub `register_trigger` function L207-213 — `(&self, name: String, constructor: F)` — Register a trigger constructor by name.
-- pub `get_trigger` function L219-232 — `(&self, name: &str) -> Option<Arc<dyn Trigger>>` — Look up and instantiate a trigger by name.
-- pub `trigger_names` function L235-238 — `(&self) -> Vec<String>` — Get all registered trigger names.
-- pub `all_triggers` function L241-247 — `(&self) -> HashMap<String, Arc<dyn Trigger>>` — Get all registered triggers (instantiated).
--  `RuntimeInner` struct L70-78 — `{ tasks: RwLock<HashMap<TaskNamespace, TaskConstructorFn>>, workflows: RwLock<Ha...` — ```
--  `Runtime` type L80-248 — `= Runtime` — ```
--  `Runtime` type L250-254 — `impl Default for Runtime` — ```
--  `default` function L251-253 — `() -> Self` — ```
--  `Runtime` type L256-267 — `= Runtime` — ```
--  `fmt` function L257-266 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
--  `tests` module L270-447 — `-` — ```
--  `test_empty_runtime` function L275-282 — `()` — ```
--  `test_register_and_get_workflow` function L285-293 — `()` — ```
--  `test_scoped_mutations_dont_affect_other_runtimes` function L296-305 — `()` — ```
--  `test_clone_is_shared` function L308-317 — `()` — ```
--  `test_from_global_captures_workflows` function L320-329 — `()` — ```
--  `test_workflow_names` function L332-342 — `()` — ```
--  `test_debug_format` function L345-350 — `()` — ```
--  `test_from_global_sees_late_registrations` function L353-373 — `()` — ```
--  `test_new_does_not_see_global_registrations` function L376-394 — `()` — ```
--  `test_local_registration_takes_precedence_over_global` function L397-426 — `()` — ```
--  `test_from_global_has_task_fallback` function L429-446 — `()` — ```
+- pub `TaskConstructorFn` type L53 — `= Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>` — Type alias for task constructor functions.
+- pub `WorkflowConstructorFn` type L56 — `= Box<dyn Fn() -> Workflow + Send + Sync>` — Type alias for workflow constructor functions.
+- pub `TriggerConstructorFn` type L59 — `= Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>` — Type alias for trigger constructor functions.
+- pub `Runtime` struct L67-69 — `{ inner: Arc<RuntimeInner> }` — A scoped runtime holding the registries for every cloacina extension point.
+- pub `new` function L89-98 — `() -> Self` — Create a runtime seeded with every macro-registered entry from the
+- pub `empty` function L105-115 — `() -> Self` — Create an empty runtime with no registered entries in any namespace.
+- pub `seed_from_globals` function L164-309 — `(&self)` — Copy every entry from the process-global registries into this runtime.
+- pub `register_task` function L316-324 — `(&self, namespace: TaskNamespace, constructor: F)` — Register a task constructor for the given namespace.
+- pub `unregister_task` function L327-329 — `(&self, namespace: &TaskNamespace) -> bool` — Remove a task constructor.
+- pub `get_task` function L332-334 — `(&self, namespace: &TaskNamespace) -> Option<Arc<dyn Task>>` — Look up and instantiate a task by namespace.
+- pub `has_task` function L337-339 — `(&self, namespace: &TaskNamespace) -> bool` — Check if a task is registered for the given namespace.
+- pub `register_workflow` function L346-354 — `(&self, name: String, constructor: F)` — Register a workflow constructor by name.
+- pub `unregister_workflow` function L357-359 — `(&self, name: &str) -> bool` — Remove a workflow constructor.
+- pub `get_workflow` function L362-364 — `(&self, name: &str) -> Option<Workflow>` — Look up and instantiate a workflow by name.
+- pub `workflow_names` function L367-369 — `(&self) -> Vec<String>` — Get all registered workflow names.
+- pub `all_workflows` function L372-379 — `(&self) -> Vec<Workflow>` — Get all registered workflows (instantiated).
+- pub `register_trigger` function L386-394 — `(&self, name: String, constructor: F)` — Register a trigger constructor by name.
+- pub `unregister_trigger` function L397-399 — `(&self, name: &str) -> bool` — Remove a trigger constructor.
+- pub `get_trigger` function L402-404 — `(&self, name: &str) -> Option<Arc<dyn Trigger>>` — Look up and instantiate a trigger by name.
+- pub `trigger_names` function L407-409 — `(&self) -> Vec<String>` — Get all registered trigger names.
+- pub `all_triggers` function L412-419 — `(&self) -> HashMap<String, Arc<dyn Trigger>>` — Get all registered triggers (instantiated).
+- pub `register_computation_graph` function L426-434 — `(&self, name: String, constructor: F)` — Register a computation graph constructor by graph name.
+- pub `unregister_computation_graph` function L437-439 — `(&self, name: &str) -> bool` — Remove a computation graph constructor.
+- pub `get_computation_graph` function L442-448 — `(&self, name: &str) -> Option<ComputationGraphRegistration>` — Look up and instantiate a computation graph registration by name.
+- pub `computation_graph_names` function L451-458 — `(&self) -> Vec<String>` — Get all registered computation graph names.
+- pub `register_stream_backend` function L465-470 — `(&self, type_name: String, factory: StreamBackendFactory)` — Register a stream backend factory by type name (e.g.
+- pub `unregister_stream_backend` function L473-479 — `(&self, type_name: &str) -> bool` — Remove a stream backend factory.
+- pub `has_stream_backend` function L482-484 — `(&self, type_name: &str) -> bool` — Check if a stream backend is registered for the given type name.
+- pub `create_stream_backend` function L488-497 — `( &self, type_name: &str, config: StreamConfig, ) -> Option<Pin<Box<dyn Future<O...` — Get the creation future for a stream backend without holding the lock
+- pub `stream_backend_names` function L500-502 — `(&self) -> Vec<String>` — Get all registered stream backend type names.
+-  `RuntimeInner` struct L71-77 — `{ tasks: RwLock<HashMap<TaskNamespace, TaskConstructorFn>>, workflows: RwLock<Ha...` — ```
+-  `Runtime` type L79-503 — `= Runtime` — ```
+-  `seed_from_inventory` function L119-152 — `(&self)` — Populate the runtime from the `inventory` entries emitted by the
+-  `Runtime` type L505-509 — `impl Default for Runtime` — ```
+-  `default` function L506-508 — `() -> Self` — ```
+-  `Runtime` type L511-526 — `= Runtime` — ```
+-  `fmt` function L512-525 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
+-  `tests` module L529-593 — `-` — ```
+-  `register_and_unregister_workflow` function L534-546 — `()` — ```
+-  `register_and_unregister_trigger_by_name` function L549-557 — `()` — ```
+-  `register_and_unregister_task` function L560-565 — `()` — ```
+-  `stream_backend_roundtrip_names_only` function L568-573 — `()` — ```
+-  `runtimes_are_independent` function L576-584 — `()` — ```
+-  `debug_format_reports_sizes` function L587-592 — `()` — ```
 
 #### crates/cloacina/src/task.rs
 
@@ -3918,36 +3959,36 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-885 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L38-444 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L447-494 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L497-538 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L541-682 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L685-733 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L736-783 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L786-809 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L812-823 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L831-873 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `unregister_package_triggers` function L876-884 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
--  `tests` module L888-1185 — `-` — Package loading, unloading, and task/workflow registration.
--  `make_test_reconciler` function L897-902 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
--  `make_test_metadata` function L904-917 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata_with_triggers` function L919-936 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_with_no_triggers_returns_empty` function L944-953 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_tracks_registered_triggers` function L957-988 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_skips_unregistered_triggers` function L992-1012 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_mixed_registered_and_missing` function L1016-1055 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_removes_from_global_registry` function L1063-1082 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_handles_already_removed` function L1086-1093 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_empty_list_is_noop` function L1097-1100 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_removes_from_global_registry` function L1108-1143 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_nonexistent_is_ok` function L1147-1154 — `()` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` struct L1161-1163 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` type L1166-1184 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
--  `name` function L1167-1169 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
--  `poll_interval` function L1171-1173 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
--  `allow_concurrent` function L1175-1177 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
--  `poll` function L1179-1183 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L27-911 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L38-453 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L456-520 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L523-564 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L567-708 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L711-759 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L762-809 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L812-835 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L838-849 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L857-899 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `unregister_package_triggers` function L902-910 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `tests` module L914-1211 — `-` — Package loading, unloading, and task/workflow registration.
+-  `make_test_reconciler` function L923-928 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
+-  `make_test_metadata` function L930-943 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata_with_triggers` function L945-962 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_with_no_triggers_returns_empty` function L970-979 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_tracks_registered_triggers` function L983-1014 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_skips_unregistered_triggers` function L1018-1038 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_mixed_registered_and_missing` function L1042-1081 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_removes_from_global_registry` function L1089-1108 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_handles_already_removed` function L1112-1119 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_empty_list_is_noop` function L1123-1126 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_removes_from_global_registry` function L1134-1169 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_nonexistent_is_ok` function L1173-1180 — `()` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` struct L1187-1189 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` type L1192-1210 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
+-  `name` function L1193-1195 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
+-  `poll_interval` function L1197-1199 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
+-  `allow_concurrent` function L1201-1203 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
+-  `poll` function L1205-1209 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -3957,33 +3998,34 @@
 - pub `has_failures` function L109-111 — `(&self) -> bool` — Check if the reconciliation had any failures
 - pub `ReconcilerStatus` struct L135-141 — `{ packages_loaded: usize, package_details: Vec<PackageStatusDetail> }` — Status information about the reconciler
 - pub `PackageStatusDetail` struct L145-157 — `{ package_name: String, version: String, task_count: usize, has_workflow: bool }` — Detailed status information about a loaded package
-- pub `RegistryReconciler` struct L160-185 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, loaded_packages...` — Registry Reconciler for synchronizing database state with in-memory registries
-- pub `new` function L189-212 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
-- pub `with_reactive_scheduler` function L215-221 — `(self, scheduler: Arc<ReactiveScheduler>) -> Self` — Set the reactive scheduler for computation graph package routing.
-- pub `set_reactive_scheduler_slot` function L225-230 — `( &mut self, slot: Arc<tokio::sync::RwLock<Option<Arc<ReactiveScheduler>>>>, )` — Replace the reactive scheduler slot with a shared reference from the runner.
-- pub `start_reconciliation_loop` function L233-306 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
-- pub `reconcile` function L309-421 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
-- pub `get_status` function L447-462 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
+- pub `RegistryReconciler` struct L160-191 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, runtime: Option...` — Registry Reconciler for synchronizing database state with in-memory registries
+- pub `new` function L195-219 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
+- pub `with_runtime` function L224-227 — `(mut self, runtime: Arc<crate::Runtime>) -> Self` — Attach a Runtime to this reconciler.
+- pub `with_reactive_scheduler` function L230-236 — `(self, scheduler: Arc<ReactiveScheduler>) -> Self` — Set the reactive scheduler for computation graph package routing.
+- pub `set_reactive_scheduler_slot` function L240-245 — `( &mut self, slot: Arc<tokio::sync::RwLock<Option<Arc<ReactiveScheduler>>>>, )` — Replace the reactive scheduler slot with a shared reference from the runner.
+- pub `start_reconciliation_loop` function L248-321 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
+- pub `reconcile` function L324-436 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
+- pub `get_status` function L462-477 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
 -  `extraction` module L34 — `-` — # Registry Reconciler
 -  `loading` module L35 — `-` — - `PackageState`: Tracking loaded package state
 -  `ReconcilerConfig` type L71-81 — `impl Default for ReconcilerConfig` — - `PackageState`: Tracking loaded package state
 -  `default` function L72-80 — `() -> Self` — - `PackageState`: Tracking loaded package state
 -  `ReconcileResult` type L102-112 — `= ReconcileResult` — - `PackageState`: Tracking loaded package state
 -  `PackageState` struct L116-131 — `{ metadata: WorkflowMetadata, task_namespaces: Vec<TaskNamespace>, workflow_name...` — Tracks the state of loaded packages
--  `RegistryReconciler` type L187-463 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
--  `shutdown_cleanup` function L424-444 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
--  `tests` module L466-649 — `-` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_default` function L472-479 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_methods` function L482-504 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_status` function L507-531 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_custom_values` function L534-548 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_no_changes_no_failures` function L551-563 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_unloaded_counts_as_change` function L566-577 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_both_loaded_and_unloaded` function L580-594 — `()` — - `PackageState`: Tracking loaded package state
--  `test_package_status_detail_fields` function L597-609 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_status_empty` function L612-620 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_clone` function L623-632 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_clone` function L635-648 — `()` — - `PackageState`: Tracking loaded package state
+-  `RegistryReconciler` type L193-478 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
+-  `shutdown_cleanup` function L439-459 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
+-  `tests` module L481-664 — `-` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_default` function L487-494 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_methods` function L497-519 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_status` function L522-546 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_custom_values` function L549-563 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_no_changes_no_failures` function L566-578 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_unloaded_counts_as_change` function L581-592 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_both_loaded_and_unloaded` function L595-609 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_package_status_detail_fields` function L612-624 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_status_empty` function L627-635 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_clone` function L638-647 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_clone` function L650-663 — `()` — - `PackageState`: Tracking loaded package state
 
 ### crates/cloacina/src/registry/workflow_registry
 
@@ -4223,13 +4265,13 @@
 
 #### crates/cloacina/src/runner/default_runner/services.rs
 
--  `DefaultRunner` type L37-405 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
+-  `DefaultRunner` type L37-409 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
 -  `create_runner_span` function L39-57 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
 -  `start_background_services` function L69-135 — `(&self) -> Result<(), WorkflowExecutionError>` — Starts the background scheduler and executor services
 -  `start_unified_scheduler` function L138-195 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the unified scheduler that handles both cron and trigger schedules.
 -  `start_cron_recovery` function L198-255 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
--  `start_registry_reconciler` function L258-357 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
--  `start_stale_claim_sweeper` function L360-404 — `( &self, _handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<(...` — Starts the stale claim sweeper background service.
+-  `start_registry_reconciler` function L258-361 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
+-  `start_stale_claim_sweeper` function L364-408 — `( &self, _handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<(...` — Starts the stale claim sweeper background service.
 
 #### crates/cloacina/src/runner/default_runner/workflow_executor_impl.rs
 
@@ -5282,15 +5324,15 @@
 
 #### crates/cloacina/tests/integration/dal/workflow_packages.rs
 
--  `test_store_and_get_package_metadata` function L23-77 — `()`
--  `test_store_duplicate_package_metadata` function L80-135 — `()`
--  `test_list_all_packages` function L138-201 — `()`
--  `test_delete_package_metadata` function L204-262 — `()`
--  `test_delete_nonexistent_package` function L265-285 — `()`
--  `test_get_nonexistent_package` function L288-306 — `()`
--  `test_store_package_with_complex_metadata` function L309-402 — `()`
--  `test_store_package_with_invalid_uuid` function L405-444 — `()`
--  `test_package_versioning` function L447-516 — `()`
+-  `test_store_and_get_package_metadata` function L24-78 — `()`
+-  `test_store_duplicate_package_metadata` function L81-136 — `()`
+-  `test_list_all_packages` function L139-202 — `()`
+-  `test_delete_package_metadata` function L205-263 — `()`
+-  `test_delete_nonexistent_package` function L266-286 — `()`
+-  `test_get_nonexistent_package` function L289-307 — `()`
+-  `test_store_package_with_complex_metadata` function L310-403 — `()`
+-  `test_store_package_with_invalid_uuid` function L406-445 — `()`
+-  `test_package_versioning` function L448-520 — `()`
 
 #### crates/cloacina/tests/integration/dal/workflow_registry.rs
 
@@ -5312,18 +5354,18 @@
 -  `test_list_packages` function L449-454 — `()`
 -  `test_list_packages_with_db_storage` function L456-496 — `()`
 -  `test_list_packages_with_fs_storage` function L498-538 — `()`
--  `test_register_duplicate_package` function L542-547 — `()`
--  `test_register_duplicate_package_with_db_storage` function L549-584 — `()`
--  `test_register_duplicate_package_with_fs_storage` function L586-621 — `()`
--  `test_exists_operations` function L625-630 — `()`
--  `test_exists_operations_with_db_storage` function L632-680 — `()`
--  `test_exists_operations_with_fs_storage` function L682-730 — `()`
--  `test_get_nonexistent_package` function L734-739 — `()`
--  `test_get_nonexistent_package_with_db_storage` function L741-768 — `()`
--  `test_get_nonexistent_package_with_fs_storage` function L770-797 — `()`
--  `test_unregister_nonexistent_package` function L801-806 — `()`
--  `test_unregister_nonexistent_package_with_db_storage` function L808-839 — `()`
--  `test_unregister_nonexistent_package_with_fs_storage` function L841-872 — `()`
+-  `test_register_duplicate_package_is_idempotent` function L542-548 — `()`
+-  `test_register_duplicate_package_idempotent_with_db_storage` function L550-578 — `()`
+-  `test_register_duplicate_package_idempotent_with_fs_storage` function L580-605 — `()`
+-  `test_exists_operations` function L609-614 — `()`
+-  `test_exists_operations_with_db_storage` function L616-664 — `()`
+-  `test_exists_operations_with_fs_storage` function L666-714 — `()`
+-  `test_get_nonexistent_package` function L718-723 — `()`
+-  `test_get_nonexistent_package_with_db_storage` function L725-752 — `()`
+-  `test_get_nonexistent_package_with_fs_storage` function L754-781 — `()`
+-  `test_unregister_nonexistent_package` function L785-790 — `()`
+-  `test_unregister_nonexistent_package_with_db_storage` function L792-823 — `()`
+-  `test_unregister_nonexistent_package_with_fs_storage` function L825-856 — `()`
 
 #### crates/cloacina/tests/integration/dal/workflow_registry_reconciler_integration.rs
 
@@ -5728,7 +5770,8 @@
 - pub `task_b` function L88-90 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 - pub `task_c` function L93-95 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 -  `test_workflow_macro_basic` function L56-76 — `()`
--  `test_workflow_execution_levels` function L99-114 — `()`
+-  `test_workflow_macro_emits_inventory_entries` function L99-141 — `()`
+-  `test_workflow_execution_levels` function L144-159 — `()`
 
 #### crates/cloacina/tests/integration/workflow/mod.rs
 
@@ -5835,16 +5878,16 @@
 
 #### crates/cloacina-macros/src/computation_graph/codegen.rs
 
-- pub `generate` function L49-347 — `(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream>` — Validate the graph against the module's functions and generate the compiled output.
+- pub `generate` function L49-381 — `(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream>` — Validate the graph against the module's functions and generate the compiled output.
 -  `pascal_case_ident` function L33-46 — `(ident: &Ident) -> Ident` — Convert a snake_case Ident to PascalCase string for struct naming.
--  `extract_functions` function L350-368 — `(module: &ItemMod) -> syn::Result<HashMap<String, ItemFn>>` — Extract named async functions from a module.
--  `has_blocking_attr` function L371-380 — `(func: &ItemFn) -> bool` — Check if a function has `#[node(blocking)]` attribute.
--  `generate_compiled_function` function L386-438 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, blocking_nodes: &HashSet<St...` — Generate the body of the compiled async function.
--  `generate_cache_reads` function L441-458 — `(ir: &GraphIR) -> TokenStream` — Generate `let` bindings for cache reads.
--  `generate_node_execution` function L461-538 — `( ir: &GraphIR, node: &GraphNode, functions: &HashMap<String, ItemFn>, blocking_...` — Generate execution code for a single node.
--  `generate_call_args` function L541-568 — `(ir: &GraphIR, node: &GraphNode) -> TokenStream` — Generate the argument list for a node function call.
--  `generate_routing_match` function L571-619 — `( ir: &GraphIR, from_name: &str, variants: &[super::graph_ir::GraphRoutingVarian...` — Generate match arms for a routing node.
--  `generate_routing_use_stmts` function L623-651 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, mod_name: &Ident, ) -> Vec<...` — Generate `use ModName::ReturnType::*;` for routing nodes so enum variant
+-  `extract_functions` function L384-402 — `(module: &ItemMod) -> syn::Result<HashMap<String, ItemFn>>` — Extract named async functions from a module.
+-  `has_blocking_attr` function L405-414 — `(func: &ItemFn) -> bool` — Check if a function has `#[node(blocking)]` attribute.
+-  `generate_compiled_function` function L420-472 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, blocking_nodes: &HashSet<St...` — Generate the body of the compiled async function.
+-  `generate_cache_reads` function L475-492 — `(ir: &GraphIR) -> TokenStream` — Generate `let` bindings for cache reads.
+-  `generate_node_execution` function L495-572 — `( ir: &GraphIR, node: &GraphNode, functions: &HashMap<String, ItemFn>, blocking_...` — Generate execution code for a single node.
+-  `generate_call_args` function L575-602 — `(ir: &GraphIR, node: &GraphNode) -> TokenStream` — Generate the argument list for a node function call.
+-  `generate_routing_match` function L605-653 — `( ir: &GraphIR, from_name: &str, variants: &[super::graph_ir::GraphRoutingVarian...` — Generate match arms for a routing node.
+-  `generate_routing_use_stmts` function L657-685 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, mod_name: &Ident, ) -> Vec<...` — Generate `use ModName::ReturnType::*;` for routing nodes so enum variant
 
 #### crates/cloacina-macros/src/computation_graph/graph_ir.rs
 
@@ -6005,9 +6048,9 @@
 -  `TriggerAttributes` type L46-127 — `impl Parse for TriggerAttributes` — - **Cron**: `cron` parameter, no function body — framework provides poll logic (T-0305)
 -  `parse` function L47-126 — `(input: ParseStream) -> SynResult<Self>` — - **Cron**: `cron` parameter, no function body — framework provides poll logic (T-0305)
 -  `parse_duration_ms` function L171-194 — `(s: &str) -> Result<u64, String>` — Parse a duration string like "100ms", "5s", "2m", "1h" into milliseconds.
--  `generate_custom_trigger` function L197-286 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a custom poll trigger (function body provides poll logic).
--  `generate_cron_trigger` function L289-395 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a cron trigger (schedule expression provides the poll logic).
--  `validate_cron_expression` function L398-422 — `(expr: &str) -> Result<(), String>` — Validate a cron expression at compile time.
+-  `generate_custom_trigger` function L197-293 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a custom poll trigger (function body provides poll logic).
+-  `generate_cron_trigger` function L296-409 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a cron trigger (schedule expression provides the poll logic).
+-  `validate_cron_expression` function L412-436 — `(expr: &str) -> Result<(), String>` — Validate a cron expression at compile time.
 
 #### crates/cloacina-macros/src/workflow_attr.rs
 
@@ -6017,9 +6060,210 @@
 -  `parse` function L57-110 — `(input: ParseStream) -> SynResult<Self>` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
 -  `generate_workflow_attr` function L141-268 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
 -  `validate_dependencies` function L271-325 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
--  `generate_embedded_registration` function L332-568 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
--  `generate_trigger_rules_rewrite` function L571-614 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
--  `generate_packaged_registration` function L621-769 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
+-  `generate_embedded_registration` function L332-676 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
+-  `generate_trigger_rules_rewrite` function L679-722 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
+-  `generate_packaged_registration` function L729-877 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
+
+### crates/cloacina-server/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-server/src/lib.rs
+
+- pub `routes` module L23 — `-` — Cloacina HTTP API server library.
+- pub `TenantDatabaseCache` struct L43-46 — `{ databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>, d...` — Cached per-tenant database connections for schema isolation.
+- pub `new` function L49-54 — `(database_url: String) -> Self` — management, workflow upload, and execution APIs.
+- pub `resolve` function L59-91 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
+- pub `AppState` struct L96-109 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::routes::...` — Shared application state accessible from all route handlers.
+- pub `run` function L112-325 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+- pub `RequestId` struct L333 — `-` — Build the axum router with all routes.
+-  `TenantDatabaseCache` type L48-92 — `= TenantDatabaseCache` — management, workflow upload, and execution APIs.
+-  `request_id_middleware` function L337-358 — `( mut request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::...` — Middleware that generates a UUID request ID, creates a tracing span,
+-  `build_router` function L360-481 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
+-  `api_request_metrics` function L484-494 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code.
+-  `health` function L497-499 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L502-531 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L534-544 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
+-  `fallback_404` function L547-552 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L555-577 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L583-631 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L635-637 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L640-1545 — `-` — management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L648 — `: &str` — management, workflow upload, and execution APIs.
+-  `test_state` function L651-684 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `create_test_api_key` function L687-695 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L698-713 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L719-745 — `()` — management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L751-763 — `()` — management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L767-779 — `()` — management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L783-836 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_no_token_returns_401` function L842-854 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L858-871 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L875-888 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L892-905 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L911-929 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L933-949 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L953-968 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L972-997 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L1001-1016 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L1020-1034 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L1040-1066 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L1070-1084 — `()` — management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L1088-1104 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L1108-1145 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L1149-1164 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L1170-1184 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L1188-1201 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L1205-1229 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L1233-1257 — `()` — management, workflow upload, and execution APIs.
+-  `fixture_path` function L1260-1265 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L1268-1279 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L1282-1292 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L1296-1322 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L1326-1352 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1356-1376 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1382-1396 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1400-1413 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1417-1431 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1435-1448 — `()` — management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1452-1467 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1471-1489 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1495-1509 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1513-1526 — `()` — management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1532-1544 — `()` — management, workflow upload, and execution APIs.
+
+#### crates/cloacina-server/src/main.rs
+
+-  `Cli` struct L29-53 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, bootstra...` — cloacina-server — HTTP API for Cloacina, backed by Postgres.
+-  `default_home` function L55-59 — `() -> PathBuf` — command in T-0510 (CLOACI-I-0098).
+-  `main` function L62-73 — `() -> Result<()>` — command in T-0510 (CLOACI-I-0098).
+
+### crates/cloacina-server/src/routes
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-server/src/routes/auth.rs
+
+- pub `AuthenticatedKey` struct L43-49 — `{ key_id: uuid::Uuid, name: String, permissions: String, tenant_id: Option<Strin...` — Authenticated key info inserted into request extensions.
+- pub `KeyCache` struct L58-61 — `{ cache: Mutex<LruCache<String, CachedEntry>>, ttl: Duration }` — LRU cache for validated API key hashes with TTL expiry.
+- pub `new` function L66-73 — `(capacity: usize, ttl: Duration) -> Self` — Create a new key cache.
+- pub `default_cache` function L76-78 — `() -> Self` — Create with default settings (256 entries, 30s TTL).
+- pub `get` function L81-91 — `(&self, hash: &str) -> Option<ApiKeyInfo>` — Look up a key hash.
+- pub `insert` function L94-103 — `(&self, hash: String, info: ApiKeyInfo)` — Insert a validated key into the cache.
+- pub `evict` function L107-110 — `(&self, hash: &str)` — Evict a specific key (used after revocation).
+- pub `clear` function L113-116 — `(&self)` — Clear all entries.
+- pub `validate_token` function L123-169 — `( state: &AppState, token: &str, ) -> Result<AuthenticatedKey, (StatusCode, Json...` — Validate a bearer token and return the authenticated key info.
+- pub `require_auth` function L175-195 — `( State(state): State<AppState>, mut request: Request, next: Next, ) -> Response` — Auth middleware — validates Bearer token against cache then DAL.
+- pub `can_access_tenant` function L217-225 — `(&self, tenant_id: &str) -> bool` — Check if this key can access the given tenant's resources.
+- pub `forbidden_response` function L228-230 — `() -> ApiError` — Returns a 403 response for tenant access denied.
+- pub `admin_required_response` function L233-235 — `() -> ApiError` — Returns a 403 response for admin-only operations.
+- pub `can_write` function L240-242 — `(&self) -> bool` — Check if this key has at least write permission.
+- pub `can_admin` function L246-248 — `(&self) -> bool` — Check if this key has admin role within its tenant.
+- pub `insufficient_role_response` function L251-253 — `() -> ApiError` — Returns a 403 response for insufficient role.
+- pub `WsTicketStore` struct L273-277 — `{ tickets: Mutex<HashMap<String, WsTicket>>, ttl: Duration, max_capacity: usize ...` — Thread-safe store for WebSocket auth tickets.
+- pub `new` function L281-287 — `(ttl: Duration) -> Self` — Create a new ticket store with the given TTL (e.g., 60 seconds).
+- pub `issue` function L294-319 — `(&self, auth: AuthenticatedKey) -> String` — Issue a new ticket for the given authenticated key.
+- pub `consume` function L323-331 — `(&self, ticket: &str) -> Option<AuthenticatedKey>` — Consume a ticket — returns the authenticated key if valid and not expired.
+-  `CachedEntry` struct L52-55 — `{ info: ApiKeyInfo, inserted_at: Instant }` — A cached entry with TTL tracking.
+-  `KeyCache` type L63-117 — `= KeyCache` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `extract_bearer_token` function L198-205 — `(request: &Request) -> Option<&str>` — Extract the Bearer token from the Authorization header.
+-  `AuthenticatedKey` type L211-254 — `= AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `WsTicket` struct L264-267 — `{ auth: AuthenticatedKey, expires_at: Instant }` — A single-use, time-limited ticket for WebSocket authentication.
+-  `WsTicketStore` type L279-332 — `= WsTicketStore` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `tests` module L335-447 — `-` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `make_auth` function L338-346 — `(name: &str) -> AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_issue_and_consume` function L349-357 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_single_use` function L360-369 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_invalid_rejected` function L372-378 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_expired_rejected` function L381-389 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_store_bounded` function L392-420 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_store_evicts_expired_on_issue` function L423-446 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+
+#### crates/cloacina-server/src/routes/error.rs
+
+- pub `ApiError` struct L39-43 — `{ status: StatusCode, code: &'static str, message: String }` — Standardized API error response.
+- pub `new` function L47-53 — `(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self` — Create a new API error.
+- pub `bad_request` function L57-59 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+- pub `not_found` function L61-63 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+- pub `forbidden` function L65-67 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+- pub `unauthorized` function L69-71 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+- pub `internal` function L73-75 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+-  `ApiError` type L45-76 — `= ApiError` — error responses with request correlation IDs.
+-  `ApiError` type L78-86 — `impl IntoResponse for ApiError` — error responses with request correlation IDs.
+-  `into_response` function L79-85 — `(self) -> Response` — error responses with request correlation IDs.
+
+#### crates/cloacina-server/src/routes/executions.rs
+
+- pub `ExecuteRequest` struct L37-41 — `{ context: Option<serde_json::Value> }` — Request body for executing a workflow.
+- pub `execute_workflow` function L50-99 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+- pub `list_executions` function L102-151 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list workflow executions.
+- pub `get_execution` function L154-203 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id — get execution details.
+- pub `get_execution_events` function L206-258 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
+
+#### crates/cloacina-server/src/routes/health_reactive.rs
+
+- pub `list_accumulators` function L33-50 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/accumulators — list all registered accumulators with health status.
+- pub `list_reactors` function L53-76 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/reactors — list all reactors with status.
+- pub `get_reactor` function L79-111 — `( State(state): State<AppState>, Path(name): Path<String>, ) -> impl IntoRespons...` — GET /v1/health/reactors/{name} — single reactor health.
+
+#### crates/cloacina-server/src/routes/keys.rs
+
+- pub `KeyRole` enum L38-42 — `Admin | Write | Read` — Allowed roles for API keys.
+- pub `as_str` function L45-51 — `(&self) -> &'static str` — The bootstrap key is created automatically on first server startup.
+- pub `CreateKeyRequest` struct L62-66 — `{ name: String, role: KeyRole }` — Request body for creating a new API key.
+- pub `create_key` function L73-116 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /auth/keys — create a new API key.
+- pub `list_keys` function L120-151 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /auth/keys — list all API keys (no hashes or plaintext).
+- pub `revoke_key` function L155-185 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /auth/keys/:key_id — revoke an API key.
+- pub `create_tenant_key` function L189-237 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
+- pub `create_ws_ticket` function L243-253 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
+-  `KeyRole` type L44-52 — `= KeyRole` — The bootstrap key is created automatically on first server startup.
+-  `KeyRole` type L54-58 — `impl Default for KeyRole` — The bootstrap key is created automatically on first server startup.
+-  `default` function L55-57 — `() -> Self` — The bootstrap key is created automatically on first server startup.
+
+#### crates/cloacina-server/src/routes/mod.rs
+
+- pub `auth` module L19 — `-` — API server route handlers and middleware.
+- pub `error` module L20 — `-` — API server route handlers and middleware.
+- pub `executions` module L21 — `-` — API server route handlers and middleware.
+- pub `health_reactive` module L22 — `-` — API server route handlers and middleware.
+- pub `keys` module L23 — `-` — API server route handlers and middleware.
+- pub `tenants` module L24 — `-` — API server route handlers and middleware.
+- pub `triggers` module L25 — `-` — API server route handlers and middleware.
+- pub `workflows` module L26 — `-` — API server route handlers and middleware.
+- pub `ws` module L27 — `-` — API server route handlers and middleware.
+
+#### crates/cloacina-server/src/routes/tenants.rs
+
+- pub `CreateTenantRequest` struct L39-47 — `{ schema_name: String, username: String, password: String }` — Request body for creating a tenant.
+- pub `create_tenant` function L51-88 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
+- pub `remove_tenant` function L92-115 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:schema_name — remove a tenant (drop schema + user).
+- pub `list_tenants` function L119-141 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /tenants — list tenant schemas.
+
+#### crates/cloacina-server/src/routes/triggers.rs
+
+- pub `list_triggers` function L31-72 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
+- pub `get_trigger` function L75-134 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+
+#### crates/cloacina-server/src/routes/workflows.rs
+
+- pub `upload_workflow` function L36-120 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+- pub `list_workflows` function L123-174 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows — list registered workflows.
+- pub `get_workflow` function L177-225 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
+- pub `delete_workflow` function L228-280 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+-  `extract_file_field` function L283-294 — `(multipart: &mut Multipart) -> Result<Vec<u8>, String>` — Extract the first file field from a multipart request.
+
+#### crates/cloacina-server/src/routes/ws.rs
+
+- pub `WsAuthQuery` struct L50-52 — `{ token: Option<String> }` — Query parameter for passing a single-use ticket on WebSocket upgrade.
+- pub `accumulator_ws` function L101-146 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for accumulator endpoints.
+- pub `reactor_ws` function L153-198 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for reactor endpoints.
+-  `WsTokenSource` enum L55-60 — `Header | QueryTicket` — Where the auth credential came from — determines validation strategy.
+-  `extract_ws_token` function L63-77 — `(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<WsTokenSource>` — Extract the auth token from either the Authorization header or query param.
+-  `authenticate_ws` function L80-94 — `( state: &AppState, source: WsTokenSource, ) -> Result<AuthenticatedKey, ApiErro...` — Authenticate a WebSocket upgrade request using the appropriate strategy.
+-  `handle_accumulator_socket` function L205-252 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted accumulator WebSocket connection.
+-  `handle_reactor_socket` function L259-318 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
+-  `command_to_op` function L321-330 — `(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp` — Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
+-  `process_reactor_command` function L333-410 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
 
 ### crates/cloacina-testing/src
 
@@ -6354,38 +6598,44 @@
 
 #### crates/cloacinactl/src/commands/config.rs
 
-- pub `CloacinaConfig` struct L32-42 — `{ database_url: Option<String>, daemon: DaemonSection, watch: WatchSection }` — Full configuration file structure.
-- pub `DaemonSection` struct L46-64 — `{ poll_interval_ms: u64, log_level: String, shutdown_timeout_s: u64, watcher_deb...` — - Config value lookup for commands that need database_url etc.
-- pub `WatchSection` struct L83-85 — `{ directories: Vec<String> }` — - Config value lookup for commands that need database_url etc.
-- pub `load` function L90-119 — `(path: &Path) -> Self` — Load config from a TOML file.
-- pub `save` function L122-132 — `(&self, path: &Path) -> Result<()>` — Save config to a TOML file.
-- pub `resolve_watch_dirs` function L135-148 — `(&self) -> Vec<PathBuf>` — Resolve watch directories from config, expanding `~` to home dir.
-- pub `get` function L151-155 — `(&self, key: &str) -> Option<String>` — Get a config value by dotted key path (e.g., "daemon.poll_interval_ms").
-- pub `set` function L158-170 — `(&mut self, key: &str, value: &str) -> Result<()>` — Set a config value by dotted key path.
-- pub `list` function L173-181 — `(&self) -> Vec<(String, String)>` — List all config key-value pairs.
-- pub `run_get` function L279-290 — `(config_path: &Path, key: &str) -> Result<()>` — Run `cloacinactl config get <key>`.
-- pub `run_set` function L293-299 — `(config_path: &Path, key: &str, value: &str) -> Result<()>` — Run `cloacinactl config set <key> <value>`.
-- pub `run_list` function L302-313 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config list`.
-- pub `resolve_database_url` function L316-330 — `(cli_url: Option<&str>, config_path: &Path) -> Result<String>` — Resolve database_url from CLI arg or config file.
--  `DaemonSection` type L66-79 — `impl Default for DaemonSection` — - Config value lookup for commands that need database_url etc.
--  `default` function L67-78 — `() -> Self` — - Config value lookup for commands that need database_url etc.
--  `CloacinaConfig` type L87-182 — `= CloacinaConfig` — - Config value lookup for commands that need database_url etc.
--  `resolve_key` function L185-192 — `(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value>` — Resolve a dotted key path in a TOML value tree.
--  `set_key` function L195-241 — `(root: &mut toml::Value, key: &str, value: &str) -> Result<()>` — Set a value at a dotted key path in a TOML value tree.
--  `collect_pairs` function L244-260 — `(value: &toml::Value, prefix: &str, pairs: &mut Vec<(String, String)>)` — Collect all leaf key-value pairs with dotted paths.
--  `format_value` function L263-276 — `(value: &toml::Value) -> String` — Format a TOML value for display.
--  `tests` module L333-481 — `-` — - Config value lookup for commands that need database_url etc.
--  `config_defaults_are_sensible` function L338-350 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_load_missing_file_returns_defaults` function L353-357 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_load_valid_toml` function L360-388 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_load_invalid_toml_returns_defaults` function L391-400 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_load_partial_toml_fills_defaults` function L403-413 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_resolve_watch_dirs_expands_tilde` function L416-427 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_resolve_watch_dirs_empty` function L430-433 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_save_and_reload_roundtrip` function L436-452 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_get_dotted_key` function L455-463 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_set_dotted_key` function L466-470 — `()` — - Config value lookup for commands that need database_url etc.
--  `config_list_returns_all_keys` function L473-480 — `()` — - Config value lookup for commands that need database_url etc.
+- pub `CloacinaConfig` struct L33-53 — `{ database_url: Option<String>, default_profile: Option<String>, profiles: BTree...` — Full configuration file structure.
+- pub `Profile` struct L58-64 — `{ server: String, api_key: String }` — A named server-targeting profile.
+- pub `DaemonSection` struct L68-86 — `{ poll_interval_ms: u64, log_level: String, shutdown_timeout_s: u64, watcher_deb...` — - Config value lookup for commands that need database_url etc.
+- pub `WatchSection` struct L105-107 — `{ directories: Vec<String> }` — - Config value lookup for commands that need database_url etc.
+- pub `load` function L112-141 — `(path: &Path) -> Self` — Load config from a TOML file.
+- pub `save` function L144-154 — `(&self, path: &Path) -> Result<()>` — Save config to a TOML file.
+- pub `resolve_watch_dirs` function L157-170 — `(&self) -> Vec<PathBuf>` — Resolve watch directories from config, expanding `~` to home dir.
+- pub `get` function L173-177 — `(&self, key: &str) -> Option<String>` — Get a config value by dotted key path (e.g., "daemon.poll_interval_ms").
+- pub `set` function L180-192 — `(&mut self, key: &str, value: &str) -> Result<()>` — Set a config value by dotted key path.
+- pub `list` function L195-203 — `(&self) -> Vec<(String, String)>` — List all config key-value pairs.
+- pub `run_get` function L301-312 — `(config_path: &Path, key: &str) -> Result<()>` — Run `cloacinactl config get <key>`.
+- pub `run_set` function L315-321 — `(config_path: &Path, key: &str, value: &str) -> Result<()>` — Run `cloacinactl config set <key> <value>`.
+- pub `run_list` function L324-335 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config list`.
+- pub `run_profile_set` function L338-360 — `( config_path: &Path, name: &str, server: &str, api_key: &str, default: bool, ) ...` — Run `cloacinactl config profile set <NAME> <URL> --api-key <K> [--default]`.
+- pub `run_profile_list` function L363-380 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config profile list`.
+- pub `run_profile_use` function L383-392 — `(config_path: &Path, name: &str) -> Result<()>` — Run `cloacinactl config profile use <NAME>`.
+- pub `run_profile_delete` function L395-406 — `(config_path: &Path, name: &str) -> Result<()>` — Run `cloacinactl config profile delete <NAME>`.
+- pub `resolve_database_url` function L423-437 — `(cli_url: Option<&str>, config_path: &Path) -> Result<String>` — Resolve database_url from CLI arg or config file.
+-  `DaemonSection` type L88-101 — `impl Default for DaemonSection` — - Config value lookup for commands that need database_url etc.
+-  `default` function L89-100 — `() -> Self` — - Config value lookup for commands that need database_url etc.
+-  `CloacinaConfig` type L109-204 — `= CloacinaConfig` — - Config value lookup for commands that need database_url etc.
+-  `resolve_key` function L207-214 — `(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value>` — Resolve a dotted key path in a TOML value tree.
+-  `set_key` function L217-263 — `(root: &mut toml::Value, key: &str, value: &str) -> Result<()>` — Set a value at a dotted key path in a TOML value tree.
+-  `collect_pairs` function L266-282 — `(value: &toml::Value, prefix: &str, pairs: &mut Vec<(String, String)>)` — Collect all leaf key-value pairs with dotted paths.
+-  `format_value` function L285-298 — `(value: &toml::Value) -> String` — Format a TOML value for display.
+-  `redact_secret` function L412-420 — `(raw: &str) -> String` — Short redacted form of a secret for display.
+-  `tests` module L440-588 — `-` — - Config value lookup for commands that need database_url etc.
+-  `config_defaults_are_sensible` function L445-457 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_missing_file_returns_defaults` function L460-464 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_valid_toml` function L467-495 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_invalid_toml_returns_defaults` function L498-507 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_partial_toml_fills_defaults` function L510-520 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_resolve_watch_dirs_expands_tilde` function L523-534 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_resolve_watch_dirs_empty` function L537-540 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_save_and_reload_roundtrip` function L543-559 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_get_dotted_key` function L562-570 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_set_dotted_key` function L573-577 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_list_returns_all_keys` function L580-587 — `()` — - Config value lookup for commands that need database_url etc.
 
 #### crates/cloacinactl/src/commands/daemon.rs
 
@@ -6420,72 +6670,8 @@
 - pub `config` module L20 — `-` — CLI command implementations.
 - pub `daemon` module L21 — `-` — CLI command implementations.
 - pub `health` module L22 — `-` — CLI command implementations.
-- pub `serve` module L23 — `-` — CLI command implementations.
-- pub `status` module L24 — `-` — CLI command implementations.
-- pub `watcher` module L25 — `-` — CLI command implementations.
-
-#### crates/cloacinactl/src/commands/serve.rs
-
-- pub `TenantDatabaseCache` struct L40-43 — `{ databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>, d...` — Cached per-tenant database connections for schema isolation.
-- pub `new` function L46-51 — `(database_url: String) -> Self` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
-- pub `resolve` function L56-88 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
-- pub `AppState` struct L93-106 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::server::...` — Shared application state accessible from all route handlers.
-- pub `run` function L109-322 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
-- pub `RequestId` struct L330 — `-` — Build the axum router with all routes.
--  `TenantDatabaseCache` type L45-89 — `= TenantDatabaseCache` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `request_id_middleware` function L334-355 — `( mut request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L357-478 — `(state: AppState) -> Router` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `api_request_metrics` function L481-491 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code.
--  `health` function L494-496 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L499-528 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L531-541 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
--  `fallback_404` function L544-549 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L552-574 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L580-628 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L632-634 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L637-1542 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L645 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_state` function L648-681 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `create_test_api_key` function L684-692 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L695-710 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L716-742 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L748-760 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L764-776 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L780-833 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_no_token_returns_401` function L839-851 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L855-868 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L872-885 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L889-902 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L908-926 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L930-946 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L950-965 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L969-994 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L998-1013 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L1017-1031 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L1037-1063 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_tenants` function L1067-1081 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L1085-1101 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L1105-1142 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L1146-1161 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L1167-1181 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L1185-1198 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L1202-1226 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L1230-1254 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `fixture_path` function L1257-1262 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L1265-1276 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L1279-1289 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L1293-1319 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L1323-1349 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L1353-1373 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1379-1393 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1397-1410 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1414-1428 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1432-1445 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1449-1464 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1468-1486 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1492-1506 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1510-1523 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1529-1541 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+- pub `status` module L23 — `-` — CLI command implementations.
+- pub `watcher` module L24 — `-` — CLI command implementations.
 
 #### crates/cloacinactl/src/commands/status.rs
 
@@ -6519,141 +6705,127 @@
 
 #### crates/cloacinactl/src/main.rs
 
--  `commands` module L24 — `-` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `server` module L25 — `-` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `Cli` struct L31-42 — `{ verbose: bool, home: PathBuf, command: Commands }` — cloacinactl — Cloacina task orchestration engine
--  `Commands` enum L45-95 — `Daemon | Serve | Config | Admin | Status` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `ConfigCommands` enum L98-116 — `Get | Set | List` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `AdminCommands` enum L119-134 — `CleanupEvents` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `default_home` function L137-141 — `() -> PathBuf` — Default home directory (~/.cloacina/).
--  `main` function L144-221 — `() -> Result<()>` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+- pub `GlobalOpts` struct L47-83 — `{ verbose: bool, home: PathBuf, profile: Option<String>, server: Option<String>,...` — is a documented exception — a composite view over daemon + server.
+- pub `OutputFormat` enum L86-93 — `Table | Json | Yaml | Id` — is a documented exception — a composite view over daemon + server.
+- pub `effective_output` function L96-102 — `(&self) -> OutputFormat` — is a documented exception — a composite view over daemon + server.
+-  `commands` module L28 — `-` — is a documented exception — a composite view over daemon + server.
+-  `nouns` module L29 — `-` — is a documented exception — a composite view over daemon + server.
+-  `shared` module L30 — `-` — is a documented exception — a composite view over daemon + server.
+-  `Cli` struct L38-44 — `{ globals: GlobalOpts, command: Commands }` — cloacinactl — Cloacina task orchestration engine
+-  `GlobalOpts` type L95-103 — `= GlobalOpts` — is a documented exception — a composite view over daemon + server.
+-  `Commands` enum L106-127 — `Daemon | Server | Status | Config | Admin` — is a documented exception — a composite view over daemon + server.
+-  `ConfigCommands` enum L130-148 — `Get | Set | List | Profile` — is a documented exception — a composite view over daemon + server.
+-  `ProfileCommands` enum L151-171 — `Set | List | Use | Delete` — is a documented exception — a composite view over daemon + server.
+-  `AdminCommands` enum L174-186 — `CleanupEvents` — is a documented exception — a composite view over daemon + server.
+-  `default_home` function L188-192 — `() -> PathBuf` — is a documented exception — a composite view over daemon + server.
+-  `main` function L195-260 — `() -> Result<()>` — is a documented exception — a composite view over daemon + server.
 
-### crates/cloacinactl/src/server
+### crates/cloacinactl/src/nouns/daemon
 
 > *Semantic summary to be generated by AI agent.*
 
-#### crates/cloacinactl/src/server/auth.rs
+#### crates/cloacinactl/src/nouns/daemon/health.rs
 
-- pub `AuthenticatedKey` struct L43-49 — `{ key_id: uuid::Uuid, name: String, permissions: String, tenant_id: Option<Strin...` — Authenticated key info inserted into request extensions.
-- pub `KeyCache` struct L58-61 — `{ cache: Mutex<LruCache<String, CachedEntry>>, ttl: Duration }` — LRU cache for validated API key hashes with TTL expiry.
-- pub `new` function L66-73 — `(capacity: usize, ttl: Duration) -> Self` — Create a new key cache.
-- pub `default_cache` function L76-78 — `() -> Self` — Create with default settings (256 entries, 30s TTL).
-- pub `get` function L81-91 — `(&self, hash: &str) -> Option<ApiKeyInfo>` — Look up a key hash.
-- pub `insert` function L94-103 — `(&self, hash: String, info: ApiKeyInfo)` — Insert a validated key into the cache.
-- pub `evict` function L107-110 — `(&self, hash: &str)` — Evict a specific key (used after revocation).
-- pub `clear` function L113-116 — `(&self)` — Clear all entries.
-- pub `validate_token` function L123-169 — `( state: &AppState, token: &str, ) -> Result<AuthenticatedKey, (StatusCode, Json...` — Validate a bearer token and return the authenticated key info.
-- pub `require_auth` function L175-195 — `( State(state): State<AppState>, mut request: Request, next: Next, ) -> Response` — Auth middleware — validates Bearer token against cache then DAL.
-- pub `can_access_tenant` function L217-225 — `(&self, tenant_id: &str) -> bool` — Check if this key can access the given tenant's resources.
-- pub `forbidden_response` function L228-230 — `() -> ApiError` — Returns a 403 response for tenant access denied.
-- pub `admin_required_response` function L233-235 — `() -> ApiError` — Returns a 403 response for admin-only operations.
-- pub `can_write` function L240-242 — `(&self) -> bool` — Check if this key has at least write permission.
-- pub `can_admin` function L246-248 — `(&self) -> bool` — Check if this key has admin role within its tenant.
-- pub `insufficient_role_response` function L251-253 — `() -> ApiError` — Returns a 403 response for insufficient role.
-- pub `WsTicketStore` struct L273-277 — `{ tickets: Mutex<HashMap<String, WsTicket>>, ttl: Duration, max_capacity: usize ...` — Thread-safe store for WebSocket auth tickets.
-- pub `new` function L281-287 — `(ttl: Duration) -> Self` — Create a new ticket store with the given TTL (e.g., 60 seconds).
-- pub `issue` function L294-319 — `(&self, auth: AuthenticatedKey) -> String` — Issue a new ticket for the given authenticated key.
-- pub `consume` function L323-331 — `(&self, ticket: &str) -> Option<AuthenticatedKey>` — Consume a ticket — returns the authenticated key if valid and not expired.
--  `CachedEntry` struct L52-55 — `{ info: ApiKeyInfo, inserted_at: Instant }` — A cached entry with TTL tracking.
--  `KeyCache` type L63-117 — `= KeyCache` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `extract_bearer_token` function L198-205 — `(request: &Request) -> Option<&str>` — Extract the Bearer token from the Authorization header.
--  `AuthenticatedKey` type L211-254 — `= AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `WsTicket` struct L264-267 — `{ auth: AuthenticatedKey, expires_at: Instant }` — A single-use, time-limited ticket for WebSocket authentication.
--  `WsTicketStore` type L279-332 — `= WsTicketStore` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `tests` module L335-447 — `-` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `make_auth` function L338-346 — `(name: &str) -> AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_issue_and_consume` function L349-357 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_single_use` function L360-369 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_invalid_rejected` function L372-378 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_expired_rejected` function L381-389 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_store_bounded` function L392-420 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_store_evicts_expired_on_issue` function L423-446 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+- pub `run` function L23-45 — `(globals: &GlobalOpts) -> Result<()>`
 
-#### crates/cloacinactl/src/server/error.rs
+#### crates/cloacinactl/src/nouns/daemon/mod.rs
 
-- pub `ApiError` struct L39-43 — `{ status: StatusCode, code: &'static str, message: String }` — Standardized API error response.
-- pub `new` function L47-53 — `(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self` — Create a new API error.
-- pub `bad_request` function L57-59 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
-- pub `not_found` function L61-63 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
-- pub `forbidden` function L65-67 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
-- pub `unauthorized` function L69-71 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
-- pub `internal` function L73-75 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
--  `ApiError` type L45-76 — `= ApiError` — error responses with request correlation IDs.
--  `ApiError` type L78-86 — `impl IntoResponse for ApiError` — error responses with request correlation IDs.
--  `into_response` function L79-85 — `(self) -> Response` — error responses with request correlation IDs.
+- pub `health` module L25 — `-` — `cloacinactl daemon <verb>` — local scheduler verbs.
+- pub `start` module L26 — `-` — `cloacinactl daemon <verb>` — local scheduler verbs.
+- pub `status` module L27 — `-` — `cloacinactl daemon <verb>` — local scheduler verbs.
+- pub `stop` module L28 — `-` — `cloacinactl daemon <verb>` — local scheduler verbs.
+- pub `DaemonCmd` struct L31-34 — `{ verb: DaemonVerb }` — `cloacinactl daemon <verb>` — local scheduler verbs.
+- pub `run` function L61-71 — `(self, globals: &GlobalOpts) -> Result<()>` — `cloacinactl daemon <verb>` — local scheduler verbs.
+-  `DaemonVerb` enum L37-58 — `Start | Stop | Status | Health` — `cloacinactl daemon <verb>` — local scheduler verbs.
+-  `DaemonCmd` type L60-72 — `= DaemonCmd` — `cloacinactl daemon <verb>` — local scheduler verbs.
 
-#### crates/cloacinactl/src/server/executions.rs
+#### crates/cloacinactl/src/nouns/daemon/start.rs
 
-- pub `ExecuteRequest` struct L37-41 — `{ context: Option<serde_json::Value> }` — Request body for executing a workflow.
-- pub `execute_workflow` function L50-99 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
-- pub `list_executions` function L102-151 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list workflow executions.
-- pub `get_execution` function L154-203 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id — get execution details.
-- pub `get_execution_events` function L206-258 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
+- pub `run` function L23-38 — `(globals: &GlobalOpts, watch_dirs: Vec<PathBuf>, poll_interval: u64) -> Result<(...`
 
-#### crates/cloacinactl/src/server/health_reactive.rs
+#### crates/cloacinactl/src/nouns/daemon/status.rs
 
-- pub `list_accumulators` function L33-50 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/accumulators — list all registered accumulators with health status.
-- pub `list_reactors` function L53-76 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/reactors — list all reactors with status.
-- pub `get_reactor` function L79-111 — `( State(state): State<AppState>, Path(name): Path<String>, ) -> impl IntoRespons...` — GET /v1/health/reactors/{name} — single reactor health.
+- pub `run` function L21-23 — `(globals: &GlobalOpts) -> Result<()>`
 
-#### crates/cloacinactl/src/server/keys.rs
+#### crates/cloacinactl/src/nouns/daemon/stop.rs
 
-- pub `KeyRole` enum L38-42 — `Admin | Write | Read` — Allowed roles for API keys.
-- pub `as_str` function L45-51 — `(&self) -> &'static str` — The bootstrap key is created automatically on first server startup.
-- pub `CreateKeyRequest` struct L62-66 — `{ name: String, role: KeyRole }` — Request body for creating a new API key.
-- pub `create_key` function L73-116 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /auth/keys — create a new API key.
-- pub `list_keys` function L120-151 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /auth/keys — list all API keys (no hashes or plaintext).
-- pub `revoke_key` function L155-185 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /auth/keys/:key_id — revoke an API key.
-- pub `create_tenant_key` function L189-237 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
-- pub `create_ws_ticket` function L243-253 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
--  `KeyRole` type L44-52 — `= KeyRole` — The bootstrap key is created automatically on first server startup.
--  `KeyRole` type L54-58 — `impl Default for KeyRole` — The bootstrap key is created automatically on first server startup.
--  `default` function L55-57 — `() -> Self` — The bootstrap key is created automatically on first server startup.
+- pub `run` function L22-30 — `(globals: &GlobalOpts, force: bool) -> Result<()>`
 
-#### crates/cloacinactl/src/server/mod.rs
+### crates/cloacinactl/src/nouns
 
-- pub `auth` module L19 — `-` — API server route handlers and middleware.
-- pub `error` module L20 — `-` — API server route handlers and middleware.
-- pub `executions` module L21 — `-` — API server route handlers and middleware.
-- pub `health_reactive` module L22 — `-` — API server route handlers and middleware.
-- pub `keys` module L23 — `-` — API server route handlers and middleware.
-- pub `tenants` module L24 — `-` — API server route handlers and middleware.
-- pub `triggers` module L25 — `-` — API server route handlers and middleware.
-- pub `workflows` module L26 — `-` — API server route handlers and middleware.
-- pub `ws` module L27 — `-` — API server route handlers and middleware.
+> *Semantic summary to be generated by AI agent.*
 
-#### crates/cloacinactl/src/server/tenants.rs
+#### crates/cloacinactl/src/nouns/mod.rs
 
-- pub `CreateTenantRequest` struct L39-47 — `{ schema_name: String, username: String, password: String }` — Request body for creating a tenant.
-- pub `create_tenant` function L51-88 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
-- pub `remove_tenant` function L92-115 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:schema_name — remove a tenant (drop schema + user).
-- pub `list_tenants` function L119-141 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /tenants — list tenant schemas.
+- pub `daemon` module L24 — `-` — methods on the noun's `Cmd` struct.
+- pub `server` module L25 — `-` — methods on the noun's `Cmd` struct.
+- pub `top_level_status` function L29-42 — `(globals: &GlobalOpts) -> Result<()>` — Composite status — runs daemon status + server status and prints both.
 
-#### crates/cloacinactl/src/server/triggers.rs
+### crates/cloacinactl/src/nouns/server
 
-- pub `list_triggers` function L31-72 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
-- pub `get_trigger` function L75-134 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+> *Semantic summary to be generated by AI agent.*
 
-#### crates/cloacinactl/src/server/workflows.rs
+#### crates/cloacinactl/src/nouns/server/health.rs
 
-- pub `upload_workflow` function L36-120 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
-- pub `list_workflows` function L123-174 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows — list registered workflows.
-- pub `get_workflow` function L177-225 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
-- pub `delete_workflow` function L228-280 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
--  `extract_file_field` function L283-294 — `(multipart: &mut Multipart) -> Result<Vec<u8>, String>` — Extract the first file field from a multipart request.
+- pub `run` function L24-56 — `(globals: &GlobalOpts) -> Result<()>`
 
-#### crates/cloacinactl/src/server/ws.rs
+#### crates/cloacinactl/src/nouns/server/mod.rs
 
-- pub `WsAuthQuery` struct L50-52 — `{ token: Option<String> }` — Query parameter for passing a single-use ticket on WebSocket upgrade.
-- pub `accumulator_ws` function L101-146 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for accumulator endpoints.
-- pub `reactor_ws` function L153-198 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for reactor endpoints.
--  `WsTokenSource` enum L55-60 — `Header | QueryTicket` — Where the auth credential came from — determines validation strategy.
--  `extract_ws_token` function L63-77 — `(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<WsTokenSource>` — Extract the auth token from either the Authorization header or query param.
--  `authenticate_ws` function L80-94 — `( state: &AppState, source: WsTokenSource, ) -> Result<AuthenticatedKey, ApiErro...` — Authenticate a WebSocket upgrade request using the appropriate strategy.
--  `handle_accumulator_socket` function L205-252 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted accumulator WebSocket connection.
--  `handle_reactor_socket` function L259-318 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
--  `command_to_op` function L321-330 — `(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp` — Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
--  `process_reactor_command` function L333-410 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
+- pub `health` module L25 — `-` — `cloacinactl server <verb>` — cloacina-server HTTP API verbs.
+- pub `start` module L26 — `-` — `cloacinactl server <verb>` — cloacina-server HTTP API verbs.
+- pub `status` module L27 — `-` — `cloacinactl server <verb>` — cloacina-server HTTP API verbs.
+- pub `stop` module L28 — `-` — `cloacinactl server <verb>` — cloacina-server HTTP API verbs.
+- pub `ServerCmd` struct L31-34 — `{ verb: ServerVerb }` — `cloacinactl server <verb>` — cloacina-server HTTP API verbs.
+- pub `run` function L65-86 — `(self, globals: &GlobalOpts) -> Result<()>` — `cloacinactl server <verb>` — cloacina-server HTTP API verbs.
+-  `ServerVerb` enum L37-62 — `Start | Stop | Status | Health` — `cloacinactl server <verb>` — cloacina-server HTTP API verbs.
+-  `ServerCmd` type L64-87 — `= ServerCmd` — `cloacinactl server <verb>` — cloacina-server HTTP API verbs.
+
+#### crates/cloacinactl/src/nouns/server/start.rs
+
+- pub `run` function L26-59 — `( globals: &GlobalOpts, bind: SocketAddr, database_url: Option<String>, bootstra...`
+-  `_config_type_check` function L63 — `(_: CloacinaConfig)`
+
+#### crates/cloacinactl/src/nouns/server/status.rs
+
+- pub `run` function L24-64 — `(globals: &GlobalOpts) -> Result<()>`
+
+#### crates/cloacinactl/src/nouns/server/stop.rs
+
+- pub `run` function L22-37 — `(globals: &GlobalOpts, force: bool) -> Result<()>`
+
+### crates/cloacinactl/src/shared
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/shared/client_ctx.rs
+
+- pub `ClientContext` struct L29-35 — `{ server: String, api_key: String, tenant: Option<String>, output: OutputFormat,...` — Resolved client context — everything a client command needs to talk to the
+- pub `resolve` function L40-78 — `(opts: &GlobalOpts, config: &CloacinaConfig) -> Result<Self>` — Resolve against the precedence rule from ADR-0003 §3:
+- pub `resolve_api_key_scheme` function L82-97 — `(raw: &str) -> Result<String>` — Resolve an api-key value that may carry a scheme prefix.
+-  `ClientContext` type L37-79 — `= ClientContext` — that client-side commands use to hit the server.
+-  `read_key_file` function L99-108 — `(path: &Path) -> Result<String>` — that client-side commands use to hit the server.
+-  `tests` module L111-203 — `-` — that client-side commands use to hit the server.
+-  `opts` function L116-130 — `(overrides: impl FnOnce(&mut GlobalOpts)) -> GlobalOpts` — that client-side commands use to hit the server.
+-  `explicit_flag_wins` function L133-150 — `()` — that client-side commands use to hit the server.
+-  `named_profile_wins_over_default` function L153-173 — `()` — that client-side commands use to hit the server.
+-  `no_config_errors` function L176-180 — `()` — that client-side commands use to hit the server.
+-  `env_scheme` function L183-188 — `()` — that client-side commands use to hit the server.
+-  `file_scheme` function L191-196 — `()` — that client-side commands use to hit the server.
+-  `keyring_scheme_deferred` function L199-202 — `()` — that client-side commands use to hit the server.
+
+#### crates/cloacinactl/src/shared/mod.rs
+
+- pub `client_ctx` module L20 — `-` — Helpers shared across nouns: PID-file management, Unix socket client,
+- pub `pid` module L21 — `-` — exec helpers, etc.
+
+#### crates/cloacinactl/src/shared/pid.rs
+
+- pub `write` function L26-34 — `(path: &Path) -> Result<()>` — Write the current process PID into `path`, creating the parent directory
+- pub `read` function L37-43 — `(path: &Path) -> Result<u32>` — Read a PID from `path`.
+- pub `try_read` function L46-48 — `(path: &Path) -> Option<u32>` — Non-erroring variant — `None` when the file is absent or unreadable.
+- pub `remove` function L51-60 — `(path: &Path) -> Result<()>` — Remove the PID file, ignoring "not found" errors.
+- pub `signal_and_wait` function L64-97 — `(pid: u32, force: bool, timeout: Duration) -> Result<()>` — Send SIGTERM (or SIGKILL if `force`) to `pid` and wait up to `timeout` for
+-  `libc_signal` module L99-101 — `-` — PID-file read/write/signal helpers used by `daemon stop` and `server stop`.
 
 ### docs/themes/hugo-geekdoc/static/js
 

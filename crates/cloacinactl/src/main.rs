@@ -24,10 +24,13 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 mod commands;
 mod nouns;
 mod shared;
+
+use shared::error::CliError;
 
 use nouns::{daemon, server};
 
@@ -192,11 +195,21 @@ fn default_home() -> PathBuf {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> ExitCode {
+    match run().await {
+        Ok(()) => ExitCode::from(0),
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::from(e.exit_code() as u8)
+        }
+    }
+}
+
+async fn run() -> std::result::Result<(), CliError> {
     let cli = Cli::parse();
     let config_path = cli.globals.home.join("config.toml");
 
-    match cli.command {
+    (match cli.command {
         Commands::Daemon(cmd) => cmd.run(&cli.globals).await,
         Commands::Server(cmd) => cmd.run(&cli.globals).await,
         Commands::Status => nouns::top_level_status(&cli.globals).await,
@@ -256,5 +269,6 @@ async fn main() -> Result<()> {
                 }
             }
         }
-    }
+    })
+    .map_err(CliError::from)
 }

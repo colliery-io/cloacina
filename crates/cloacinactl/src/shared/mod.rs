@@ -17,5 +17,8 @@
 //! Helpers shared across nouns: PID-file management, Unix socket client,
 //! exec helpers, etc.
 
+pub mod client;
 pub mod client_ctx;
+pub mod error;
+pub mod output;
 pub mod pid;
