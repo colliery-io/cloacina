@@ -4,14 +4,14 @@ level: task
 title: "T4: Heartbeat writer + stale-build sweeper"
 short_code: "CLOACI-T-0522"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-19T00:23:10.373168+00:00
 parent: CLOACI-I-0097
 blocked_by: [CLOACI-T-0521]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Keep `build_claimed_at` fresh during long builds so the sweeper doesn't reset them, and reset genuinely stuck rows that a dead compiler left behind.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

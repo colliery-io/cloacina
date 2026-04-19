@@ -1,0 +1,14 @@
+# Happy-path fixture for the compiler-e2e harness. Proper packaged workflow
+# (cloacina deps, #[workflow] macro, one trivial task) so the reconciler
+# loads it cleanly. See .angreal/cloacina/compiler_e2e.py for rewriting logic.
+[package]
+name = "compiler-happy-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "compiler_happy_workflow"
+language = "rust"
+description = "compiler-e2e happy-path fixture"

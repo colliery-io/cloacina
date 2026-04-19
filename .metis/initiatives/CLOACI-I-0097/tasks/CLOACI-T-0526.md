@@ -4,14 +4,14 @@ level: task
 title: "T8: Docker Compose template + two-process runbook"
 short_code: "CLOACI-T-0526"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-18T15:31:19.826245+00:00
 parent: CLOACI-I-0097
 blocked_by: [CLOACI-T-0525]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Ship the operational story for running server + compiler as a paired service. No launcher tooling — just a Docker Compose template that works out-of-the-box and prose covering native/bare-metal deployment.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

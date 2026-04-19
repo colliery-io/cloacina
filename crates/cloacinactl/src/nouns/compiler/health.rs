@@ -1,0 +1,49 @@
+/*
+ *  Copyright 2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+use anyhow::Result;
+use std::time::Duration;
+
+use crate::commands::config::CloacinaConfig;
+use crate::nouns::compiler::status::compiler_base_url;
+use crate::GlobalOpts;
+
+pub async fn run(globals: &GlobalOpts) -> Result<()> {
+    let config = CloacinaConfig::load(&globals.home.join("config.toml"));
+    let url = format!("{}/health", compiler_base_url(&config.compiler.local_addr));
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("down");
+            std::process::exit(2);
+        }
+    };
+
+    match client.get(&url).send().await {
+        Ok(r) if r.status().is_success() => {
+            println!("up");
+            Ok(())
+        }
+        _ => {
+            eprintln!("down");
+            std::process::exit(2);
+        }
+    }
+}

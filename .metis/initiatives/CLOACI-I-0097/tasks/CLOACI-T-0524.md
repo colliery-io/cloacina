@@ -4,14 +4,14 @@ level: task
 title: "T6: Reconciler refactor — load from compiled_data, retire inline cargo build"
 short_code: "CLOACI-T-0524"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-18T14:32:25.822417+00:00
 parent: CLOACI-I-0097
 blocked_by: [CLOACI-T-0523]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Rip the inline `cargo build` out of the reconciler. Runtime instances (server + daemon) now load `compiled_data` bytes directly from the DB. The Rust toolchain is no longer a runtime dependency.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

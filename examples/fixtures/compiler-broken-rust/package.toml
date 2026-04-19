@@ -1,0 +1,11 @@
+[package]
+name = "compiler-broken-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "compiler_broken_workflow"
+language = "rust"
+description = "compiler-e2e failed-build fixture"

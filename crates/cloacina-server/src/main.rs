@@ -50,6 +50,12 @@ struct Cli {
     /// Require package signatures for workflow uploads.
     #[arg(long, env = "CLOACINA_REQUIRE_SIGNATURES")]
     require_signatures: bool,
+
+    /// Interval (seconds) between reconciler passes that sync the in-runner
+    /// workflow registry with the DB. Default matches the cloacina runtime
+    /// default; override upward for quiet prod, downward for fast e2e.
+    #[arg(long)]
+    reconcile_interval_s: Option<u64>,
 }
 
 fn default_home() -> PathBuf {
@@ -68,6 +74,7 @@ async fn main() -> Result<()> {
         cli.verbose,
         cli.bootstrap_key,
         cli.require_signatures,
+        cli.reconcile_interval_s.map(std::time::Duration::from_secs),
     )
     .await
 }

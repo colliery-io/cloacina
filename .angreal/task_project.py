@@ -20,6 +20,8 @@ from cloacina import macros  # noqa: F401
 from cloacina import all  # noqa: F401
 from cloacina import soak  # noqa: F401
 from cloacina import server_soak  # noqa: F401
+from cloacina import cloacinactl_e2e  # noqa: F401
+from cloacina import compiler_e2e  # noqa: F401
 
 
 # Import demos module

@@ -285,7 +285,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 trigger_base_poll_interval: Duration::from_secs(1),
                 trigger_poll_timeout: Duration::from_secs(30),
                 enable_registry_reconciler: true,
-                registry_reconcile_interval: Duration::from_secs(60),
+                registry_reconcile_interval: Duration::from_secs(5),
                 registry_enable_startup_reconciliation: true,
                 registry_storage_path: None,
                 registry_storage_backend: "filesystem".to_string(),

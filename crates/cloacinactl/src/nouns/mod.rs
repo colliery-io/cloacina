@@ -21,17 +21,18 @@ use anyhow::Result;
 
 use crate::GlobalOpts;
 
+pub mod compiler;
 pub mod daemon;
 pub mod execution;
-pub mod graph;
 pub mod key;
 pub mod package;
+pub mod reactor;
 pub mod server;
 pub mod tenant;
 pub mod trigger;
 pub mod workflow;
 
-/// Composite status — runs daemon status + server status and prints both.
+/// Composite status — runs daemon + server + compiler status and prints all three.
 /// The one documented exception to the strict noun-verb rule.
 pub async fn top_level_status(globals: &GlobalOpts) -> Result<()> {
     println!("=== daemon ===");
@@ -43,6 +44,12 @@ pub async fn top_level_status(globals: &GlobalOpts) -> Result<()> {
     println!("=== server ===");
     if let Err(e) = server::status::run(globals).await {
         println!("server unreachable: {e:#}");
+    }
+
+    println!();
+    println!("=== compiler ===");
+    if let Err(e) = compiler::status::run(globals).await {
+        println!("compiler unreachable: {e:#}");
     }
 
     Ok(())

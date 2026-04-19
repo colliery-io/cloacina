@@ -116,6 +116,7 @@ pub async fn run(
     verbose: bool,
     bootstrap_key: Option<String>,
     require_signatures: bool,
+    reconcile_interval: Option<std::time::Duration>,
 ) -> Result<()> {
     // Set up logging (file + stderr, same as daemon)
     std::fs::create_dir_all(&home)
@@ -211,8 +212,12 @@ pub async fn run(
     metrics::describe_gauge!("cloacina_active_tasks", "Currently active tasks");
 
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
-    let runner_config = DefaultRunnerConfig::builder()
-        .registry_storage_backend("database")
+    let mut runner_builder = DefaultRunnerConfig::builder();
+    runner_builder = runner_builder.registry_storage_backend("database");
+    if let Some(interval) = reconcile_interval {
+        runner_builder = runner_builder.registry_reconcile_interval(interval);
+    }
+    let runner_config = runner_builder
         .build()
         .context("Invalid runner configuration")?;
 

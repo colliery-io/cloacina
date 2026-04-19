@@ -176,6 +176,11 @@ mod unified_schema {
             tenant_id -> Nullable<Text>,
             content_hash -> Text,
             superseded -> DbBool,
+            compiled_data -> Nullable<DbBinary>,
+            build_status -> Text,
+            build_error -> Nullable<Text>,
+            build_claimed_at -> Nullable<DbTimestamp>,
+            compiled_at -> Nullable<DbTimestamp>,
         }
     }
 
@@ -513,6 +518,11 @@ mod postgres_schema {
             tenant_id -> Nullable<Text>,
             content_hash -> Text,
             superseded -> Bool,
+            compiled_data -> Nullable<Bytea>,
+            build_status -> Text,
+            build_error -> Nullable<Text>,
+            build_claimed_at -> Nullable<Timestamp>,
+            compiled_at -> Nullable<Timestamp>,
         }
     }
 
@@ -881,6 +891,11 @@ mod sqlite_schema {
             tenant_id -> Nullable<Text>,
             content_hash -> Text,
             superseded -> Integer,
+            compiled_data -> Nullable<Binary>,
+            build_status -> Text,
+            build_error -> Nullable<Text>,
+            build_claimed_at -> Nullable<Text>,
+            compiled_at -> Nullable<Text>,
         }
     }
 

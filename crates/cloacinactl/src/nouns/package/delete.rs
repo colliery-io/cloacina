@@ -39,7 +39,25 @@ pub async fn run(globals: &GlobalOpts, id: &str, force: bool) -> Result<(), CliE
     let config = CloacinaConfig::load(&globals.home.join("config.toml"));
     let ctx = ClientContext::resolve(globals, &config).map_err(CliError::Other)?;
     let client = CliClient::new(ctx)?;
-    client.delete(&format!("/v1/workflows/{id}")).await?;
+    let tenant = client.ctx().tenant_segment().to_string();
+
+    // Server's delete handler is keyed on (name, version). Look up the row
+    // first so users can pass a UUID or a package name.
+    let body: serde_json::Value = client
+        .get(&format!("/v1/tenants/{tenant}/workflows/{id}"))
+        .await?;
+    let name = body
+        .get("package_name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CliError::UserError("workflow response missing package_name".to_string()))?;
+    let version = body
+        .get("version")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CliError::UserError("workflow response missing version".to_string()))?;
+
+    client
+        .delete(&format!("/v1/tenants/{tenant}/workflows/{name}/{version}"))
+        .await?;
     println!("deleted {id}");
     Ok(())
 }

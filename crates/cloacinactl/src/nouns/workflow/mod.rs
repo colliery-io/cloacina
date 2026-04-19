@@ -48,10 +48,6 @@ enum WorkflowVerb {
         #[arg(long)]
         context: Option<String>,
     },
-    /// Allow new scheduled runs.
-    Enable { name: String },
-    /// Stop new scheduled runs (does not cancel in-flight).
-    Disable { name: String },
 }
 
 impl WorkflowCmd {
@@ -60,50 +56,53 @@ impl WorkflowCmd {
         let ctx = ClientContext::resolve(globals, &config).map_err(CliError::Other)?;
         let output = ctx.output;
         let client = CliClient::new(ctx)?;
+        let tenant = client.ctx().tenant_segment().to_string();
         match self.verb {
             WorkflowVerb::List { package } => {
-                let path = match package {
-                    Some(p) => format!("/v1/workflows/index?package={p}"),
-                    None => "/v1/workflows/index".into(),
+                let body: serde_json::Value = client
+                    .get(&format!("/v1/tenants/{tenant}/workflows"))
+                    .await?;
+                let workflows = body.get("workflows").cloned().unwrap_or(body.clone());
+                let filtered = match (package, workflows.as_array()) {
+                    (Some(pat), Some(items)) => serde_json::Value::Array(
+                        items
+                            .iter()
+                            .filter(|v| {
+                                v.get("package_name")
+                                    .and_then(|n| n.as_str())
+                                    .map(|n| n.contains(&pat))
+                                    .unwrap_or(false)
+                            })
+                            .cloned()
+                            .collect(),
+                    ),
+                    _ => workflows,
                 };
-                let body: serde_json::Value = client.get(&path).await?;
-                render::list(&body, output)
+                render::list(&filtered, output)
             }
             WorkflowVerb::Inspect { name } => {
-                let body: serde_json::Value =
-                    client.get(&format!("/v1/workflows/by-name/{name}")).await?;
+                let body: serde_json::Value = client
+                    .get(&format!("/v1/tenants/{tenant}/workflows/{name}"))
+                    .await?;
                 render::object(&body, output)
             }
             WorkflowVerb::Run { name, context } => {
                 let body = load_context(context.as_deref())?;
                 let resp: serde_json::Value = client
-                    .post(&format!("/v1/workflows/{name}/run"), &body)
+                    .post(
+                        &format!("/v1/tenants/{tenant}/workflows/{name}/execute"),
+                        &body,
+                    )
                     .await?;
-                if let Some(id) = resp.get("execution_id").and_then(|v| v.as_str()) {
+                if let Some(id) = resp
+                    .get("execution_id")
+                    .or_else(|| resp.get("id"))
+                    .and_then(|v| v.as_str())
+                {
                     println!("{id}");
                 } else {
                     render::object(&resp, output)?;
                 }
-                Ok(())
-            }
-            WorkflowVerb::Enable { name } => {
-                let _: serde_json::Value = client
-                    .post(
-                        &format!("/v1/workflows/{name}/enable"),
-                        &serde_json::json!({}),
-                    )
-                    .await?;
-                println!("enabled {name}");
-                Ok(())
-            }
-            WorkflowVerb::Disable { name } => {
-                let _: serde_json::Value = client
-                    .post(
-                        &format!("/v1/workflows/{name}/disable"),
-                        &serde_json::json!({}),
-                    )
-                    .await?;
-                println!("disabled {name}");
                 Ok(())
             }
         }

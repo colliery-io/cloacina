@@ -73,6 +73,11 @@ pub struct WorkflowPackage {
     pub tenant_id: Option<String>,
     pub content_hash: String,
     pub superseded: bool,
+    pub compiled_data: Option<Vec<u8>>,
+    pub build_status: String,
+    pub build_error: Option<String>,
+    pub build_claimed_at: Option<UniversalTimestamp>,
+    pub compiled_at: Option<UniversalTimestamp>,
 }
 
 /// Model for creating new workflow package metadata entries (domain type).

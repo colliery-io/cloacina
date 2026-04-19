@@ -106,6 +106,11 @@ impl<'a> WorkflowPackagesDAL<'a> {
             tenant_id: tenant_id_owned,
             content_hash: String::new(),
             superseded: UniversalBool(false),
+            compiled_data: None,
+            build_status: "pending".to_string(),
+            build_error: None,
+            build_claimed_at: None,
+            compiled_at: None,
         };
 
         let package_name_clone = package_metadata.package_name.clone();
@@ -169,6 +174,11 @@ impl<'a> WorkflowPackagesDAL<'a> {
             tenant_id: tenant_id_owned,
             content_hash: String::new(),
             superseded: UniversalBool(false),
+            compiled_data: None,
+            build_status: "pending".to_string(),
+            build_error: None,
+            build_claimed_at: None,
+            compiled_at: None,
         };
 
         let package_name_clone = package_metadata.package_name.clone();

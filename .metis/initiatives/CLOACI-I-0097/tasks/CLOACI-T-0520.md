@@ -4,14 +4,14 @@ level: task
 title: "T2: Extract cloacina-compiler binary + library crate"
 short_code: "CLOACI-T-0520"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-19T00:22:52.597597+00:00
 parent: CLOACI-I-0097
 blocked_by: [CLOACI-T-0519]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Create the `cloacina-compiler` crate: library with the service's main loop hookpoint, plus a binary `main.rs` that parses flags and starts the service. This task only stubs the loop body — T3 fills in the actual build execution. Gives T3/T4/T9 a real target to link against.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

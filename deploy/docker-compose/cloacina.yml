@@ -1,0 +1,73 @@
+---
+# cloacina — Postgres + server + compiler
+#
+# Canonical production-shape deployment: one Postgres, one cloacina-server
+# (HTTP API + reconciler), one cloacina-compiler (build worker). The server
+# and compiler coordinate through `workflow_packages.build_status` in the
+# shared DB; no other wiring is required.
+#
+# Usage:
+#   docker compose -f deploy/docker-compose/cloacina.yml up -d
+#
+# Image tags: pinned to :latest until the T-0501 release pipeline publishes
+# versioned images to ghcr.io. Pin to a concrete tag in real deployments.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cloacina
+      POSTGRES_PASSWORD: cloacina
+      POSTGRES_DB: cloacina
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloacina"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cloacina-server:
+    image: ghcr.io/colliery-io/cloacina-server:latest
+    # Until T-0501 publishes images, operators can build locally:
+    # build:
+    #   context: ../..
+    #   dockerfile: deploy/docker/server.Dockerfile
+    command:
+      - "--bind"
+      - "0.0.0.0:8080"
+      - "--database-url"
+      - "postgres://cloacina:cloacina@postgres:5432/cloacina"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - server-home:/var/lib/cloacina
+
+  cloacina-compiler:
+    image: ghcr.io/colliery-io/cloacina-compiler:latest
+    # build:
+    #   context: ../..
+    #   dockerfile: deploy/docker/compiler.Dockerfile
+    command:
+      - "--bind"
+      - "0.0.0.0:9000"
+      - "--database-url"
+      - "postgres://cloacina:cloacina@postgres:5432/cloacina"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # /v1/status + /health — scrape or probe from the host network.
+    ports:
+      - "9000:9000"
+    volumes:
+      - compiler-home:/var/lib/cloacina
+
+volumes:
+  pgdata:
+  server-home:
+  compiler-home:

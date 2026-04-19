@@ -4,14 +4,14 @@ level: task
 title: "T3: Compiler build loop — claim, dispatch-by-language, persist artifact"
 short_code: "CLOACI-T-0521"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-19T00:23:01.672554+00:00
 parent: CLOACI-I-0097
 blocked_by: [CLOACI-T-0520]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Replace T2's stub build loop with the real thing: claim a row, fetch source bytes, unpack, run language-appropriate build step, persist compiled artifact, mark success (or capture error + mark failed).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

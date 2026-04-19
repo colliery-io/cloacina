@@ -54,8 +54,6 @@ enum ExecutionVerb {
         #[arg(long)]
         since: Option<String>,
     },
-    /// Request cancellation.
-    Cancel { id: String },
 }
 
 impl ExecutionCmd {
@@ -64,6 +62,7 @@ impl ExecutionCmd {
         let ctx = ClientContext::resolve(globals, &config).map_err(CliError::Other)?;
         let output = ctx.output;
         let client = CliClient::new(ctx)?;
+        let tenant = client.ctx().tenant_segment().to_string();
         match self.verb {
             ExecutionVerb::List {
                 workflow,
@@ -77,11 +76,15 @@ impl ExecutionCmd {
                 if let Some(s) = status {
                     query.push_str(&format!("&status={s}"));
                 }
-                let body: serde_json::Value = client.get(&format!("/v1/executions{query}")).await?;
+                let body: serde_json::Value = client
+                    .get(&format!("/v1/tenants/{tenant}/executions{query}"))
+                    .await?;
                 render::list(&body, output)
             }
             ExecutionVerb::Status { id } => {
-                let body: serde_json::Value = client.get(&format!("/v1/executions/{id}")).await?;
+                let body: serde_json::Value = client
+                    .get(&format!("/v1/tenants/{tenant}/executions/{id}"))
+                    .await?;
                 render::object(&body, output)
             }
             ExecutionVerb::Events { id, follow, since } => {
@@ -90,22 +93,12 @@ impl ExecutionCmd {
                         "--follow streaming is tracked under spec Open Items; not in v1".into(),
                     ));
                 }
-                let mut path = format!("/v1/executions/{id}/events");
+                let mut path = format!("/v1/tenants/{tenant}/executions/{id}/events");
                 if let Some(s) = since {
                     path.push_str(&format!("?since={s}"));
                 }
                 let body: serde_json::Value = client.get(&path).await?;
                 render::list(&body, output)
-            }
-            ExecutionVerb::Cancel { id } => {
-                let _: serde_json::Value = client
-                    .post(
-                        &format!("/v1/executions/{id}/cancel"),
-                        &serde_json::json!({}),
-                    )
-                    .await?;
-                println!("cancel requested for {id}");
-                Ok(())
             }
         }
     }

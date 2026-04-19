@@ -48,6 +48,9 @@ pub struct CloacinaConfig {
     /// Daemon-specific settings.
     pub daemon: DaemonSection,
 
+    /// Compiler service settings.
+    pub compiler: CompilerSection,
+
     /// Watch directory settings.
     pub watch: WatchSection,
 }
@@ -96,6 +99,22 @@ impl Default for DaemonSection {
             cron_max_catchup: None, // None = unlimited (run_all)
             cron_recovery_interval_s: 300,
             cron_lost_threshold_min: 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CompilerSection {
+    /// Local status/health address the compiler binds to (e.g. `127.0.0.1:9000`).
+    /// Also used by `cloacinactl compiler status` / `health` as the probe URL.
+    pub local_addr: String,
+}
+
+impl Default for CompilerSection {
+    fn default() -> Self {
+        Self {
+            local_addr: "127.0.0.1:9000".to_string(),
         }
     }
 }

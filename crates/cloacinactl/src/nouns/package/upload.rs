@@ -37,15 +37,18 @@ pub async fn run(globals: &GlobalOpts, file: &Path) -> Result<(), CliError> {
         .file_name(filename)
         .mime_str("application/octet-stream")
         .map_err(CliError::from_reqwest)?;
-    let form = multipart::Form::new().part("package", part);
+    let form = multipart::Form::new().part("file", part);
 
     let http = reqwest::Client::new();
-    let url = format!("{}/v1/workflows", ctx.server.trim_end_matches('/'));
-    let mut req = http.post(&url).bearer_auth(&ctx.api_key);
-    if let Some(t) = &ctx.tenant {
-        req = req.header("X-Tenant", t);
-    }
-    let response = req
+    let tenant = ctx.tenant_segment();
+    let url = format!(
+        "{}/v1/tenants/{}/workflows",
+        ctx.server.trim_end_matches('/'),
+        tenant
+    );
+    let response = http
+        .post(&url)
+        .bearer_auth(&ctx.api_key)
         .multipart(form)
         .send()
         .await
@@ -53,7 +56,11 @@ pub async fn run(globals: &GlobalOpts, file: &Path) -> Result<(), CliError> {
     let status = response.status().as_u16();
     if response.status().is_success() {
         let body: serde_json::Value = response.json().await.map_err(CliError::from_reqwest)?;
-        if let Some(id) = body.get("id").and_then(|v| v.as_str()) {
+        if let Some(id) = body
+            .get("package_id")
+            .or_else(|| body.get("id"))
+            .and_then(|v| v.as_str())
+        {
             println!("{id}");
         } else {
             println!("{body}");

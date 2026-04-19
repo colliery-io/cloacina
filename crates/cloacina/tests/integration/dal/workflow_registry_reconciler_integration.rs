@@ -17,10 +17,26 @@
 //! Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
 
 use crate::fixtures::get_or_init_fixture;
-use cloacina::registry::traits::WorkflowRegistry;
+use cloacina::registry::traits::{RegistryStorage, WorkflowRegistry};
+use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use serial_test::serial;
 use std::sync::OnceLock;
 use uuid::Uuid;
+
+/// Mirror of `workflow_registry::drive_to_success` — the registry's read
+/// APIs filter to `build_status = 'success'`, but these DAL tests don't
+/// run the compiler, so flip the newly-registered row through success
+/// manually before asserting on it.
+async fn drive_to_success<S: RegistryStorage + Send + Sync>(
+    registry: &WorkflowRegistryImpl<S>,
+    package_id: Uuid,
+) {
+    registry.claim_next_build().await.expect("claim_next_build");
+    registry
+        .mark_build_success(package_id, Vec::new())
+        .await
+        .expect("mark_build_success");
+}
 
 /// Cached test package data.
 ///
@@ -103,6 +119,7 @@ async fn test_dal_register_then_reconciler_load() {
         .register_workflow_package(package_data.clone())
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     println!("✅ Package registered with DAL ID: {}", package_id);
 
@@ -198,6 +215,7 @@ async fn test_dal_register_then_get_workflow_package_by_id_failure_case() {
         .register_workflow_package(package_data)
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     println!("✅ Package registered with DAL ID: {}", package_id);
 

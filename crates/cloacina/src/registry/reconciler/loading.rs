@@ -27,14 +27,14 @@ use crate::workflow::global_workflow_registry;
 impl RegistryReconciler {
     /// Load a package into the global registries.
     ///
-    /// The `package_data` stored in the registry is a bzip2-compressed tar
-    /// containing Rust source and a `package.toml`.  This method:
-    /// 1. Writes the archive to a temp file.
-    /// 2. Unpacks it via `fidius_core::package::unpack_package`.
-    /// 3. Reads `package.toml` for metadata via `load_manifest::<CloacinaMetadata>`.
-    /// 4. Compiles the source with `cargo build --lib`.
-    /// 5. Reads the compiled cdylib bytes.
-    /// 6. Passes them to `register_package_tasks` / `register_package_workflows`.
+    /// Since the compiler service (CLOACI-I-0097) owns all `cargo build`
+    /// invocations, the reconciler no longer compiles anything. It:
+    /// 1. Fetches the source archive + prebuilt cdylib (`compiled_data`)
+    ///    from the workflow registry — `get_workflow` only returns
+    ///    packages in `build_status = 'success'`.
+    /// 2. Unpacks the source for manifest + (Python) task extraction.
+    /// 3. Dispatches by language: Rust hands `compiled_data` to fidius FFI,
+    ///    Python imports from source.
     pub(super) async fn load_package(
         &self,
         metadata: WorkflowMetadata,
@@ -115,32 +115,29 @@ impl RegistryReconciler {
         );
 
         // --- Step 4, 5, 6: language-specific loading ---
+        //
+        // `compiled_data` is populated by the compiler service for Rust / mixed
+        // packages. Hold onto it here so the computation-graph step below can
+        // reuse the same bytes without another DB round-trip.
+        let rust_cdylib_bytes = loaded_workflow.compiled_data.clone();
+
         let (task_namespaces, workflow_name, trigger_names) = if cloacina_manifest.metadata.language
             == "rust"
         {
-            // Rust path: compile cdylib, extract metadata via FFI, register
+            // Rust path: load the compiler-produced cdylib, extract metadata
+            // via fidius FFI, register. No cargo invocation here.
+            let library_data =
+                rust_cdylib_bytes
+                    .clone()
+                    .ok_or_else(|| RegistryError::RegistrationFailed {
+                        message: format!(
+                            "Rust package {} v{} has no compiled_data — compiler service must \
+                         produce the cdylib before the reconciler loads it",
+                            metadata.package_name, metadata.version
+                        ),
+                    })?;
             info!(
-                "Step 4: Compiling Rust source for package: {}",
-                metadata.package_name
-            );
-            let lib_path = Self::compile_source_package(&source_dir).await?;
-            info!(
-                "Step 4: Compilation complete for {}: {}",
-                metadata.package_name,
-                lib_path.display()
-            );
-
-            let library_data = tokio::fs::read(&lib_path).await.map_err(|e| {
-                RegistryError::RegistrationFailed {
-                    message: format!(
-                        "Failed to read compiled library {}: {}",
-                        lib_path.display(),
-                        e
-                    ),
-                }
-            })?;
-            info!(
-                "Step 5: Library read ({} bytes) for {}",
+                "Step 4: Loaded compiled cdylib ({} bytes) for {}",
                 library_data.len(),
                 metadata.package_name
             );
@@ -254,13 +251,17 @@ impl RegistryReconciler {
         // --- Step 7: Computation graph routing ---
         let graph_name = if cloacina_manifest.metadata.has_computation_graph() {
             if cloacina_manifest.metadata.language == "rust" {
-                // Re-read the library to call get_graph_metadata (method index 2)
-                let lib_path = Self::compile_source_package(&source_dir).await?;
-                let library_data = tokio::fs::read(&lib_path).await.map_err(|e| {
-                    RegistryError::RegistrationFailed {
-                        message: format!("Failed to read library for graph metadata: {}", e),
-                    }
-                })?;
+                // Reuse the cdylib bytes already fetched for task registration
+                // above — no recompilation, no extra DB hit.
+                let library_data =
+                    rust_cdylib_bytes
+                        .clone()
+                        .ok_or_else(|| RegistryError::RegistrationFailed {
+                            message: format!(
+                                "Rust CG package {} v{} has no compiled_data",
+                                metadata.package_name, metadata.version
+                            ),
+                        })?;
 
                 match self
                     .package_loader

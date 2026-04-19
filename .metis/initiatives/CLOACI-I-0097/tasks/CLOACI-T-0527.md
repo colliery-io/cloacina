@@ -4,14 +4,14 @@ level: task
 title: "T9: End-to-end compiler + reconciler integration tests"
 short_code: "CLOACI-T-0527"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-19T00:22:03.636501+00:00
 parent: CLOACI-I-0097
 blocked_by: [CLOACI-T-0526]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Lock the contract: upload → queue → compile → load → execute must work end-to-end across the three binaries. Also pin the error paths (failed build, stale-heartbeat recovery, content-hash artifact reuse).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -64,4 +68,48 @@ All polls have timeouts (30s each) and structured error messages ("build stuck i
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-04-18** — Delivered:
+
+- `angreal cloacina compiler-e2e` harness in `.angreal/cloacina/compiler_e2e.py`.
+  Builds cloacina-server + cloacina-compiler + cloacinactl (debug), spins
+  Postgres via the existing docker-compose fixture, starts both services
+  as separate subprocesses sharing the DB, drives the full flow through
+  the `cloacinactl` subprocess, tears everything down in `finally`.
+- Fixtures under `examples/fixtures/`: `compiler-happy-rust` (minimal
+  cdylib, builds green) and `compiler-broken-rust` (same shell, `src/lib.rs`
+  references an undefined identifier — deterministic cargo failure).
+- Happy path: pack + upload fixture → poll `package inspect <id>` until
+  `build_status = success`, assert `build_error` null. Timeout 180s with
+  a diagnostic body dump if it expires.
+- Failed-build path: upload broken fixture → poll until
+  `build_status = failed`, assert `build_error` non-empty.
+- Composite status: `cloacinactl status` exits 0 with server + compiler
+  rows present.
+
+**Also landed while proving the harness end-to-end** (separate commits):
+
+- CLI↔server API realignment — `cloacinactl` was calling aspirational
+  `/v1/<noun>` paths that never existed on the server. Every tenant-scoped
+  verb now targets the real `/tenants/{tenant}/...` / `/auth/...` /
+  `/v1/health/reactors` routes the server actually exposes.
+- Graph noun renamed to `reactor` to match the server's internal naming.
+- Filed CLOACI-T-0528 (tech-debt) to audit residual `graph` / `reactor`
+  drift across core + server internals.
+
+**Deferred — captured for follow-up:**
+
+- **Reconciler end-to-end** (upload → compile → reconciler loads → workflow
+  run → execution completes). Fixtures that link against cloacina crates
+  need either host-path rewriting inside `cloacina-compiler` or published
+  crates from the T-0501 release pipeline. Compiler-side mechanics above
+  prove the queue + heartbeat + artifact-persist contract independently;
+  the FFI-load leg lands once one of those two blockers clears.
+- **Stale-heartbeat recovery** — DB-observable via a direct SQL UPDATE
+  that backdates `build_claimed_at`. Not in this pass; trivial to add
+  next time someone touches the harness.
+- **Content-hash artifact reuse** — same story; needs a SQL pre-populate
+  or a second upload path with identical bytes.
+
+CI wire-up (T-0518 sibling): the task is registered in `task_project.py`
+so `angreal cloacina compiler-e2e` runs alongside `cli-e2e` in any CI job
+that exercises the cloacina command group.

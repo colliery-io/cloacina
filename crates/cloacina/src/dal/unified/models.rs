@@ -363,6 +363,11 @@ pub struct UnifiedWorkflowPackage {
     pub tenant_id: Option<String>,
     pub content_hash: String,
     pub superseded: UniversalBool,
+    pub compiled_data: Option<UniversalBinary>,
+    pub build_status: String,
+    pub build_error: Option<String>,
+    pub build_claimed_at: Option<UniversalTimestamp>,
+    pub compiled_at: Option<UniversalTimestamp>,
 }
 
 #[derive(Debug, Insertable)]
@@ -381,6 +386,11 @@ pub struct NewUnifiedWorkflowPackage {
     pub tenant_id: Option<String>,
     pub content_hash: String,
     pub superseded: UniversalBool,
+    pub compiled_data: Option<UniversalBinary>,
+    pub build_status: String,
+    pub build_error: Option<String>,
+    pub build_claimed_at: Option<UniversalTimestamp>,
+    pub compiled_at: Option<UniversalTimestamp>,
 }
 
 // ============================================================================
@@ -635,6 +645,11 @@ impl From<UnifiedWorkflowPackage> for WorkflowPackage {
             tenant_id: u.tenant_id,
             content_hash: u.content_hash,
             superseded: u.superseded.0,
+            compiled_data: u.compiled_data.map(|b| b.into_inner()),
+            build_status: u.build_status,
+            build_error: u.build_error,
+            build_claimed_at: u.build_claimed_at,
+            compiled_at: u.compiled_at,
         }
     }
 }

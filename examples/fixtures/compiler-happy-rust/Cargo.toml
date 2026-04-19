@@ -1,0 +1,30 @@
+# TEMPLATE — `__WORKSPACE__` is rewritten to an absolute path by
+# .angreal/cloacina/compiler_e2e.py before packing.
+[workspace]
+
+[package]
+name = "compiler-happy-rust"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["packaged"]
+packaged = []
+
+[dependencies]
+cloacina-macros = { path = "__WORKSPACE__/crates/cloacina-macros" }
+cloacina-workflow = { path = "__WORKSPACE__/crates/cloacina-workflow", features = ["packaged"] }
+cloacina-workflow-plugin = { path = "__WORKSPACE__/crates/cloacina-workflow-plugin" }
+serde_json = "1.0"
+futures = "0.3"
+async-trait = "0.1"
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+tokio = { version = "1.0", features = ["time"] }
+
+[build-dependencies]
+cloacina-build = { path = "__WORKSPACE__/crates/cloacina-build" }
