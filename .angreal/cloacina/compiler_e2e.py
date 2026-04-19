@@ -185,17 +185,24 @@ def _stage_fixture(
     src_name: str,
     *,
     rename_to: str | None = None,
+    version_override: str | None = None,
+    stage_suffix: str | None = None,
 ) -> Path:
     """Copy a fixture from examples/fixtures/<src_name> into the per-run
     home, rewriting `__WORKSPACE__` placeholders to absolute paths that
     point at this checkout. Optionally renames the package (cargo pkg +
     cloacina pkg name) to produce distinct content-hash bytes — used by
     the stale-heartbeat test to avoid dedup collision with the happy
-    fixture.
+    fixture. `version_override` substitutes `version = "0.1.0"` in
+    both package.toml + Cargo.toml for the package-lifecycle e2e
+    (upgrade/rollback/concurrent scenarios, T-0497). `stage_suffix`
+    changes the staged-dir suffix so multiple copies of the same
+    (src_name, rename_to) can coexist in one run.
     """
     src = FIXTURES / src_name
     dst_name = rename_to or src_name
-    dst = home / f"staged-{dst_name}"
+    suffix = stage_suffix or ""
+    dst = home / f"staged-{dst_name}{suffix}"
     if dst.exists():
         subprocess.run(["rm", "-rf", str(dst)], check=True)
     (dst / "src").mkdir(parents=True)
@@ -208,6 +215,8 @@ def _stage_fixture(
             text = text.replace(
                 src_name.replace("-", "_"), rename_to.replace("-", "_")
             )
+        if version_override is not None and rel in ("package.toml", "Cargo.toml"):
+            text = text.replace('version = "0.1.0"', f'version = "{version_override}"')
         (dst / rel).write_text(text)
     return dst
 
@@ -475,6 +484,138 @@ def compiler_e2e():
             f"execution {execution_id} ended in status {status!r}"
         )
         print(f"  ok: reconciler end-to-end → execution {status}")
+
+        # --- package lifecycle: upgrade (T-0497) ---------------------------
+        # Upload a new version of the same package. The upload handler
+        # should supersede the current active row and insert a new one
+        # with its own UUID. DB invariant: one active row per name.
+        upgrade_dir = _stage_fixture(
+            home,
+            "compiler-happy-rust",
+            version_override="0.2.0",
+            stage_suffix="-v2",
+        )
+        upgrade_id = _upload(home, upgrade_dir)
+        _poll_build_status(home, upgrade_id, {"success"}, timeout_s=300.0)
+        assert upgrade_id != happy_id, (
+            f"upgrade should yield a new package_id; got {upgrade_id!r} "
+            f"same as v1 {happy_id!r}"
+        )
+        v1_row = _psql(
+            f"SELECT superseded FROM public.workflow_packages WHERE id = '{happy_id}';"
+        )
+        v2_row = _psql(
+            f"SELECT superseded FROM public.workflow_packages WHERE id = '{upgrade_id}';"
+        )
+        assert v1_row.strip() in ("t", "true"), f"v1 should be superseded, got {v1_row!r}"
+        assert v2_row.strip() in ("f", "false"), f"v2 should be active, got {v2_row!r}"
+        active_count = _psql(
+            "SELECT COUNT(*) FROM public.workflow_packages "
+            "WHERE package_name = 'compiler-happy-rust' AND NOT superseded;"
+        )
+        assert active_count.strip() == "1", (
+            f"exactly one active row expected for compiler-happy-rust, got {active_count!r}"
+        )
+        print("  ok: upgrade path → old superseded, new active")
+
+        # --- package lifecycle: rollback (T-0497) --------------------------
+        # Versions are monotonic (UNIQUE(name, version)), so rollback means
+        # a *new* version string carrying older source. Upload v0.3.0 with
+        # the v1 task body — supersedes v0.2.0 and lands as a fresh UUID.
+        rollback_dir = _stage_fixture(
+            home,
+            "compiler-happy-rust",
+            version_override="0.3.0",
+            stage_suffix="-rollback",
+        )
+        rollback_id = _upload(home, rollback_dir)
+        _poll_build_status(home, rollback_id, {"success"}, timeout_s=300.0)
+        assert rollback_id != happy_id and rollback_id != upgrade_id, (
+            f"rollback should yield a fresh package_id; got {rollback_id!r}"
+        )
+        v2_after = _psql(
+            f"SELECT superseded FROM public.workflow_packages WHERE id = '{upgrade_id}';"
+        )
+        rollback_row = _psql(
+            f"SELECT superseded FROM public.workflow_packages WHERE id = '{rollback_id}';"
+        )
+        assert v2_after.strip() in ("t", "true"), (
+            f"v2 should be superseded after rollback, got {v2_after!r}"
+        )
+        assert rollback_row.strip() in ("f", "false"), (
+            f"rollback row should be active, got {rollback_row!r}"
+        )
+        active_count = _psql(
+            "SELECT COUNT(*) FROM public.workflow_packages "
+            "WHERE package_name = 'compiler-happy-rust' AND NOT superseded;"
+        )
+        assert active_count.strip() == "1", (
+            f"exactly one active row expected after rollback, got {active_count!r}"
+        )
+        print("  ok: rollback path → v2 superseded, older bytes active under new id")
+
+        # --- package lifecycle: concurrent uploads (T-0497) ----------------
+        # Two parallel uploads of a fresh (name, version). Exactly one
+        # must succeed; the other must lose cleanly with a user-visible
+        # "package already exists" error. DB invariant: one active row.
+        # No split-brain, no duplicate rows under the partial unique index.
+        concurrent_dir = _stage_fixture(
+            home,
+            "compiler-happy-rust",
+            rename_to="compiler-concurrent-rust",
+        )
+        archive = home / f"{concurrent_dir.name}.cloacina"
+        _cloacinactl(
+            home, "package", "pack", str(concurrent_dir), "--out", str(archive)
+        )
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        def do_upload() -> tuple[int, str, str]:
+            return _cloacinactl(
+                home, "package", "upload", str(archive), check=False
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f1 = pool.submit(do_upload)
+            f2 = pool.submit(do_upload)
+            r1 = f1.result()
+            r2 = f2.result()
+
+        # Either both succeed (second hit the hash-dedup idempotent branch)
+        # or one wins + one loses with 409/PackageExists. Both are correct
+        # outcomes per the audit ("only one wins, no corruption").
+        outcomes = sorted([(r1[0], r1[1], r1[2]), (r2[0], r2[1], r2[2])])
+        success_count = sum(1 for (code, _, _) in outcomes if code == 0)
+        assert success_count >= 1, (
+            f"at least one concurrent upload must succeed; got {outcomes!r}"
+        )
+        if success_count == 1:
+            loser = [err for (code, _, err) in outcomes if code != 0][0]
+            assert "already exists" in loser.lower() or "packageexists" in loser.lower(), (
+                f"losing upload must report PackageExists, got: {loser!r}"
+            )
+
+        active_count = _psql(
+            "SELECT COUNT(*) FROM public.workflow_packages "
+            "WHERE package_name = 'compiler-concurrent-rust' AND NOT superseded;"
+        )
+        assert active_count.strip() == "1", (
+            f"exactly one active row expected after concurrent upload, "
+            f"got {active_count!r}"
+        )
+        total_count = _psql(
+            "SELECT COUNT(*) FROM public.workflow_packages "
+            "WHERE package_name = 'compiler-concurrent-rust';"
+        )
+        assert total_count.strip() == "1", (
+            f"no duplicate rows expected; DB has {total_count!r} rows for "
+            "compiler-concurrent-rust"
+        )
+        print(
+            f"  ok: concurrent uploads → {success_count}/2 succeeded, one "
+            "active row, no split-brain"
+        )
 
         print_final_success("cloacina-compiler e2e")
     except BaseException:
