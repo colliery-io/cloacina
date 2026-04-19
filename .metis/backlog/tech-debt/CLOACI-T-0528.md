@@ -165,4 +165,6 @@ Total: ~6 symbol renames, ~25 call-site updates, ~10 test-name updates.
 
 ### Next step
 
-Decide on renames vs defer (per-item). Once the above table has a thumbs-up, a follow-up PR does the renames in a single mechanical sweep. Low-risk: `cargo check --tests` covers the Rust side end-to-end; Python tests cover the Python side.
+**Paused pending a nomenclature conversation.** Dylan's position (2026-04-19): computation graph and reactor are separate concepts, not a two-layer spec/runtime split. The rename proposals above assume the latter and need to be re-evaluated against the actual model before any code changes land.
+
+Task stays open with the audit intact — the inventory of where each term is used is still useful input regardless of how the naming discussion resolves. No rename PR until the conceptual split is settled.
