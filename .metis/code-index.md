@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-18T23:58:11Z | 478 files | JavaScript, Python, Rust
+> Generated: 2026-04-19T02:57:15Z | 478 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -5382,44 +5382,46 @@
 
 #### crates/cloacina/tests/integration/dal/workflow_registry.rs
 
--  `MOCK_PACKAGE` variable L28 — `: OnceLock<Vec<u8>>` — Cached mock package data.
--  `get_mock_package` function L35-37 — `() -> Vec<u8>` — Get the cached mock package, packing it from the example source directory.
--  `create_source_package` function L43-78 — `() -> Vec<u8>` — Create a fidius source package from the packaged-workflows example directory.
--  `test_register_and_get_workflow_package` function L82-86 — `()`
--  `test_register_and_get_workflow_package_with_db_storage` function L88-121 — `()`
--  `test_register_and_get_workflow_package_with_fs_storage` function L124-156 — `()`
--  `test_get_workflow_package_by_name` function L160-165 — `()`
--  `test_get_workflow_package_by_name_with_db_storage` function L167-207 — `()`
--  `test_get_workflow_package_by_name_with_fs_storage` function L209-249 — `()`
--  `test_unregister_workflow_package_by_id` function L253-258 — `()`
--  `test_unregister_workflow_package_by_id_with_db_storage` function L260-298 — `()`
--  `test_unregister_workflow_package_by_id_with_fs_storage` function L300-338 — `()`
--  `test_unregister_workflow_package_by_name` function L342-347 — `()`
--  `test_unregister_workflow_package_by_name_with_db_storage` function L349-396 — `()`
--  `test_unregister_workflow_package_by_name_with_fs_storage` function L398-445 — `()`
--  `test_list_packages` function L449-454 — `()`
--  `test_list_packages_with_db_storage` function L456-496 — `()`
--  `test_list_packages_with_fs_storage` function L498-538 — `()`
--  `test_register_duplicate_package_is_idempotent` function L542-548 — `()`
--  `test_register_duplicate_package_idempotent_with_db_storage` function L550-578 — `()`
--  `test_register_duplicate_package_idempotent_with_fs_storage` function L580-605 — `()`
--  `test_exists_operations` function L609-614 — `()`
--  `test_exists_operations_with_db_storage` function L616-664 — `()`
--  `test_exists_operations_with_fs_storage` function L666-714 — `()`
--  `test_get_nonexistent_package` function L718-723 — `()`
--  `test_get_nonexistent_package_with_db_storage` function L725-752 — `()`
--  `test_get_nonexistent_package_with_fs_storage` function L754-781 — `()`
--  `test_unregister_nonexistent_package` function L785-790 — `()`
--  `test_unregister_nonexistent_package_with_db_storage` function L792-823 — `()`
--  `test_unregister_nonexistent_package_with_fs_storage` function L825-856 — `()`
+-  `drive_to_success` function L30-39 — `( registry: &WorkflowRegistryImpl<S>, package_id: Uuid, )` — After `register_workflow_package`, a row lands with
+-  `MOCK_PACKAGE` variable L46 — `: OnceLock<Vec<u8>>` — Cached mock package data.
+-  `get_mock_package` function L53-55 — `() -> Vec<u8>` — Get the cached mock package, packing it from the example source directory.
+-  `create_source_package` function L61-96 — `() -> Vec<u8>` — Create a fidius source package from the packaged-workflows example directory.
+-  `test_register_and_get_workflow_package` function L100-104 — `()`
+-  `test_register_and_get_workflow_package_with_db_storage` function L106-140 — `()`
+-  `test_register_and_get_workflow_package_with_fs_storage` function L143-176 — `()`
+-  `test_get_workflow_package_by_name` function L180-185 — `()`
+-  `test_get_workflow_package_by_name_with_db_storage` function L187-228 — `()`
+-  `test_get_workflow_package_by_name_with_fs_storage` function L230-271 — `()`
+-  `test_unregister_workflow_package_by_id` function L275-280 — `()`
+-  `test_unregister_workflow_package_by_id_with_db_storage` function L282-321 — `()`
+-  `test_unregister_workflow_package_by_id_with_fs_storage` function L323-362 — `()`
+-  `test_unregister_workflow_package_by_name` function L366-371 — `()`
+-  `test_unregister_workflow_package_by_name_with_db_storage` function L373-421 — `()`
+-  `test_unregister_workflow_package_by_name_with_fs_storage` function L423-471 — `()`
+-  `test_list_packages` function L475-480 — `()`
+-  `test_list_packages_with_db_storage` function L482-523 — `()`
+-  `test_list_packages_with_fs_storage` function L525-566 — `()`
+-  `test_register_duplicate_package_is_idempotent` function L570-576 — `()`
+-  `test_register_duplicate_package_idempotent_with_db_storage` function L578-606 — `()`
+-  `test_register_duplicate_package_idempotent_with_fs_storage` function L608-633 — `()`
+-  `test_exists_operations` function L637-642 — `()`
+-  `test_exists_operations_with_db_storage` function L644-693 — `()`
+-  `test_exists_operations_with_fs_storage` function L695-744 — `()`
+-  `test_get_nonexistent_package` function L748-753 — `()`
+-  `test_get_nonexistent_package_with_db_storage` function L755-782 — `()`
+-  `test_get_nonexistent_package_with_fs_storage` function L784-811 — `()`
+-  `test_unregister_nonexistent_package` function L815-820 — `()`
+-  `test_unregister_nonexistent_package_with_db_storage` function L822-853 — `()`
+-  `test_unregister_nonexistent_package_with_fs_storage` function L855-886 — `()`
 
 #### crates/cloacina/tests/integration/dal/workflow_registry_reconciler_integration.rs
 
--  `TEST_PACKAGE` variable L29 — `: OnceLock<Vec<u8>>` — Cached test package data.
--  `get_test_package` function L36-38 — `() -> Vec<u8>` — Get the cached test package, packing it from the example source directory.
--  `create_source_package` function L44-80 — `() -> Vec<u8>` — Create a fidius source package from the simple-packaged example directory.
--  `test_dal_register_then_reconciler_load` function L84-176 — `()` — Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
--  `test_dal_register_then_get_workflow_package_by_id_failure_case` function L180-222 — `()` — Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
+-  `drive_to_success` function L30-39 — `( registry: &WorkflowRegistryImpl<S>, package_id: Uuid, )` — Mirror of `workflow_registry::drive_to_success` — the registry's read
+-  `TEST_PACKAGE` variable L45 — `: OnceLock<Vec<u8>>` — Cached test package data.
+-  `get_test_package` function L52-54 — `() -> Vec<u8>` — Get the cached test package, packing it from the example source directory.
+-  `create_source_package` function L60-96 — `() -> Vec<u8>` — Create a fidius source package from the simple-packaged example directory.
+-  `test_dal_register_then_reconciler_load` function L100-193 — `()` — Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
+-  `test_dal_register_then_get_workflow_package_by_id_failure_case` function L197-240 — `()` — Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
 
 ### crates/cloacina/tests/integration/database
 
@@ -9654,7 +9656,7 @@
 
 #### examples/fixtures/compiler-broken-rust/build.rs
 
--  `main` function L1-3 — `()`
+-  `main` function L17-19 — `()`
 
 ### examples/fixtures/compiler-broken-rust/src
 
@@ -9662,8 +9664,8 @@
 
 #### examples/fixtures/compiler-broken-rust/src/lib.rs
 
-- pub `compiler_broken_workflow` module L13-28 — `-`
-- pub `broken` function L21-27 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `compiler_broken_workflow` module L29-44 — `-`
+- pub `broken` function L37-43 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 
 ### examples/fixtures/compiler-happy-rust
 
@@ -9671,7 +9673,7 @@
 
 #### examples/fixtures/compiler-happy-rust/build.rs
 
--  `main` function L1-3 — `()`
+-  `main` function L17-19 — `()`
 
 ### examples/fixtures/compiler-happy-rust/src
 
@@ -9679,8 +9681,8 @@
 
 #### examples/fixtures/compiler-happy-rust/src/lib.rs
 
-- pub `compiler_happy_workflow` module L12-24 — `-`
-- pub `noop` function L20-23 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `compiler_happy_workflow` module L28-40 — `-`
+- pub `noop` function L36-39 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 
 ### examples/performance/computation-graph
 

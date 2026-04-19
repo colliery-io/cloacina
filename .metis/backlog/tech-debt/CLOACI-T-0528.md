@@ -4,15 +4,15 @@ level: task
 title: "Audit reactor vs computation_graph naming drift in core + server"
 short_code: "CLOACI-T-0528"
 created_at: 2026-04-18T16:32:39.189020+00:00
-updated_at: 2026-04-18T16:32:39.189020+00:00
+updated_at: 2026-04-19T02:58:09.450466+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -52,6 +52,10 @@ state, and vice versa.
 - **Risk if deferred**: Every new endpoint / DAL method / config knob
   compounds the drift. Renames get more expensive as more external
   consumers depend on the ambiguous names.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -101,4 +105,64 @@ None. This is a standalone cleanup; no initiative ties.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-04-19 — Audit (read-only pass)
+
+Scanned `crates/cloacina/src`, `crates/cloacina-server/src`,
+`crates/cloacinactl/src`, DAL + migrations, and docs. Confirmed the
+two-layer intent is already followed in most of the codebase; drift
+clusters in the scheduler + Python CG subsystems.
+
+#### Already correct (no changes)
+
+| Subsystem | What it uses |
+|---|---|
+| Server HTTP routes | `/v1/health/reactors`, `/v1/health/reactors/{name}`, `/v1/health/accumulators` |
+| CLI | `cloacinactl reactor {list,status,accumulators}` (post I-0097) |
+| Core runtime types | `Reactor`, `ReactorHandle`, `ReactorHealth`, `ReactorCommand` |
+| Core spec types | `WorkflowGraph`, `PyComputationGraphBuilder`, `register_computation_graph` |
+| DAL runtime tables | `reactor_state`, `save_reactor_state`, `load_reactor_state` |
+
+#### Drift inventory — rename targets
+
+| File:Line | Identifier | Layer | Proposed | Notes |
+|---|---|---|---|---|
+| `cloacina/src/computation_graph/scheduler.rs:101` | `pub struct GraphStatus` | runtime | `ReactorStatus` | Fields `reactor_paused`, `running`, `health`, `accumulators` — all runtime state. |
+| `cloacina/src/computation_graph/scheduler.rs:175` | `load_graph(decl)` | runtime | `load_reactor` | Spawns a running reactor from a declaration. |
+| `cloacina/src/computation_graph/scheduler.rs:308` | `unload_graph(name)` | runtime | `unload_reactor` | Stops a running reactor by name. |
+| `cloacina/src/computation_graph/scheduler.rs:337` | `list_graphs()` | runtime | `list_reactors` | Returns currently-loaded reactor instances. |
+| `cloacina/src/python/computation_graph.rs:481` | `PythonGraphExecutor` | runtime | `PythonReactorExecutor` | Runtime executor struct (mirrors Rust `Reactor`). |
+| `cloacina/src/python/computation_graph.rs:476` | `get_graph_executor` | runtime | `get_reactor_executor` | Fetches the executor for a running reactor. |
+| `cloacina/src/python/computation_graph.rs:601` | `build_python_graph_declaration` | mixed | `build_python_reactor_declaration` | Builds a `ComputationGraphDeclaration` — arg is the reactor spec, not a graph. |
+| `cloacina/src/python/computation_graph.rs:463` | `GRAPH_EXECUTORS` static | runtime | `REACTOR_EXECUTORS` | Map of running reactor executors. |
+| `cloacina-server/src/lib.rs:512` | `state.reactive_scheduler.list_graphs()` | call site | (follows `list_reactors` rename) | Reactor endpoints already named correctly, but they call `list_graphs()` internally. |
+| `cloacina-server/src/routes/health_reactive.rs:54,83` | `let graphs = ...list_graphs()` | call site | rename local to `reactors` | Two sites in reactor endpoint handlers. |
+| `cloacina/src/registry/reconciler/loading.rs:303,400,509` | `scheduler.load_graph` / `unload_graph` | call site | (follows renames) | Rust-CG + Python-CG both affected. |
+| `cloacina/src/computation_graph/scheduler.rs:681` | `self.unload_graph(&name)` | internal | (follows rename) | Shutdown path. |
+| `cloacina/src/python/loader.rs:434` | `get_graph_executor(&graph_name)` | call site | (follows rename) | Python CG load path. |
+| `cloacina/tests/integration/computation_graph.rs:411,429,473,1867` | `scheduler.load_graph` / `list_graphs` / `unload_graph` | test | (follows renames) | Four test call sites. |
+| `cloacina/src/computation_graph/scheduler.rs:752,802` | `test_load_graph_*`, `test_unload_graph_*` | test fn names | `test_load_reactor_*` / `test_unload_reactor_*` | Match renamed methods. |
+| `cloacina/src/python/computation_graph_tests.rs:90,136,284,359` | `get_graph_executor(...)` | test | (follows rename) | Four test call sites. |
+
+Total: ~6 symbol renames, ~25 call-site updates, ~10 test-name updates.
+
+#### Deliberately NOT renamed
+
+| Thing | Reason |
+|---|---|
+| `computation_graph/` module path | Owns both spec types (WorkflowGraph, accumulators) and runtime types (Reactor, scheduler). Splitting is a bigger initiative. |
+| Migration dirs `017_create_computation_graph_state_tables` + `015_…sqlite` | Applied migrations — renaming breaks replay history. The dir name is cosmetic; the schema inside already uses `reactor_state` correctly. |
+| `ComputationGraphDeclaration` struct | Genuinely mixed (contains both accumulator spec *and* reactor config). Splitting it is a design change, not a rename. Left for human call. |
+| `register_computation_graph`, `PyComputationGraphBuilder`, `WorkflowGraph` | Correctly spec-level — they accept DAG definitions, not runtime state. |
+| DAL tables `accumulator_checkpoints`, `accumulator_boundaries`, `accumulator_state` | Correctly spec-level persisted state. |
+
+#### Top 5 ambiguous cases flagged for human judgement
+
+1. **`ComputationGraphDeclaration`** — has both spec fields (`accumulators[]`) and runtime fields (`reactor {}`). Rename vs split is a design call; leaving as-is until someone wants to separate concerns.
+2. **`GraphStatus`** — high-confusion name (holds runtime state). `ReactorStatus` is the obvious rename but the struct is public API on `ReactiveScheduler::list_graphs`, so this is the rename with the biggest ripple.
+3. **`load_graph` / `unload_graph`** — the verb+noun read naturally as "load a graph spec," but what they do is spawn/teardown a running reactor. Rename is semantically correct; just touches a lot of call sites.
+4. **`build_python_graph_declaration`** — builds a declaration struct that is the input to the reactor. Arguably `build_python_reactor_declaration` since the output is consumed by `load_reactor`.
+5. **Migration dir `…computation_graph_state_tables`** — the name suggests spec state but the dir contains `reactor_state`. Cannot rename the dir (replay history). Leave with an inline SQL comment pointing to the naming convention.
+
+### Next step
+
+Decide on renames vs defer (per-item). Once the above table has a thumbs-up, a follow-up PR does the renames in a single mechanical sweep. Low-risk: `cargo check --tests` covers the Rust side end-to-end; Python tests cover the Python side.
