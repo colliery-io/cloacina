@@ -4,14 +4,14 @@ level: task
 title: "T5: Upload handler — enqueue + content-hash artifact reuse"
 short_code: "CLOACI-T-0523"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-19T00:23:17.593880+00:00
 parent: CLOACI-I-0097
 blocked_by: [CLOACI-T-0519]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Teach the upload handler (today's `register_workflow` from T-0497) about the build queue. New rows are enqueued (`build_status = pending`). When the uploaded bytes match another row's `content_hash` and that row is already `success`, copy its `compiled_data` into the new row and mark it `success` directly, skipping the queue.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

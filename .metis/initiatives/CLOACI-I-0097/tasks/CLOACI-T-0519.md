@@ -4,14 +4,14 @@ level: task
 title: "T1: Schema + DAL for build queue (compiled_data/build_status/heartbeat)"
 short_code: "CLOACI-T-0519"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-19T00:22:42.817886+00:00
 parent: CLOACI-I-0097
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Land the schema changes, Diesel model fields, and DAL helpers that the compiler service (T3), sweeper (T4), upload handler (T5), and reconciler (T6) will build on. Purely additive — no behavior change; packages uploaded before this task still work because the reconciler still does inline `cargo build` until T6 retires it.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
