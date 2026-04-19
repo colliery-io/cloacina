@@ -81,6 +81,68 @@ pub mod package_loader;
 mod runtime_impl;
 pub use runtime_impl::{install, CloacinaPythonRuntime};
 
+// PyO3 module entry point for the `cloaca` Python wheel. Maturin points
+// at this crate to build the standalone pip-installable wheel. Moved
+// here from cloacina core in CLOACI-T-0529.
+use pyo3::prelude::*;
+
+#[pymodule]
+fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<context::PyContext>()?;
+
+    m.add_function(wrap_pyfunction!(task::task, m)?)?;
+    m.add_class::<task::PyTaskHandle>()?;
+
+    m.add_function(wrap_pyfunction!(trigger::trigger, m)?)?;
+    m.add_class::<bindings::trigger::PyTriggerResult>()?;
+
+    m.add_class::<workflow::PyWorkflowBuilder>()?;
+    m.add_class::<workflow::PyWorkflow>()?;
+    m.add_function(wrap_pyfunction!(
+        workflow::register_workflow_constructor,
+        m
+    )?)?;
+
+    m.add_class::<bindings::runner::PyDefaultRunner>()?;
+    m.add_class::<bindings::runner::PyWorkflowResult>()?;
+    m.add_class::<bindings::context::PyDefaultRunnerConfig>()?;
+
+    m.add_class::<namespace::PyTaskNamespace>()?;
+    m.add_class::<workflow_context::PyWorkflowContext>()?;
+    m.add_class::<bindings::value_objects::PyRetryPolicy>()?;
+    m.add_class::<bindings::value_objects::PyRetryPolicyBuilder>()?;
+    m.add_class::<bindings::value_objects::PyBackoffStrategy>()?;
+    m.add_class::<bindings::value_objects::PyRetryCondition>()?;
+
+    m.add_class::<computation_graph::PyComputationGraphBuilder>()?;
+    m.add_function(wrap_pyfunction!(computation_graph::node, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::passthrough_accumulator_decorator,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::stream_accumulator_decorator,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::polling_accumulator_decorator,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::batch_accumulator_decorator,
+        m
+    )?)?;
+
+    #[cfg(feature = "postgres")]
+    {
+        m.add_class::<bindings::admin::PyDatabaseAdmin>()?;
+        m.add_class::<bindings::admin::PyTenantConfig>()?;
+        m.add_class::<bindings::admin::PyTenantCredentials>()?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

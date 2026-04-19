@@ -118,6 +118,12 @@ pub async fn run(
     require_signatures: bool,
     reconcile_interval: Option<std::time::Duration>,
 ) -> Result<()> {
+    // Register the Python runtime in cloacina core's dispatch slot so the
+    // reconciler can load uploaded Python-language packages. The compiler
+    // service deliberately never does this — it has no business touching
+    // Python. See CLOACI-T-0529.
+    cloacina_python::install();
+
     // Set up logging (file + stderr, same as daemon)
     std::fs::create_dir_all(&home)
         .with_context(|| format!("Failed to create home: {}", home.display()))?;

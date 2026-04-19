@@ -25,7 +25,7 @@ use tempfile::TempDir;
 use cloacina::packaging::{
     Manifest, ManifestValidationError, PackageInfo, PackageLanguage, PythonRuntime, TaskDefinition,
 };
-use cloacina::registry::loader::{detect_package_kind, extract_python_package, PackageKind};
+use cloacina_python::package_loader::{detect_package_kind, extract_python_package, PackageKind};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -325,7 +325,7 @@ fn python_e2e_pack_extract_load_register() {
     // 3. Load and register the Python workflow
     pyo3::prepare_freethreaded_python();
 
-    let task_namespaces = cloacina::python::import_and_register_python_workflow(
+    let task_namespaces = cloacina_python::import_and_register_python_workflow(
         &extracted.workflow_dir,
         &extracted.vendor_dir,
         &extracted.entry_module,
@@ -362,8 +362,8 @@ fn python_e2e_pack_extract_load_register() {
 
 #[cfg(feature = "postgres")]
 mod postgres_bindings {
-    use cloacina::python::bindings::admin::PyDatabaseAdmin;
-    use cloacina::python::bindings::runner::PyDefaultRunner;
+    use cloacina_python::bindings::admin::PyDatabaseAdmin;
+    use cloacina_python::bindings::runner::PyDefaultRunner;
     use pyo3::prelude::*;
     use serial_test::serial;
 

@@ -23,7 +23,6 @@ sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool
 auth = ["postgres"]
 macros = ["cloacina-macros"]
 kafka = ["rdkafka"]
-extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 # Workspace dependencies
@@ -82,19 +81,15 @@ pem = { version = "3.0" }
 toml = { version = "0.8" }
 anyhow = { version = "1.0" }
 bincode = { workspace = true }
-pyo3 = { version = "0.25", features = ["abi3-py39"] }
-pythonize = { version = "0.25" }
-# Phase A of CLOACI-T-0529: auto-install the core `PythonRuntime` impl on
-# startup so behavior is preserved while the trait indirection lands.
-# Phase B moves the impl to `cloacina-python` and deletes this dep.
-ctor = { workspace = true }
-
-[build-dependencies]
-cloacina-build = { version = "0.5.1", path = "../cloacina-build" }
 
 [dev-dependencies]
 # ctor is needed for tests that use the workflow macro (generates #[ctor::ctor] for auto-registration)
 ctor.workspace = true
+# Python-specific integration tests moved behind this dev-dep in
+# CLOACI-T-0529 — cloacina itself no longer links pyo3 at runtime, but
+# the test binary still needs it to exercise python loading end-to-end.
+cloacina-python = { path = "../cloacina-python" }
+pyo3 = { version = "0.25", features = ["abi3-py39"] }
 tracing-test = "0.2"
 tempfile = "3.2"
 once_cell = "1.19.0"

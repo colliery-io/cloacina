@@ -248,11 +248,11 @@ fn python_trigger_decorator_registers_and_wraps() {
     pyo3::prepare_freethreaded_python();
 
     // Drain any leftover triggers from other tests
-    cloacina::python::trigger::drain_python_triggers();
+    cloacina_python::trigger::drain_python_triggers();
 
     pyo3::Python::with_gil(|py| {
         // Ensure cloaca module is available
-        cloacina::python::loader::ensure_cloaca_module(py).unwrap();
+        cloacina_python::loader::ensure_cloaca_module(py).unwrap();
 
         // Define a trigger using @cloaca.trigger decorator
         py.run(
@@ -266,7 +266,7 @@ fn python_trigger_decorator_registers_and_wraps() {
     });
 
     // Drain the registry — this is what import_and_register_python_workflow does
-    let triggers = cloacina::python::trigger::drain_python_triggers();
+    let triggers = cloacina_python::trigger::drain_python_triggers();
     assert_eq!(triggers.len(), 1);
     assert_eq!(triggers[0].name, "test_inbox_check");
     assert_eq!(
@@ -276,7 +276,7 @@ fn python_trigger_decorator_registers_and_wraps() {
     assert!(!triggers[0].allow_concurrent);
 
     // Wrap and register — same as the loader does
-    let wrapper = std::sync::Arc::new(cloacina::python::trigger::PythonTriggerWrapper::new(
+    let wrapper = std::sync::Arc::new(cloacina_python::trigger::PythonTriggerWrapper::new(
         &triggers[0],
     ));
     let wrapper_clone = wrapper.clone();
@@ -297,10 +297,10 @@ fn python_trigger_decorator_registers_and_wraps() {
 #[serial]
 async fn python_trigger_poll_returns_result() {
     pyo3::prepare_freethreaded_python();
-    cloacina::python::trigger::drain_python_triggers();
+    cloacina_python::trigger::drain_python_triggers();
 
     pyo3::Python::with_gil(|py| {
-        cloacina::python::loader::ensure_cloaca_module(py).unwrap();
+        cloacina_python::loader::ensure_cloaca_module(py).unwrap();
 
         // Define a trigger that fires
         py.run(
@@ -313,10 +313,10 @@ async fn python_trigger_poll_returns_result() {
         .unwrap();
     });
 
-    let triggers = cloacina::python::trigger::drain_python_triggers();
+    let triggers = cloacina_python::trigger::drain_python_triggers();
     assert_eq!(triggers.len(), 1);
 
-    let wrapper = cloacina::python::trigger::PythonTriggerWrapper::new(&triggers[0]);
+    let wrapper = cloacina_python::trigger::PythonTriggerWrapper::new(&triggers[0]);
 
     // Poll the trigger — should fire
     let result = wrapper.poll().await.unwrap();

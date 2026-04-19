@@ -508,7 +508,6 @@ pub mod inventory_entries;
 pub mod logging;
 pub mod models;
 pub mod packaging;
-pub mod python;
 pub mod python_runtime;
 pub mod registry;
 pub mod retry;
@@ -594,71 +593,5 @@ pub use cloacina_macros::{
     stream_accumulator, task, trigger, workflow,
 };
 
-// PyO3 module entry point for the `cloaca` Python wheel.
-// This is used by maturin to build a standalone pip-installable wheel.
-use pyo3::prelude::*;
-
-#[pymodule]
-fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Context class
-    m.add_class::<python::context::PyContext>()?;
-
-    // Task decorator and handle
-    m.add_function(wrap_pyfunction!(python::task::task, m)?)?;
-    m.add_class::<python::task::PyTaskHandle>()?;
-
-    // Trigger decorator and result
-    m.add_function(wrap_pyfunction!(python::trigger::trigger, m)?)?;
-    m.add_class::<python::bindings::trigger::PyTriggerResult>()?;
-
-    // Workflow classes
-    m.add_class::<python::workflow::PyWorkflowBuilder>()?;
-    m.add_class::<python::workflow::PyWorkflow>()?;
-    m.add_function(wrap_pyfunction!(
-        python::workflow::register_workflow_constructor,
-        m
-    )?)?;
-
-    // Runner classes
-    m.add_class::<python::bindings::runner::PyDefaultRunner>()?;
-    m.add_class::<python::bindings::runner::PyWorkflowResult>()?;
-    m.add_class::<python::bindings::context::PyDefaultRunnerConfig>()?;
-
-    // Value objects
-    m.add_class::<python::namespace::PyTaskNamespace>()?;
-    m.add_class::<python::workflow_context::PyWorkflowContext>()?;
-    m.add_class::<python::bindings::value_objects::PyRetryPolicy>()?;
-    m.add_class::<python::bindings::value_objects::PyRetryPolicyBuilder>()?;
-    m.add_class::<python::bindings::value_objects::PyBackoffStrategy>()?;
-    m.add_class::<python::bindings::value_objects::PyRetryCondition>()?;
-
-    // Computation graph builder + node decorator + accumulator decorators
-    m.add_class::<python::computation_graph::PyComputationGraphBuilder>()?;
-    m.add_function(wrap_pyfunction!(python::computation_graph::node, m)?)?;
-    m.add_function(wrap_pyfunction!(
-        python::computation_graph::passthrough_accumulator_decorator,
-        m
-    )?)?;
-    m.add_function(wrap_pyfunction!(
-        python::computation_graph::stream_accumulator_decorator,
-        m
-    )?)?;
-    m.add_function(wrap_pyfunction!(
-        python::computation_graph::polling_accumulator_decorator,
-        m
-    )?)?;
-    m.add_function(wrap_pyfunction!(
-        python::computation_graph::batch_accumulator_decorator,
-        m
-    )?)?;
-
-    // Admin classes (postgres only)
-    #[cfg(feature = "postgres")]
-    {
-        m.add_class::<python::bindings::admin::PyDatabaseAdmin>()?;
-        m.add_class::<python::bindings::admin::PyTenantConfig>()?;
-        m.add_class::<python::bindings::admin::PyTenantCredentials>()?;
-    }
-
-    Ok(())
-}
+// The `#[pymodule] fn cloaca` entry point moved to the `cloacina-python`
+// crate in CLOACI-T-0529. Maturin now points at that crate directly.
