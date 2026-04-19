@@ -4,7 +4,7 @@ level: task
 title: "Validate server package lifecycle — repeated uploads, upgrades, rollbacks"
 short_code: "CLOACI-T-0497"
 created_at: 2026-04-16T12:38:22.860340+00:00
-updated_at: 2026-04-16T15:45:01.498723+00:00
+updated_at: 2026-04-19T23:31:59.370485+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -38,6 +38,8 @@ Validate the server's behavior for package lifecycle edge cases that have not be
 ### Impact Assessment
 - **Affected Users**: Any operator upgrading or redeploying packages in a running server
 - **Expected vs Actual**: Unknown — these paths have never been exercised. Likely issues: duplicate graph loading, stale cdylib references, leaked accumulator/reactor tasks, reconciler confusion on version changes.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -97,6 +99,50 @@ CREATE UNIQUE INDEX idx_active_package ON workflow_packages(package_name, versio
 - Bug 3 (rollback): re-uploading old version with different content supersedes current, creates new UUID
 
 ## Status Updates
+
+### 2026-04-19: Server-mode e2e coverage landed
+
+Added three scenarios to `angreal cloacina compiler-e2e` covering the
+package-lifecycle acceptance criteria end-to-end against a real
+server + compiler + Postgres:
+
+- **Upgrade**: upload `compiler-happy-rust` v0.1.0 → success. Upload
+  v0.2.0 (same name, fresh version, different content_hash). Assert
+  new `package_id`, v0.1.0 row has `superseded = true`, v0.2.0 row
+  active, exactly one active row for the name.
+- **Rollback**: upload v0.3.0 carrying the v0.1.0 task body (new
+  version string because `UNIQUE(name, version)` stays as
+  defense-in-depth under the monotonic-version policy). Assert
+  v0.2.0 superseded, v0.3.0 active, still one active row.
+- **Concurrent**: two parallel uploads of a fresh package. Assert at
+  least one succeeds; if one loses it's with `PackageExists`. Assert
+  exactly one row (active or otherwise) exists in the DB — no
+  split-brain under the partial unique index `(package_name) WHERE
+  NOT superseded`.
+
+Harness output (final run, post-fixes):
+
+```text
+ok: happy path → build_status = success
+ok: failed-build path → build_status = failed (2645-byte build_error)
+ok: content-hash reuse → idempotent, no re-queue
+ok: stale-heartbeat recovered by sweeper → re-built
+ok: reconciler end-to-end → execution Completed
+ok: upgrade path → old superseded, new active
+ok: rollback path → v2 superseded, older bytes active under new id
+ok: concurrent uploads → 1/2 succeeded, one active row, no split-brain
+```
+
+Scenarios 5 ("Upload during active graph execution") and 6 ("Package
+deletion while graph is running") are covered by the existing
+reconciler unload-path unit tests + the audit from 2026-04-15
+(Bug 4 was verified not-a-bug: `unload_package()` is solid). Not
+exercised in this harness because they require a long-running CG
+fixture that the happy-path workflow doesn't provide; leaving as
+covered-by-lower-layer tests.
+
+Task meets all listed acceptance criteria. Ready to transition to
+completed.
 
 ### 2026-04-16: Implementation landed — supersede-based upload flow
 
