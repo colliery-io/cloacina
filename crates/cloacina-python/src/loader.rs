@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use super::task::{pop_workflow_context, push_workflow_context};
 use super::workflow_context::PyWorkflowContext;
-use crate::task::TaskNamespace;
+use cloacina::task::TaskNamespace;
 
 /// Default timeout for Python module import (seconds).
 const IMPORT_TIMEOUT_SECS: u64 = 60;
@@ -289,17 +289,16 @@ pub fn import_and_register_python_workflow_named(
 
             // 5b. Drain any Python triggers registered via @cloaca.trigger decorators
             //     during the module import, wrap them, and register in the global trigger registry.
-            let python_triggers = crate::python::trigger::drain_python_triggers();
+            let python_triggers = crate::trigger::drain_python_triggers();
             for trigger_def in python_triggers {
                 let trigger_name = trigger_def.name.clone();
-                let wrapper = std::sync::Arc::new(
-                    crate::python::trigger::PythonTriggerWrapper::new(&trigger_def),
-                );
+                let wrapper =
+                    std::sync::Arc::new(crate::trigger::PythonTriggerWrapper::new(&trigger_def));
                 // The constructor returns the same Arc'd wrapper each time — the
                 // PythonTriggerWrapper is Send+Sync and holds a PyObject that's
                 // accessed only under the GIL.
                 let wrapper_for_closure = wrapper.clone();
-                crate::trigger::register_trigger_constructor(trigger_name.clone(), move || {
+                cloacina::trigger::register_trigger_constructor(trigger_name.clone(), move || {
                     wrapper_for_closure.clone()
                 });
                 tracing::info!("Registered Python trigger: {}", trigger_name);
@@ -308,11 +307,11 @@ pub fn import_and_register_python_workflow_named(
             // 6. Collect registered tasks and build workflow
             let (t, p, w) = context.as_components();
 
-            let registry = crate::task::global_task_registry();
+            let registry = cloacina::task::global_task_registry();
             let guard = registry.read();
 
             let mut namespaces = Vec::new();
-            let mut workflow = crate::Workflow::new(w);
+            let mut workflow = cloacina::Workflow::new(w);
             workflow.set_tenant(t);
             workflow.set_package(p);
 
@@ -344,7 +343,7 @@ pub fn import_and_register_python_workflow_named(
             let final_workflow = workflow.finalize();
 
             let workflow_name = final_workflow.name().to_string();
-            crate::workflow::register_workflow_constructor(workflow_name, move || {
+            cloacina::workflow::register_workflow_constructor(workflow_name, move || {
                 final_workflow.clone()
             });
 
@@ -431,7 +430,7 @@ pub fn import_python_computation_graph(
             })?;
 
             // Verify the graph was registered
-            let executor = crate::python::computation_graph::get_graph_executor(&graph_name);
+            let executor = crate::computation_graph::get_graph_executor(&graph_name);
             if executor.is_none() {
                 return Err(PythonLoaderError::RegistrationError(format!(
                     "Computation graph '{}' was not registered after importing '{}'. \
@@ -468,12 +467,12 @@ pub fn import_python_computation_graph(
 #[pyfunction]
 #[pyo3(name = "var")]
 fn py_var(name: &str) -> PyResult<String> {
-    crate::var(name).map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))
+    cloacina::var(name).map_err(|e| pyo3::exceptions::PyKeyError::new_err(e.to_string()))
 }
 
 /// Python binding: `cloaca.var_or(name, default)` — resolve with a fallback.
 #[pyfunction]
 #[pyo3(name = "var_or")]
 fn py_var_or(name: &str, default: &str) -> String {
-    crate::var_or(name, default)
+    cloacina::var_or(name, default)
 }

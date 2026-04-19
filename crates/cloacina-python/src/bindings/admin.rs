@@ -22,7 +22,7 @@
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
-use crate::{AdminError, Database, DatabaseAdmin, TenantConfig, TenantCredentials};
+use cloacina::{AdminError, Database, DatabaseAdmin, TenantConfig, TenantCredentials};
 
 /// Python wrapper for TenantConfig
 #[pyclass(name = "TenantConfig")]

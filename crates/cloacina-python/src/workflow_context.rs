@@ -58,7 +58,7 @@ impl PyWorkflowContext {
 
     /// Generate a TaskNamespace for a task within this workflow context
     pub fn task_namespace(&self, task_id: &str) -> PyTaskNamespace {
-        PyTaskNamespace::from_rust(crate::TaskNamespace::new(
+        PyTaskNamespace::from_rust(cloacina::TaskNamespace::new(
             &self.tenant_id,
             &self.package_name,
             &self.workflow_id,
@@ -73,7 +73,7 @@ impl PyWorkflowContext {
 
     /// Get the workflow namespace (without task_id)
     pub fn workflow_namespace(&self) -> PyTaskNamespace {
-        PyTaskNamespace::from_rust(crate::TaskNamespace::new(
+        PyTaskNamespace::from_rust(cloacina::TaskNamespace::new(
             &self.tenant_id,
             &self.package_name,
             &self.workflow_id,

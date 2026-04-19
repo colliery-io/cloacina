@@ -246,11 +246,13 @@ def _build_and_install_cloaca_unified(venv_name):
     subprocess.run([str(pip_exe), "install"] + deps, check=True, capture_output=True)
     print("[DEBUG] Step 3 complete", flush=True)
 
-    # Build and install unified wheel from cloacina core
-    print("[DEBUG] Step 4: Building cloaca wheel from cloacina core...", flush=True)
-    crate_dir = project_root / "crates" / "cloacina"
+    # Build and install unified wheel from cloacina-python
+    # (pyproject.toml moved there in CLOACI-T-0529 so the Python bindings
+    # stop dragging pyo3 through cloacina core).
+    print("[DEBUG] Step 4: Building cloaca wheel from cloacina-python...", flush=True)
+    crate_dir = project_root / "crates" / "cloacina-python"
 
-    # Build wheel using maturin (pyproject.toml is in crates/cloacina/)
+    # Build wheel using maturin (pyproject.toml is in crates/cloacina-python/)
     maturin_exe = venv.path / "bin" / "maturin"
     maturin_cmd = [
         str(maturin_exe), "build",

@@ -28,8 +28,8 @@ use pyo3::prelude::*;
 use std::fmt;
 use std::time::Duration;
 
-use crate::packaging::manifest_schema::parse_duration_str;
-use crate::trigger::{Trigger, TriggerError, TriggerResult as RustTriggerResult};
+use cloacina::packaging::manifest_schema::parse_duration_str;
+use cloacina::trigger::{Trigger, TriggerError, TriggerResult as RustTriggerResult};
 
 /// Global registry of Python trigger definitions collected during module import.
 /// These are picked up by the reconciler when loading Python packages with
@@ -228,7 +228,7 @@ impl Trigger for PythonTriggerWrapper {
                                             e
                                         ),
                                     })?;
-                                let mut context = crate::Context::new();
+                                let mut context = cloacina::Context::new();
                                 if let serde_json::Value::Object(map) = dict_value {
                                     for (k, v) in map {
                                         context.insert(k, v).map_err(|e| {

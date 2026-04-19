@@ -21,21 +21,21 @@ use std::time::Duration;
 #[pyclass(name = "RetryPolicy")]
 #[derive(Clone)]
 pub struct PyRetryPolicy {
-    inner: crate::retry::RetryPolicy,
+    inner: cloacina::retry::RetryPolicy,
 }
 
 /// Python wrapper for BackoffStrategy
 #[pyclass(name = "BackoffStrategy")]
 #[derive(Clone)]
 pub struct PyBackoffStrategy {
-    inner: crate::retry::BackoffStrategy,
+    inner: cloacina::retry::BackoffStrategy,
 }
 
 /// Python wrapper for RetryCondition
 #[pyclass(name = "RetryCondition")]
 #[derive(Clone)]
 pub struct PyRetryCondition {
-    inner: crate::retry::RetryCondition,
+    inner: cloacina::retry::RetryCondition,
 }
 
 /// Python wrapper for RetryPolicy::Builder
@@ -43,10 +43,10 @@ pub struct PyRetryCondition {
 #[derive(Clone, Debug)]
 pub struct PyRetryPolicyBuilder {
     max_attempts: Option<i32>,
-    backoff_strategy: Option<crate::retry::BackoffStrategy>,
+    backoff_strategy: Option<cloacina::retry::BackoffStrategy>,
     initial_delay: Option<Duration>,
     max_delay: Option<Duration>,
-    retry_condition: Option<crate::retry::RetryCondition>,
+    retry_condition: Option<cloacina::retry::RetryCondition>,
     with_jitter: Option<bool>,
 }
 
@@ -70,7 +70,7 @@ impl PyRetryPolicy {
     #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         Self {
-            inner: crate::retry::RetryPolicy::default(),
+            inner: cloacina::retry::RetryPolicy::default(),
         }
     }
 
@@ -129,7 +129,7 @@ impl PyBackoffStrategy {
     #[staticmethod]
     pub fn fixed() -> Self {
         Self {
-            inner: crate::retry::BackoffStrategy::Fixed,
+            inner: cloacina::retry::BackoffStrategy::Fixed,
         }
     }
 
@@ -137,7 +137,7 @@ impl PyBackoffStrategy {
     #[staticmethod]
     pub fn linear(multiplier: f64) -> Self {
         Self {
-            inner: crate::retry::BackoffStrategy::Linear { multiplier },
+            inner: cloacina::retry::BackoffStrategy::Linear { multiplier },
         }
     }
 
@@ -145,7 +145,7 @@ impl PyBackoffStrategy {
     #[staticmethod]
     pub fn exponential(base: f64, multiplier: Option<f64>) -> Self {
         Self {
-            inner: crate::retry::BackoffStrategy::Exponential {
+            inner: cloacina::retry::BackoffStrategy::Exponential {
                 base,
                 multiplier: multiplier.unwrap_or(1.0),
             },
@@ -155,17 +155,17 @@ impl PyBackoffStrategy {
     /// String representation
     pub fn __repr__(&self) -> String {
         match &self.inner {
-            crate::retry::BackoffStrategy::Fixed => "BackoffStrategy.Fixed".to_string(),
-            crate::retry::BackoffStrategy::Linear { multiplier } => {
+            cloacina::retry::BackoffStrategy::Fixed => "BackoffStrategy.Fixed".to_string(),
+            cloacina::retry::BackoffStrategy::Linear { multiplier } => {
                 format!("BackoffStrategy.Linear(multiplier={})", multiplier)
             }
-            crate::retry::BackoffStrategy::Exponential { base, multiplier } => {
+            cloacina::retry::BackoffStrategy::Exponential { base, multiplier } => {
                 format!(
                     "BackoffStrategy.Exponential(base={}, multiplier={})",
                     base, multiplier
                 )
             }
-            crate::retry::BackoffStrategy::Custom { function_name } => {
+            cloacina::retry::BackoffStrategy::Custom { function_name } => {
                 format!("BackoffStrategy.Custom(function_name='{}')", function_name)
             }
         }
@@ -178,7 +178,7 @@ impl PyRetryCondition {
     #[staticmethod]
     pub fn never() -> Self {
         Self {
-            inner: crate::retry::RetryCondition::Never,
+            inner: cloacina::retry::RetryCondition::Never,
         }
     }
 
@@ -186,7 +186,7 @@ impl PyRetryCondition {
     #[staticmethod]
     pub fn transient_only() -> Self {
         Self {
-            inner: crate::retry::RetryCondition::TransientOnly,
+            inner: cloacina::retry::RetryCondition::TransientOnly,
         }
     }
 
@@ -194,7 +194,7 @@ impl PyRetryCondition {
     #[staticmethod]
     pub fn all_errors() -> Self {
         Self {
-            inner: crate::retry::RetryCondition::AllErrors,
+            inner: cloacina::retry::RetryCondition::AllErrors,
         }
     }
 
@@ -202,19 +202,19 @@ impl PyRetryCondition {
     #[staticmethod]
     pub fn error_pattern(patterns: Vec<String>) -> Self {
         Self {
-            inner: crate::retry::RetryCondition::ErrorPattern { patterns },
+            inner: cloacina::retry::RetryCondition::ErrorPattern { patterns },
         }
     }
 
     /// String representation
     pub fn __repr__(&self) -> String {
         match &self.inner {
-            crate::retry::RetryCondition::Never => "RetryCondition.Never".to_string(),
-            crate::retry::RetryCondition::TransientOnly => {
+            cloacina::retry::RetryCondition::Never => "RetryCondition.Never".to_string(),
+            cloacina::retry::RetryCondition::TransientOnly => {
                 "RetryCondition.TransientOnly".to_string()
             }
-            crate::retry::RetryCondition::AllErrors => "RetryCondition.AllErrors".to_string(),
-            crate::retry::RetryCondition::ErrorPattern { patterns } => {
+            cloacina::retry::RetryCondition::AllErrors => "RetryCondition.AllErrors".to_string(),
+            cloacina::retry::RetryCondition::ErrorPattern { patterns } => {
                 format!("RetryCondition.ErrorPattern(patterns={:?})", patterns)
             }
         }
@@ -267,7 +267,7 @@ impl PyRetryPolicyBuilder {
 
     /// Build the RetryPolicy
     pub fn build(&self) -> PyRetryPolicy {
-        let mut builder = crate::retry::RetryPolicy::builder();
+        let mut builder = cloacina::retry::RetryPolicy::builder();
 
         if let Some(attempts) = self.max_attempts {
             builder = builder.max_attempts(attempts);
@@ -296,12 +296,12 @@ impl PyRetryPolicyBuilder {
 
 impl PyRetryPolicy {
     /// Convert from Rust RetryPolicy (for internal use)
-    pub fn from_rust(policy: crate::retry::RetryPolicy) -> Self {
+    pub fn from_rust(policy: cloacina::retry::RetryPolicy) -> Self {
         Self { inner: policy }
     }
 
     /// Convert to Rust RetryPolicy (for internal use)
-    pub fn to_rust(&self) -> crate::retry::RetryPolicy {
+    pub fn to_rust(&self) -> cloacina::retry::RetryPolicy {
         self.inner.clone()
     }
 }
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn test_from_rust_to_rust_roundtrip() {
         pyo3::prepare_freethreaded_python();
-        let rust_policy = crate::retry::RetryPolicy::default();
+        let rust_policy = cloacina::retry::RetryPolicy::default();
         let py_policy = PyRetryPolicy::from_rust(rust_policy.clone());
         let roundtripped = py_policy.to_rust();
         assert_eq!(rust_policy.max_attempts, roundtripped.max_attempts);

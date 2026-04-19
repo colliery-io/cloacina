@@ -21,7 +21,7 @@ use pyo3::prelude::*;
 #[pyclass(name = "TaskNamespace")]
 #[derive(Clone, Debug)]
 pub struct PyTaskNamespace {
-    inner: crate::TaskNamespace,
+    inner: cloacina::TaskNamespace,
 }
 
 #[pymethods]
@@ -30,14 +30,14 @@ impl PyTaskNamespace {
     #[new]
     pub fn new(tenant_id: &str, package_name: &str, workflow_id: &str, task_id: &str) -> Self {
         Self {
-            inner: crate::TaskNamespace::new(tenant_id, package_name, workflow_id, task_id),
+            inner: cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, task_id),
         }
     }
 
     /// Parse TaskNamespace from string format "tenant::package::workflow::task"
     #[staticmethod]
     pub fn from_string(namespace_str: &str) -> PyResult<Self> {
-        crate::TaskNamespace::from_string(namespace_str)
+        cloacina::TaskNamespace::from_string(namespace_str)
             .map(|inner| Self { inner })
             .map_err(|e| PyValueError::new_err(format!("Invalid namespace format: {}", e)))
     }
@@ -69,7 +69,7 @@ impl PyTaskNamespace {
     /// Get parent namespace (without task_id)
     pub fn parent(&self) -> Self {
         Self {
-            inner: crate::TaskNamespace::new(
+            inner: cloacina::TaskNamespace::new(
                 &self.inner.tenant_id,
                 &self.inner.package_name,
                 &self.inner.workflow_id,
@@ -131,12 +131,12 @@ impl PyTaskNamespace {
 
 impl PyTaskNamespace {
     /// Convert from Rust TaskNamespace (for internal use)
-    pub fn from_rust(namespace: crate::TaskNamespace) -> Self {
+    pub fn from_rust(namespace: cloacina::TaskNamespace) -> Self {
         Self { inner: namespace }
     }
 
     /// Convert to Rust TaskNamespace (for internal use)
-    pub fn to_rust(&self) -> crate::TaskNamespace {
+    pub fn to_rust(&self) -> cloacina::TaskNamespace {
         self.inner.clone()
     }
 }
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test_from_rust_to_rust_roundtrip() {
         pyo3::prepare_freethreaded_python();
-        let rust_ns = crate::TaskNamespace::new("t", "p", "w", "task1");
+        let rust_ns = cloacina::TaskNamespace::new("t", "p", "w", "task1");
         let py_ns = PyTaskNamespace::from_rust(rust_ns.clone());
         let roundtripped = py_ns.to_rust();
         assert_eq!(rust_ns, roundtripped);

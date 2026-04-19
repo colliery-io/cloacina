@@ -23,7 +23,7 @@ use serde_json;
 #[pyclass(name = "Context")]
 #[derive(Debug)]
 pub struct PyContext {
-    pub inner: crate::Context<serde_json::Value>,
+    pub inner: cloacina::Context<serde_json::Value>,
 }
 
 #[pymethods]
@@ -32,7 +32,7 @@ impl PyContext {
     #[new]
     #[pyo3(signature = (data = None))]
     pub fn new(data: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
-        let mut context = crate::Context::new();
+        let mut context = cloacina::Context::new();
 
         if let Some(dict) = data {
             for (key, value) in dict.iter() {
@@ -142,7 +142,7 @@ impl PyContext {
     /// Creates a context from a JSON string
     #[staticmethod]
     pub fn from_json(json_str: &str) -> PyResult<Self> {
-        let context = crate::Context::from_json(json_str.to_string()).map_err(|e| {
+        let context = cloacina::Context::from_json(json_str.to_string()).map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Failed to deserialize from JSON: {}",
                 e
@@ -203,17 +203,17 @@ impl PyContext {
 
 impl PyContext {
     /// Create a PyContext from a Rust Context (for internal use)
-    pub fn from_rust_context(context: crate::Context<serde_json::Value>) -> Self {
+    pub fn from_rust_context(context: cloacina::Context<serde_json::Value>) -> Self {
         PyContext { inner: context }
     }
 
     /// Extract the inner Rust Context (for internal use)
-    pub fn into_inner(self) -> crate::Context<serde_json::Value> {
+    pub fn into_inner(self) -> cloacina::Context<serde_json::Value> {
         self.inner
     }
 
     /// Clone the inner Rust Context (for internal use)
-    pub fn clone_inner(&self) -> crate::Context<serde_json::Value> {
+    pub fn clone_inner(&self) -> cloacina::Context<serde_json::Value> {
         self.inner.clone_data()
     }
 
@@ -227,7 +227,7 @@ impl PyContext {
 impl Clone for PyContext {
     fn clone(&self) -> Self {
         let data = self.inner.data();
-        let mut new_context = crate::Context::new();
+        let mut new_context = cloacina::Context::new();
         for (key, value) in data.iter() {
             // Insert should never fail when cloning existing valid data,
             // but silently skip rather than panic if it does.
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn test_from_rust_context_and_clone_inner() {
         pyo3::prepare_freethreaded_python();
-        let mut rust_ctx = crate::Context::new();
+        let mut rust_ctx = cloacina::Context::new();
         rust_ctx
             .insert("k".to_string(), serde_json::json!("v"))
             .unwrap();

@@ -27,6 +27,10 @@ telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetr
 
 [dependencies]
 cloacina = { path = "../cloacina", default-features = false }
+# Python runtime — server registers the impl at startup so uploaded
+# Python-language packages can be loaded by the reconciler. Compiler
+# service intentionally does not depend on this (T-0529).
+cloacina-python = { path = "../cloacina-python", default-features = false }
 cloacina-workflow-plugin = { version = "0.5.1", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
 anyhow.workspace = true

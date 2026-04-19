@@ -160,67 +160,37 @@ impl RegistryReconciler {
         } else if cloacina_manifest.metadata.language == "python"
             && !cloacina_manifest.metadata.has_computation_graph()
         {
-            // Python workflow path: extract package, import module, register via PyO3
-            // (Python CG packages skip this — handled in step 7 below)
+            // Python workflow path — dispatched through the `PythonRuntime`
+            // trait. Binaries that register no runtime (e.g. the compiler
+            // service) error cleanly here; the server registers an impl
+            // at startup.
             debug!("Loading Python package: {}", metadata.package_name);
-
-            // Ensure the Python interpreter is initialized (idempotent — safe to call multiple times)
-            pyo3::prepare_freethreaded_python();
-
-            let extracted = tokio::task::spawn_blocking({
-                let archive_data = loaded_workflow.package_data.clone();
-                let staging = work_dir.path().join("python-staging");
-                move || {
-                    std::fs::create_dir_all(&staging).map_err(|e| {
-                        RegistryError::RegistrationFailed {
-                            message: format!("Failed to create Python staging dir: {}", e),
-                        }
-                    })?;
-                    crate::registry::loader::python_loader::extract_python_package(
-                        &archive_data,
-                        &staging,
-                    )
-                    .map_err(|e| RegistryError::RegistrationFailed {
-                        message: format!("Failed to extract Python package: {}", e),
-                    })
+            let runtime = crate::python_runtime::python_runtime().ok_or_else(|| {
+                RegistryError::RegistrationFailed {
+                    message: "Python package {} received but no PythonRuntime is attached \
+                              to this process — this binary does not support Python workflows"
+                        .replace("{}", &metadata.package_name),
                 }
-            })
-            .await
-            .map_err(|e| RegistryError::RegistrationFailed {
-                message: format!("spawn_blocking failed during Python extraction: {}", e),
-            })??;
+            })?;
 
+            let staging = work_dir.path().join("python-staging");
             let tenant_id = self.config.default_tenant_id.clone();
-            let task_namespaces = tokio::task::spawn_blocking({
-                let workflow_dir = extracted.workflow_dir.clone();
-                let vendor_dir = extracted.vendor_dir.clone();
-                let entry_module = extracted.entry_module.clone();
-                let package_name = extracted.package_name.clone();
-                let workflow_name = extracted.workflow_name.clone();
-                let tenant_id = tenant_id.clone();
-                move || {
-                    crate::python::loader::import_and_register_python_workflow_named(
-                        &workflow_dir,
-                        &vendor_dir,
-                        &entry_module,
-                        &package_name,
-                        &workflow_name,
-                        &tenant_id,
-                    )
-                    .map_err(|e| RegistryError::RegistrationFailed {
-                        message: format!("Python workflow import failed: {}", e),
-                    })
-                }
-            })
-            .await
-            .map_err(|e| RegistryError::RegistrationFailed {
-                message: format!("spawn_blocking failed during Python import: {}", e),
-            })??;
+            let loaded = {
+                let archive_data = loaded_workflow.package_data.clone();
+                let runtime = runtime.clone();
+                tokio::task::spawn_blocking(move || {
+                    runtime
+                        .load_workflow_package(&archive_data, &staging, &tenant_id)
+                        .map_err(|e| RegistryError::RegistrationFailed { message: e })
+                })
+                .await
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!("spawn_blocking failed during Python load: {}", e),
+                })??
+            };
 
-            let workflow_name = Some(extracted.workflow_name.clone());
-
-            // Python triggers are registered during import_and_register_python_workflow.
-            // Track them from the manifest so they can be unloaded later.
+            // Python triggers are registered during the runtime's import
+            // pass. Track them from the manifest so we can unload later.
             let trigger_names =
                 self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
 
@@ -228,11 +198,15 @@ impl RegistryReconciler {
                 "Python package loaded: {} v{} — {} tasks, workflow '{}'",
                 metadata.package_name,
                 metadata.version,
-                task_namespaces.len(),
-                extracted.workflow_name,
+                loaded.task_namespaces.len(),
+                loaded.workflow_name,
             );
 
-            (task_namespaces, workflow_name, trigger_names)
+            (
+                loaded.task_namespaces,
+                Some(loaded.workflow_name),
+                trigger_names,
+            )
         } else if cloacina_manifest.metadata.language == "python"
             && cloacina_manifest.metadata.has_computation_graph()
         {
@@ -332,82 +306,72 @@ impl RegistryReconciler {
                     }
                 }
             } else if cloacina_manifest.metadata.language == "python" {
-                // Python computation graph: import module, decorators register executor
+                // Python computation graph: dispatch through the
+                // `PythonRuntime` trait. Same reasoning as the workflow
+                // branch — binaries without Python support error out here
+                // instead of trying to run pyo3 they don't link.
                 if let (Some(ref graph_name), Some(ref entry_module)) = (
                     &cloacina_manifest.metadata.graph_name,
                     &cloacina_manifest.metadata.entry_module,
                 ) {
-                    let extracted = tokio::task::spawn_blocking({
-                        let archive_data = loaded_workflow.package_data.clone();
-                        let staging = work_dir.path().join("python-cg-staging");
-                        move || {
-                            std::fs::create_dir_all(&staging).map_err(|e| {
-                                RegistryError::RegistrationFailed {
-                                    message: format!("Failed to create staging dir: {}", e),
-                                }
-                            })?;
-                            crate::registry::loader::python_loader::extract_python_package(
-                                &archive_data,
-                                &staging,
-                            )
-                            .map_err(|e| {
-                                RegistryError::RegistrationFailed {
-                                    message: format!("Failed to extract Python CG package: {}", e),
-                                }
-                            })
+                    let runtime = crate::python_runtime::python_runtime().ok_or_else(|| {
+                        RegistryError::RegistrationFailed {
+                            message: format!(
+                                "Python CG package {} received but no PythonRuntime \
+                                     is attached to this process",
+                                metadata.package_name
+                            ),
                         }
-                    })
-                    .await
-                    .map_err(|e| RegistryError::RegistrationFailed {
-                        message: format!(
-                            "spawn_blocking failed during Python CG extraction: {}",
-                            e
-                        ),
-                    })??;
+                    })?;
 
-                    let gn = graph_name.clone();
-                    let em = entry_module.clone();
-                    let wd = extracted.workflow_dir.clone();
-                    let vd = extracted.vendor_dir.clone();
-
-                    let gn_for_decl = graph_name.clone();
+                    let staging = work_dir.path().join("python-cg-staging");
                     let tenant = self.config.default_tenant_id.clone();
                     let acc_overrides = cloacina_manifest.metadata.accumulators.clone();
+                    let gn = graph_name.clone();
+                    let em = entry_module.clone();
 
-                    tokio::task::spawn_blocking(move || {
-                        pyo3::prepare_freethreaded_python();
-                        crate::python::loader::import_python_computation_graph(&wd, &vd, &em, &gn)
-                            .map_err(|e| RegistryError::RegistrationFailed {
-                                message: format!("Python CG import failed: {}", e),
-                            })
-                    })
-                    .await
-                    .map_err(|e| RegistryError::RegistrationFailed {
-                        message: format!("spawn_blocking failed during Python CG import: {}", e),
-                    })??;
+                    let maybe_decl = {
+                        let archive_data = loaded_workflow.package_data.clone();
+                        let gn_inner = gn.clone();
+                        let em_inner = em.clone();
+                        let tenant_inner = tenant.clone();
+                        let runtime = runtime.clone();
+                        tokio::task::spawn_blocking(move || {
+                            runtime
+                                .load_cg_package(
+                                    &archive_data,
+                                    &staging,
+                                    &tenant_inner,
+                                    &gn_inner,
+                                    &em_inner,
+                                    &acc_overrides,
+                                )
+                                .map_err(|e| RegistryError::RegistrationFailed { message: e })
+                        })
+                        .await
+                        .map_err(|e| {
+                            RegistryError::RegistrationFailed {
+                                message: format!(
+                                    "spawn_blocking failed during Python CG load: {}",
+                                    e
+                                ),
+                            }
+                        })??
+                    };
 
-                    // Build declaration from the registered Python executor and load into ReactiveScheduler
-                    if let Some(decl) =
-                        crate::python::computation_graph::build_python_graph_declaration(
-                            &gn_for_decl,
-                            Some(tenant),
-                            &acc_overrides,
-                        )
-                    {
-                        {
-                            let scheduler_guard = self.reactive_scheduler.read().await;
-                            if let Some(ref scheduler) = *scheduler_guard {
-                                if let Err(e) = scheduler.load_graph(decl).await {
-                                    warn!(
-                                        "Failed to load Python CG '{}' into ReactiveScheduler: {}",
-                                        gn_for_decl, e
-                                    );
-                                } else {
-                                    info!(
-                                        "Python computation graph '{}' loaded into ReactiveScheduler",
-                                        gn_for_decl
-                                    );
-                                }
+                    if let Some(decl) = maybe_decl {
+                        let scheduler_guard = self.reactive_scheduler.read().await;
+                        if let Some(ref scheduler) = *scheduler_guard {
+                            if let Err(e) = scheduler.load_graph(decl).await {
+                                warn!(
+                                    "Failed to load Python CG '{}' into ReactiveScheduler: {}",
+                                    gn, e
+                                );
+                            } else {
+                                info!(
+                                    "Python computation graph '{}' loaded into ReactiveScheduler",
+                                    gn
+                                );
                             }
                         }
                     }

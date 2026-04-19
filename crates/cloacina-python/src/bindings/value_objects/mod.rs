@@ -16,8 +16,8 @@
 
 // PyWorkflowContext and PyTaskNamespace have moved to cloacina::python.
 // Re-export for internal crate compatibility.
-pub use crate::python::namespace::PyTaskNamespace;
-pub use crate::python::workflow_context::PyWorkflowContext;
+pub use crate::namespace::PyTaskNamespace;
+pub use crate::workflow_context::PyWorkflowContext;
 
 // Retry value objects remain local
 pub mod retry;

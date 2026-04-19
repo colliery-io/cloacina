@@ -19,10 +19,10 @@
 //! This module provides Python bindings for defining triggers that poll
 //! user-defined conditions and fire workflows when those conditions are met.
 
-use crate::python::context::PyContext;
-use crate::trigger::{Trigger, TriggerError, TriggerResult};
-use crate::Context;
+use crate::context::PyContext;
 use async_trait::async_trait;
+use cloacina::trigger::{Trigger, TriggerError, TriggerResult};
+use cloacina::Context;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde_json::Value;
@@ -253,7 +253,7 @@ impl TriggerDecorator {
         let shared_function = Arc::new(func.clone_ref(py));
 
         // Register trigger constructor in the global registry
-        crate::trigger::register_trigger_constructor(trigger_name.clone(), move || {
+        cloacina::trigger::register_trigger_constructor(trigger_name.clone(), move || {
             let function_clone = Python::with_gil(|py| (*shared_function).clone_ref(py));
             Arc::new(PythonTriggerWrapper {
                 name: name_for_constructor.clone(),

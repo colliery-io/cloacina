@@ -46,6 +46,3 @@ serde_yaml = "0.9"
 
 [dev-dependencies]
 serial_test = "3"
-
-[build-dependencies]
-cloacina-build = { version = "0.5.1", path = "../cloacina-build" }

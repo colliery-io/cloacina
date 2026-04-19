@@ -53,7 +53,7 @@ use pyo3::exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyCFunction, PyDict, PyList, PyString, PyTuple};
 
-use crate::computation_graph::types::{GraphError, GraphResult};
+use cloacina::computation_graph::types::{GraphError, GraphResult};
 
 // ---------------------------------------------------------------------------
 // Global node registry (scoped by active builder context)
@@ -558,7 +558,7 @@ impl PythonGraphExecutor {
     /// Execute the graph with the given input cache.
     pub async fn execute(
         &self,
-        cache: &crate::computation_graph::types::InputCache,
+        cache: &cloacina::computation_graph::types::InputCache,
     ) -> GraphResult {
         let executor = self.clone();
 
@@ -602,12 +602,12 @@ pub fn build_python_graph_declaration(
     graph_name: &str,
     tenant_id: Option<String>,
     accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
-) -> Option<crate::computation_graph::scheduler::ComputationGraphDeclaration> {
-    use crate::computation_graph::packaging_bridge::{
+) -> Option<cloacina::computation_graph::scheduler::ComputationGraphDeclaration> {
+    use cloacina::computation_graph::packaging_bridge::{
         PassthroughAccumulatorFactory, StreamBackendAccumulatorFactory,
     };
-    use crate::computation_graph::reactor::{InputStrategy, ReactionCriteria};
-    use crate::computation_graph::scheduler::{
+    use cloacina::computation_graph::reactor::{InputStrategy, ReactionCriteria};
+    use cloacina::computation_graph::scheduler::{
         AccumulatorDeclaration, ComputationGraphDeclaration, ReactorDeclaration,
     };
     use cloacina_computation_graph::InputCache;
@@ -633,7 +633,7 @@ pub fn build_python_graph_declaration(
     let accumulators = accumulator_names
         .iter()
         .map(|name| {
-            let factory: Arc<dyn crate::computation_graph::scheduler::AccumulatorFactory> =
+            let factory: Arc<dyn cloacina::computation_graph::scheduler::AccumulatorFactory> =
                 if let Some(override_cfg) = accumulator_overrides.iter().find(|a| a.name == *name) {
                     match override_cfg.accumulator_type.as_str() {
                         "stream" => Arc::new(StreamBackendAccumulatorFactory::new(

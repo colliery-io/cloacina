@@ -19,7 +19,7 @@
 //! This module provides:
 //! - Abstract [`PythonTaskExecutor`] trait for executing Python tasks from packages
 //! - Concrete PyO3 bindings: [`PyContext`], [`PyWorkflowBuilder`], [`PyTaskHandle`],
-//!   [`TaskDecorator`] (`@task`), and [`PythonTaskWrapper`] (implements [`crate::Task`])
+//!   [`TaskDecorator`] (`@task`), and [`PythonTaskWrapper`] (implements [`cloacina::Task`])
 //!
 //! The `@task` decorator machinery and `WorkflowBuilder` context manager are compiled
 //! into the cloacina binary. The `cloaca` Python wheel re-exports these types via its
@@ -70,11 +70,83 @@ pub use loader::{
 // Python API wrapper types (PyDefaultRunner, PyDatabaseAdmin, etc.)
 pub mod bindings;
 
+// Unpacks `.cloacina` archives for the Python loader. Previously lived in
+// cloacina core under `registry/loader/python_loader`; moved here in
+// CLOACI-T-0529 phase B because it's Python-specific.
+pub mod package_loader;
+
+// Implementation of `cloacina::python_runtime::PythonRuntime`. The server
+// calls `install()` at startup to register this crate's impl into the
+// cloacina-core dispatch slot.
+mod runtime_impl;
+pub use runtime_impl::{install, CloacinaPythonRuntime};
+
+// PyO3 module entry point for the `cloaca` Python wheel. Maturin points
+// at this crate to build the standalone pip-installable wheel. Moved
+// here from cloacina core in CLOACI-T-0529.
+use pyo3::prelude::*;
+
+#[pymodule]
+fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<context::PyContext>()?;
+
+    m.add_function(wrap_pyfunction!(task::task, m)?)?;
+    m.add_class::<task::PyTaskHandle>()?;
+
+    m.add_function(wrap_pyfunction!(trigger::trigger, m)?)?;
+    m.add_class::<bindings::trigger::PyTriggerResult>()?;
+
+    m.add_class::<workflow::PyWorkflowBuilder>()?;
+    m.add_class::<workflow::PyWorkflow>()?;
+    m.add_function(wrap_pyfunction!(
+        workflow::register_workflow_constructor,
+        m
+    )?)?;
+
+    m.add_class::<bindings::runner::PyDefaultRunner>()?;
+    m.add_class::<bindings::runner::PyWorkflowResult>()?;
+    m.add_class::<bindings::context::PyDefaultRunnerConfig>()?;
+
+    m.add_class::<namespace::PyTaskNamespace>()?;
+    m.add_class::<workflow_context::PyWorkflowContext>()?;
+    m.add_class::<bindings::value_objects::PyRetryPolicy>()?;
+    m.add_class::<bindings::value_objects::PyRetryPolicyBuilder>()?;
+    m.add_class::<bindings::value_objects::PyBackoffStrategy>()?;
+    m.add_class::<bindings::value_objects::PyRetryCondition>()?;
+
+    m.add_class::<computation_graph::PyComputationGraphBuilder>()?;
+    m.add_function(wrap_pyfunction!(computation_graph::node, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::passthrough_accumulator_decorator,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::stream_accumulator_decorator,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::polling_accumulator_decorator,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::batch_accumulator_decorator,
+        m
+    )?)?;
+
+    #[cfg(feature = "postgres")]
+    {
+        m.add_class::<bindings::admin::PyDatabaseAdmin>()?;
+        m.add_class::<bindings::admin::PyTenantConfig>()?;
+        m.add_class::<bindings::admin::PyTenantCredentials>()?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pyo3::ffi::c_str;
-    use pyo3::prelude::*;
 
     #[test]
     fn test_python_workflow_via_with_gil() {
@@ -109,9 +181,10 @@ mod tests {
             task::pop_workflow_context();
 
             // Verify the task was registered
-            let registry = crate::task::global_task_registry();
+            let registry = cloacina::task::global_task_registry();
             let guard = registry.read();
-            let ns = crate::TaskNamespace::new("public", "embedded", "test_py_workflow", "greet");
+            let ns =
+                cloacina::TaskNamespace::new("public", "embedded", "test_py_workflow", "greet");
             assert!(
                 guard.get(&ns).is_some(),
                 "Python task should be registered in the global registry"

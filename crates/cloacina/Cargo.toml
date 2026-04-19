@@ -23,7 +23,6 @@ sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool
 auth = ["postgres"]
 macros = ["cloacina-macros"]
 kafka = ["rdkafka"]
-extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 # Workspace dependencies
@@ -82,11 +81,6 @@ pem = { version = "3.0" }
 toml = { version = "0.8" }
 anyhow = { version = "1.0" }
 bincode = { workspace = true }
-pyo3 = { version = "0.25", features = ["abi3-py39"] }
-pythonize = { version = "0.25" }
-
-[build-dependencies]
-cloacina-build = { version = "0.5.1", path = "../cloacina-build" }
 
 [dev-dependencies]
 # ctor is needed for tests that use the workflow macro (generates #[ctor::ctor] for auto-registration)

@@ -25,7 +25,7 @@ use std::time::Duration;
 /// Python wrapper for TaskHandle providing defer_until capability.
 #[pyclass(name = "TaskHandle")]
 pub struct PyTaskHandle {
-    inner: Option<crate::TaskHandle>,
+    inner: Option<cloacina::TaskHandle>,
 }
 
 #[pymethods]
@@ -112,8 +112,8 @@ pub fn current_workflow_context() -> PyResult<PyWorkflowContext> {
 /// Python task wrapper implementing Rust Task trait
 pub struct PythonTaskWrapper {
     id: String,
-    dependencies: Vec<crate::TaskNamespace>,
-    retry_policy: crate::retry::RetryPolicy,
+    dependencies: Vec<cloacina::TaskNamespace>,
+    retry_policy: cloacina::retry::RetryPolicy,
     python_function: PyObject,
     on_success_callback: Option<PyObject>,
     on_failure_callback: Option<PyObject>,
@@ -130,11 +130,11 @@ unsafe impl Send for PythonTaskWrapper {}
 unsafe impl Sync for PythonTaskWrapper {}
 
 #[async_trait]
-impl crate::Task for PythonTaskWrapper {
+impl cloacina::Task for PythonTaskWrapper {
     async fn execute(
         &self,
-        context: crate::Context<serde_json::Value>,
-    ) -> Result<crate::Context<serde_json::Value>, crate::TaskError> {
+        context: cloacina::Context<serde_json::Value>,
+    ) -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
         use super::context::PyContext;
 
         let function = Python::with_gil(|py| self.python_function.clone_ref(py));
@@ -147,7 +147,7 @@ impl crate::Task for PythonTaskWrapper {
         let needs_handle = self.requires_handle;
 
         let task_handle = if needs_handle {
-            Some(crate::take_task_handle())
+            Some(cloacina::take_task_handle())
         } else {
             None
         };
@@ -164,7 +164,7 @@ impl crate::Task for PythonTaskWrapper {
                             inner: Some(handle),
                         },
                     )
-                    .map_err(|e| crate::TaskError::ExecutionFailed {
+                    .map_err(|e| cloacina::TaskError::ExecutionFailed {
                         message: format!("Failed to create PyTaskHandle: {}", e),
                         task_id: task_id.clone(),
                         timestamp: chrono::Utc::now(),
@@ -181,7 +181,7 @@ impl crate::Task for PythonTaskWrapper {
                 match result {
                     Ok(returned) => {
                         let final_context = if returned.is_none(py) {
-                            let mut new_context = crate::Context::new();
+                            let mut new_context = cloacina::Context::new();
                             for (key, value) in original_data.iter() {
                                 new_context.insert(key.clone(), value.clone()).unwrap();
                             }
@@ -189,7 +189,7 @@ impl crate::Task for PythonTaskWrapper {
                         } else {
                             let returned_context: PyContext =
                                 returned.extract(py).map_err(|e| {
-                                    crate::TaskError::ExecutionFailed {
+                                    cloacina::TaskError::ExecutionFailed {
                                         message: format!("Python task execution failed: {}", e),
                                         task_id: task_id.clone(),
                                         timestamp: chrono::Utc::now(),
@@ -200,7 +200,7 @@ impl crate::Task for PythonTaskWrapper {
 
                         if let Some(callback) = on_success {
                             let cloned_data = final_context.data().clone();
-                            let mut callback_ctx = crate::Context::new();
+                            let mut callback_ctx = cloacina::Context::new();
                             for (key, value) in cloned_data.iter() {
                                 callback_ctx.insert(key.clone(), value.clone()).ok();
                             }
@@ -229,7 +229,7 @@ impl crate::Task for PythonTaskWrapper {
                             }
                         }
 
-                        Err(crate::TaskError::ExecutionFailed {
+                        Err(cloacina::TaskError::ExecutionFailed {
                             message: error_message,
                             task_id: task_id.clone(),
                             timestamp: chrono::Utc::now(),
@@ -239,14 +239,14 @@ impl crate::Task for PythonTaskWrapper {
             })
         })
         .await
-        .map_err(|e| crate::TaskError::ExecutionFailed {
+        .map_err(|e| cloacina::TaskError::ExecutionFailed {
             message: format!("Task execution panicked: {}", e),
             task_id: task_id_for_error.clone(),
             timestamp: chrono::Utc::now(),
         })??;
 
         if let Some(handle) = returned_handle {
-            crate::return_task_handle(handle);
+            cloacina::return_task_handle(handle);
         }
 
         Ok(context_result)
@@ -256,11 +256,11 @@ impl crate::Task for PythonTaskWrapper {
         &self.id
     }
 
-    fn dependencies(&self) -> &[crate::TaskNamespace] {
+    fn dependencies(&self) -> &[cloacina::TaskNamespace] {
         &self.dependencies
     }
 
-    fn retry_policy(&self) -> crate::retry::RetryPolicy {
+    fn retry_policy(&self) -> cloacina::retry::RetryPolicy {
         self.retry_policy.clone()
     }
 
@@ -270,8 +270,8 @@ impl crate::Task for PythonTaskWrapper {
 
     fn checkpoint(
         &self,
-        _context: &crate::Context<serde_json::Value>,
-    ) -> Result<(), crate::CheckpointError> {
+        _context: &cloacina::Context<serde_json::Value>,
+    ) -> Result<(), cloacina::CheckpointError> {
         Ok(())
     }
 
@@ -292,8 +292,8 @@ fn build_retry_policy(
     retry_max_delay_ms: Option<u64>,
     retry_condition: Option<String>,
     retry_jitter: Option<bool>,
-) -> crate::retry::RetryPolicy {
-    use crate::retry::*;
+) -> cloacina::retry::RetryPolicy {
+    use cloacina::retry::*;
     use std::time::Duration;
 
     let mut builder = RetryPolicy::builder();
@@ -345,7 +345,7 @@ fn build_retry_policy(
 pub struct TaskDecorator {
     id: Option<String>,
     dependencies: Vec<PyObject>,
-    retry_policy: crate::retry::RetryPolicy,
+    retry_policy: cloacina::retry::RetryPolicy,
     on_success: Option<PyObject>,
     on_failure: Option<PyObject>,
 }
@@ -391,10 +391,11 @@ impl TaskDecorator {
         let shared_on_success = on_success_cb.map(Arc::new);
         let shared_on_failure = on_failure_cb.map(Arc::new);
         let (tenant_id, package_name, workflow_id) = context.as_components();
-        let namespace = crate::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
+        let namespace =
+            cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
 
         py.allow_threads(|| {
-            crate::register_task_constructor(namespace.clone(), {
+            cloacina::register_task_constructor(namespace.clone(), {
                 let task_id_clone = task_id.clone();
                 let deps_clone = deps.clone();
                 let policy_clone = policy.clone();
@@ -415,7 +416,7 @@ impl TaskDecorator {
                         on_success_callback: on_success_clone,
                         on_failure_callback: on_failure_clone,
                         requires_handle: has_handle,
-                    }) as Arc<dyn crate::Task>
+                    }) as Arc<dyn cloacina::Task>
                 }
             });
         });
@@ -430,7 +431,7 @@ impl TaskDecorator {
         &self,
         py: Python,
         context: &PyWorkflowContext,
-    ) -> PyResult<Vec<crate::TaskNamespace>> {
+    ) -> PyResult<Vec<cloacina::TaskNamespace>> {
         let mut namespace_deps = Vec::new();
 
         for (i, dep) in self.dependencies.iter().enumerate() {
@@ -471,7 +472,7 @@ impl TaskDecorator {
             };
 
             let (tenant_id, package_name, workflow_id) = context.as_components();
-            namespace_deps.push(crate::TaskNamespace::new(
+            namespace_deps.push(cloacina::TaskNamespace::new(
                 tenant_id,
                 package_name,
                 workflow_id,

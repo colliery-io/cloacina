@@ -14,9 +14,9 @@
  *  limitations under the License.
  */
 
-// PyContext has moved to cloacina::python::context.
+// PyContext has moved to crate::context.
 // Re-export for internal crate compatibility.
-pub use crate::python::context::PyContext;
+pub use crate::context::PyContext;
 
 use pyo3::prelude::*;
 
@@ -24,7 +24,7 @@ use pyo3::prelude::*;
 #[pyclass(name = "DefaultRunnerConfig")]
 #[derive(Debug, Clone)]
 pub struct PyDefaultRunnerConfig {
-    inner: crate::runner::DefaultRunnerConfig,
+    inner: cloacina::runner::DefaultRunnerConfig,
 }
 
 #[pymethods]
@@ -66,7 +66,7 @@ impl PyDefaultRunnerConfig {
     ) -> pyo3::PyResult<Self> {
         use std::time::Duration;
 
-        let mut builder = crate::runner::DefaultRunnerConfig::builder();
+        let mut builder = cloacina::runner::DefaultRunnerConfig::builder();
 
         if let Some(val) = max_concurrent_tasks {
             builder = builder.max_concurrent_tasks(val);
@@ -123,7 +123,7 @@ impl PyDefaultRunnerConfig {
     #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         PyDefaultRunnerConfig {
-            inner: crate::runner::DefaultRunnerConfig::default(),
+            inner: cloacina::runner::DefaultRunnerConfig::default(),
         }
     }
 
@@ -333,18 +333,18 @@ impl PyDefaultRunnerConfig {
 
 impl PyDefaultRunnerConfig {
     /// Get the inner Rust config (for internal use)
-    pub(crate) fn to_rust_config(&self) -> crate::runner::DefaultRunnerConfig {
+    pub(crate) fn to_rust_config(&self) -> cloacina::runner::DefaultRunnerConfig {
         self.inner.clone()
     }
 
     fn rebuild(
         &self,
         apply: impl FnOnce(
-            crate::runner::DefaultRunnerConfigBuilder,
-        ) -> crate::runner::DefaultRunnerConfigBuilder,
-    ) -> crate::runner::DefaultRunnerConfig {
+            cloacina::runner::DefaultRunnerConfigBuilder,
+        ) -> cloacina::runner::DefaultRunnerConfigBuilder,
+    ) -> cloacina::runner::DefaultRunnerConfig {
         let c = &self.inner;
-        let builder = crate::runner::DefaultRunnerConfig::builder()
+        let builder = cloacina::runner::DefaultRunnerConfig::builder()
             .max_concurrent_tasks(c.max_concurrent_tasks())
             .scheduler_poll_interval(c.scheduler_poll_interval())
             .task_timeout(c.task_timeout())

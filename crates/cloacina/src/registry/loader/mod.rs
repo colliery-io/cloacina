@@ -21,13 +21,9 @@
 //! global task registry.
 
 pub mod package_loader;
-pub mod python_loader;
 pub mod task_registrar;
 pub mod validator;
 
 pub use package_loader::PackageLoader;
-pub use python_loader::{
-    detect_package_kind, extract_python_package, ExtractedPythonPackage, PackageKind,
-};
 pub use task_registrar::TaskRegistrar;
 pub use validator::PackageValidator;

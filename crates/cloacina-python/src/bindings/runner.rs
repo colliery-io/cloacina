@@ -24,7 +24,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
-use crate::python::context::PyContext;
+use crate::context::PyContext;
 
 /// Timeout for waiting on runtime thread shutdown
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
@@ -49,11 +49,11 @@ pub enum ShutdownError {
 enum RuntimeMessage {
     Execute {
         workflow_name: String,
-        context: crate::Context<serde_json::Value>,
+        context: cloacina::Context<serde_json::Value>,
         response_tx: oneshot::Sender<
             Result<
-                crate::executor::WorkflowExecutionResult,
-                crate::executor::WorkflowExecutionError,
+                cloacina::executor::WorkflowExecutionResult,
+                cloacina::executor::WorkflowExecutionError,
             >,
         >,
     },
@@ -61,36 +61,42 @@ enum RuntimeMessage {
         workflow_name: String,
         cron_expression: String,
         timezone: String,
-        response_tx: oneshot::Sender<Result<String, crate::executor::WorkflowExecutionError>>,
+        response_tx: oneshot::Sender<Result<String, cloacina::executor::WorkflowExecutionError>>,
     },
     ListCronSchedules {
         enabled_only: bool,
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::Schedule>, crate::executor::WorkflowExecutionError>,
+            Result<
+                Vec<cloacina::models::schedule::Schedule>,
+                cloacina::executor::WorkflowExecutionError,
+            >,
         >,
     },
     SetCronScheduleEnabled {
         schedule_id: String,
         enabled: bool,
-        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
+        response_tx: oneshot::Sender<Result<(), cloacina::executor::WorkflowExecutionError>>,
     },
     DeleteCronSchedule {
         schedule_id: String,
-        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
+        response_tx: oneshot::Sender<Result<(), cloacina::executor::WorkflowExecutionError>>,
     },
     GetCronSchedule {
         schedule_id: String,
         response_tx: oneshot::Sender<
-            Result<crate::models::schedule::Schedule, crate::executor::WorkflowExecutionError>,
+            Result<
+                cloacina::models::schedule::Schedule,
+                cloacina::executor::WorkflowExecutionError,
+            >,
         >,
     },
     UpdateCronSchedule {
         schedule_id: String,
         cron_expression: String,
         timezone: String,
-        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
+        response_tx: oneshot::Sender<Result<(), cloacina::executor::WorkflowExecutionError>>,
     },
     GetCronExecutionHistory {
         schedule_id: String,
@@ -98,15 +104,18 @@ enum RuntimeMessage {
         offset: i64,
         response_tx: oneshot::Sender<
             Result<
-                Vec<crate::models::schedule::ScheduleExecution>,
-                crate::executor::WorkflowExecutionError,
+                Vec<cloacina::models::schedule::ScheduleExecution>,
+                cloacina::executor::WorkflowExecutionError,
             >,
         >,
     },
     GetCronExecutionStats {
         since: chrono::DateTime<chrono::Utc>,
         response_tx: oneshot::Sender<
-            Result<crate::dal::ScheduleExecutionStats, crate::executor::WorkflowExecutionError>,
+            Result<
+                cloacina::dal::ScheduleExecutionStats,
+                cloacina::executor::WorkflowExecutionError,
+            >,
         >,
     },
     ListTriggerSchedules {
@@ -114,22 +123,25 @@ enum RuntimeMessage {
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::Schedule>, crate::executor::WorkflowExecutionError>,
+            Result<
+                Vec<cloacina::models::schedule::Schedule>,
+                cloacina::executor::WorkflowExecutionError,
+            >,
         >,
     },
     GetTriggerSchedule {
         trigger_name: String,
         response_tx: oneshot::Sender<
             Result<
-                Option<crate::models::schedule::Schedule>,
-                crate::executor::WorkflowExecutionError,
+                Option<cloacina::models::schedule::Schedule>,
+                cloacina::executor::WorkflowExecutionError,
             >,
         >,
     },
     SetTriggerEnabled {
         trigger_name: String,
         enabled: bool,
-        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
+        response_tx: oneshot::Sender<Result<(), cloacina::executor::WorkflowExecutionError>>,
     },
     GetTriggerExecutionHistory {
         trigger_name: String,
@@ -137,8 +149,8 @@ enum RuntimeMessage {
         offset: i64,
         response_tx: oneshot::Sender<
             Result<
-                Vec<crate::models::schedule::ScheduleExecution>,
-                crate::executor::WorkflowExecutionError,
+                Vec<cloacina::models::schedule::ScheduleExecution>,
+                cloacina::executor::WorkflowExecutionError,
             >,
         >,
     },
@@ -214,7 +226,7 @@ impl Drop for AsyncRuntimeHandle {
 /// Python wrapper for WorkflowExecutionResult
 #[pyclass(name = "WorkflowResult")]
 pub struct PyWorkflowResult {
-    inner: crate::executor::WorkflowExecutionResult,
+    inner: cloacina::executor::WorkflowExecutionResult,
 }
 
 #[pymethods]
@@ -255,7 +267,7 @@ impl PyWorkflowResult {
 }
 
 impl PyWorkflowResult {
-    pub fn from_result(result: crate::executor::WorkflowExecutionResult) -> Self {
+    pub fn from_result(result: cloacina::executor::WorkflowExecutionResult) -> Self {
         PyWorkflowResult { inner: result }
     }
 }
@@ -267,19 +279,23 @@ impl PyWorkflowResult {
 /// Parse a schedule ID string into a UniversalUuid.
 fn parse_schedule_id(
     schedule_id: &str,
-) -> Result<crate::database::universal_types::UniversalUuid, crate::executor::WorkflowExecutionError>
-{
+) -> Result<
+    cloacina::database::universal_types::UniversalUuid,
+    cloacina::executor::WorkflowExecutionError,
+> {
     schedule_id
         .parse::<uuid::Uuid>()
-        .map(crate::UniversalUuid::from)
-        .map_err(|e| crate::executor::WorkflowExecutionError::Configuration {
-            message: format!("Invalid schedule ID: {}", e),
-        })
+        .map(cloacina::UniversalUuid::from)
+        .map_err(
+            |e| cloacina::executor::WorkflowExecutionError::Configuration {
+                message: format!("Invalid schedule ID: {}", e),
+            },
+        )
 }
 
 /// Convert a cron Schedule to a Python dict.
 fn schedule_to_cron_dict(
-    schedule: crate::models::schedule::Schedule,
+    schedule: cloacina::models::schedule::Schedule,
     py: Python,
 ) -> PyResult<PyObject> {
     let dict = pyo3::types::PyDict::new(py);
@@ -304,7 +320,7 @@ fn schedule_to_cron_dict(
 
 /// Convert a trigger Schedule to a Python dict.
 fn schedule_to_trigger_dict(
-    schedule: crate::models::schedule::Schedule,
+    schedule: cloacina::models::schedule::Schedule,
     py: Python,
 ) -> PyResult<PyObject> {
     let dict = pyo3::types::PyDict::new(py);
@@ -325,7 +341,7 @@ fn schedule_to_trigger_dict(
 
 /// Convert a cron ScheduleExecution to a Python dict.
 fn cron_execution_to_dict(
-    execution: crate::models::schedule::ScheduleExecution,
+    execution: cloacina::models::schedule::ScheduleExecution,
     py: Python,
 ) -> PyResult<PyObject> {
     let dict = pyo3::types::PyDict::new(py);
@@ -347,7 +363,7 @@ fn cron_execution_to_dict(
 
 /// Convert a trigger ScheduleExecution to a Python dict.
 fn trigger_execution_to_dict(
-    execution: crate::models::schedule::ScheduleExecution,
+    execution: cloacina::models::schedule::ScheduleExecution,
     py: Python,
 ) -> PyResult<PyObject> {
     let dict = pyo3::types::PyDict::new(py);
@@ -371,10 +387,10 @@ fn trigger_execution_to_dict(
 ///
 /// Previously this ~300-line match block was copy-pasted into each constructor.
 async fn run_event_loop(
-    runner: Arc<crate::DefaultRunner>,
+    runner: Arc<cloacina::DefaultRunner>,
     mut rx: mpsc::UnboundedReceiver<RuntimeMessage>,
 ) {
-    use crate::executor::WorkflowExecutor;
+    use cloacina::executor::WorkflowExecutor;
 
     while let Some(message) = rx.recv().await {
         match message {
@@ -516,7 +532,7 @@ async fn run_event_loop(
                             .await
                     };
                     let _ = response_tx.send(result.map_err(|e| {
-                        crate::executor::WorkflowExecutionError::Configuration {
+                        cloacina::executor::WorkflowExecutionError::Configuration {
                             message: e.to_string(),
                         }
                     }));
@@ -531,7 +547,7 @@ async fn run_event_loop(
                     let dal = runner.dal();
                     let result = dal.schedule().get_by_trigger_name(&trigger_name).await;
                     let _ = response_tx.send(result.map_err(|e| {
-                        crate::executor::WorkflowExecutionError::Configuration {
+                        cloacina::executor::WorkflowExecutionError::Configuration {
                             message: e.to_string(),
                         }
                     }));
@@ -568,7 +584,7 @@ async fn run_event_loop(
                     }
                     .await;
                     let _ = response_tx.send(result.map_err(|e| {
-                        crate::executor::WorkflowExecutionError::Configuration {
+                        cloacina::executor::WorkflowExecutionError::Configuration {
                             message: e.to_string(),
                         }
                     }));
@@ -589,7 +605,7 @@ async fn run_event_loop(
                             .get_by_trigger_name(&trigger_name)
                             .await
                             .map_err(|e| {
-                                crate::executor::WorkflowExecutionError::Configuration {
+                                cloacina::executor::WorkflowExecutionError::Configuration {
                                     message: e.to_string(),
                                 }
                             })?;
@@ -598,7 +614,7 @@ async fn run_event_loop(
                                 .list_by_schedule(schedule.id, limit, offset)
                                 .await
                                 .map_err(|e| {
-                                    crate::executor::WorkflowExecutionError::Configuration {
+                                    cloacina::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 })
@@ -625,7 +641,10 @@ async fn run_event_loop(
 /// runtime so it can block_on async DefaultRunner constructors.
 fn spawn_runtime<F>(create_runner: F) -> PyResult<PyDefaultRunner>
 where
-    F: FnOnce(&Runtime) -> Result<crate::DefaultRunner, crate::executor::WorkflowExecutionError>
+    F: FnOnce(
+            &Runtime,
+        )
+            -> Result<cloacina::DefaultRunner, cloacina::executor::WorkflowExecutionError>
         + Send
         + 'static,
 {
@@ -696,7 +715,7 @@ impl PyDefaultRunner {
     fn send_and_recv<T: Send>(
         &self,
         message: RuntimeMessage,
-        response_rx: oneshot::Receiver<Result<T, crate::executor::WorkflowExecutionError>>,
+        response_rx: oneshot::Receiver<Result<T, cloacina::executor::WorkflowExecutionError>>,
         py: Python,
         error_context: &str,
     ) -> PyResult<T> {
@@ -724,9 +743,9 @@ impl PyDefaultRunner {
         spawn_runtime(move |rt| {
             info!(
                 "Creating DefaultRunner with database_url: {}",
-                crate::logging::mask_db_url(&database_url)
+                cloacina::logging::mask_db_url(&database_url)
             );
-            rt.block_on(crate::DefaultRunner::new(&database_url))
+            rt.block_on(cloacina::DefaultRunner::new(&database_url))
         })
     }
 
@@ -739,7 +758,7 @@ impl PyDefaultRunner {
         let database_url = database_url.to_string();
         let rust_config = config.to_rust_config();
         spawn_runtime(move |rt| {
-            rt.block_on(crate::DefaultRunner::with_config(
+            rt.block_on(cloacina::DefaultRunner::with_config(
                 &database_url,
                 rust_config,
             ))
@@ -778,9 +797,9 @@ impl PyDefaultRunner {
             info!(
                 "Creating DefaultRunner with schema: {} and database_url: {}",
                 schema,
-                crate::logging::mask_db_url(&database_url)
+                cloacina::logging::mask_db_url(&database_url)
             );
-            rt.block_on(crate::DefaultRunner::with_schema(&database_url, &schema))
+            rt.block_on(cloacina::DefaultRunner::with_schema(&database_url, &schema))
         })
     }
 
@@ -1431,13 +1450,13 @@ mod tests {
     #[serial]
     fn test_workflow_result_completed() {
         pyo3::prepare_freethreaded_python();
-        let mut ctx = crate::Context::new();
+        let mut ctx = cloacina::Context::new();
         ctx.insert("result".to_string(), serde_json::json!("done"))
             .unwrap();
-        let result = crate::executor::WorkflowExecutionResult {
+        let result = cloacina::executor::WorkflowExecutionResult {
             execution_id: uuid::Uuid::new_v4(),
             workflow_name: "test-wf".to_string(),
-            status: crate::executor::WorkflowStatus::Completed,
+            status: cloacina::executor::WorkflowStatus::Completed,
             start_time: chrono::Utc::now(),
             end_time: Some(chrono::Utc::now()),
             duration: Some(std::time::Duration::from_secs(1)),
@@ -1466,14 +1485,14 @@ mod tests {
     #[serial]
     fn test_workflow_result_failed() {
         pyo3::prepare_freethreaded_python();
-        let result = crate::executor::WorkflowExecutionResult {
+        let result = cloacina::executor::WorkflowExecutionResult {
             execution_id: uuid::Uuid::new_v4(),
             workflow_name: "fail-wf".to_string(),
-            status: crate::executor::WorkflowStatus::Failed,
+            status: cloacina::executor::WorkflowStatus::Failed,
             start_time: chrono::Utc::now(),
             end_time: None,
             duration: None,
-            final_context: crate::Context::new(),
+            final_context: cloacina::Context::new(),
             task_results: vec![],
             error_message: Some("something broke".to_string()),
         };
@@ -1492,7 +1511,7 @@ mod tests {
         let url = unique_sqlite_url();
         let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
         Python::with_gil(|py| {
-            let ctx = crate::python::context::PyContext::new(None).unwrap();
+            let ctx = crate::context::PyContext::new(None).unwrap();
             let result = runner.execute("nonexistent_workflow", &ctx, py);
             assert!(
                 result.is_err(),
@@ -1514,28 +1533,28 @@ mod tests {
         struct NoOpTask;
 
         #[async_trait]
-        impl crate::Task for NoOpTask {
+        impl cloacina::Task for NoOpTask {
             async fn execute(
                 &self,
-                context: crate::Context<serde_json::Value>,
-            ) -> Result<crate::Context<serde_json::Value>, crate::TaskError> {
+                context: cloacina::Context<serde_json::Value>,
+            ) -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
                 Ok(context)
             }
             fn id(&self) -> &str {
                 "noop"
             }
-            fn dependencies(&self) -> &[crate::TaskNamespace] {
+            fn dependencies(&self) -> &[cloacina::TaskNamespace] {
                 &[]
             }
         }
 
-        let workflow = crate::Workflow::builder("py_runner_exec_test")
+        let workflow = cloacina::Workflow::builder("py_runner_exec_test")
             .add_task(Arc::new(NoOpTask))
             .unwrap()
             .build()
             .unwrap();
 
-        crate::register_workflow_constructor("py_runner_exec_test".to_string(), {
+        cloacina::register_workflow_constructor("py_runner_exec_test".to_string(), {
             let w = workflow.clone();
             move || w.clone()
         });
@@ -1543,7 +1562,7 @@ mod tests {
         let url = unique_sqlite_url();
         let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
         Python::with_gil(|py| {
-            let ctx = crate::python::context::PyContext::new(None).unwrap();
+            let ctx = crate::context::PyContext::new(None).unwrap();
             let result = runner.execute("py_runner_exec_test", &ctx, py);
             assert!(result.is_ok(), "Execute should succeed: {:?}", result.err());
 

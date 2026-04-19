@@ -22,7 +22,7 @@ use pyo3::prelude::*;
 /// Python wrapper for WorkflowBuilder
 #[pyclass(name = "WorkflowBuilder")]
 pub struct PyWorkflowBuilder {
-    inner: crate::WorkflowBuilder,
+    inner: cloacina::WorkflowBuilder,
     context: PyWorkflowContext,
 }
 
@@ -44,7 +44,7 @@ impl PyWorkflowBuilder {
         );
 
         let (tenant_id, _package_name, _workflow_id) = context.as_components();
-        let workflow_builder = crate::Workflow::builder(name).tenant(tenant_id);
+        let workflow_builder = cloacina::Workflow::builder(name).tenant(tenant_id);
 
         PyWorkflowBuilder {
             inner: workflow_builder,
@@ -65,11 +65,11 @@ impl PyWorkflowBuilder {
     /// Add a task to the workflow by ID or function reference
     pub fn add_task(&mut self, py: Python, task: PyObject) -> PyResult<()> {
         if let Ok(task_id) = task.extract::<String>(py) {
-            let registry = crate::task::global_task_registry();
+            let registry = cloacina::task::global_task_registry();
 
             let (tenant_id, package_name, workflow_id) = self.context.as_components();
             let task_namespace =
-                crate::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
+                cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
             let guard = registry.read();
 
             let constructor = guard.get(&task_namespace).ok_or_else(|| {
@@ -95,10 +95,10 @@ impl PyWorkflowBuilder {
                         Ok(name_obj) => {
                             match name_obj.extract::<String>(py) {
                                 Ok(func_name) => {
-                                    let registry = crate::task::global_task_registry();
+                                    let registry = cloacina::task::global_task_registry();
 
                                     let (tenant_id, package_name, workflow_id) = self.context.as_components();
-                                    let task_namespace = crate::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
+                                    let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
                                     let guard = registry.read();
 
                                     let constructor = guard.get(&task_namespace).ok_or_else(|| {
@@ -174,7 +174,7 @@ impl PyWorkflowBuilder {
 
         let (tenant_id, package_name, workflow_id) = self.context.as_components();
 
-        let mut workflow = crate::Workflow::new(workflow_id);
+        let mut workflow = cloacina::Workflow::new(workflow_id);
         workflow.set_tenant(tenant_id);
         workflow.set_package(package_name);
 
@@ -186,7 +186,7 @@ impl PyWorkflowBuilder {
             workflow.add_tag(key, value);
         }
 
-        let registry = crate::task::global_task_registry();
+        let registry = cloacina::task::global_task_registry();
         let guard = registry.read();
 
         for (namespace, constructor) in guard.iter() {
@@ -209,7 +209,7 @@ impl PyWorkflowBuilder {
         let final_workflow = workflow.finalize();
 
         let workflow_name = final_workflow.name().to_string();
-        crate::workflow::register_workflow_constructor(workflow_name, move || {
+        cloacina::workflow::register_workflow_constructor(workflow_name, move || {
             final_workflow.clone()
         });
 
@@ -226,7 +226,7 @@ impl PyWorkflowBuilder {
 #[pyclass(name = "Workflow")]
 #[derive(Clone)]
 pub struct PyWorkflow {
-    inner: crate::Workflow,
+    inner: cloacina::Workflow,
 }
 
 #[pymethods]
@@ -358,14 +358,12 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
             // Register a task first so the builder has something
-            crate::python::task::push_workflow_context(
-                crate::python::workflow_context::PyWorkflowContext::new(
-                    "public",
-                    "embedded",
-                    "build_test_wf",
-                ),
-            );
-            let decorator = crate::python::task::task(
+            crate::task::push_workflow_context(crate::workflow_context::PyWorkflowContext::new(
+                "public",
+                "embedded",
+                "build_test_wf",
+            ));
+            let decorator = crate::task::task(
                 Some("build_task".to_string()),
                 None,
                 None,
@@ -382,7 +380,7 @@ mod tests {
                 .eval(pyo3::ffi::c_str!("lambda ctx: ctx"), None, None)
                 .unwrap();
             decorator.__call__(py, func.into()).unwrap();
-            crate::python::task::pop_workflow_context();
+            crate::task::pop_workflow_context();
 
             // Now build a workflow that references the registered task
             let builder = PyWorkflowBuilder::new("build_test_wf", None, None, None);
@@ -409,7 +407,7 @@ pub fn register_workflow_constructor(name: String, constructor: PyObject) -> PyR
         })?;
 
         let workflow = py_workflow.inner.clone();
-        crate::workflow::register_workflow_constructor(name, move || workflow.clone());
+        cloacina::workflow::register_workflow_constructor(name, move || workflow.clone());
 
         Ok(())
     })

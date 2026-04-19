@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::registry::error::LoaderError;
+use cloacina::registry::error::LoaderError;
 
 /// An extracted Python package ready for task execution.
 #[derive(Debug, Clone)]

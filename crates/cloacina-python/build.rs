@@ -15,5 +15,8 @@
  */
 
 fn main() {
+    // Set pyo3 cfg flags + Python3.framework rpath. Lives here (not in the
+    // consuming binaries) because cloacina-python is the one crate that
+    // actually links pyo3.
     cloacina_build::configure();
 }

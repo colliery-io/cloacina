@@ -25,7 +25,7 @@ mod tests {
     use pyo3::prelude::*;
     use serial_test::serial;
 
-    use crate::python::computation_graph;
+    use crate::computation_graph;
 
     /// Helper: run a Python script that defines a computation graph using the
     /// builder + @node pattern, then return the registered executor.
@@ -283,15 +283,18 @@ with ComputationGraphBuilder("exec_linear",
 
         let executor = computation_graph::get_graph_executor("exec_linear").unwrap();
 
-        let mut cache = crate::computation_graph::types::InputCache::new();
+        let mut cache = cloacina::computation_graph::types::InputCache::new();
         cache.update(
-            crate::computation_graph::types::SourceName::new("alpha"),
-            crate::computation_graph::types::serialize(&serde_json::json!({"value": 5.0})).unwrap(),
+            cloacina::computation_graph::types::SourceName::new("alpha"),
+            cloacina::computation_graph::types::serialize(&serde_json::json!({"value": 5.0}))
+                .unwrap(),
         );
 
         let result = executor.execute(&cache).await;
         match &result {
-            crate::computation_graph::GraphResult::Error(e) => panic!("execution failed: {:?}", e),
+            cloacina::computation_graph::GraphResult::Error(e) => {
+                panic!("execution failed: {:?}", e)
+            }
             _ => {}
         }
         assert!(result.is_completed(), "linear graph should complete");
@@ -359,20 +362,21 @@ with ComputationGraphBuilder("exec_routing",
         let executor = computation_graph::get_graph_executor("exec_routing").unwrap();
 
         // Signal path: 8 + 5 = 13 > 10
-        let mut cache = crate::computation_graph::types::InputCache::new();
+        let mut cache = cloacina::computation_graph::types::InputCache::new();
         cache.update(
-            crate::computation_graph::types::SourceName::new("alpha"),
-            crate::computation_graph::types::serialize(&serde_json::json!({"value": 8.0})).unwrap(),
+            cloacina::computation_graph::types::SourceName::new("alpha"),
+            cloacina::computation_graph::types::serialize(&serde_json::json!({"value": 8.0}))
+                .unwrap(),
         );
         cache.update(
-            crate::computation_graph::types::SourceName::new("beta"),
-            crate::computation_graph::types::serialize(&serde_json::json!({"estimate": 5.0}))
+            cloacina::computation_graph::types::SourceName::new("beta"),
+            cloacina::computation_graph::types::serialize(&serde_json::json!({"estimate": 5.0}))
                 .unwrap(),
         );
 
         let result = executor.execute(&cache).await;
         match &result {
-            crate::computation_graph::GraphResult::Error(e) => {
+            cloacina::computation_graph::GraphResult::Error(e) => {
                 panic!("routing execution failed: {:?}", e)
             }
             _ => {}
