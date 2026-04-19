@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-19T02:57:15Z | 478 files | JavaScript, Python, Rust
+> Generated: 2026-04-19T15:18:15Z | 480 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -139,10 +139,12 @@
 │   │   │   │   ├── loader.rs
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── namespace.rs
+│   │   │   │   ├── runtime_impl.rs
 │   │   │   │   ├── task.rs
 │   │   │   │   ├── trigger.rs
 │   │   │   │   ├── workflow.rs
 │   │   │   │   └── workflow_context.rs
+│   │   │   ├── python_runtime.rs
 │   │   │   ├── registry/
 │   │   │   │   ├── error.rs
 │   │   │   │   ├── loader/
@@ -1242,17 +1244,18 @@
 - pub `models` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `packaging` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `python` module L511 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `registry` module L512 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `retry` module L513 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runner` module L514 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runtime` module L515 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `security` module L520 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task` module L521 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger` module L522 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `var` module L523 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `workflow` module L524 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `setup_test` function L533-535 — `()` — - [`retry`]: Retry policies and backoff strategies
--  `cloaca` function L601-663 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
+- pub `python_runtime` module L512 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `registry` module L513 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `retry` module L514 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runner` module L515 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runtime` module L516 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `security` module L521 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task` module L522 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger` module L523 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `var` module L524 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `workflow` module L525 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `setup_test` function L534-536 — `()` — - [`retry`]: Retry policies and backoff strategies
+-  `cloaca` function L602-664 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -1261,6 +1264,14 @@
 - pub `mask_db_url` function L211-220 — `(url: &str) -> String` — Mask the password in a database URL for safe logging.
 -  `tests` module L178-191 — `-` — - Test logging initialization is idempotent and safe to call multiple times
 -  `test_logging_levels` function L183-190 — `()` — - Test logging initialization is idempotent and safe to call multiple times
+
+#### crates/cloacina/src/python_runtime.rs
+
+- pub `LoadedPythonWorkflow` struct L38-44 — `{ task_namespaces: Vec<TaskNamespace>, workflow_name: String }` — Result of loading a Python workflow package.
+- pub `PythonRuntime` interface L52-76 — `{ fn load_workflow_package(), fn load_cg_package() }` — Runtime backing Python-language package loading.
+- pub `register_python_runtime` function L84-86 — `(runtime: Arc<dyn PythonRuntime>)` — Install a [`PythonRuntime`] implementation for this process.
+- pub `python_runtime` function L90-92 — `() -> Option<Arc<dyn PythonRuntime>>` — Fetch the registered [`PythonRuntime`], if any.
+-  `PYTHON_RUNTIME` variable L78 — `: OnceLock<Arc<dyn PythonRuntime>>` — with a clear `not attached` error at reconcile time.
 
 #### crates/cloacina/src/runtime.rs
 
@@ -3556,13 +3567,14 @@
 - pub `workflow_context` module L43 — `-` — `#[pymodule]` definition.
 - pub `bindings` module L71 — `-` — `#[pymodule]` definition.
 -  `computation_graph_tests` module L31 — `-` — `#[pymodule]` definition.
--  `tests` module L74-291 — `-` — `#[pymodule]` definition.
--  `test_python_workflow_via_with_gil` function L80-126 — `()` — `#[pymodule]` definition.
--  `test_ensure_cloaca_module_registers_in_sys_modules` function L129-159 — `()` — `#[pymodule]` definition.
--  `test_cloaca_var_and_var_or_from_python` function L162-218 — `()` — `#[pymodule]` definition.
--  `test_cloaca_cg_decorators_are_callable` function L221-255 — `()` — `#[pymodule]` definition.
--  `test_validate_no_stdlib_shadowing_rejects_os_py` function L258-274 — `()` — `#[pymodule]` definition.
--  `test_validate_no_stdlib_shadowing_allows_normal_packages` function L277-290 — `()` — `#[pymodule]` definition.
+-  `runtime_impl` module L78 — `-` — `#[pymodule]` definition.
+-  `tests` module L82-299 — `-` — `#[pymodule]` definition.
+-  `test_python_workflow_via_with_gil` function L88-134 — `()` — `#[pymodule]` definition.
+-  `test_ensure_cloaca_module_registers_in_sys_modules` function L137-167 — `()` — `#[pymodule]` definition.
+-  `test_cloaca_var_and_var_or_from_python` function L170-226 — `()` — `#[pymodule]` definition.
+-  `test_cloaca_cg_decorators_are_callable` function L229-263 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_rejects_os_py` function L266-282 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_allows_normal_packages` function L285-298 — `()` — `#[pymodule]` definition.
 
 #### crates/cloacina/src/python/namespace.rs
 
@@ -3595,6 +3607,15 @@
 -  `test_eq` function L222-229 — `()`
 -  `test_hash_consistency` function L232-237 — `()`
 -  `test_from_rust_to_rust_roundtrip` function L240-246 — `()`
+
+#### crates/cloacina/src/python/runtime_impl.rs
+
+- pub `CoreCloacinaPythonRuntime` struct L34 — `-` — The bundled-with-core implementation of [`PythonRuntime`].
+- pub `install_in_process` function L111-113 — `()` — Register [`CoreCloacinaPythonRuntime`] as this process's
+-  `CoreCloacinaPythonRuntime` type L36-105 — `impl PythonRuntime for CoreCloacinaPythonRuntime` — entirely.
+-  `load_workflow_package` function L37-68 — `( &self, archive_data: &[u8], staging_dir: &Path, tenant_id: &str, ) -> Result<L...` — entirely.
+-  `load_cg_package` function L70-104 — `( &self, archive_data: &[u8], staging_dir: &Path, tenant_id: &str, graph_name: &...` — entirely.
+-  `auto_install_core_runtime` function L121-123 — `()` — Phase A of CLOACI-T-0529 keeps behavior identical: since the impl
 
 #### crates/cloacina/src/python/task.rs
 
@@ -3983,36 +4004,36 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-912 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L38-454 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L457-521 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L524-565 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L568-709 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L712-760 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L763-810 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L813-836 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L839-850 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L858-900 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `unregister_package_triggers` function L903-911 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
--  `tests` module L915-1212 — `-` — Package loading, unloading, and task/workflow registration.
--  `make_test_reconciler` function L924-929 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
--  `make_test_metadata` function L931-944 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata_with_triggers` function L946-963 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_with_no_triggers_returns_empty` function L971-980 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_tracks_registered_triggers` function L984-1015 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_skips_unregistered_triggers` function L1019-1039 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_mixed_registered_and_missing` function L1043-1082 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_removes_from_global_registry` function L1090-1109 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_handles_already_removed` function L1113-1120 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_empty_list_is_noop` function L1124-1127 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_removes_from_global_registry` function L1135-1170 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_nonexistent_is_ok` function L1174-1181 — `()` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` struct L1188-1190 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` type L1193-1211 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
--  `name` function L1194-1196 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
--  `poll_interval` function L1198-1200 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
--  `allow_concurrent` function L1202-1204 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
--  `poll` function L1206-1210 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L27-876 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L38-418 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L421-485 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L488-529 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L532-673 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L676-724 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L727-774 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L777-800 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L803-814 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L822-864 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `unregister_package_triggers` function L867-875 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `tests` module L879-1176 — `-` — Package loading, unloading, and task/workflow registration.
+-  `make_test_reconciler` function L888-893 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
+-  `make_test_metadata` function L895-908 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata_with_triggers` function L910-927 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_with_no_triggers_returns_empty` function L935-944 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_tracks_registered_triggers` function L948-979 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_skips_unregistered_triggers` function L983-1003 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_mixed_registered_and_missing` function L1007-1046 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_removes_from_global_registry` function L1054-1073 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_handles_already_removed` function L1077-1084 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_empty_list_is_noop` function L1088-1091 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_removes_from_global_registry` function L1099-1134 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_nonexistent_is_ok` function L1138-1145 — `()` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` struct L1152-1154 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` type L1157-1175 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
+-  `name` function L1158-1160 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
+-  `poll_interval` function L1162-1164 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
+-  `allow_concurrent` function L1166-1168 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
+-  `poll` function L1170-1174 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
