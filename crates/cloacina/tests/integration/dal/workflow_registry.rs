@@ -16,9 +16,27 @@
 
 use crate::fixtures::get_or_init_fixture;
 use cloacina::registry::error::RegistryError;
+use cloacina::registry::traits::RegistryStorage;
+use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use serial_test::serial;
 use std::sync::OnceLock;
 use uuid::Uuid;
+
+/// After `register_workflow_package`, a row lands with
+/// `build_status = 'pending'`. The registry's read APIs filter to
+/// `success` so the reconciler doesn't try to load unbuilt rows. For
+/// these DAL tests there's no compiler attached — drive the row through
+/// success manually so the read assertions see it.
+async fn drive_to_success<S: RegistryStorage + Send + Sync>(
+    registry: &WorkflowRegistryImpl<S>,
+    package_id: Uuid,
+) {
+    registry.claim_next_build().await.expect("claim_next_build");
+    registry
+        .mark_build_success(package_id, Vec::new())
+        .await
+        .expect("mark_build_success");
+}
 
 /// Cached mock package data.
 ///
@@ -106,6 +124,7 @@ async fn test_register_and_get_workflow_package_with_db_storage() {
         .register_workflow_package(package_data.clone())
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Retrieve the package by ID
     let retrieved = registry_dal
@@ -141,6 +160,7 @@ async fn test_register_and_get_workflow_package_with_fs_storage() {
         .register_workflow_package(package_data.clone())
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Retrieve the package by ID
     let retrieved = registry_dal
@@ -185,6 +205,7 @@ async fn test_get_workflow_package_by_name_with_db_storage() {
         .register_workflow_package(package_data.clone())
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Get the registered package to find out its actual name and version
     let registered = registry_dal
@@ -227,6 +248,7 @@ async fn test_get_workflow_package_by_name_with_fs_storage() {
         .register_workflow_package(package_data.clone())
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Get the registered package to find out its actual name and version
     let registered = registry_dal
@@ -277,6 +299,7 @@ async fn test_unregister_workflow_package_by_id_with_db_storage() {
         .register_workflow_package(package_data)
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Verify it exists
     assert!(registry_dal
@@ -317,6 +340,7 @@ async fn test_unregister_workflow_package_by_id_with_fs_storage() {
         .register_workflow_package(package_data)
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Verify it exists
     assert!(registry_dal
@@ -366,6 +390,7 @@ async fn test_unregister_workflow_package_by_name_with_db_storage() {
         .register_workflow_package(package_data)
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Get the actual package metadata
     let registered = registry_dal
@@ -415,6 +440,7 @@ async fn test_unregister_workflow_package_by_name_with_fs_storage() {
         .register_workflow_package(package_data)
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Get the actual package metadata
     let registered = registry_dal
@@ -476,10 +502,11 @@ async fn test_list_packages_with_db_storage() {
     let initial_count = initial_packages.len();
 
     // Register a package
-    let _package_id = registry_dal
+    let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // List packages and verify count increased
     let packages = registry_dal
@@ -518,10 +545,11 @@ async fn test_list_packages_with_fs_storage() {
     let initial_count = initial_packages.len();
 
     // Register a package
-    let _package_id = registry_dal
+    let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // List packages and verify count increased
     let packages = registry_dal
@@ -644,6 +672,7 @@ async fn test_exists_operations_with_db_storage() {
         .register_workflow_package(package_data)
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Check existing package
     assert!(registry_dal
@@ -694,6 +723,7 @@ async fn test_exists_operations_with_fs_storage() {
         .register_workflow_package(package_data)
         .await
         .expect("Failed to register workflow package");
+    drive_to_success(&registry_dal, package_id).await;
 
     // Check existing package
     assert!(registry_dal
