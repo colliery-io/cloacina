@@ -84,6 +84,10 @@ anyhow = { version = "1.0" }
 bincode = { workspace = true }
 pyo3 = { version = "0.25", features = ["abi3-py39"] }
 pythonize = { version = "0.25" }
+# Phase A of CLOACI-T-0529: auto-install the core `PythonRuntime` impl on
+# startup so behavior is preserved while the trait indirection lands.
+# Phase B moves the impl to `cloacina-python` and deletes this dep.
+ctor = { workspace = true }
 
 [build-dependencies]
 cloacina-build = { version = "0.5.1", path = "../cloacina-build" }

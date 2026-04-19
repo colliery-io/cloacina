@@ -1,18 +1,18 @@
 ---
-id: gate-pyo3-behind-a-python-feature
+id: isolate-python-runtime-so-non
 level: task
 title: "Isolate Python runtime so non-Python binaries don't transitively link pyo3"
 short_code: "CLOACI-T-0529"
 created_at: 2026-04-18T16:50:00+00:00
-updated_at: 2026-04-19T03:10:00+00:00
+updated_at: 2026-04-19T13:54:25.984294+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -103,6 +103,10 @@ The reconciler-side dispatch becomes:
   object; if no implementation is registered, it errors cleanly
   ("python runtime not attached") — the compiler doesn't care
   because the compiler never reconciles.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

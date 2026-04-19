@@ -70,6 +70,14 @@ pub use loader::{
 // Python API wrapper types (PyDefaultRunner, PyDatabaseAdmin, etc.)
 pub mod bindings;
 
+// Implementation of the `PythonRuntime` trait — wraps the module-local
+// helpers in a dispatchable object the reconciler can call without a
+// direct `crate::python::...` reference. Phase A of CLOACI-T-0529;
+// Phase B moves this impl (and all of `crate::python`) into a separate
+// `cloacina-python` crate.
+mod runtime_impl;
+pub use runtime_impl::{install_in_process, CoreCloacinaPythonRuntime};
+
 #[cfg(test)]
 mod tests {
     use super::*;
