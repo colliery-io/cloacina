@@ -147,7 +147,6 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 mod tests {
     use super::*;
     use pyo3::ffi::c_str;
-    use pyo3::prelude::*;
 
     #[test]
     fn test_python_workflow_via_with_gil() {

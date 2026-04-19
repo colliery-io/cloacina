@@ -4,7 +4,7 @@ level: task
 title: "Isolate Python runtime so non-Python binaries don't transitively link pyo3"
 short_code: "CLOACI-T-0529"
 created_at: 2026-04-18T16:50:00+00:00
-updated_at: 2026-04-19T13:54:25.984294+00:00
+updated_at: 2026-04-19T16:40:22.885265+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -110,6 +110,8 @@ The reconciler-side dispatch becomes:
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] New crate `crates/cloacina-python/` carrying everything
   pyo3-related.
 - [ ] `cloacina` has no direct or transitive pyo3 dependency
@@ -180,4 +182,48 @@ independent.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-04-19 — Phase A + Phase B shipped
+
+**Phase A** (`dae12e7`): introduced `cloacina::python_runtime::PythonRuntime`
+trait + `OnceLock` registration slot. Reconciler dispatches through the
+trait instead of direct `crate::python::*` calls. Cloacina's own impl
+auto-installs via `#[ctor::ctor]` so behavior was preserved while the
+indirection settled.
+
+**Phase B seed** (`eadde52`): created `crates/cloacina-python/`,
+duplicated `src/python/` + `registry::loader::python_loader` into it,
+rewrote intra-crate refs. Both copies coexist at this commit.
+
+**Phase B** (`7a3e4e9`): deleted the cloacina-core copies, dropped
+pyo3 / pythonize / ctor / extension-module / build.rs from cloacina,
+made cloacina-server depend on cloacina-python and call
+`cloacina_python::install()` at startup. Compiler + CLI dropped
+build.rs + cloacina-build build-dep.
+
+**Polish**: moved `pyproject.toml` to cloacina-python so maturin
+builds from the correct crate; updated `.angreal/cloaca/cloaca_utils.py`
+to point at the new path; refreshed `deploy/docker/compiler.Dockerfile`
+comment to note it no longer carries Python.
+
+**Verification**:
+
+```text
+$ otool -L target/debug/cloacina-compiler | grep -i python
+(empty)
+$ otool -l target/debug/cloacina-compiler | grep LC_RPATH
+(empty)
+$ otool -L target/debug/cloacinactl | grep -i python
+(empty)
+$ otool -L target/debug/cloacina-server | grep -i python
+@rpath/Python3.framework/Versions/3.9/Python3    (as expected)
+
+$ cargo tree -p cloacina-compiler --no-dev-dependencies --edges=normal | grep -i pyo3
+(empty)
+$ cargo tree -p cloacinactl --no-dev-dependencies --edges=normal | grep -i pyo3
+(empty)
+
+$ angreal cloacina unit                         — all passed
+$ angreal cloacina compiler-e2e                 — 5/5 green
+```
+
+All acceptance criteria met. Task ready to transition to completed.

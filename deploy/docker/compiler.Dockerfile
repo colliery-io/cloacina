@@ -1,8 +1,11 @@
 # cloacina-compiler — polling build worker.
 #
-# Needs the Rust toolchain at runtime (it shells out to `cargo build` per
-# package). Image is deliberately larger than the server; pair the two via
-# docker-compose. See CLOACI-I-0097 + ADR-0004 for the two-binary rationale.
+# Needs the Rust toolchain at runtime (shells out to `cargo build` per
+# package). Does NOT need Python — as of CLOACI-T-0529 the compiler
+# binary no longer transitively links pyo3, so this image carries zero
+# Python runtime. Pair with the server (which does run Python) via
+# docker-compose. See CLOACI-I-0097 + ADR-0004 for the two-binary
+# rationale.
 #
 # Build:  docker build -f deploy/docker/compiler.Dockerfile -t cloacina-compiler .
 # Run:    docker run -e DATABASE_URL=postgres://... cloacina-compiler
