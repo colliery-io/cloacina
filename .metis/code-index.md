@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-18T19:47:12Z | 475 files | JavaScript, Python, Rust
+> Generated: 2026-04-18T23:58:11Z | 478 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -311,6 +311,7 @@
 │   │       ├── trigger_attr.rs
 │   │       └── workflow_attr.rs
 │   ├── cloacina-server/
+│   │   ├── build.rs
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── main.rs
@@ -527,9 +528,11 @@
 │   │               └── missing_workflow_task.rs
 │   ├── fixtures/
 │   │   ├── compiler-broken-rust/
+│   │   │   ├── build.rs
 │   │   │   └── src/
 │   │   │       └── lib.rs
 │   │   └── compiler-happy-rust/
+│   │       ├── build.rs
 │   │       └── src/
 │   │           └── lib.rs
 │   ├── performance/
@@ -4149,22 +4152,23 @@
 - pub `loaded_package_count` function L104-106 — `(&self) -> usize` — Get the number of currently loaded packages.
 - pub `total_registered_tasks` function L109-111 — `(&self) -> usize` — Get the total number of registered tasks across all packages.
 - pub `register_workflow_package` function L121-127 — `( &mut self, package_data: Vec<u8>, ) -> Result<Uuid, RegistryError>` — Register a workflow package (alias for register_workflow via the trait).
-- pub `get_workflow_package_by_id` function L132-154 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get a workflow package by its UUID.
-- pub `get_workflow_package_by_name` function L159-169 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(WorkflowMetadata...` — Get a workflow package by name and version.
-- pub `exists_by_id` function L172-174 — `(&self, package_id: Uuid) -> Result<bool, RegistryError>` — Check if a package exists by ID.
-- pub `exists_by_name` function L177-186 — `( &self, package_name: &str, version: &str, ) -> Result<bool, RegistryError>` — Check if a package exists by name and version.
-- pub `list_packages` function L191-193 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
-- pub `unregister_workflow_package_by_id` function L196-221 — `( &mut self, package_id: Uuid, ) -> Result<(), RegistryError>` — Unregister a workflow package by ID.
-- pub `unregister_workflow_package_by_name` function L224-240 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Unregister a workflow package by name and version.
+- pub `get_source_for_build` function L134-152 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get the source archive bytes for a package the compiler service has
+- pub `get_workflow_package_by_id` function L157-179 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get a workflow package by its UUID.
+- pub `get_workflow_package_by_name` function L184-194 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(WorkflowMetadata...` — Get a workflow package by name and version.
+- pub `exists_by_id` function L197-199 — `(&self, package_id: Uuid) -> Result<bool, RegistryError>` — Check if a package exists by ID.
+- pub `exists_by_name` function L202-211 — `( &self, package_name: &str, version: &str, ) -> Result<bool, RegistryError>` — Check if a package exists by name and version.
+- pub `list_packages` function L216-218 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
+- pub `unregister_workflow_package_by_id` function L221-246 — `( &mut self, package_id: Uuid, ) -> Result<(), RegistryError>` — Unregister a workflow package by ID.
+- pub `unregister_workflow_package_by_name` function L249-265 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Unregister a workflow package by name and version.
 -  `database` module L23 — `-` — Complete implementation of the workflow registry.
 -  `package` module L25 — `-` — cohesive system for managing packaged workflows.
--  `register_workflow` function L245-335 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
--  `get_workflow` function L337-382 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
--  `list_workflows` function L384-386 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
--  `unregister_workflow` function L388-419 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
--  `tests` module L423-446 — `-` — cohesive system for managing packaged workflows.
--  `test_registry_creation` function L428-435 — `()` — cohesive system for managing packaged workflows.
--  `test_registry_metrics` function L438-445 — `()` — cohesive system for managing packaged workflows.
+-  `register_workflow` function L270-360 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
+-  `get_workflow` function L362-407 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
+-  `list_workflows` function L409-411 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
+-  `unregister_workflow` function L413-444 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
+-  `tests` module L448-471 — `-` — cohesive system for managing packaged workflows.
+-  `test_registry_creation` function L453-460 — `()` — cohesive system for managing packaged workflows.
+-  `test_registry_metrics` function L463-470 — `()` — cohesive system for managing packaged workflows.
 
 #### crates/cloacina/src/registry/workflow_registry/package.rs
 
@@ -5849,16 +5853,17 @@
 -  `run_build` function L53-113 — `( registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>, package_id: uuid::Uui...` — main loop.
 -  `load_manifest` function L115-122 — `(source_dir: &Path) -> Result<toml::Value, String>` — main loop.
 -  `manifest_language` function L124-131 — `(manifest: &toml::Value) -> String` — main loop.
--  `cargo_build` function L133-165 — `(source_dir: &Path, config: &CompilerConfig) -> Result<Vec<u8>, String>` — main loop.
+-  `cargo_build` function L133-185 — `(source_dir: &Path, config: &CompilerConfig) -> Result<Vec<u8>, String>` — main loop.
 -  `MAX_ERR` variable L134 — `: usize` — main loop.
--  `profile_for_flags` function L167-173 — `(flags: &[String]) -> &'static str` — main loop.
--  `find_cdylib` function L175-202 — `(target_dir: &Path) -> Result<PathBuf, String>` — main loop.
+-  `profile_for_flags` function L187-193 — `(flags: &[String]) -> &'static str` — main loop.
+-  `find_cdylib` function L195-216 — `(target_dir: &Path, pkg_name: &str) -> Result<PathBuf, String>` — main loop.
+-  `read_cargo_package_name` function L218-230 — `(source_dir: &Path) -> Result<String, String>` — main loop.
 
 #### crates/cloacina-compiler/src/config.rs
 
-- pub `CompilerConfig` struct L25-50 — `{ home: PathBuf, bind: SocketAddr, database_url: String, verbose: bool, poll_int...` — Runtime configuration for the compiler service.
-- pub `tmp_root_or_default` function L54-58 — `(&self) -> PathBuf` — Resolve the effective tmp-root — uses `$home/build-tmp` when unset.
--  `CompilerConfig` type L52-59 — `= CompilerConfig` — Configuration for cloacina-compiler.
+- pub `CompilerConfig` struct L25-56 — `{ home: PathBuf, bind: SocketAddr, database_url: String, verbose: bool, poll_int...` — Runtime configuration for the compiler service.
+- pub `tmp_root_or_default` function L60-64 — `(&self) -> PathBuf` — Resolve the effective tmp-root — uses `$home/build-tmp` when unset.
+-  `CompilerConfig` type L58-65 — `= CompilerConfig` — Configuration for cloacina-compiler.
 
 #### crates/cloacina-compiler/src/health.rs
 
@@ -5883,9 +5888,9 @@
 
 #### crates/cloacina-compiler/src/main.rs
 
--  `Cli` struct L37-74 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, poll_int...` — cloacina-compiler — DB-queue-driven build service.
--  `default_home` function L76-80 — `() -> PathBuf` — directly — no runtime toolchain required.
--  `main` function L83-110 — `() -> Result<()>` — directly — no runtime toolchain required.
+-  `Cli` struct L37-81 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, poll_int...` — cloacina-compiler — DB-queue-driven build service.
+-  `default_home` function L83-87 — `() -> PathBuf` — directly — no runtime toolchain required.
+-  `main` function L90-118 — `() -> Result<()>` — directly — no runtime toolchain required.
 
 ### crates/cloacina-computation-graph/src
 
@@ -6163,6 +6168,14 @@
 -  `generate_trigger_rules_rewrite` function L679-722 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
 -  `generate_packaged_registration` function L729-877 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
 
+### crates/cloacina-server
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-server/build.rs
+
+-  `main` function L17-19 — `()`
+
 ### crates/cloacina-server/src
 
 > *Semantic summary to be generated by AI agent.*
@@ -6174,68 +6187,68 @@
 - pub `new` function L49-54 — `(database_url: String) -> Self` — management, workflow upload, and execution APIs.
 - pub `resolve` function L59-91 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
 - pub `AppState` struct L96-109 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::routes::...` — Shared application state accessible from all route handlers.
-- pub `run` function L112-325 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
-- pub `RequestId` struct L333 — `-` — Build the axum router with all routes.
+- pub `run` function L112-330 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+- pub `RequestId` struct L338 — `-` — Build the axum router with all routes.
 -  `TenantDatabaseCache` type L48-92 — `= TenantDatabaseCache` — management, workflow upload, and execution APIs.
--  `request_id_middleware` function L337-358 — `( mut request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L360-481 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
--  `api_request_metrics` function L484-494 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code.
--  `health` function L497-499 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L502-531 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L534-544 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
--  `fallback_404` function L547-552 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L555-577 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L583-631 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L635-637 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L640-1545 — `-` — management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L648 — `: &str` — management, workflow upload, and execution APIs.
--  `test_state` function L651-684 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `create_test_api_key` function L687-695 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L698-713 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L719-745 — `()` — management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L751-763 — `()` — management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L767-779 — `()` — management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L783-836 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_no_token_returns_401` function L842-854 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L858-871 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L875-888 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L892-905 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L911-929 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L933-949 — `()` — management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L953-968 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L972-997 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L1001-1016 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L1020-1034 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L1040-1066 — `()` — management, workflow upload, and execution APIs.
--  `test_list_tenants` function L1070-1084 — `()` — management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L1088-1104 — `()` — management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L1108-1145 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L1149-1164 — `()` — management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L1170-1184 — `()` — management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L1188-1201 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L1205-1229 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L1233-1257 — `()` — management, workflow upload, and execution APIs.
--  `fixture_path` function L1260-1265 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L1268-1279 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L1282-1292 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L1296-1322 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L1326-1352 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L1356-1376 — `()` — management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1382-1396 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1400-1413 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1417-1431 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1435-1448 — `()` — management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1452-1467 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1471-1489 — `()` — management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1495-1509 — `()` — management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1513-1526 — `()` — management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1532-1544 — `()` — management, workflow upload, and execution APIs.
+-  `request_id_middleware` function L342-363 — `( mut request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::...` — Middleware that generates a UUID request ID, creates a tracing span,
+-  `build_router` function L365-486 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
+-  `api_request_metrics` function L489-499 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code.
+-  `health` function L502-504 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L507-536 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L539-549 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
+-  `fallback_404` function L552-557 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L560-582 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L588-636 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L640-642 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L645-1550 — `-` — management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L653 — `: &str` — management, workflow upload, and execution APIs.
+-  `test_state` function L656-689 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `create_test_api_key` function L692-700 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L703-718 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L724-750 — `()` — management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L756-768 — `()` — management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L772-784 — `()` — management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L788-841 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_no_token_returns_401` function L847-859 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L863-876 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L880-893 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L897-910 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L916-934 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L938-954 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L958-973 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L977-1002 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L1006-1021 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L1025-1039 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L1045-1071 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L1075-1089 — `()` — management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L1093-1109 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L1113-1150 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L1154-1169 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L1175-1189 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L1193-1206 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L1210-1234 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L1238-1262 — `()` — management, workflow upload, and execution APIs.
+-  `fixture_path` function L1265-1270 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L1273-1284 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L1287-1297 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L1301-1327 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L1331-1357 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1361-1381 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1387-1401 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1405-1418 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1422-1436 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1440-1453 — `()` — management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1457-1472 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1476-1494 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1500-1514 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1518-1531 — `()` — management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1537-1549 — `()` — management, workflow upload, and execution APIs.
 
 #### crates/cloacina-server/src/main.rs
 
--  `Cli` struct L29-53 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, bootstra...` — cloacina-server — HTTP API for Cloacina, backed by Postgres.
--  `default_home` function L55-59 — `() -> PathBuf` — command in T-0510 (CLOACI-I-0098).
--  `main` function L62-73 — `() -> Result<()>` — command in T-0510 (CLOACI-I-0098).
+-  `Cli` struct L29-59 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, bootstra...` — cloacina-server — HTTP API for Cloacina, backed by Postgres.
+-  `default_home` function L61-65 — `() -> PathBuf` — command in T-0510 (CLOACI-I-0098).
+-  `main` function L68-80 — `() -> Result<()>` — command in T-0510 (CLOACI-I-0098).
 
 ### crates/cloacina-server/src/routes
 
@@ -6949,9 +6962,9 @@
 
 #### crates/cloacinactl/src/nouns/package/list.rs
 
-- pub `run` function L25-53 — `(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliError>`
--  `render_list` function L55-102 — `(items: &[Value], format: OutputFormat) -> Result<(), CliError>`
--  `truncate_id` function L104-110 — `(id: &str) -> String`
+- pub `run` function L25-55 — `(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliError>`
+-  `render_list` function L57-104 — `(items: &[Value], format: OutputFormat) -> Result<(), CliError>`
+-  `truncate_id` function L106-112 — `(id: &str) -> String`
 
 #### crates/cloacinactl/src/nouns/package/mod.rs
 
@@ -7040,9 +7053,9 @@
 #### crates/cloacinactl/src/nouns/trigger/mod.rs
 
 - pub `TriggerCmd` struct L27-30 — `{ verb: TriggerVerb }`
-- pub `run` function L39-58 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
+- pub `run` function L39-59 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
 -  `TriggerVerb` enum L33-36 — `List | Inspect`
--  `TriggerCmd` type L38-59 — `= TriggerCmd`
+-  `TriggerCmd` type L38-60 — `= TriggerCmd`
 
 ### crates/cloacinactl/src/nouns/workflow
 
@@ -7051,10 +7064,10 @@
 #### crates/cloacinactl/src/nouns/workflow/mod.rs
 
 - pub `WorkflowCmd` struct L30-33 — `{ verb: WorkflowVerb }` — `cloacinactl workflow <verb>`.
-- pub `run` function L54-108 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl workflow <verb>`.
+- pub `run` function L54-109 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl workflow <verb>`.
 -  `WorkflowVerb` enum L36-51 — `List | Inspect | Run` — `cloacinactl workflow <verb>`.
--  `WorkflowCmd` type L53-109 — `= WorkflowCmd` — `cloacinactl workflow <verb>`.
--  `load_context` function L111-124 — `(source: Option<&str>) -> Result<serde_json::Value, CliError>` — `cloacinactl workflow <verb>`.
+-  `WorkflowCmd` type L53-110 — `= WorkflowCmd` — `cloacinactl workflow <verb>`.
+-  `load_context` function L112-125 — `(source: Option<&str>) -> Result<serde_json::Value, CliError>` — `cloacinactl workflow <verb>`.
 
 ### crates/cloacinactl/src/shared
 
@@ -9635,13 +9648,30 @@
 - pub `depends_on_missing` function L36-39 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
 -  `main` function L42-44 — `()`
 
+### examples/fixtures/compiler-broken-rust
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/fixtures/compiler-broken-rust/build.rs
+
+-  `main` function L1-3 — `()`
+
 ### examples/fixtures/compiler-broken-rust/src
 
 > *Semantic summary to be generated by AI agent.*
 
 #### examples/fixtures/compiler-broken-rust/src/lib.rs
 
-- pub `cloacina_compiler_e2e_broken` function L21-23 — `()`
+- pub `compiler_broken_workflow` module L13-28 — `-`
+- pub `broken` function L21-27 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+
+### examples/fixtures/compiler-happy-rust
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/fixtures/compiler-happy-rust/build.rs
+
+-  `main` function L1-3 — `()`
 
 ### examples/fixtures/compiler-happy-rust/src
 
@@ -9649,7 +9679,8 @@
 
 #### examples/fixtures/compiler-happy-rust/src/lib.rs
 
-- pub `cloacina_compiler_e2e_noop` function L21 — `()`
+- pub `compiler_happy_workflow` module L12-24 — `-`
+- pub `noop` function L20-23 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 
 ### examples/performance/computation-graph
 

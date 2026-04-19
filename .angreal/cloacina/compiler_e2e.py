@@ -1,29 +1,30 @@
 """End-to-end test of the compiler service pipeline.
 
 Spins Postgres, server, and compiler as separate subprocesses sharing one
-database, then drives the full flow through cloacinactl. Asserts on
-DB-observable state (build_status, build_error) and the CLI's own output.
+database, then drives the full flow through cloacinactl. Asserts on DB
+state (build_status, build_error) and the server's actual runtime
+behaviour (workflow run → execution completes).
 
-Coverage in v1:
-  - Happy path: upload fixture → compiler builds → build_status = success
-  - Failed-build: upload broken fixture → build_status = failed, build_error
-    non-empty
-  - Composite status: daemon + server + compiler side by side
+Coverage:
+  1. Happy path     — upload → compile → build_status = success
+  2. Failed build   — cargo error → build_status = failed, build_error set
+  3. Content-hash   — re-uploading identical bytes is idempotent
+  4. Stale heartbeat — poisoned `building` row is swept + re-claimed
+  5. Reconciler e2e — reconciler loads the compiled package, workflow run
+                     schedules an execution, execution completes
 
-Deferred (tracked as follow-ups, not in this harness):
-  - Reconciler end-to-end (upload → success → workflow run → execution
-    completes). Needs fixtures that link against cloacina crates, which
-    wants a host-path rewrite in the compiler OR published crates from
-    T-0501. Compiler-side mechanics above prove the queue + heartbeat +
-    artifact-persist contract independently.
-  - Stale-heartbeat recovery and content-hash artifact reuse — both are
-    DB-observable and worth adding once someone touches this harness next.
+All fixtures under examples/fixtures/ are real packaged workflows
+(cloacina-workflow + #[workflow] macro); their Cargo.toml's use
+`__WORKSPACE__` placeholders that the harness rewrites to absolute paths
+at stage time, so the compiler service's `cargo build` can resolve the
+unpublished cloacina path-deps from any unpacked tmpdir.
 """
 
 import json
 import os
 import signal
 import subprocess
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -40,6 +41,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "examples" / "fixtures"
 
 
+# ---------------------------------------------------------------------------
+# Build + service lifecycle
+# ---------------------------------------------------------------------------
+
+
 def _build_binaries():
     print("Building cloacina-server + cloacina-compiler + cloacinactl (debug)...")
     for pkg in ("cloacina-server", "cloacina-compiler", "cloacinactl"):
@@ -47,8 +53,8 @@ def _build_binaries():
 
 
 def _start_postgres():
-    # Reset the container + volume so each run gets a fresh DB. Otherwise
-    # `register_workflow`'s content-hash dedup returns stale rows from prior
+    # Reset the container + volume so each run gets a fresh DB; otherwise
+    # register_workflow's content-hash dedup returns stale rows from prior
     # runs (e.g. a previous failed build with the same fixture bytes).
     subprocess.run(
         ["docker", "compose", "-f", ".angreal/docker-compose.yaml", "down", "-v"],
@@ -89,15 +95,10 @@ def _wait_http(
         except Exception:
             time.sleep(0.5)
         if proc is not None and proc.poll() is not None:
-            # Service died before /health responded; dump stderr for diagnosis.
-            err = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
             raise RuntimeError(
-                f"{label} exited with code {proc.returncode} before /health came up.\n"
-                f"STDERR:\n{err}"
+                f"{label} exited with code {proc.returncode} before /health came up. "
+                "See the service log file in $home for details."
             )
-    # Service is still running but /health isn't answering. Kill it so we can
-    # safely drain stderr without blocking on a live pipe.
-    err = ""
     if proc is not None and proc.poll() is None:
         proc.send_signal(signal.SIGTERM)
         try:
@@ -105,18 +106,59 @@ def _wait_http(
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-    if proc is not None and proc.stderr is not None:
-        try:
-            err = proc.stderr.read().decode(errors="replace")
-        except Exception:
-            pass
-    raise RuntimeError(
-        f"{label} at {url} never came up within {timeout_s}s.\nSTDERR tail:\n{err}"
+    raise RuntimeError(f"{label} at {url} never came up within {timeout_s}s")
+
+
+def _port_free(port: int) -> bool:
+    r = subprocess.run(
+        ["lsof", f"-iTCP:{port}", "-sTCP:LISTEN"],
+        capture_output=True,
+        text=True,
     )
+    return r.returncode != 0 or not r.stdout.strip()
+
+
+def _assert_ports_free(*ports: int):
+    for p in ports:
+        if not _port_free(p):
+            raise RuntimeError(
+                f"port {p} is already in use — kill the stale process before re-running."
+            )
+
+
+def _psql(sql: str) -> str:
+    r = subprocess.run(
+        [
+            "docker", "compose",
+            "-f", ".angreal/docker-compose.yaml",
+            "exec", "-T", "postgres",
+            "psql", "-U", "cloacina", "-d", "cloacina",
+            "-tA", "-c", sql,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return r.stdout.strip()
+
+
+def _kill(proc: subprocess.Popen | None):
+    if proc is None or proc.poll() is not None:
+        return
+    proc.send_signal(signal.SIGTERM)
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+# ---------------------------------------------------------------------------
+# CLI driver
+# ---------------------------------------------------------------------------
 
 
 def _cloacinactl(home: Path, *args, check=True, env=None):
-    """Run `cloacinactl` and return (exitcode, stdout, stderr)."""
     cmd = ["target/debug/cloacinactl", "--home", str(home), *args]
     proc = subprocess.run(
         cmd,
@@ -133,12 +175,45 @@ def _cloacinactl(home: Path, *args, check=True, env=None):
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def _upload_fixture(home: Path, fixture_dir: Path) -> str:
-    """Pack + upload a fixture. Returns the package UUID printed by upload.
+# ---------------------------------------------------------------------------
+# Fixture staging
+# ---------------------------------------------------------------------------
 
-    We use pack + upload (not publish) so local `cargo build` doesn't preempt
-    the compiler — we want the compiler service to be the thing that builds.
+
+def _stage_fixture(
+    home: Path,
+    src_name: str,
+    *,
+    rename_to: str | None = None,
+) -> Path:
+    """Copy a fixture from examples/fixtures/<src_name> into the per-run
+    home, rewriting `__WORKSPACE__` placeholders to absolute paths that
+    point at this checkout. Optionally renames the package (cargo pkg +
+    cloacina pkg name) to produce distinct content-hash bytes — used by
+    the stale-heartbeat test to avoid dedup collision with the happy
+    fixture.
     """
+    src = FIXTURES / src_name
+    dst_name = rename_to or src_name
+    dst = home / f"staged-{dst_name}"
+    if dst.exists():
+        subprocess.run(["rm", "-rf", str(dst)], check=True)
+    (dst / "src").mkdir(parents=True)
+
+    ws = str(REPO_ROOT)
+    for rel in ("package.toml", "Cargo.toml", "build.rs", "src/lib.rs"):
+        text = (src / rel).read_text().replace("__WORKSPACE__", ws)
+        if rename_to is not None:
+            text = text.replace(src_name, rename_to)
+            text = text.replace(
+                src_name.replace("-", "_"), rename_to.replace("-", "_")
+            )
+        (dst / rel).write_text(text)
+    return dst
+
+
+def _upload(home: Path, fixture_dir: Path) -> str:
+    """Pack + upload a staged fixture. Returns the package UUID."""
     archive = home / f"{fixture_dir.name}.cloacina"
     _cloacinactl(home, "package", "pack", str(fixture_dir), "--out", str(archive))
     _, out, _ = _cloacinactl(home, "package", "upload", str(archive))
@@ -148,18 +223,17 @@ def _upload_fixture(home: Path, fixture_dir: Path) -> str:
     return pkg_id
 
 
+# ---------------------------------------------------------------------------
+# Polling helpers
+# ---------------------------------------------------------------------------
+
+
 def _poll_build_status(
     home: Path,
     pkg_id: str,
     expected: set[str],
     timeout_s: float = 120.0,
 ) -> dict:
-    """Poll `package inspect -o json` until build_status is in `expected`.
-
-    Returns the final parsed JSON body. Raises with a diagnostic if the
-    timeout elapses — include the last seen status and error to make CI
-    failures debuggable.
-    """
     deadline = time.time() + timeout_s
     last_body: dict = {}
     while time.time() < deadline:
@@ -179,33 +253,72 @@ def _poll_build_status(
     )
 
 
-def _port_free(port: int) -> bool:
-    """True if no process is LISTENing on `port`."""
-    r = subprocess.run(
-        ["lsof", f"-iTCP:{port}", "-sTCP:LISTEN"],
-        capture_output=True,
-        text=True,
+def _poll_run_workflow(
+    home: Path,
+    workflow_name: str,
+    timeout_s: float = 120.0,
+) -> str:
+    """Try `workflow run` until the runner has actually loaded the workflow
+    (HTTP no longer returns 'Workflow not found in registry'). The
+    reconciler loads packages on a periodic tick — until that lands, the
+    runtime registry doesn't know about the workflow even though the DB
+    does. Returns the execution_id from the first accepted run.
+    """
+    deadline = time.time() + timeout_s
+    last_err = ""
+    while time.time() < deadline:
+        code, out, err = _cloacinactl(
+            home, "-o", "json", "workflow", "run", workflow_name, check=False
+        )
+        if code == 0:
+            try:
+                resp = json.loads(out)
+                exec_id = resp.get("execution_id")
+                if exec_id and len(exec_id) >= 32:
+                    return exec_id
+            except json.JSONDecodeError:
+                pass
+            # Non-JSON success — fall back to last line.
+            tail = out.strip().splitlines()[-1].strip() if out.strip() else ""
+            if len(tail) >= 32:
+                return tail
+        last_err = err.strip() or out.strip()
+        time.sleep(2.0)
+    raise AssertionError(
+        f"workflow run {workflow_name} never succeeded within {timeout_s}s; "
+        f"last error: {last_err}"
     )
-    return r.returncode != 0 or not r.stdout.strip()
 
 
-def _assert_ports_free(*ports: int):
-    for p in ports:
-        if not _port_free(p):
-            raise RuntimeError(
-                f"port {p} is already in use — kill the stale process before re-running. "
-                f"`lsof -iTCP:{p} -sTCP:LISTEN` will tell you what owns it."
-            )
+def _poll_execution_status(
+    home: Path,
+    execution_id: str,
+    expected: set[str],
+    timeout_s: float = 60.0,
+) -> str:
+    deadline = time.time() + timeout_s
+    last_status: str | None = None
+    while time.time() < deadline:
+        _, out, _ = _cloacinactl(
+            home, "-o", "json", "execution", "status", execution_id
+        )
+        try:
+            body = json.loads(out)
+        except json.JSONDecodeError:
+            time.sleep(1.0)
+            continue
+        last_status = body.get("status")
+        if last_status in expected:
+            return last_status
+        time.sleep(1.0)
+    raise AssertionError(
+        f"execution {execution_id} never reached {expected}; last: {last_status!r}"
+    )
 
 
-def _kill(proc: subprocess.Popen | None):
-    if proc is None or proc.poll() is not None:
-        return
-    proc.send_signal(signal.SIGTERM)
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+# ---------------------------------------------------------------------------
+# Harness entrypoint
+# ---------------------------------------------------------------------------
 
 
 @cloacina()
@@ -226,115 +339,154 @@ def compiler_e2e():
     server_url = f"http://{server_bind}"
     compiler_url = f"http://{compiler_bind}"
 
-    import tempfile
-
     server_proc: subprocess.Popen | None = None
     compiler_proc: subprocess.Popen | None = None
 
-    # Don't use TemporaryDirectory — we want the logs to survive past an
-    # exception so CI / local runs can inspect them after the fact.
+    # Persistent home so logs survive past the assertion for post-mortem.
     home = Path(tempfile.mkdtemp(prefix="compiler-e2e-"))
     print(f"compiler-e2e home: {home}")
-    if True:
-        try:
-            # --- start server ---
-            # Pipe stderr/stdout through to our terminal so we can see errors
-            # live; capturing to PIPE hides failures like auth exceptions.
-            server_log = open(home / "server.log", "w")
-            server_proc = subprocess.Popen(
-                [
-                    "target/debug/cloacina-server",
-                    "--home", str(home),
-                    "--database-url", db_url,
-                    "--bind", server_bind,
-                    "--bootstrap-key", bootstrap_key,
-                    "--verbose",
-                ],
-                cwd=REPO_ROOT,
-                stdout=server_log,
-                stderr=subprocess.STDOUT,
-            )
-            _wait_http(f"{server_url}/health", "server", proc=server_proc)
-            print("  ok: server up")
 
-            # --- start compiler ---
-            compiler_log = open(home / "compiler.log", "w")
-            compiler_proc = subprocess.Popen(
-                [
-                    "target/debug/cloacina-compiler",
-                    "--home", str(home),
-                    "--database-url", db_url,
-                    "--bind", compiler_bind,
-                    "--poll-interval-ms", "500",
-                    "--verbose",
-                ],
-                cwd=REPO_ROOT,
-                stdout=compiler_log,
-                stderr=subprocess.STDOUT,
-            )
-            # Compiler runs migrations + spins up build loop before binding its
-            # HTTP endpoint, so give it more runway than the server.
-            _wait_http(
-                f"{compiler_url}/health",
-                "compiler",
-                timeout_s=60.0,
-                proc=compiler_proc,
-            )
-            print("  ok: compiler up")
+    try:
+        server_log = open(home / "server.log", "w")
+        server_proc = subprocess.Popen(
+            [
+                "target/debug/cloacina-server",
+                "--home", str(home),
+                "--database-url", db_url,
+                "--bind", server_bind,
+                "--bootstrap-key", bootstrap_key,
+                "--verbose",
+            ],
+            cwd=REPO_ROOT,
+            stdout=server_log,
+            stderr=subprocess.STDOUT,
+        )
+        _wait_http(f"{server_url}/health", "server", proc=server_proc)
+        print("  ok: server up")
 
-            # --- configure CLI profile ---
-            _cloacinactl(
-                home,
-                "config", "profile", "set", "local", server_url,
-                "--api-key", bootstrap_key,
-                "--default",
-            )
-            _cloacinactl(
-                home, "config", "set", "compiler.local_addr", compiler_bind,
-            )
+        # Shared CARGO_TARGET_DIR so the ~100 transitive deps compile once
+        # across the whole harness run (and across re-runs in dev).
+        shared_target = REPO_ROOT / "target" / "compiler-e2e-cache"
+        shared_target.mkdir(parents=True, exist_ok=True)
+        compiler_log = open(home / "compiler.log", "w")
+        # Build fixtures in debug so the fidius wire format (JSON in debug,
+        # bincode in release) matches the debug-built server we're running
+        # here. In prod both server and compiler are release builds and the
+        # default --release flag on cargo is fine.
+        compiler_proc = subprocess.Popen(
+            [
+                "target/debug/cloacina-compiler",
+                "--home", str(home),
+                "--database-url", db_url,
+                "--bind", compiler_bind,
+                "--poll-interval-ms", "500",
+                "--cargo-target-dir", str(shared_target),
+                "--cargo-flag=build",
+                "--cargo-flag=--lib",
+                "--verbose",
+            ],
+            cwd=REPO_ROOT,
+            stdout=compiler_log,
+            stderr=subprocess.STDOUT,
+        )
+        _wait_http(
+            f"{compiler_url}/health", "compiler", timeout_s=60.0, proc=compiler_proc
+        )
+        print("  ok: compiler up")
 
-            # --- composite status: all three reachable, exit 0 ---
-            code, out, _ = _cloacinactl(home, "status")
-            assert code == 0, f"composite status failed: {out!r}"
-            assert "server" in out and "compiler" in out, out
-            print("  ok: composite status covers server + compiler")
+        _cloacinactl(
+            home,
+            "config", "profile", "set", "local", server_url,
+            "--api-key", bootstrap_key,
+            "--default",
+        )
+        _cloacinactl(home, "config", "set", "compiler.local_addr", compiler_bind)
 
-            # --- happy path ---
-            happy_id = _upload_fixture(home, FIXTURES / "compiler-happy-rust")
-            print(f"  uploaded happy fixture: {happy_id}")
-            body = _poll_build_status(
-                home, happy_id, {"success"}, timeout_s=180.0
-            )
-            assert body.get("build_status") == "success", body
-            assert body.get("build_error") in (None, "", "null"), body
-            print("  ok: happy path → build_status = success")
+        code, out, _ = _cloacinactl(home, "status")
+        assert code == 0, f"composite status failed: {out!r}"
+        assert "server" in out and "compiler" in out, out
+        print("  ok: composite status covers server + compiler")
 
-            # --- failed-build path ---
-            broken_id = _upload_fixture(home, FIXTURES / "compiler-broken-rust")
-            print(f"  uploaded broken fixture: {broken_id}")
-            body = _poll_build_status(
-                home, broken_id, {"failed"}, timeout_s=180.0
-            )
-            assert body.get("build_status") == "failed", body
-            err = body.get("build_error") or ""
-            assert err, f"expected non-empty build_error, got: {body!r}"
-            print(
-                f"  ok: failed-build path → build_status = failed "
-                f"({len(err)}-byte build_error captured)"
-            )
+        # --- happy path -----------------------------------------------------
+        # First run cold-compiles cloacina + ~100 transitive deps; subsequent
+        # runs hit the shared target cache and finish in <30s.
+        happy_dir = _stage_fixture(home, "compiler-happy-rust")
+        print("  compiling happy fixture "
+              "(first run: ~5-10 min cold build; subsequent: <30s)")
+        happy_id = _upload(home, happy_dir)
+        body = _poll_build_status(home, happy_id, {"success"}, timeout_s=900.0)
+        assert body.get("build_status") == "success", body
+        assert body.get("build_error") in (None, "", "null"), body
+        print("  ok: happy path → build_status = success")
 
-            print_final_success("cloacina-compiler e2e")
-        except BaseException:
-            # On any failure, dump the tail of each service log so the CI
-            # transcript has enough to diagnose without re-running.
-            for label in ("server", "compiler"):
-                log = home / f"{label}.log"
-                if log.exists():
-                    print(f"\n---- last 80 lines of {label}.log ----")
-                    lines = log.read_text(errors="replace").splitlines()
-                    for line in lines[-80:]:
-                        print(line)
-            raise
-        finally:
-            _kill(compiler_proc)
-            _kill(server_proc)
+        # --- failed build ---------------------------------------------------
+        broken_dir = _stage_fixture(home, "compiler-broken-rust")
+        broken_id = _upload(home, broken_dir)
+        body = _poll_build_status(home, broken_id, {"failed"}, timeout_s=300.0)
+        err = body.get("build_error") or ""
+        assert err, f"expected non-empty build_error, got: {body!r}"
+        print(
+            f"  ok: failed-build path → build_status = failed "
+            f"({len(err)}-byte build_error captured)"
+        )
+
+        # --- content-hash reuse (idempotent re-upload) ---------------------
+        _, out, _ = _cloacinactl(
+            home, "package", "upload", str(home / f"{happy_dir.name}.cloacina")
+        )
+        reupload_id = out.strip().splitlines()[-1].strip()
+        assert reupload_id == happy_id, (
+            f"re-upload of identical bytes should return the same id; "
+            f"got {reupload_id!r} vs original {happy_id!r}"
+        )
+        body = json.loads(
+            _cloacinactl(home, "-o", "json", "package", "inspect", happy_id)[1]
+        )
+        assert body.get("build_status") == "success", body
+        print("  ok: content-hash reuse → idempotent, no re-queue")
+
+        # --- stale-heartbeat recovery --------------------------------------
+        stale_dir = _stage_fixture(
+            home, "compiler-happy-rust", rename_to="compiler-stale-rust"
+        )
+        stale_id = _upload(home, stale_dir)
+        _psql(
+            f"UPDATE public.workflow_packages "
+            f"SET build_status='building', "
+            f"    build_claimed_at = NOW() - INTERVAL '10 minutes' "
+            f"WHERE id = '{stale_id}';"
+        )
+        _poll_build_status(home, stale_id, {"success"}, timeout_s=300.0)
+        print("  ok: stale-heartbeat recovered by sweeper → re-built")
+
+        # --- reconciler end-to-end -----------------------------------------
+        # Happy fixture already compiled → success. Wait for the reconciler
+        # to actually load it into the runner, then run it and assert the
+        # execution completes. `_poll_run_workflow` retries until the
+        # runner's registry has the workflow.
+        execution_id = _poll_run_workflow(
+            home, "compiler_happy_workflow", timeout_s=120.0
+        )
+        print(f"  triggered execution: {execution_id}")
+        status = _poll_execution_status(
+            home, execution_id, {"Completed", "Failed", "Cancelled"}, timeout_s=60.0
+        )
+        assert status == "Completed", (
+            f"execution {execution_id} ended in status {status!r}"
+        )
+        print(f"  ok: reconciler end-to-end → execution {status}")
+
+        print_final_success("cloacina-compiler e2e")
+    except BaseException:
+        # Dump log tails so CI transcripts stand alone.
+        for label in ("server", "compiler"):
+            log = home / f"{label}.log"
+            if log.exists():
+                print(f"\n---- last 80 lines of {label}.log ----")
+                lines = log.read_text(errors="replace").splitlines()
+                for line in lines[-80:]:
+                    print(line)
+        raise
+    finally:
+        _kill(compiler_proc)
+        _kill(server_proc)

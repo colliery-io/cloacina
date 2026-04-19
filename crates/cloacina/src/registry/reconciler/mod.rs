@@ -70,7 +70,7 @@ pub struct ReconcilerConfig {
 impl Default for ReconcilerConfig {
     fn default() -> Self {
         Self {
-            reconcile_interval: Duration::from_secs(30),
+            reconcile_interval: Duration::from_secs(5),
             enable_startup_reconciliation: true,
             package_operation_timeout: Duration::from_secs(30),
             continue_on_package_error: true,
@@ -485,7 +485,7 @@ mod tests {
     #[test]
     fn test_reconciler_config_default() {
         let config = ReconcilerConfig::default();
-        assert_eq!(config.reconcile_interval, Duration::from_secs(30));
+        assert_eq!(config.reconcile_interval, Duration::from_secs(5));
         assert!(config.enable_startup_reconciliation);
         assert_eq!(config.package_operation_timeout, Duration::from_secs(30));
         assert!(config.continue_on_package_error);

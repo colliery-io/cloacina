@@ -133,9 +133,22 @@ fn manifest_language(manifest: &toml::Value) -> String {
 fn cargo_build(source_dir: &Path, config: &CompilerConfig) -> Result<Vec<u8>, String> {
     const MAX_ERR: usize = 64 * 1024;
 
-    let output = std::process::Command::new("cargo")
-        .args(&config.cargo_flags)
-        .current_dir(source_dir)
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.args(&config.cargo_flags).current_dir(source_dir);
+    // Share a cargo target cache across builds so transitive deps
+    // (cloacina-workflow, cloacina-macros, tokio, …) compile once and are
+    // reused by every subsequent package. Without this, every build is a
+    // cold ~120-crate compile.
+    if let Some(target_dir) = &config.cargo_target_dir {
+        std::fs::create_dir_all(target_dir).map_err(|e| {
+            format!(
+                "failed to create cargo_target_dir {}: {e}",
+                target_dir.display()
+            )
+        })?;
+        cmd.env("CARGO_TARGET_DIR", target_dir);
+    }
+    let output = cmd
         .output()
         .map_err(|e| format!("failed to spawn cargo: {e}"))?;
 
@@ -152,8 +165,15 @@ fn cargo_build(source_dir: &Path, config: &CompilerConfig) -> Result<Vec<u8>, St
     }
 
     let target_subdir = profile_for_flags(&config.cargo_flags);
-    let target_dir = source_dir.join("target").join(target_subdir);
-    let lib_path = find_cdylib(&target_dir)?;
+    let target_root = config
+        .cargo_target_dir
+        .clone()
+        .unwrap_or_else(|| source_dir.join("target"));
+    let target_dir = target_root.join(target_subdir);
+    // With a shared cargo_target_dir, multiple packages' cdylibs coexist.
+    // Match on the Cargo.toml [package].name to pick the right one.
+    let pkg_name = read_cargo_package_name(source_dir)?;
+    let lib_path = find_cdylib(&target_dir, &pkg_name)?;
     let bytes = std::fs::read(&lib_path).map_err(|e| {
         format!(
             "failed to read compiled library {}: {e}",
@@ -172,31 +192,39 @@ fn profile_for_flags(flags: &[String]) -> &'static str {
     }
 }
 
-fn find_cdylib(target_dir: &Path) -> Result<PathBuf, String> {
+fn find_cdylib(target_dir: &Path, pkg_name: &str) -> Result<PathBuf, String> {
     let ext = if cfg!(target_os = "macos") {
         "dylib"
     } else {
         "so"
     };
+    // Cargo normalizes `-` to `_` in the emitted libfoo.dylib.
+    let normalized = pkg_name.replace('-', "_");
+    let expected = format!("lib{}.{}", normalized, ext);
 
-    let entries = std::fs::read_dir(target_dir)
-        .map_err(|e| format!("failed to read target dir {}: {e}", target_dir.display()))?;
-
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("failed to read target dir entry: {e}"))?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some(ext) {
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            // cargo hash-suffixed artifacts look like `libfoo-abc123.dylib`
-            if name.starts_with("lib") && !name.contains('-') {
-                return Ok(path);
-            }
-        }
+    let candidate = target_dir.join(&expected);
+    if candidate.exists() {
+        return Ok(candidate);
     }
 
     Err(format!(
-        "no cdylib (.{}) found in {}",
-        ext,
-        target_dir.display()
+        "expected {} in {} (built package: {})",
+        expected,
+        target_dir.display(),
+        pkg_name
     ))
+}
+
+fn read_cargo_package_name(source_dir: &Path) -> Result<String, String> {
+    let cargo_toml = source_dir.join("Cargo.toml");
+    let raw = std::fs::read_to_string(&cargo_toml)
+        .map_err(|e| format!("failed to read {}: {e}", cargo_toml.display()))?;
+    let value: toml::Value = toml::from_str(&raw)
+        .map_err(|e| format!("failed to parse {}: {e}", cargo_toml.display()))?;
+    value
+        .get("package")
+        .and_then(|p| p.get("name"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("[package].name missing in {}", cargo_toml.display()))
 }

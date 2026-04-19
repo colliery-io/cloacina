@@ -71,6 +71,13 @@ struct Cli {
     /// Extra cargo build flags. Default: --release --lib. Repeatable.
     #[arg(long = "cargo-flag")]
     cargo_flags: Vec<String>,
+
+    /// Shared CARGO_TARGET_DIR for per-package builds. When set, transitive
+    /// deps are compiled once and reused across packages — critical for
+    /// dev / CI where many small packages get uploaded. Defaults to the
+    /// unpacked package's own `target/` when unset.
+    #[arg(long)]
+    cargo_target_dir: Option<PathBuf>,
 }
 
 fn default_home() -> PathBuf {
@@ -104,6 +111,7 @@ async fn main() -> Result<()> {
         sweep_interval: Duration::from_secs(cli.sweep_interval_s),
         cargo_flags,
         tmp_root: None,
+        cargo_target_dir: cli.cargo_target_dir,
     };
 
     run(config).await

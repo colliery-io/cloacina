@@ -14,10 +14,31 @@
  *  limitations under the License.
  */
 
-// Intentional compile error — the identifier `this_symbol_does_not_exist`
-// is undefined. Used by the compiler-e2e harness to verify the failed-build
-// path: `build_status = failed`, `build_error` contains the stderr tail.
-#[no_mangle]
-pub extern "C" fn cloacina_compiler_e2e_broken() {
-    let _ = this_symbol_does_not_exist();
+// Broken fixture: structurally valid packaged workflow, but the task body
+// references an undefined symbol so `cargo build` fails deterministically.
+// build_status → failed, build_error populated, reconciler never sees it
+// (success-only filter in list_workflows).
+
+use cloacina_workflow::{task, workflow, Context, TaskError};
+
+#[workflow(
+    name = "compiler_broken_workflow",
+    description = "compiler-e2e failed-build fixture",
+    author = "compiler-e2e"
+)]
+pub mod compiler_broken_workflow {
+    use super::*;
+
+    #[task(
+        id = "broken",
+        dependencies = [],
+        retry_attempts = 0
+    )]
+    pub async fn broken(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        // Deliberate: this identifier doesn't exist anywhere. cargo will bail
+        // with a clean unresolved-path error that the compiler service
+        // captures into build_error.
+        let _ = this_symbol_does_not_exist();
+        Ok(())
+    }
 }

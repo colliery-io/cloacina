@@ -4,14 +4,14 @@ level: task
 title: "T9: End-to-end compiler + reconciler integration tests"
 short_code: "CLOACI-T-0527"
 created_at: 2026-04-18T01:50:00+00:00
-updated_at: 2026-04-18T01:50:00+00:00
+updated_at: 2026-04-18T21:06:57.011149+00:00
 parent: CLOACI-I-0097
 blocked_by: [CLOACI-T-0526]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ CLOACI-I-0097 — Compiler Service
 ## Objective
 
 Lock the contract: upload → queue → compile → load → execute must work end-to-end across the three binaries. Also pin the error paths (failed build, stale-heartbeat recovery, content-hash artifact reuse).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

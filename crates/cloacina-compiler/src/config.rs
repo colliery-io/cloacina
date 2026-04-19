@@ -47,6 +47,12 @@ pub struct CompilerConfig {
     /// Root directory for unpacking source during builds. Defaults to
     /// `$home/build-tmp` when unset.
     pub tmp_root: Option<PathBuf>,
+
+    /// Shared `CARGO_TARGET_DIR` for per-package builds. When set, every
+    /// unpacked package compiles against the same cargo target cache, so
+    /// transitive deps (cloacina-workflow, cloacina-macros, …) only compile
+    /// once. Falls back to the unpacked dir's default `target/` when unset.
+    pub cargo_target_dir: Option<PathBuf>,
 }
 
 impl CompilerConfig {

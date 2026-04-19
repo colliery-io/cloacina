@@ -14,8 +14,27 @@
  *  limitations under the License.
  */
 
-// Minimal cdylib — a single exported symbol so cargo has something to link.
-// The compiler service only cares that `cargo build --release --lib` succeeds
-// and produces a .dylib/.so; it does not validate fidius FFI contracts here.
-#[no_mangle]
-pub extern "C" fn cloacina_compiler_e2e_noop() {}
+// Happy-path fixture: a real packaged workflow with one trivial task. Builds
+// green through the compiler service, loads cleanly through the reconciler,
+// and is runnable end-to-end.
+
+use cloacina_workflow::{task, workflow, Context, TaskError};
+
+#[workflow(
+    name = "compiler_happy_workflow",
+    description = "compiler-e2e happy-path fixture",
+    author = "compiler-e2e"
+)]
+pub mod compiler_happy_workflow {
+    use super::*;
+
+    #[task(
+        id = "noop",
+        dependencies = [],
+        retry_attempts = 0
+    )]
+    pub async fn noop(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        context.insert("compiler_e2e_happy_ran", serde_json::json!(true))?;
+        Ok(())
+    }
+}
