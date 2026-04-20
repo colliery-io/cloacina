@@ -14,15 +14,15 @@
  *  limitations under the License.
  */
 
-//! Background service management for the DefaultRunner.
+//! Background service construction and registration for the DefaultRunner.
 //!
-//! This module handles starting and managing background services including
-//! the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
+//! Each service is built here, wrapped in a [`BackgroundService`] adapter,
+//! and registered with the runner's [`ServiceManager`]. The manager owns the
+//! lifecycle from that point on.
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, watch};
-use tracing::Instrument;
+use tokio::sync::watch;
 
 use crate::dal::FilesystemRegistryStorage;
 use crate::dal::UnifiedRegistryStorage;
@@ -32,6 +32,10 @@ use crate::registry::traits::WorkflowRegistry;
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::{Scheduler, SchedulerConfig};
 
+use super::service_manager::{
+    CronRecoveryServiceWrapper, RegistryReconcilerService, ServiceManager,
+    StaleClaimSweeperService, TaskSchedulerService, UnifiedSchedulerService,
+};
 use super::DefaultRunner;
 
 impl DefaultRunner {
@@ -56,157 +60,89 @@ impl DefaultRunner {
         }
     }
 
-    /// Starts the background scheduler and executor services
-    ///
-    /// This method:
-    /// 1. Creates shutdown channels for graceful termination
-    /// 2. Spawns the scheduler background task
-    /// 3. Spawns the executor background task
-    /// 4. Stores the runtime handles for later shutdown
-    ///
-    /// # Returns
-    /// * `Result<(), WorkflowExecutionError>` - Success or error status
+    /// Constructs every enabled background service, registers them with the
+    /// service manager, and starts them.
     pub(super) async fn start_background_services(&self) -> Result<(), WorkflowExecutionError> {
-        let mut handles = self.runtime_handles.write().await;
+        tracing::info!("Starting background services");
 
-        tracing::info!("Starting scheduler and executor background services");
+        let mut manager = self.service_manager.write().await;
 
-        // Create shutdown channel
-        let (shutdown_tx, mut scheduler_shutdown_rx) = broadcast::channel(1);
-        let executor_shutdown_rx = shutdown_tx.subscribe();
+        // Always: per-runner task scheduler.
+        manager.register(Box::new(TaskSchedulerService::new(
+            self.scheduler.clone(),
+            self.create_runner_span("task_scheduler"),
+        )));
 
-        // Start scheduler (dispatcher mode: scheduler pushes tasks to executor via dispatcher)
-        let scheduler = self.scheduler.clone();
-        let scheduler_span = self.create_runner_span("task_scheduler");
-        let scheduler_handle = tokio::spawn(
-            async move {
-                let mut scheduler_future = Box::pin(scheduler.run_scheduling_loop());
-
-                tokio::select! {
-                    result = &mut scheduler_future => {
-                        if let Err(e) = result {
-                            tracing::error!("Scheduler loop failed: {}", e);
-                        } else {
-                            tracing::info!("Scheduler loop completed");
-                        }
-                    }
-                    _ = scheduler_shutdown_rx.recv() => {
-                        tracing::info!("Scheduler shutdown requested");
-                    }
-                }
-            }
-            .instrument(scheduler_span),
-        );
-
-        // Note: executor polling loop is NOT started - dispatcher pushes tasks directly
-        // to executor via TaskExecutor::execute(). The executor_shutdown_rx is kept for
-        // potential future use with hybrid modes.
-        drop(executor_shutdown_rx);
-
-        // Store handles
-        handles.scheduler_handle = Some(scheduler_handle);
-        handles.executor_handle = None; // No polling loop in dispatcher mode
-        handles.shutdown_sender = Some(shutdown_tx.clone());
-
-        // Start unified scheduler if cron or trigger scheduling is enabled
+        // Unified scheduler covers both cron and trigger scheduling.
         if self.config.enable_cron_scheduling() || self.config.enable_trigger_scheduling() {
-            self.start_unified_scheduler(&mut handles, &shutdown_tx)
-                .await?;
+            self.register_unified_scheduler(&mut manager).await?;
         }
 
-        // Start cron recovery service if cron scheduling is enabled
+        // Cron recovery is gated by cron + recovery flags.
         if self.config.enable_cron_scheduling() && self.config.cron_enable_recovery() {
-            self.start_cron_recovery(&mut handles, &shutdown_tx).await?;
+            self.register_cron_recovery(&mut manager).await?;
         }
 
-        // Start registry reconciler if enabled
+        // Registry reconciler must be wired before the reactive scheduler is
+        // installed externally.
         if self.config.enable_registry_reconciler() {
-            self.start_registry_reconciler(&mut handles, &shutdown_tx)
-                .await?;
+            self.register_registry_reconciler(&mut manager).await?;
         }
 
-        // Start stale claim sweeper if claiming is enabled
+        // Stale-claim sweeper runs whenever push-with-claim is enabled.
         if self.config.enable_claiming() {
-            self.start_stale_claim_sweeper(&mut handles, &shutdown_tx)
-                .await?;
+            self.register_stale_claim_sweeper(&mut manager).await?;
         }
+
+        manager.start_all().await?;
 
         Ok(())
     }
 
-    /// Starts the unified scheduler that handles both cron and trigger schedules.
-    async fn start_unified_scheduler(
+    async fn register_unified_scheduler(
         &self,
-        handles: &mut super::RuntimeHandles,
-        shutdown_tx: &broadcast::Sender<()>,
+        manager: &mut ServiceManager,
     ) -> Result<(), WorkflowExecutionError> {
-        tracing::info!("Starting unified scheduler");
+        tracing::info!("Registering unified scheduler");
 
-        // Create watch channel for unified scheduler shutdown
-        let (unified_shutdown_tx, unified_shutdown_rx) = watch::channel(false);
+        let (inner_tx, inner_rx) = watch::channel(false);
 
-        // Build SchedulerConfig from runner config
         let scheduler_config = SchedulerConfig {
             cron_poll_interval: self.config.cron_poll_interval(),
             max_catchup_executions: self.config.cron_max_catchup_executions(),
-            max_acceptable_delay: Duration::from_secs(300), // 5 minutes
+            max_acceptable_delay: Duration::from_secs(300),
             trigger_base_poll_interval: self.config.trigger_base_poll_interval(),
             trigger_poll_timeout: self.config.trigger_poll_timeout(),
         };
 
-        // Create Scheduler with DefaultRunner as WorkflowExecutor
         let dal = DAL::new(self.database.clone());
         let unified_scheduler = Scheduler::new(
             Arc::new(dal),
-            Arc::new(self.clone()), // self implements WorkflowExecutor!
+            Arc::new(self.clone()),
             scheduler_config,
-            unified_shutdown_rx,
+            inner_rx,
             self.runtime.clone(),
         );
+        let unified_scheduler = Arc::new(unified_scheduler);
 
-        // Start unified scheduler background service
-        let mut scheduler_clone = unified_scheduler.clone();
-        let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
-        let span = self.create_runner_span("unified_scheduler");
-        let handle = tokio::spawn(
-            async move {
-                tokio::select! {
-                    result = scheduler_clone.run_polling_loop() => {
-                        if let Err(e) = result {
-                            tracing::error!("Unified scheduler failed: {}", e);
-                        } else {
-                            tracing::info!("Unified scheduler completed");
-                        }
-                    }
-                    _ = broadcast_shutdown_rx.recv() => {
-                        tracing::info!("Unified scheduler shutdown requested via broadcast");
-                        // Send shutdown signal to unified scheduler
-                        let _ = unified_shutdown_tx.send(true);
-                    }
-                }
-            }
-            .instrument(span),
-        );
-
-        // Store unified scheduler and handle
-        *self.unified_scheduler.write().await = Some(Arc::new(unified_scheduler));
-        handles.unified_scheduler_handle = Some(handle);
+        manager.unified_scheduler = Some(unified_scheduler.clone());
+        manager.register(Box::new(UnifiedSchedulerService::new(
+            unified_scheduler,
+            inner_tx,
+            self.create_runner_span("unified_scheduler"),
+        )));
 
         Ok(())
     }
 
-    /// Starts the cron recovery service
-    async fn start_cron_recovery(
+    async fn register_cron_recovery(
         &self,
-        handles: &mut super::RuntimeHandles,
-        shutdown_tx: &broadcast::Sender<()>,
+        manager: &mut ServiceManager,
     ) -> Result<(), WorkflowExecutionError> {
-        tracing::info!("Starting cron recovery service");
+        tracing::info!("Registering cron recovery service");
 
-        // Create watch channel for recovery service shutdown
-        let (recovery_shutdown_tx, recovery_shutdown_rx) = watch::channel(false);
+        let (inner_tx, inner_rx) = watch::channel(false);
 
-        // Create recovery config
         let recovery_config = crate::CronRecoveryConfig {
             check_interval: self.config.cron_recovery_interval(),
             lost_threshold_minutes: self.config.cron_lost_threshold_minutes(),
@@ -215,58 +151,33 @@ impl DefaultRunner {
             recover_disabled_schedules: false,
         };
 
-        // Create CronRecoveryService
         let dal = DAL::new(self.database.clone());
         let recovery_service = crate::CronRecoveryService::new(
             Arc::new(dal),
-            Arc::new(self.clone()), // self implements WorkflowExecutor!
+            Arc::new(self.clone()),
             recovery_config,
-            recovery_shutdown_rx,
+            inner_rx,
         );
+        let recovery_service = Arc::new(recovery_service);
 
-        // Start recovery background service
-        let mut recovery_service_clone = recovery_service.clone();
-        let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
-        let recovery_span = self.create_runner_span("cron_recovery");
-        let recovery_handle = tokio::spawn(
-            async move {
-                tokio::select! {
-                    result = recovery_service_clone.run_recovery_loop() => {
-                        if let Err(e) = result {
-                            tracing::error!("Cron recovery service failed: {}", e);
-                        } else {
-                            tracing::info!("Cron recovery service completed");
-                        }
-                    }
-                    _ = broadcast_shutdown_rx.recv() => {
-                        tracing::info!("Cron recovery service shutdown requested via broadcast");
-                        // Send shutdown signal to recovery service
-                        let _ = recovery_shutdown_tx.send(true);
-                    }
-                }
-            }
-            .instrument(recovery_span),
-        );
-
-        // Store recovery service and handle
-        *self.cron_recovery.write().await = Some(Arc::new(recovery_service));
-        handles.cron_recovery_handle = Some(recovery_handle);
+        manager.cron_recovery = Some(recovery_service.clone());
+        manager.register(Box::new(CronRecoveryServiceWrapper::new(
+            recovery_service,
+            inner_tx,
+            self.create_runner_span("cron_recovery"),
+        )));
 
         Ok(())
     }
 
-    /// Starts the registry reconciler service
-    async fn start_registry_reconciler(
+    async fn register_registry_reconciler(
         &self,
-        handles: &mut super::RuntimeHandles,
-        shutdown_tx: &broadcast::Sender<()>,
+        manager: &mut ServiceManager,
     ) -> Result<(), WorkflowExecutionError> {
-        tracing::info!("Starting registry reconciler");
+        tracing::info!("Registering registry reconciler");
 
-        // Create watch channel for registry reconciler shutdown
-        let (reconciler_shutdown_tx, reconciler_shutdown_rx) = watch::channel(false);
+        let (inner_tx, inner_rx) = watch::channel(false);
 
-        // Create reconciler config
         let reconciler_config = ReconcilerConfig {
             reconcile_interval: self.config.registry_reconcile_interval(),
             enable_startup_reconciliation: self.config.registry_enable_startup_reconciliation(),
@@ -275,7 +186,6 @@ impl DefaultRunner {
             default_tenant_id: "public".to_string(),
         };
 
-        // Create storage backend based on configuration
         let workflow_registry_result = match self.config.registry_storage_backend() {
             "filesystem" => {
                 let storage_path = self
@@ -294,7 +204,7 @@ impl DefaultRunner {
                 }
             }
             "sqlite" | "postgres" | "database" => {
-                let dal = crate::dal::DAL::new(self.database.clone());
+                let dal = DAL::new(self.database.clone());
                 let storage = UnifiedRegistryStorage::new(self.database.clone());
                 let registry_dal = dal.workflow_registry(storage);
                 Ok(Arc::new(registry_dal) as Arc<dyn WorkflowRegistry>)
@@ -305,75 +215,47 @@ impl DefaultRunner {
             )),
         };
 
-        match workflow_registry_result {
-            Ok(workflow_registry_arc) => {
-                // Create Registry Reconciler
-                let mut registry_reconciler = RegistryReconciler::new(
-                    workflow_registry_arc.clone(),
-                    reconciler_config,
-                    reconciler_shutdown_rx,
-                )
+        let workflow_registry_arc = match workflow_registry_result {
+            Ok(arc) => arc,
+            Err(e) => {
+                tracing::error!("Failed to create workflow registry: {}", e);
+                return Ok(());
+            }
+        };
+
+        let mut registry_reconciler =
+            RegistryReconciler::new(workflow_registry_arc.clone(), reconciler_config, inner_rx)
                 .map_err(|e| WorkflowExecutionError::Configuration {
                     message: format!("Failed to create registry reconciler: {}", e),
                 })?;
 
-                // Share the runner's reactive scheduler slot with the reconciler.
-                // When set_reactive_scheduler() is called on the runner later,
-                // the reconciler will see it because they share the same Arc.
-                registry_reconciler.set_reactive_scheduler_slot(self.reactive_scheduler.clone());
+        // Share the manager's reactive scheduler slot so that a later
+        // `set_reactive_scheduler()` is observable to the reconciler.
+        registry_reconciler.set_reactive_scheduler_slot(manager.reactive_scheduler.clone());
+        registry_reconciler = registry_reconciler.with_runtime(self.runtime.clone());
 
-                // Give the reconciler a handle to the runtime so package loads
-                // and unloads are mirrored into it.
-                registry_reconciler = registry_reconciler.with_runtime(self.runtime.clone());
+        manager.workflow_registry = Some(workflow_registry_arc);
 
-                // Start reconciler background service
-                let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
-                let reconciler_span = self.create_runner_span("registry_reconciler");
-                let reconciler_handle = tokio::spawn(
-                    async move {
-                        tokio::select! {
-                            result = registry_reconciler.start_reconciliation_loop() => {
-                                if let Err(e) = result {
-                                    tracing::error!("Registry reconciler failed: {}", e);
-                                } else {
-                                    tracing::info!("Registry reconciler completed");
-                                }
-                            }
-                            _ = broadcast_shutdown_rx.recv() => {
-                                tracing::info!("Registry reconciler shutdown requested via broadcast");
-                                // Send shutdown signal to reconciler
-                                let _ = reconciler_shutdown_tx.send(true);
-                            }
-                        }
-                    }
-                    .instrument(reconciler_span),
-                );
-
-                // Store workflow registry and reconciler
-                *self.workflow_registry.write().await = Some(workflow_registry_arc);
-                handles.registry_reconciler_handle = Some(reconciler_handle);
-            }
-            Err(e) => {
-                tracing::error!("Failed to create workflow registry: {}", e);
-            }
-        }
+        manager.register(Box::new(RegistryReconcilerService::new(
+            registry_reconciler,
+            inner_tx,
+            self.create_runner_span("registry_reconciler"),
+        )));
 
         Ok(())
     }
 
-    /// Starts the stale claim sweeper background service.
-    async fn start_stale_claim_sweeper(
+    async fn register_stale_claim_sweeper(
         &self,
-        _handles: &mut super::RuntimeHandles,
-        shutdown_tx: &broadcast::Sender<()>,
+        manager: &mut ServiceManager,
     ) -> Result<(), WorkflowExecutionError> {
         use crate::execution_planner::stale_claim_sweeper::{
             StaleClaimSweeper, StaleClaimSweeperConfig,
         };
 
-        tracing::info!("Starting stale claim sweeper");
+        tracing::info!("Registering stale claim sweeper");
 
-        let (sweeper_shutdown_tx, sweeper_shutdown_rx) = watch::channel(false);
+        let (inner_tx, inner_rx) = watch::channel(false);
 
         let sweeper_config = StaleClaimSweeperConfig {
             sweep_interval: self.config.stale_claim_sweep_interval(),
@@ -381,29 +263,13 @@ impl DefaultRunner {
         };
 
         let dal = DAL::new(self.database.clone());
-        let mut sweeper =
-            StaleClaimSweeper::new(Arc::new(dal), sweeper_config, sweeper_shutdown_rx);
+        let sweeper = StaleClaimSweeper::new(Arc::new(dal), sweeper_config, inner_rx);
 
-        let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
-        let sweeper_span = self.create_runner_span("stale_claim_sweeper");
-        let sweeper_handle = tokio::spawn(
-            async move {
-                tokio::select! {
-                    _ = sweeper.run() => {
-                        tracing::info!("Stale claim sweeper completed");
-                    }
-                    _ = broadcast_shutdown_rx.recv() => {
-                        tracing::info!("Stale claim sweeper shutdown requested");
-                        let _ = sweeper_shutdown_tx.send(true);
-                    }
-                }
-            }
-            .instrument(sweeper_span),
-        );
-
-        // Store handle (reuse an existing field or just let it drop — it's managed by the broadcast shutdown)
-        // For now, we don't track this handle separately since it shuts down via broadcast
-        drop(sweeper_handle);
+        manager.register(Box::new(StaleClaimSweeperService::new(
+            sweeper,
+            inner_tx,
+            self.create_runner_span("stale_claim_sweeper"),
+        )));
 
         Ok(())
     }

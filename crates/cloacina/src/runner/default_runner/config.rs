@@ -31,7 +31,8 @@ use crate::Database;
 use crate::Runtime;
 use crate::TaskScheduler;
 
-use super::{DefaultRunner, RuntimeHandles};
+use super::service_manager::ServiceManager;
+use super::DefaultRunner;
 
 /// Errors that can occur during configuration validation.
 #[derive(Debug, thiserror::Error)]
@@ -703,19 +704,7 @@ impl DefaultRunnerBuilder {
             database,
             config: self.config.clone(),
             scheduler: Arc::new(scheduler),
-            runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
-                scheduler_handle: None,
-                executor_handle: None,
-                cron_recovery_handle: None,
-                registry_reconciler_handle: None,
-                unified_scheduler_handle: None,
-                shutdown_sender: None,
-            })),
-            cron_recovery: Arc::new(RwLock::new(None)), // Initially empty
-            workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
-            registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
-            unified_scheduler: Arc::new(RwLock::new(None)), // Initially empty
-            reactive_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            service_manager: Arc::new(RwLock::new(ServiceManager::new())),
         };
 
         // Start the background services immediately
