@@ -4,15 +4,15 @@ level: task
 title: "Finish I-0096 cleanup — remove #[ctor] emission, ctor dep, and global_*_registry modules"
 short_code: "CLOACI-T-0509"
 created_at: 2026-04-17T13:48:55.493373+00:00
-updated_at: 2026-04-17T13:48:55.493373+00:00
+updated_at: 2026-04-20T11:07:58.262949+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -32,6 +32,12 @@ The reason this was split out of I-0096 (PR #70): a non-trivial set of integrati
 
 ## Priority
 - [x] P2 — No functional impact (ordering bug already fixed), but removes dead-code paths and a redundant registration mechanism. Do before 1.0.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
