@@ -1866,14 +1866,43 @@ mod resilience_tests {
 
         scheduler.load_graph(decl).await.unwrap();
 
-        // Push 2 events — accumulator will panic on the 2nd process()
+        // Helper: poll a predicate until it's true, or panic on timeout. Used in
+        // place of fixed `sleep` waits so this test stays deterministic under
+        // CPU contention from parallel test execution (the original cause of
+        // CLOACI-T-0530's intermittent failures in `angreal cloacina integration`).
+        async fn poll_until<F: FnMut() -> bool>(
+            mut pred: F,
+            timeout: std::time::Duration,
+            label: &str,
+        ) {
+            let deadline = std::time::Instant::now() + timeout;
+            while std::time::Instant::now() < deadline {
+                if pred() {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            panic!("timed out waiting for: {}", label);
+        }
+
+        // Push event 1 and wait for the reactor to fire it. The reactor has a
+        // ~100ms warming gate before going Live; under load this can be longer,
+        // so poll instead of using a fixed sleep.
         let event = AlphaData { value: 1.0 };
         registry
             .send_to_accumulator("alpha", serde_json::to_vec(&event).unwrap())
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
+        poll_until(
+            || fire_count.load(Ordering::SeqCst) >= 1,
+            std::time::Duration::from_secs(5),
+            "first event to fire reactor",
+        )
+        .await;
+        let fires_before = fire_count.load(Ordering::SeqCst);
+
+        // Push event 2 — accumulator will panic on the 2nd process()
         registry
             .send_to_accumulator(
                 "alpha",
@@ -1881,23 +1910,26 @@ mod resilience_tests {
             )
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-        // At this point the accumulator task has panicked. The first event should have fired.
-        let fires_before = fire_count.load(Ordering::SeqCst);
-        assert!(
-            fires_before >= 1,
-            "should have at least 1 fire before panic"
+        // Trigger supervisor check — poll because the panic propagation through
+        // the spawned task is async and `is_finished()` may not be true the
+        // instant after `send_to_accumulator` returns.
+        let mut restarted = 0;
+        let restart_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < restart_deadline {
+            restarted = scheduler.check_and_restart_failed().await;
+            if restarted >= 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            restarted, 1,
+            "supervisor should detect and restart 1 accumulator"
         );
 
-        // Trigger supervisor check — should detect crash and restart
-        let restarted = scheduler.check_and_restart_failed().await;
-        assert_eq!(restarted, 1, "supervisor should restart 1 accumulator");
-
-        // Wait for the restart to settle
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-        // Push another event — the respawned accumulator (spawn_num=1) won't panic
+        // Push event 3 — the respawned accumulator (spawn_num=1) won't panic.
+        // Poll for the next fire instead of relying on a fixed sleep.
         registry
             .send_to_accumulator(
                 "alpha",
@@ -1906,15 +1938,12 @@ mod resilience_tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-        let fires_after = fire_count.load(Ordering::SeqCst);
-        assert!(
-            fires_after > fires_before,
-            "graph should fire after accumulator restart (before={}, after={})",
-            fires_before,
-            fires_after
-        );
+        poll_until(
+            || fire_count.load(Ordering::SeqCst) > fires_before,
+            std::time::Duration::from_secs(5),
+            "graph to fire after accumulator restart",
+        )
+        .await;
 
         scheduler.shutdown_all().await;
     }
