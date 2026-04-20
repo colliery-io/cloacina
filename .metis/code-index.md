@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-20T12:29:51Z | 479 files | JavaScript, Python, Rust
+> Generated: 2026-04-20T12:33:56Z | 477 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -80,7 +80,6 @@
 │   │   │   ├── execution_planner/
 │   │   │   │   ├── context_manager.rs
 │   │   │   │   ├── mod.rs
-│   │   │   │   ├── recovery.rs
 │   │   │   │   ├── scheduler_loop.rs
 │   │   │   │   ├── stale_claim_sweeper.rs
 │   │   │   │   ├── state_manager.rs
@@ -231,7 +230,6 @@
 │   │           │   ├── cron_basic.rs
 │   │           │   ├── dependency_resolution.rs
 │   │           │   ├── mod.rs
-│   │           │   ├── recovery.rs
 │   │           │   ├── stale_claims.rs
 │   │           │   └── trigger_rules.rs
 │   │           ├── signing/
@@ -2555,42 +2553,28 @@
 
 #### crates/cloacina/src/execution_planner/mod.rs
 
-- pub `stale_claim_sweeper` module L119 — `-` — ```
-- pub `TaskScheduler` struct L187-196 — `{ dal: DAL, runtime: Arc<Runtime>, instance_id: Uuid, poll_interval: Duration, d...` — The main Task Scheduler that manages workflow execution and task readiness.
-- pub `new` function L226-229 — `(database: Database) -> Result<Self, ValidationError>` — Creates a new TaskScheduler instance with default configuration using global workflow registry.
-- pub `with_poll_interval` function L247-255 — `( database: Database, poll_interval: Duration, ) -> Result<Self, ValidationError...` — Creates a new TaskScheduler with custom poll interval using global workflow registry.
-- pub `with_runtime` function L272-275 — `(mut self, runtime: Arc<Runtime>) -> Self` — Sets the runtime for this scheduler, replacing the default.
-- pub `runtime` function L278-280 — `(&self) -> &Arc<Runtime>` — Returns a reference to the runtime used by this scheduler.
-- pub `with_shutdown` function L283-286 — `(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self` — Sets the shutdown receiver for graceful termination of the scheduling loop.
-- pub `with_dispatcher` function L300-303 — `(mut self, dispatcher: Arc<dyn Dispatcher>) -> Self` — Sets the dispatcher for push-based task execution.
-- pub `dispatcher` function L306-308 — `(&self) -> Option<&Arc<dyn Dispatcher>>` — Returns a reference to the dispatcher if configured.
-- pub `schedule_workflow_execution` function L353-438 — `( &self, workflow_name: &str, input_context: Context<serde_json::Value>, ) -> Re...` — Schedules a new workflow execution with the provided input context.
-- pub `run_scheduling_loop` function L600-612 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active workflow executions.
-- pub `process_active_executions` function L615-624 — `(&self) -> Result<(), ValidationError>` — Processes all active workflow executions to update task readiness.
+- pub `stale_claim_sweeper` module L118 — `-` — ```
+- pub `TaskScheduler` struct L184-193 — `{ dal: DAL, runtime: Arc<Runtime>, instance_id: Uuid, poll_interval: Duration, d...` — The main Task Scheduler that manages workflow execution and task readiness.
+- pub `new` function L222-225 — `(database: Database) -> Result<Self, ValidationError>` — Creates a new TaskScheduler instance with default configuration using global workflow registry.
+- pub `with_poll_interval` function L237-242 — `( database: Database, poll_interval: Duration, ) -> Result<Self, ValidationError...` — Creates a new TaskScheduler with custom poll interval using global workflow registry.
+- pub `with_runtime` function L259-262 — `(mut self, runtime: Arc<Runtime>) -> Self` — Sets the runtime for this scheduler, replacing the default.
+- pub `runtime` function L265-267 — `(&self) -> &Arc<Runtime>` — Returns a reference to the runtime used by this scheduler.
+- pub `with_shutdown` function L270-273 — `(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self` — Sets the shutdown receiver for graceful termination of the scheduling loop.
+- pub `with_dispatcher` function L287-290 — `(mut self, dispatcher: Arc<dyn Dispatcher>) -> Self` — Sets the dispatcher for push-based task execution.
+- pub `dispatcher` function L293-295 — `(&self) -> Option<&Arc<dyn Dispatcher>>` — Returns a reference to the dispatcher if configured.
+- pub `schedule_workflow_execution` function L340-425 — `( &self, workflow_name: &str, input_context: Context<serde_json::Value>, ) -> Re...` — Schedules a new workflow execution with the provided input context.
+- pub `run_scheduling_loop` function L587-599 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active workflow executions.
+- pub `process_active_executions` function L602-611 — `(&self) -> Result<(), ValidationError>` — Processes all active workflow executions to update task readiness.
 -  `context_manager` module L116 — `-` — # Task Scheduler
--  `recovery` module L117 — `-` — ```
--  `scheduler_loop` module L118 — `-` — ```
--  `state_manager` module L120 — `-` — ```
--  `trigger_rules` module L121 — `-` — ```
--  `TaskScheduler` type L198-647 — `= TaskScheduler` — ```
--  `with_poll_interval_sync` function L258-269 — `(database: Database, poll_interval: Duration) -> Self` — Creates a new TaskScheduler with custom poll interval (synchronous version).
--  `create_workflow_execution_postgres` function L442-499 — `( &self, workflow_execution_id: UniversalUuid, now: UniversalTimestamp, workflow...` — Creates workflow execution and tasks in PostgreSQL.
--  `create_workflow_execution_sqlite` function L503-560 — `( &self, workflow_execution_id: UniversalUuid, now: UniversalTimestamp, workflow...` — Creates workflow execution and tasks in SQLite.
--  `get_task_trigger_rules` function L627-636 — `( &self, workflow: &Workflow, task_namespace: &TaskNamespace, ) -> serde_json::V...` — Gets trigger rules for a specific task from the task implementation.
--  `get_task_configuration` function L639-646 — `( &self, _workflow: &Workflow, _task_namespace: &TaskNamespace, ) -> serde_json:...` — Gets task configuration (currently returns empty object).
-
-#### crates/cloacina/src/execution_planner/recovery.rs
-
-- pub `RecoveryResult` enum L35-40 — `Recovered | Abandoned` — Result of attempting to recover a task.
-- pub `RecoveryManager` struct L46-49 — `{ dal: &'a DAL, runtime: Arc<Runtime> }` — Recovery operations for the scheduler.
-- pub `new` function L53-55 — `(dal: &'a DAL, runtime: Arc<Runtime>) -> Self` — Creates a new RecoveryManager.
-- pub `recover_orphaned_tasks` function L67-173 — `(&self) -> Result<(), ValidationError>` — Detects and recovers tasks orphaned by system interruptions.
--  `MAX_RECOVERY_ATTEMPTS` variable L43 — `: i32` — Maximum number of recovery attempts before abandoning a task.
--  `recover_tasks_for_known_workflow` function L176-203 — `( &self, tasks: Vec<TaskExecution>, ) -> Result<usize, ValidationError>` — Recovers tasks from workflows that are still available in the registry.
--  `abandon_tasks_for_unknown_workflow` function L206-286 — `( &self, workflow_exec: WorkflowExecutionRecord, tasks: Vec<TaskExecution>, avai...` — Abandons tasks from workflows that are no longer available in the registry.
--  `recover_single_task` function L289-329 — `( &self, task: TaskExecution, ) -> Result<RecoveryResult, ValidationError>` — Recovers a single orphaned task with retry limit enforcement.
--  `abandon_task_permanently` function L332-378 — `(&self, task: TaskExecution) -> Result<(), ValidationError>` — Permanently abandons a task that has exceeded recovery limits.
--  `record_recovery_event` function L381-384 — `(&self, event: NewRecoveryEvent) -> Result<(), ValidationError>` — Records a recovery event for monitoring and debugging.
+-  `scheduler_loop` module L117 — `-` — ```
+-  `state_manager` module L119 — `-` — ```
+-  `trigger_rules` module L120 — `-` — ```
+-  `TaskScheduler` type L195-634 — `= TaskScheduler` — ```
+-  `with_poll_interval_sync` function L245-256 — `(database: Database, poll_interval: Duration) -> Self` — Creates a new TaskScheduler with custom poll interval (synchronous version).
+-  `create_workflow_execution_postgres` function L429-486 — `( &self, workflow_execution_id: UniversalUuid, now: UniversalTimestamp, workflow...` — Creates workflow execution and tasks in PostgreSQL.
+-  `create_workflow_execution_sqlite` function L490-547 — `( &self, workflow_execution_id: UniversalUuid, now: UniversalTimestamp, workflow...` — Creates workflow execution and tasks in SQLite.
+-  `get_task_trigger_rules` function L614-623 — `( &self, workflow: &Workflow, task_namespace: &TaskNamespace, ) -> serde_json::V...` — Gets trigger rules for a specific task from the task implementation.
+-  `get_task_configuration` function L626-633 — `( &self, _workflow: &Workflow, _task_namespace: &TaskNamespace, ) -> serde_json:...` — Gets task configuration (currently returns empty object).
 
 #### crates/cloacina/src/execution_planner/scheduler_loop.rs
 
@@ -4916,26 +4900,8 @@
 -  `basic_scheduling` module L17 — `-`
 -  `cron_basic` module L18 — `-`
 -  `dependency_resolution` module L20 — `-`
--  `recovery` module L21 — `-`
--  `stale_claims` module L22 — `-`
--  `trigger_rules` module L23 — `-`
-
-#### crates/cloacina/tests/integration/scheduler/recovery.rs
-
--  `postgres_tests` module L21-602 — `-`
--  `test_orphaned_task_recovery` function L35-109 — `()`
--  `test_task_abandonment_after_max_retries` function L113-193 — `()`
--  `test_no_recovery_needed` function L197-273 — `()`
--  `test_multiple_orphaned_tasks_recovery` function L277-413 — `()`
--  `test_recovery_event_details` function L417-478 — `()`
--  `test_graceful_recovery_for_unknown_workflow` function L482-601 — `()`
--  `sqlite_tests` module L605-1194 — `-`
--  `test_orphaned_task_recovery` function L619-693 — `()`
--  `test_task_abandonment_after_max_retries` function L697-781 — `()`
--  `test_no_recovery_needed` function L785-861 — `()`
--  `test_multiple_orphaned_tasks_recovery` function L865-1005 — `()`
--  `test_recovery_event_details` function L1009-1070 — `()`
--  `test_graceful_recovery_for_unknown_workflow` function L1074-1193 — `()`
+-  `stale_claims` module L21 — `-`
+-  `trigger_rules` module L22 — `-`
 
 #### crates/cloacina/tests/integration/scheduler/stale_claims.rs
 

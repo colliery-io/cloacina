@@ -33,8 +33,11 @@
 //! - Manage task state transitions based on dependencies
 //! - Support advanced trigger rules for conditional execution
 //! - Coordinate with executor through database state
-//! - Automatic recovery of orphaned tasks
 //! - Context management and merging for task dependencies
+//!
+//! Recovery of orphaned tasks is handled out-of-band by
+//! [`stale_claim_sweeper::StaleClaimSweeper`], which releases stale claims
+//! based on heartbeat expiry rather than wall-clock task status.
 //!
 //! ## Task State Management
 //!
@@ -50,12 +53,9 @@
 //!
 //! ## Error Handling & Recovery
 //!
-//! The scheduler implements robust error handling and recovery:
-//! - Automatic detection of orphaned tasks (stuck in Running state)
-//! - Configurable retry policies with maximum attempts
-//! - Graceful handling of missing workflows
-//! - Detailed recovery event logging
-//! - Workflow-level failure propagation
+//! The scheduler relies on per-task retry policies for failure handling.
+//! Orphaned tasks (claimed by a runner whose heartbeat has expired) are
+//! reclaimed by the stale claim sweeper rather than by scheduler startup.
 //!
 //! ## Context Management
 //!
@@ -114,7 +114,6 @@
 //! ```
 
 mod context_manager;
-mod recovery;
 mod scheduler_loop;
 pub mod stale_claim_sweeper;
 mod state_manager;
@@ -141,7 +140,6 @@ use crate::task::TaskNamespace;
 use crate::Runtime;
 use crate::{Context, Database, Workflow};
 
-use recovery::RecoveryManager;
 use scheduler_loop::SchedulerLoop;
 
 /// The main Task Scheduler that manages workflow execution and task readiness.
@@ -160,7 +158,6 @@ use scheduler_loop::SchedulerLoop;
 /// The scheduler implements comprehensive error handling:
 /// - Database errors are wrapped in ValidationError
 /// - Workflow validation errors are caught early
-/// - Recovery errors are logged and tracked
 /// - Context evaluation errors are handled gracefully
 ///
 /// # Performance
@@ -200,7 +197,6 @@ impl TaskScheduler {
     ///
     /// This is the recommended constructor for most use cases. The TaskScheduler will:
     /// - Use all workflows registered in the global registry
-    /// - Enable automatic recovery of orphaned tasks
     /// - Use default poll interval (100ms)
     ///
     /// # Arguments
@@ -222,15 +218,13 @@ impl TaskScheduler {
     ///
     /// # Errors
     ///
-    /// May return ValidationError if recovery operations fail.
+    /// May return ValidationError if construction fails.
     pub async fn new(database: Database) -> Result<Self, ValidationError> {
         let scheduler = Self::with_poll_interval(database, Duration::from_millis(100)).await?;
         Ok(scheduler)
     }
 
     /// Creates a new TaskScheduler with custom poll interval using global workflow registry.
-    ///
-    /// Uses all workflows registered in the global registry and enables automatic recovery.
     ///
     /// # Arguments
     ///
@@ -240,18 +234,11 @@ impl TaskScheduler {
     /// # Returns
     ///
     /// A new TaskScheduler instance ready to schedule and manage workflow executions.
-    ///
-    /// # Errors
-    ///
-    /// May return ValidationError if recovery operations fail.
     pub async fn with_poll_interval(
         database: Database,
         poll_interval: Duration,
     ) -> Result<Self, ValidationError> {
-        let scheduler = Self::with_poll_interval_sync(database, poll_interval);
-        let recovery_manager = RecoveryManager::new(&scheduler.dal, scheduler.runtime.clone());
-        recovery_manager.recover_orphaned_tasks().await?;
-        Ok(scheduler)
+        Ok(Self::with_poll_interval_sync(database, poll_interval))
     }
 
     /// Creates a new TaskScheduler with custom poll interval (synchronous version).
