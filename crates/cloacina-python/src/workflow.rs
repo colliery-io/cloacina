@@ -65,21 +65,20 @@ impl PyWorkflowBuilder {
     /// Add a task to the workflow by ID or function reference
     pub fn add_task(&mut self, py: Python, task: PyObject) -> PyResult<()> {
         if let Ok(task_id) = task.extract::<String>(py) {
-            let registry = cloacina::task::global_task_registry();
+            let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+                PyValueError::new_err("WorkflowBuilder.add_task called outside a Runtime scope")
+            })?;
 
             let (tenant_id, package_name, workflow_id) = self.context.as_components();
             let task_namespace =
                 cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
-            let guard = registry.read();
 
-            let constructor = guard.get(&task_namespace).ok_or_else(|| {
+            let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
                 PyValueError::new_err(format!(
                     "Task '{}' not found in registry. Make sure it was decorated with @task.",
                     task_id
                 ))
             })?;
-
-            let task_instance = constructor();
 
             self.inner = self
                 .inner
@@ -95,20 +94,21 @@ impl PyWorkflowBuilder {
                         Ok(name_obj) => {
                             match name_obj.extract::<String>(py) {
                                 Ok(func_name) => {
-                                    let registry = cloacina::task::global_task_registry();
+                                    let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+                                        PyValueError::new_err(
+                                            "WorkflowBuilder.add_task called outside a Runtime scope",
+                                        )
+                                    })?;
 
                                     let (tenant_id, package_name, workflow_id) = self.context.as_components();
                                     let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
-                                    let guard = registry.read();
 
-                                    let constructor = guard.get(&task_namespace).ok_or_else(|| {
+                                    let task_instance = rt.get_task(&task_namespace).ok_or_else(|| {
                                         PyValueError::new_err(format!(
                                             "Task '{}' not found in registry. Make sure it was decorated with @task.",
                                             func_name
                                         ))
                                     })?;
-
-                                    let task_instance = constructor();
 
                                     self.inner = self.inner.clone().add_task(task_instance)
                                         .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
@@ -186,22 +186,21 @@ impl PyWorkflowBuilder {
             workflow.add_tag(key, value);
         }
 
-        let registry = cloacina::task::global_task_registry();
-        let guard = registry.read();
-
-        for (namespace, constructor) in guard.iter() {
+        let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+            PyValueError::new_err("WorkflowBuilder.__exit__ called outside a Runtime scope")
+        })?;
+        for namespace in rt.task_namespaces() {
             if namespace.tenant_id == tenant_id
                 && namespace.package_name == package_name
                 && namespace.workflow_id == workflow_id
             {
-                let task_instance = constructor();
-                workflow
-                    .add_task(task_instance)
-                    .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
+                if let Some(task_instance) = rt.get_task(&namespace) {
+                    workflow
+                        .add_task(task_instance)
+                        .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
+                }
             }
         }
-
-        drop(guard);
 
         workflow
             .validate()
@@ -209,9 +208,7 @@ impl PyWorkflowBuilder {
         let final_workflow = workflow.finalize();
 
         let workflow_name = final_workflow.name().to_string();
-        cloacina::workflow::register_workflow_constructor(workflow_name, move || {
-            final_workflow.clone()
-        });
+        rt.register_workflow(workflow_name, move || final_workflow.clone());
 
         Ok(false)
     }
@@ -357,6 +354,9 @@ mod tests {
     fn test_workflow_builder_build_with_task() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
+            let rt = std::sync::Arc::new(cloacina::Runtime::empty());
+            let _scope =
+                crate::runtime_scope::ScopedRuntime::new(rt).expect("ScopedRuntime install");
             // Register a task first so the builder has something
             crate::task::push_workflow_context(crate::workflow_context::PyWorkflowContext::new(
                 "public",
@@ -391,9 +391,12 @@ mod tests {
     }
 }
 
-/// Register a workflow constructor function
-#[pyfunction]
-pub fn register_workflow_constructor(name: String, constructor: PyObject) -> PyResult<()> {
+/// Register a workflow constructor function on the thread-local Runtime
+/// scope. Exported to Python as `register_workflow_constructor` for backwards
+/// compatibility; the Rust symbol name is `py_register_workflow` so it does
+/// not collide with the (now deleted) `cloacina::register_workflow_constructor`.
+#[pyfunction(name = "register_workflow_constructor")]
+pub fn py_register_workflow(name: String, constructor: PyObject) -> PyResult<()> {
     Python::with_gil(|py| {
         let workflow_obj = constructor.call0(py).map_err(|e| {
             PyValueError::new_err(format!("Failed to call workflow constructor: {}", e))
@@ -407,7 +410,10 @@ pub fn register_workflow_constructor(name: String, constructor: PyObject) -> PyR
         })?;
 
         let workflow = py_workflow.inner.clone();
-        cloacina::workflow::register_workflow_constructor(name, move || workflow.clone());
+        let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+            PyValueError::new_err("register_workflow_constructor called outside a Runtime scope")
+        })?;
+        rt.register_workflow(name, move || workflow.clone());
 
         Ok(())
     })

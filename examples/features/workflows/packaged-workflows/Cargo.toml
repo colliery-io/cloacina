@@ -22,7 +22,6 @@ futures = "0.3"  # Lightweight async executor for macro-generated code
 # User workflow dependencies:
 chrono = "0.4"
 tokio = { version = "1.0", features = ["time"] }
-ctor = "0.2"
 tracing = "0.1"
 
 [dev-dependencies]

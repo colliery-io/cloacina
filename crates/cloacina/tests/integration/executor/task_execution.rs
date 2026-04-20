@@ -135,17 +135,20 @@ async fn test_task_executor_basic_execution() {
         .build()
         .unwrap();
 
-    // Register task with correct namespace in global registry
+    // Register task with correct namespace in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "test_task",
     );
-    register_task_constructor(namespace, || Arc::new(test_task_task()));
+    runtime.register_task(namespace, || {
+        Arc::new(test_task_task()) as Arc<dyn cloacina::Task>
+    });
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("test_pipeline_basic".to_string(), {
+    // Register workflow in the same runtime.
+    runtime.register_workflow("test_pipeline_basic".to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -155,6 +158,7 @@ async fn test_task_executor_basic_execution() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -244,14 +248,17 @@ async fn test_task_executor_dependency_loading() {
         .build()
         .unwrap();
 
-    // Register tasks with correct namespaces in global registry
+    // Register tasks with correct namespaces in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace1 = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "producer_task",
     );
-    register_task_constructor(namespace1, || Arc::new(producer_task_task()));
+    runtime.register_task(namespace1, || {
+        Arc::new(producer_task_task()) as Arc<dyn cloacina::Task>
+    });
 
     let namespace2 = TaskNamespace::new(
         workflow.tenant(),
@@ -260,12 +267,13 @@ async fn test_task_executor_dependency_loading() {
         "consumer_task",
     );
     let producer_ns_for_closure = producer_ns.clone();
-    register_task_constructor(namespace2, move || {
+    runtime.register_task(namespace2, move || {
         Arc::new(consumer_task_task().with_dependencies(vec![producer_ns_for_closure.clone()]))
+            as Arc<dyn cloacina::Task>
     });
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor(workflow.name().to_string(), {
+    // Register workflow in the same runtime.
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -275,6 +283,7 @@ async fn test_task_executor_dependency_loading() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -385,17 +394,20 @@ async fn test_task_executor_timeout_handling() {
         .build()
         .unwrap();
 
-    // Register task with correct namespace in global registry
+    // Register task with correct namespace in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "timeout_task_test",
     );
-    register_task_constructor(namespace, || Arc::new(timeout_task_test_task()));
+    runtime.register_task(namespace, || {
+        Arc::new(timeout_task_test_task()) as Arc<dyn cloacina::Task>
+    });
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor(workflow.name().to_string(), {
+    // Register workflow in the same runtime.
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -410,6 +422,7 @@ async fn test_task_executor_timeout_handling() {
         .database_url(&database_url)
         .schema(&schema)
         .with_config(config)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -529,17 +542,20 @@ async fn test_default_runner_execution() {
         .build()
         .unwrap();
 
-    // Register task with correct namespace in global registry
+    // Register task with correct namespace in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "unified_task_test",
     );
-    register_task_constructor(namespace, || Arc::new(unified_task_test_task()));
+    runtime.register_task(namespace, || {
+        Arc::new(unified_task_test_task()) as Arc<dyn cloacina::Task>
+    });
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor(workflow.name().to_string(), {
+    // Register workflow in the same runtime.
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -549,6 +565,7 @@ async fn test_default_runner_execution() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -685,17 +702,20 @@ async fn test_task_executor_context_loading_no_dependencies() {
         .build()
         .unwrap();
 
-    // Register task with correct namespace in global registry
+    // Register task with correct namespace in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "initial_context_task_test",
     );
-    register_task_constructor(namespace, || Arc::new(initial_context_task_test_task()));
+    runtime.register_task(namespace, || {
+        Arc::new(initial_context_task_test_task()) as Arc<dyn cloacina::Task>
+    });
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor(workflow.name().to_string(), {
+    // Register workflow in the same runtime.
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -705,6 +725,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -894,14 +915,17 @@ async fn test_task_executor_context_loading_with_dependencies() {
         .build()
         .unwrap();
 
-    // Register tasks with correct namespaces and dependencies in global registry
+    // Register tasks with correct namespaces and dependencies in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace1 = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "producer_context_task",
     );
-    register_task_constructor(namespace1, || Arc::new(producer_context_task_task()));
+    runtime.register_task(namespace1, || {
+        Arc::new(producer_context_task_task()) as Arc<dyn cloacina::Task>
+    });
 
     let namespace2 = TaskNamespace::new(
         workflow.tenant(),
@@ -910,14 +934,14 @@ async fn test_task_executor_context_loading_with_dependencies() {
         "consumer_context_task",
     );
     let producer_ns_for_closure = producer_ns.clone();
-    register_task_constructor(namespace2, move || {
+    runtime.register_task(namespace2, move || {
         Arc::new(
             consumer_context_task_task().with_dependencies(vec![producer_ns_for_closure.clone()]),
-        )
+        ) as Arc<dyn cloacina::Task>
     });
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor(workflow.name().to_string(), {
+    // Register workflow in the same runtime.
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -927,6 +951,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();

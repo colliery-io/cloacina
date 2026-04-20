@@ -273,6 +273,15 @@ impl DefaultRunner {
         DAL::new(self.database.clone())
     }
 
+    /// Returns a handle to the scoped `Runtime` this runner uses.
+    ///
+    /// Callers can use this to look up/register tasks, workflows, triggers,
+    /// computation graphs, and stream backends on the same registry the
+    /// executor is reading from.
+    pub fn runtime(&self) -> Arc<Runtime> {
+        self.runtime.clone()
+    }
+
     /// Returns the unified scheduler if enabled.
     ///
     /// Returns `None` if neither cron nor trigger scheduling is enabled or

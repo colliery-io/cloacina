@@ -161,6 +161,7 @@ impl DefaultRunner {
             Arc::new(self.clone()), // self implements WorkflowExecutor!
             scheduler_config,
             unified_shutdown_rx,
+            self.runtime.clone(),
         );
 
         // Start unified scheduler background service

@@ -16,7 +16,6 @@ categories = []
 
 [workspace.dependencies]
 async-trait = { version = "0.1" }
-ctor = { version = "0.2" }
 inventory = { version = "0.3" }
 once_cell = { version = "1.19.0" }
 serde_json = { version = "1.0" }

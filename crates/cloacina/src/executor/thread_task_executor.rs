@@ -136,33 +136,6 @@ impl ThreadTaskExecutor {
         self
     }
 
-    /// Creates a TaskExecutor using the global task registry.
-    ///
-    /// This method is useful when you want to use tasks registered through the global registry
-    /// rather than providing a custom registry.
-    ///
-    /// # Arguments
-    /// * `database` - Database connection pool for task state persistence
-    /// * `config` - Configuration parameters for executor behavior
-    ///
-    /// # Returns
-    /// Result containing either a new TaskExecutor instance or a RegistrationError
-    pub fn with_global_registry(
-        database: Database,
-        config: ExecutorConfig,
-    ) -> Result<Self, crate::error::RegistrationError> {
-        let mut registry = TaskRegistry::new();
-        let global_registry = crate::global_task_registry();
-        let global_tasks = global_registry.read();
-
-        for (namespace, constructor) in global_tasks.iter() {
-            let task = constructor();
-            registry.register_arc(namespace.clone(), task)?;
-        }
-
-        Ok(Self::new(database, Arc::new(registry), config))
-    }
-
     /// Returns a reference to the concurrency semaphore.
     ///
     /// Used by TaskHandle to release and reclaim concurrency slots

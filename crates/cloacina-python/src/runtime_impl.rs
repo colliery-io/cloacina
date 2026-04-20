@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use cloacina::computation_graph::scheduler::ComputationGraphDeclaration;
 use cloacina::python_runtime::{register_python_runtime, LoadedPythonWorkflow, PythonRuntime};
+use cloacina::runtime::Runtime;
 use cloacina::task::TaskNamespace;
 
 /// Zero-state runtime — every method thin-wraps the crate-local helpers.
@@ -38,6 +39,7 @@ impl PythonRuntime for CloacinaPythonRuntime {
         archive_data: &[u8],
         staging_dir: &Path,
         tenant_id: &str,
+        runtime: &Arc<Runtime>,
     ) -> Result<LoadedPythonWorkflow, String> {
         std::fs::create_dir_all(staging_dir)
             .map_err(|e| format!("Failed to create Python staging dir: {}", e))?;
@@ -54,6 +56,7 @@ impl PythonRuntime for CloacinaPythonRuntime {
                 &extracted.package_name,
                 &extracted.workflow_name,
                 tenant_id,
+                runtime.clone(),
             )
             .map_err(|e| format!("Python workflow import failed: {}", e))?;
 
@@ -71,6 +74,7 @@ impl PythonRuntime for CloacinaPythonRuntime {
         graph_name: &str,
         entry_module: &str,
         accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+        runtime: &Arc<Runtime>,
     ) -> Result<Option<ComputationGraphDeclaration>, String> {
         std::fs::create_dir_all(staging_dir)
             .map_err(|e| format!("Failed to create Python CG staging dir: {}", e))?;
@@ -84,6 +88,7 @@ impl PythonRuntime for CloacinaPythonRuntime {
             &extracted.vendor_dir,
             entry_module,
             graph_name,
+            runtime.clone(),
         )
         .map_err(|e| format!("Python CG import failed: {}", e))?;
 

@@ -214,6 +214,7 @@ async fn test_loader_error_handling() {
             &invalid_data,
             &package_metadata,
             Some("test_tenant"),
+            &std::sync::Arc::new(cloacina::Runtime::new()),
         )
         .await;
 

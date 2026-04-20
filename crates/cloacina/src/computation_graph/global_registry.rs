@@ -14,12 +14,11 @@
  *  limitations under the License.
  */
 
-//! Global computation graph registry.
+//! Computation graph constructor types.
 //!
-//! Re-exported from `cloacina-computation-graph` crate.
+//! The process-global computation-graph registry was removed in
+//! CLOACI-T-0509. Constructors are now owned by [`crate::Runtime`].
 
 pub use cloacina_computation_graph::{
-    deregister_computation_graph, global_computation_graph_registry, list_registered_graphs,
-    register_computation_graph_constructor, CompiledGraphFn, ComputationGraphConstructor,
-    ComputationGraphRegistration, GlobalComputationGraphRegistry,
+    CompiledGraphFn, ComputationGraphConstructor, ComputationGraphRegistration,
 };

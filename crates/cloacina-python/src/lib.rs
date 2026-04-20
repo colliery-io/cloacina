@@ -49,10 +49,7 @@ pub use executor::{PythonExecutionError, PythonTaskExecutor, PythonTaskResult};
 pub use context::PyContext;
 pub use namespace::PyTaskNamespace;
 pub use task::{task as task_decorator, PyTaskHandle, PythonTaskWrapper, TaskDecorator};
-pub use workflow::{
-    register_workflow_constructor as py_register_workflow_constructor, PyWorkflow,
-    PyWorkflowBuilder,
-};
+pub use workflow::{py_register_workflow, PyWorkflow, PyWorkflowBuilder};
 pub use workflow_context::PyWorkflowContext;
 
 // Re-exports: trigger bindings
@@ -81,6 +78,11 @@ pub mod package_loader;
 mod runtime_impl;
 pub use runtime_impl::{install, CloacinaPythonRuntime};
 
+// Thread-local "current Runtime" slot used by decorator/loader paths to
+// register into a scoped Runtime rather than cloacina's process-globals.
+pub mod runtime_scope;
+pub use runtime_scope::{current_runtime, ScopedRuntime};
+
 // PyO3 module entry point for the `cloaca` Python wheel. Maturin points
 // at this crate to build the standalone pip-installable wheel. Moved
 // here from cloacina core in CLOACI-T-0529.
@@ -98,10 +100,7 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<workflow::PyWorkflowBuilder>()?;
     m.add_class::<workflow::PyWorkflow>()?;
-    m.add_function(wrap_pyfunction!(
-        workflow::register_workflow_constructor,
-        m
-    )?)?;
+    m.add_function(wrap_pyfunction!(workflow::py_register_workflow, m)?)?;
 
     m.add_class::<bindings::runner::PyDefaultRunner>()?;
     m.add_class::<bindings::runner::PyWorkflowResult>()?;
@@ -152,6 +151,12 @@ mod tests {
     fn test_python_workflow_via_with_gil() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
+            // Install a scoped Runtime so @task registers into it rather
+            // than the process-global registry (CLOACI-T-0509 step 2).
+            let rt = std::sync::Arc::new(cloacina::Runtime::empty());
+            let _scope =
+                runtime_scope::ScopedRuntime::new(rt.clone()).expect("ScopedRuntime install");
+
             // Push a workflow context
             task::push_workflow_context(PyWorkflowContext::new(
                 "public",
@@ -180,19 +185,12 @@ mod tests {
             // Pop context
             task::pop_workflow_context();
 
-            // Verify the task was registered
-            let registry = cloacina::task::global_task_registry();
-            let guard = registry.read();
+            // Verify the task was registered in the scoped Runtime
             let ns =
                 cloacina::TaskNamespace::new("public", "embedded", "test_py_workflow", "greet");
-            assert!(
-                guard.get(&ns).is_some(),
-                "Python task should be registered in the global registry"
-            );
-
-            // Verify the task instance implements Task trait correctly
-            let constructor = guard.get(&ns).unwrap();
-            let task_instance = constructor();
+            let task_instance = rt
+                .get_task(&ns)
+                .expect("Python task should be registered in the scoped Runtime");
             assert_eq!(task_instance.id(), "greet");
             assert!(task_instance.dependencies().is_empty());
         });

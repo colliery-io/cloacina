@@ -32,6 +32,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use crate::computation_graph::scheduler::ComputationGraphDeclaration;
+use crate::runtime::Runtime;
 use crate::task::TaskNamespace;
 
 /// Result of loading a Python workflow package.
@@ -57,6 +58,7 @@ pub trait PythonRuntime: Send + Sync {
         archive_data: &[u8],
         staging_dir: &Path,
         tenant_id: &str,
+        runtime: &Arc<Runtime>,
     ) -> Result<LoadedPythonWorkflow, String>;
 
     /// Extract + import a Python computation graph package, then build the
@@ -72,6 +74,7 @@ pub trait PythonRuntime: Send + Sync {
         graph_name: &str,
         entry_module: &str,
         accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+        runtime: &Arc<Runtime>,
     ) -> Result<Option<ComputationGraphDeclaration>, String>;
 }
 

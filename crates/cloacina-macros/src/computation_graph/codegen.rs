@@ -275,26 +275,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         let ctor = quote! {
             #[cfg(not(test))]
             #[cfg(not(feature = "packaged"))]
-            #[ctor::ctor]
-            fn #auto_register_name() {
-                crate::register_computation_graph_constructor(
-                    #mod_name_str.to_string(),
-                    || {
-                        crate::ComputationGraphRegistration {
-                            graph_fn: std::sync::Arc::new(|cache: crate::computation_graph::InputCache| {
-                                Box::pin(async move {
-                                    #compiled_fn_name(&cache).await
-                                })
-                            }),
-                            accumulator_names: vec![#(#accumulator_names.to_string()),*],
-                            reaction_mode: #reaction_mode_str.to_string(),
-                        }
-                    },
-                );
-            }
-
-            #[cfg(not(test))]
-            #[cfg(not(feature = "packaged"))]
             crate::inventory::submit! {
                 crate::ComputationGraphEntry {
                     name: #mod_name_str,
@@ -324,26 +304,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             }
         };
         let ctor = quote! {
-            #[cfg(not(test))]
-            #[cfg(not(feature = "packaged"))]
-            #[ctor::ctor]
-            fn #auto_register_name() {
-                cloacina_computation_graph::register_computation_graph_constructor(
-                    #mod_name_str.to_string(),
-                    || {
-                        cloacina_computation_graph::ComputationGraphRegistration {
-                            graph_fn: std::sync::Arc::new(|cache: cloacina_computation_graph::InputCache| {
-                                Box::pin(async move {
-                                    #compiled_fn_name(&cache).await
-                                })
-                            }),
-                            accumulator_names: vec![#(#accumulator_names.to_string()),*],
-                            reaction_mode: #reaction_mode_str.to_string(),
-                        }
-                    },
-                );
-            }
-
             #[cfg(not(test))]
             #[cfg(not(feature = "packaged"))]
             cloacina::inventory::submit! {

@@ -30,11 +30,10 @@ pub mod basic_test_pipeline {
 
 #[test]
 fn test_simple_workflow_creation() {
-    // The #[workflow] macro auto-registers the workflow in the global registry
-    let registry = cloacina::workflow::global_workflow_registry();
-    let guard = registry.read();
+    // The #[workflow] macro auto-registers the workflow; verify via Runtime.
+    let runtime = cloacina::Runtime::new();
     assert!(
-        guard.contains_key("basic_test_pipeline"),
+        runtime.get_workflow("basic_test_pipeline").is_some(),
         "Workflow should be auto-registered"
     );
 }

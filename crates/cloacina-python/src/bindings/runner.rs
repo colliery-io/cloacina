@@ -1521,56 +1521,12 @@ mod tests {
         });
     }
 
-    #[test]
-    #[serial]
-    fn test_runner_execute_registered_workflow() {
-        pyo3::prepare_freethreaded_python();
-
-        use async_trait::async_trait;
-        use std::sync::Arc;
-
-        #[derive(Clone)]
-        struct NoOpTask;
-
-        #[async_trait]
-        impl cloacina::Task for NoOpTask {
-            async fn execute(
-                &self,
-                context: cloacina::Context<serde_json::Value>,
-            ) -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
-                Ok(context)
-            }
-            fn id(&self) -> &str {
-                "noop"
-            }
-            fn dependencies(&self) -> &[cloacina::TaskNamespace] {
-                &[]
-            }
-        }
-
-        let workflow = cloacina::Workflow::builder("py_runner_exec_test")
-            .add_task(Arc::new(NoOpTask))
-            .unwrap()
-            .build()
-            .unwrap();
-
-        cloacina::register_workflow_constructor("py_runner_exec_test".to_string(), {
-            let w = workflow.clone();
-            move || w.clone()
-        });
-
-        let url = unique_sqlite_url();
-        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
-        Python::with_gil(|py| {
-            let ctx = crate::context::PyContext::new(None).unwrap();
-            let result = runner.execute("py_runner_exec_test", &ctx, py);
-            assert!(result.is_ok(), "Execute should succeed: {:?}", result.err());
-
-            let workflow_result = result.unwrap();
-            assert!(!workflow_result.status().is_empty());
-            runner.shutdown(py).unwrap();
-        });
-    }
+    // The old `test_runner_execute_registered_workflow` test relied on the
+    // process-global workflow registry (CLOACI-T-0509 deleted it). End-to-end
+    // execution with a dynamically-registered workflow is now covered by the
+    // Python integration tests under `tests/python/`, which register workflows
+    // via the `cloaca.register_workflow_constructor` Python entry point while
+    // inside a scoped Runtime.
 
     #[test]
     #[serial]

@@ -53,7 +53,6 @@ uuid = { version = "1.0", features = ["serde", "v4", "v5"] }
 cloacina-build = { version = "0.5.1", path = "../cloacina-build" }
 
 [dev-dependencies]
-ctor = { workspace = true }
 fidius-core = "0.0.5"
 serial_test = "3.2.0"
 tempfile = "3.2"

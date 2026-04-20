@@ -57,16 +57,10 @@ fn test_workflow_macro_basic() {
     let _ = tracing_subscriber::fmt::try_init();
 
     // Workflow is auto-registered by #[workflow] macro
-    let registry = cloacina::workflow::global_workflow_registry();
-    let guard = registry.read();
-    assert!(
-        guard.contains_key("document_processing"),
-        "document_processing workflow should be auto-registered"
-    );
-
-    // Construct the workflow to verify properties
-    let constructor = guard.get("document_processing").unwrap();
-    let wf = constructor();
+    let runtime = cloacina::Runtime::new();
+    let wf = runtime
+        .get_workflow("document_processing")
+        .expect("document_processing workflow should be auto-registered");
     assert_eq!(wf.name(), "document_processing");
     assert!(!wf.metadata().version.is_empty());
     assert_eq!(
@@ -144,10 +138,10 @@ fn test_workflow_macro_emits_inventory_entries() {
 fn test_workflow_execution_levels() {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let registry = cloacina::workflow::global_workflow_registry();
-    let guard = registry.read();
-    let constructor = guard.get("parallel_execution").unwrap();
-    let wf = constructor();
+    let runtime = cloacina::Runtime::new();
+    let wf = runtime
+        .get_workflow("parallel_execution")
+        .expect("parallel_execution workflow should be auto-registered");
 
     let execution_levels = wf.get_execution_levels().unwrap();
 

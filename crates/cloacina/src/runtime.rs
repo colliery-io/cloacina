@@ -20,16 +20,15 @@
 //! graphs, and stream backends. Every entry can be registered and unregistered
 //! at runtime, which is the mechanism the reconciler uses to hot-swap packages.
 //!
-//! This type replaces direct access to the process-global static registries.
-//! A single [`Runtime`] instance can be constructed, seeded (in embedded mode
-//! today via [`Runtime::seed_from_globals`] — the longer-term plan in
-//! CLOACI-I-0096 is inventory-based seeding), and handed to the executor.
+//! The process-global static registries that predated `Runtime` were deleted
+//! in CLOACI-T-0509. [`Runtime::new`] seeds itself from the `inventory` entries
+//! emitted by the macros; the reconciler and Python bindings push into it
+//! directly via [`Runtime::register_task`], [`Runtime::register_workflow`], etc.
 //!
 //! ```rust,ignore
 //! use cloacina::Runtime;
 //!
-//! let runtime = Runtime::new();
-//! runtime.seed_from_globals(); // pick up #[ctor]-registered items
+//! let runtime = Runtime::new(); // seeded from inventory
 //! runtime.register_task(namespace, || Arc::new(my_task()));
 //! runtime.unregister_workflow("obsolete_workflow");
 //! ```
@@ -89,11 +88,6 @@ impl Runtime {
     pub fn new() -> Self {
         let rt = Self::empty();
         rt.seed_from_inventory();
-        // Transitional: also seed from the process-global registries so
-        // anything registered dynamically via `register_*_constructor` (e.g.
-        // Python bindings, test fixtures) is still visible. Removed in T-0508
-        // when the globals themselves go away.
-        rt.seed_from_globals();
         rt
     }
 
@@ -116,7 +110,11 @@ impl Runtime {
 
     /// Populate the runtime from the `inventory` entries emitted by the
     /// macros.
-    fn seed_from_inventory(&self) {
+    ///
+    /// `inventory`'s linker-section collection works across `dlopen`'d cdylibs
+    /// on Linux/macOS, so the reconciler calls this again after loading a new
+    /// workflow package to pick up the entries emitted by that cdylib.
+    pub fn seed_from_inventory(&self) {
         use crate::inventory_entries::{
             ComputationGraphEntry, StreamBackendEntry, TaskEntry, TriggerEntry, WorkflowEntry,
         };
@@ -151,163 +149,6 @@ impl Runtime {
         }
     }
 
-    /// Copy every entry from the process-global registries into this runtime.
-    ///
-    /// This is the transitional bridge that replaces the old
-    /// `Runtime::from_global()` constructor. It's called explicitly by
-    /// `DefaultRunner` and other embedded-mode entrypoints so the contents of
-    /// the globals end up inside the Runtime, where they are subject to the
-    /// same register/unregister contract as dynamically loaded packages.
-    ///
-    /// Planned for removal alongside the globals once T-0506 lands
-    /// (inventory-seeded `Runtime::new`).
-    pub fn seed_from_globals(&self) {
-        // The #[workflow] macro registers tasks lazily — they only land in the
-        // global task registry as a side-effect of calling the workflow
-        // constructor. Fire every known constructor once before copying tasks
-        // so the task registry is actually populated.
-        {
-            let global = crate::workflow::global_workflow_registry();
-            let g = global.read();
-            for (_, ctor) in g.iter() {
-                let _ = ctor(); // discard: we only want the registration side-effect
-            }
-        }
-
-        // Tasks
-        {
-            let global = crate::task::global_task_registry();
-            let src = global.read();
-            let mut dst = self.inner.tasks.write();
-            for (ns, _) in src.iter() {
-                let ns_for_closure = ns.clone();
-                dst.insert(
-                    ns.clone(),
-                    Box::new(move || {
-                        crate::task::get_task(&ns_for_closure)
-                            .expect("task vanished from global registry between seed and call")
-                    }),
-                );
-            }
-        }
-
-        // Workflows
-        {
-            let global = crate::workflow::global_workflow_registry();
-            let src = global.read();
-            let mut dst = self.inner.workflows.write();
-            for (name, _) in src.iter() {
-                let name_for_closure = name.clone();
-                dst.insert(
-                    name.clone(),
-                    Box::new(move || {
-                        let global = crate::workflow::global_workflow_registry();
-                        let g = global.read();
-                        g.get(&name_for_closure)
-                            .map(|ctor| ctor())
-                            .expect("workflow vanished from global registry between seed and call")
-                    }),
-                );
-            }
-        }
-
-        // Triggers
-        {
-            let global = crate::trigger::global_trigger_registry();
-            let src = global.read();
-            let mut dst = self.inner.triggers.write();
-            for (name, _) in src.iter() {
-                let name_for_closure = name.clone();
-                dst.insert(
-                    name.clone(),
-                    Box::new(move || {
-                        let global = crate::trigger::global_trigger_registry();
-                        let g = global.read();
-                        g.get(&name_for_closure)
-                            .map(|ctor| ctor())
-                            .expect("trigger vanished from global registry between seed and call")
-                    }),
-                );
-            }
-        }
-
-        // Computation graphs
-        {
-            let global = cloacina_computation_graph::global_computation_graph_registry();
-            let src = global.read();
-            let mut dst = self.inner.computation_graphs.write();
-            for (name, _) in src.iter() {
-                let name_for_closure = name.clone();
-                dst.insert(
-                    name.clone(),
-                    Box::new(move || {
-                        let global =
-                            cloacina_computation_graph::global_computation_graph_registry();
-                        let g = global.read();
-                        let ctor = g.get(&name_for_closure).expect(
-                            "computation graph vanished from global registry between seed and call",
-                        );
-                        ctor()
-                    }),
-                );
-            }
-        }
-
-        // Stream backends: the global store is Mutex<StreamBackendRegistry> and
-        // factories are not clonable or re-invokable from the outside. We
-        // cannot copy the factory closures across — instead we register a
-        // pass-through factory that delegates to the global on each call.
-        {
-            let names: Vec<String> = {
-                let lock = crate::computation_graph::stream_backend::global_stream_registry()
-                    .lock()
-                    .unwrap();
-                // StreamBackendRegistry has no public iterator; expose via has()
-                // checks is pointless. Reach in via the (already public) fields
-                // would break encapsulation. Leave stream backends alone until
-                // we give StreamBackendRegistry a list() method — until then,
-                // callers that want packaged stream backends via Runtime must
-                // register them explicitly.
-                drop(lock);
-                Vec::new()
-            };
-            let mut dst = self.inner.stream_backends.write();
-            for name in names {
-                let name_for_closure = name.clone();
-                dst.insert(
-                    name,
-                    Box::new(move |config: StreamConfig| {
-                        let name = name_for_closure.clone();
-                        Box::pin(async move {
-                            let fut = {
-                                let reg = crate::computation_graph::stream_backend::global_stream_registry()
-                                    .lock()
-                                    .unwrap();
-                                reg.create_future(&name, config).ok_or_else(|| {
-                                    StreamError::NotFound(format!(
-                                        "backend '{}' vanished from global registry",
-                                        name
-                                    ))
-                                })?
-                            };
-                            fut.await
-                        })
-                            as Pin<
-                                Box<
-                                    dyn Future<
-                                            Output = Result<
-                                                Box<dyn StreamBackend>,
-                                                StreamError,
-                                            >,
-                                        > + Send,
-                                >,
-                            >
-                    }),
-                );
-            }
-        }
-    }
-
     // -----------------------------------------------------------------------
     // Task registry
     // -----------------------------------------------------------------------
@@ -336,6 +177,13 @@ impl Runtime {
     /// Check if a task is registered for the given namespace.
     pub fn has_task(&self, namespace: &TaskNamespace) -> bool {
         self.inner.tasks.read().contains_key(namespace)
+    }
+
+    /// Snapshot of every currently-registered task namespace. Used by code
+    /// that needs to enumerate tasks (e.g. collecting all tasks belonging to
+    /// a specific tenant/package/workflow triple during Python import).
+    pub fn task_namespaces(&self) -> Vec<TaskNamespace> {
+        self.inner.tasks.read().keys().cloned().collect()
     }
 
     // -----------------------------------------------------------------------

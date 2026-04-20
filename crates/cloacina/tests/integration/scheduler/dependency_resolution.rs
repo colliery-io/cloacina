@@ -79,13 +79,17 @@ async fn test_task_dependency_initialization() {
         .build()
         .expect("Failed to build workflow");
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("dependency-test".to_string(), {
+    // Register workflow in a test-scoped runtime.
+    let runtime = Arc::new(cloacina::Runtime::empty());
+    runtime.register_workflow("dependency-test".to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    let scheduler = TaskScheduler::new(database.clone())
+        .await
+        .unwrap()
+        .with_runtime(runtime.clone());
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context
@@ -161,13 +165,17 @@ async fn test_dependency_satisfaction_check() {
         .build()
         .expect("Failed to build workflow");
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("dependency-chain".to_string(), {
+    // Register workflow in a test-scoped runtime.
+    let runtime = Arc::new(cloacina::Runtime::empty());
+    runtime.register_workflow("dependency-chain".to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    let scheduler = TaskScheduler::new(database.clone())
+        .await
+        .unwrap()
+        .with_runtime(runtime.clone());
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context

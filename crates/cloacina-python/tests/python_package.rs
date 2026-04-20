@@ -325,12 +325,14 @@ fn python_e2e_pack_extract_load_register() {
     // 3. Load and register the Python workflow
     pyo3::prepare_freethreaded_python();
 
+    let runtime = std::sync::Arc::new(cloacina::Runtime::empty());
     let task_namespaces = cloacina_python::import_and_register_python_workflow(
         &extracted.workflow_dir,
         &extracted.vendor_dir,
         &extracted.entry_module,
         &extracted.package_name,
         "public",
+        runtime.clone(),
     )
     .expect("Failed to import and register Python workflow");
 
@@ -345,13 +347,10 @@ fn python_e2e_pack_extract_load_register() {
         .find(|ns| ns.to_string().contains("e2e-task"))
         .expect("Should have registered e2e-task");
 
-    // 5. Verify the task is in the global registry
-    let registry = cloacina::task::global_task_registry();
-    let guard = registry.read();
-    let constructor = guard
-        .get(e2e_ns)
-        .expect("Task should be in global registry");
-    let task_instance = constructor();
+    // 5. Verify the task is visible via the scoped Runtime
+    let task_instance = runtime
+        .get_task(e2e_ns)
+        .expect("Task should be visible in runtime");
     assert_eq!(task_instance.id(), "e2e-task");
     assert!(task_instance.dependencies().is_empty());
 }

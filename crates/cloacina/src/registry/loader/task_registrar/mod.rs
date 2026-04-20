@@ -36,7 +36,8 @@ use dynamic_task::DynamicLibraryTask;
 
 use crate::registry::error::LoaderError;
 use crate::registry::loader::package_loader::PackageMetadata;
-use crate::task::{register_task_constructor, Task, TaskNamespace};
+use crate::task::{Task, TaskNamespace};
+use crate::Runtime;
 
 /// Task registrar for managing dynamically loaded package tasks.
 ///
@@ -105,6 +106,7 @@ impl TaskRegistrar {
         package_data: &[u8],
         _metadata: &PackageMetadata,
         tenant_id: Option<&str>,
+        runtime: &Arc<Runtime>,
     ) -> Result<Vec<TaskNamespace>, LoaderError> {
         let tenant_id = tenant_id.unwrap_or("public");
 
@@ -188,7 +190,7 @@ impl TaskRegistrar {
                 )) as Arc<dyn Task>
             });
 
-            register_task_constructor(namespace.clone(), constructor);
+            runtime.register_task(namespace.clone(), constructor);
 
             registered_namespaces.push(namespace);
         }
@@ -335,7 +337,13 @@ mod tests {
         let invalid_data = b"not a valid library".to_vec();
 
         let result = registrar
-            .register_package_tasks("test_id", &invalid_data, &metadata, Some("test_tenant"))
+            .register_package_tasks(
+                "test_id",
+                &invalid_data,
+                &metadata,
+                Some("test_tenant"),
+                &Arc::new(Runtime::new()),
+            )
             .await;
 
         // Should fail because the binary is invalid
@@ -355,7 +363,13 @@ mod tests {
         let mock_data = create_mock_binary_data();
 
         let result = registrar
-            .register_package_tasks("test_id", &mock_data, &metadata, Some("test_tenant"))
+            .register_package_tasks(
+                "test_id",
+                &mock_data,
+                &metadata,
+                Some("test_tenant"),
+                &Arc::new(Runtime::new()),
+            )
             .await;
 
         // Should fail because mock data doesn't have required symbols
@@ -378,7 +392,13 @@ mod tests {
         let mock_data = create_mock_binary_data();
 
         let result = registrar
-            .register_package_tasks("empty_id", &mock_data, &metadata, Some("test_tenant"))
+            .register_package_tasks(
+                "empty_id",
+                &mock_data,
+                &metadata,
+                Some("test_tenant"),
+                &Arc::new(Runtime::new()),
+            )
             .await;
 
         // Should still fail due to invalid binary, but test that empty task list is handled
@@ -416,7 +436,13 @@ mod tests {
         let metadata = create_mock_package_metadata("test", 3);
         let invalid_data = b"invalid".to_vec();
         let _ = registrar
-            .register_package_tasks("test", &invalid_data, &metadata, None)
+            .register_package_tasks(
+                "test",
+                &invalid_data,
+                &metadata,
+                None,
+                &Arc::new(Runtime::new()),
+            )
             .await;
 
         assert_eq!(registrar.loaded_package_count(), 0);
@@ -445,6 +471,7 @@ mod tests {
                         &mock_data,
                         &metadata,
                         Some("tenant"),
+                        &Arc::new(Runtime::new()),
                     )
                     .await;
 
@@ -499,10 +526,22 @@ mod tests {
 
         // Try registering the same package for different tenants
         let result1 = registrar
-            .register_package_tasks("pkg1", &mock_data, &metadata, Some("tenant_a"))
+            .register_package_tasks(
+                "pkg1",
+                &mock_data,
+                &metadata,
+                Some("tenant_a"),
+                &Arc::new(Runtime::new()),
+            )
             .await;
         let result2 = registrar
-            .register_package_tasks("pkg2", &mock_data, &metadata, Some("tenant_b"))
+            .register_package_tasks(
+                "pkg2",
+                &mock_data,
+                &metadata,
+                Some("tenant_b"),
+                &Arc::new(Runtime::new()),
+            )
             .await;
 
         // Both should fail due to invalid binary, but test that tenant isolation is attempted
@@ -518,7 +557,13 @@ mod tests {
 
         // Test with None tenant (should default to "public")
         let result = registrar
-            .register_package_tasks("test", &mock_data, &metadata, None)
+            .register_package_tasks(
+                "test",
+                &mock_data,
+                &metadata,
+                None,
+                &Arc::new(Runtime::new()),
+            )
             .await;
 
         assert!(result.is_err()); // Will fail due to invalid binary
@@ -533,7 +578,13 @@ mod tests {
         let mock_data = create_mock_binary_data();
 
         let result = registrar
-            .register_package_tasks("large", &mock_data, &metadata, Some("test"))
+            .register_package_tasks(
+                "large",
+                &mock_data,
+                &metadata,
+                Some("test"),
+                &Arc::new(Runtime::new()),
+            )
             .await;
 
         // Should handle large metadata gracefully (though will fail due to invalid binary)
@@ -547,7 +598,13 @@ mod tests {
         let invalid_data = b"definitely not a library".to_vec();
 
         let result = registrar
-            .register_package_tasks("test", &invalid_data, &metadata, Some("test"))
+            .register_package_tasks(
+                "test",
+                &invalid_data,
+                &metadata,
+                Some("test"),
+                &Arc::new(Runtime::new()),
+            )
             .await;
 
         assert!(result.is_err());

@@ -19,9 +19,6 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Mutex;
-
-use once_cell::sync::Lazy;
 
 /// Configuration for connecting to a stream broker.
 #[derive(Debug, Clone)]
@@ -134,22 +131,9 @@ impl Default for StreamBackendRegistry {
     }
 }
 
-/// Global stream backend registry.
-static GLOBAL_REGISTRY: Lazy<Mutex<StreamBackendRegistry>> =
-    Lazy::new(|| Mutex::new(StreamBackendRegistry::new()));
-
-/// Get a reference to the global stream backend registry.
-pub fn global_stream_registry() -> &'static Mutex<StreamBackendRegistry> {
-    &GLOBAL_REGISTRY
-}
-
-/// Register a backend in the global registry.
-pub fn register_stream_backend(type_name: &str, factory: StreamBackendFactory) {
-    global_stream_registry()
-        .lock()
-        .unwrap()
-        .register(type_name, factory);
-}
+// The process-global stream backend registry was removed in CLOACI-T-0509.
+// Stream backend factories are now owned by `crate::Runtime` and seeded from
+// the `inventory` entries emitted by the stream-accumulator macros.
 
 // ---------------------------------------------------------------------------
 // Mock backend for testing
@@ -226,20 +210,6 @@ impl StreamBackend for MockBackend {
             None
         }
     }
-}
-
-/// Register the mock backend in the global registry.
-pub fn register_mock_backend() {
-    register_stream_backend(
-        "mock",
-        Box::new(|_config| {
-            Box::pin(async {
-                Err(StreamError::Connection(
-                    "mock backend must be created via mock_backend(), not the registry".to_string(),
-                ))
-            })
-        }),
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -360,17 +330,15 @@ pub mod kafka {
         }
     }
 
-    /// Register the Kafka backend in the global registry.
-    pub fn register_kafka_backend() {
-        super::register_stream_backend(
-            "kafka",
-            Box::new(|config| {
-                Box::pin(async move {
-                    let backend = KafkaStreamBackend::connect(&config).await?;
-                    Ok(Box::new(backend) as Box<dyn StreamBackend>)
-                })
-            }),
-        );
+    /// Create a factory for the Kafka backend. Register it on a `Runtime` via
+    /// [`crate::Runtime::register_stream_backend`].
+    pub fn kafka_backend_factory() -> super::StreamBackendFactory {
+        Box::new(|config| {
+            Box::pin(async move {
+                let backend = KafkaStreamBackend::connect(&config).await?;
+                Ok(Box::new(backend) as Box<dyn super::StreamBackend>)
+            })
+        })
     }
 }
 

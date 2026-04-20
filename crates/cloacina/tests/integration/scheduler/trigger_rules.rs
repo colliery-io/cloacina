@@ -97,13 +97,17 @@ async fn test_always_trigger_rule() {
         .build()
         .expect("Failed to build workflow");
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("trigger-test".to_string(), {
+    // Register workflow in a test-scoped runtime.
+    let runtime = Arc::new(cloacina::Runtime::empty());
+    runtime.register_workflow("trigger-test".to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    let scheduler = TaskScheduler::new(database.clone())
+        .await
+        .unwrap()
+        .with_runtime(runtime.clone());
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context
@@ -280,12 +284,16 @@ async fn schedule_and_process(
     fixture.initialize().await;
     let database = fixture.get_database();
 
-    register_workflow_constructor(workflow_name.to_string(), {
+    let runtime = Arc::new(cloacina::Runtime::empty());
+    runtime.register_workflow(workflow_name.to_string(), {
         let w = workflow.clone();
         move || w.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    let scheduler = TaskScheduler::new(database.clone())
+        .await
+        .unwrap()
+        .with_runtime(runtime.clone());
     let exec_id = scheduler
         .schedule_workflow_execution(workflow_name, input)
         .await
