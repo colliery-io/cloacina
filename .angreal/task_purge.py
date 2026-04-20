@@ -4,7 +4,7 @@ Top-level purge command for deep cleaning the entire project.
 
 import angreal  # type: ignore
 
-from cloaca.scrub import scrub
+from cloacina.python_utils import scrub_python_artifacts
 from task_services import clean as services_clean
 
 
@@ -26,7 +26,7 @@ def purge():
 
     # Then do the deep scrub
     print("\n=== Running deep scrub ===")
-    scrub_result = scrub(deep=True)
+    scrub_result = scrub_python_artifacts(deep=True)
 
     # Return non-zero if either operation failed
     if docker_result != 0 or scrub_result != 0:

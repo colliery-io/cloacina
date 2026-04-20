@@ -8,10 +8,6 @@ from typing import List, Dict, Tuple
 
 import angreal  # type: ignore
 
-# Import cloaca functions for backend generation and cleanup
-from cloaca.generate import generate as cloaca_generate
-from cloaca.scrub import scrub as cloaca_scrub
-
 # Project root for accessing all crates (one level up from .angreal)
 PROJECT_ROOT = Path(angreal.get_root()).parent
 
@@ -87,72 +83,6 @@ def extract_warnings(stderr: str) -> List[str]:
     return warnings
 
 
-def check_cloaca_backend(project_path: Path, show_warnings: bool = True) -> Dict:
-    """Special handling for cloaca-backend: generate, test, cleanup."""
-    result = {
-        "path": "cloaca-backend",
-        "check": {"success": False, "warnings": [], "errors": []},
-        "build": {"success": False, "warnings": [], "errors": []},
-    }
-
-    # Test both backends
-    backends = ["sqlite", "postgres"]
-    all_warnings = []
-    all_errors = []
-    any_success = False
-
-    for backend in backends:
-        print(f"    Testing {backend} backend...")
-
-        try:
-            # Generate backend files
-            print(f"      Generating {backend} files...")
-            try:
-                cloaca_generate(backend)
-            except Exception as e:
-                all_errors.append(f"Generate {backend} failed: {e}")
-                continue
-
-            # Check the generated crate
-            print("      Running cargo check...")
-            success, stdout, stderr = run_cargo_command(project_path, ["check", "--all-targets"])
-            warnings = extract_warnings(stderr)
-            all_warnings.extend([f"[{backend}] {w}" for w in warnings])
-
-            if success:
-                any_success = True
-                # Try build if check succeeded
-                success, stdout, stderr = run_cargo_command(project_path, ["build", "--all-targets"])
-                build_warnings = extract_warnings(stderr)
-                all_warnings.extend([f"[{backend}] {w}" for w in build_warnings])
-
-                if not success and not build_warnings:
-                    all_errors.append(f"Build {backend} failed: {stderr.strip()}")
-            else:
-                if not warnings:
-                    all_errors.append(f"Check {backend} failed: {stderr.strip()}")
-
-        except Exception as e:
-            all_errors.append(f"Error testing {backend}: {e}")
-
-        finally:
-            # Cleanup after each backend test
-            try:
-                print("      Cleaning up...")
-                cloaca_scrub(deep=False)
-            except Exception as e:
-                print(f"      Warning: Cleanup failed: {e}")
-
-    # Aggregate results
-    result["check"]["success"] = any_success
-    result["build"]["success"] = any_success
-    result["check"]["warnings"] = all_warnings
-    result["build"]["warnings"] = []  # All warnings are in check
-    result["check"]["errors"] = all_errors
-
-    return result
-
-
 def check_single_crate(project_path: Path, show_warnings: bool = True) -> Dict:
     """Check a single crate with cargo check and cargo build."""
     relative_path = str(project_path.relative_to(PROJECT_ROOT))
@@ -161,10 +91,6 @@ def check_single_crate(project_path: Path, show_warnings: bool = True) -> Dict:
         "check": {"success": False, "warnings": [], "errors": []},
         "build": {"success": False, "warnings": [], "errors": []},
     }
-
-    # Special handling for cloaca-backend: generate, test, cleanup
-    if relative_path == "cloaca-backend":
-        return check_cloaca_backend(project_path, show_warnings)
 
     # Run cargo check
     success, stdout, stderr = run_cargo_command(project_path, ["check", "--all-targets"])

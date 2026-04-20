@@ -10,6 +10,62 @@ import re
 import subprocess
 
 
+def scrub_python_artifacts(deep: bool = False) -> int:
+    """Clean Python build artifacts and test environments.
+
+    Used by `cloacina purge` (deep=True). Removes:
+    - test venvs (smoke-test-*, test-env-*, debug-env-*, tutorial-*)
+    - __pycache__ directories
+    - SQLite *.db files (project root + /tmp/cloacina_*.db)
+    Optionally runs `cargo clean` when deep=True.
+
+    Returns 0 on success, non-zero on failure.
+    """
+    try:
+        project_root = Path(angreal.get_root()).parent
+
+        envs_cleaned = 0
+        for env_pattern in ["smoke-test-*", "test-env-*", "debug-env-*", "tutorial-*"]:
+            for env_dir in project_root.glob(env_pattern):
+                if env_dir.is_dir():
+                    shutil.rmtree(env_dir)
+                    envs_cleaned += 1
+        if envs_cleaned:
+            print(f"Cleaned {envs_cleaned} test environments")
+
+        caches_cleaned = 0
+        for cache_dir in project_root.rglob("__pycache__"):
+            shutil.rmtree(cache_dir)
+            caches_cleaned += 1
+        if caches_cleaned:
+            print(f"Cleaned {caches_cleaned} __pycache__ directories")
+
+        db_files_cleaned = 0
+        for db_file in project_root.glob("*.db*"):
+            db_file.unlink()
+            db_files_cleaned += 1
+        for tmp_db in ["/tmp/cloacina_demo.db", "/tmp/cloacina_debug.db"]:
+            p = Path(tmp_db)
+            if p.exists():
+                p.unlink()
+                db_files_cleaned += 1
+        if db_files_cleaned:
+            print(f"Cleaned {db_files_cleaned} database files")
+
+        if deep:
+            print("Running cargo clean...")
+            result = subprocess.run(
+                ["cargo", "clean"], cwd=str(project_root), capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                print(f"cargo clean warning: {result.stderr}")
+
+        return 0
+    except Exception as e:
+        print(f"Python scrub failed: {e}")
+        return 1
+
+
 
 @dataclass
 class TestResult:
