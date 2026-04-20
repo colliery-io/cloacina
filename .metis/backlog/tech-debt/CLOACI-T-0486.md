@@ -126,3 +126,29 @@ Files: deleted `.angreal/cloacina/python_smoke.py`,
 `.angreal/cloacina/python_scrub.py`. Renamed `python_test.py` →
 `python_integration.py`. Updated `cloacina/__init__.py`, `task_project.py`,
 `task_purge.py` imports. `angreal tree` shows the cleaned namespace.
+
+### 2026-04-20 — Fold pytest scenarios into `cloacina integration`
+
+No Python-specific public command at all. Per review, Python bindings are
+part of cloacina, so their pytest scenarios belong inside the existing
+`cloacina integration` task, not a parallel `python-integration`.
+
+- Deleted `.angreal/cloacina/python_integration.py`.
+- Added `run_pytest_scenarios()` helper to `python_utils.py` — runs all (or
+  filtered) `tests/python/test_scenario_*.py` for one backend against an
+  already-built wheel, resetting DB state between files.
+- Rewrote `cloacina/integration.py` to:
+  1. Build the cloaca wheel once (unless `--skip-python`).
+  2. For each backend (postgres and/or sqlite): run cargo integration tests,
+     then call `run_pytest_scenarios` for the same backend.
+  3. Tear down the wheel venv in `finally`.
+- New flags: `--skip-python` (Rust-only mode), `--python-file <name>` (single
+  scenario). The shared `--filter` applies to both cargo (substring) and
+  pytest (`-k`).
+
+Final Python test surface:
+```
+cloacina unit          # Rust-side python::tests (cargo test --lib)
+cloacina integration   # Rust integration + pytest scenarios per backend
+purge                  # deep clean (calls scrub_python_artifacts)
+```

@@ -1,7 +1,10 @@
+import shutil
 import subprocess
 import sys
 import time
 import os
+from pathlib import Path
+
 import angreal  # type: ignore
 
 from utils import docker_up, docker_down, docker_clean
@@ -9,6 +12,11 @@ from utils import docker_up, docker_down, docker_clean
 from .cloacina_utils import (
     print_section_header,
     print_final_success
+)
+from .python_utils import (
+    TestAggregator,
+    _build_and_install_cloaca_unified,
+    run_pytest_scenarios,
 )
 
 
@@ -52,14 +60,14 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 @cloacina()
 @angreal.command(
     name="integration",
-    about="run integration tests with backing services",
+    about="run integration tests with backing services (Rust + Python pytest scenarios)",
     when_to_use=["testing with real databases", "validating service integrations", "end-to-end testing"],
     when_not_to_use=["unit testing", "quick validation", "environments without Docker"]
 )
 @angreal.argument(
     name="filter",
     required=False,
-    help="filter tests by name pattern"
+    help="filter tests by name pattern (cargo test substring + pytest -k)"
 )
 @angreal.argument(
     name="skip_docker",
@@ -80,8 +88,34 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
     required=False,
     help="cargo features to use (default: 'postgres,sqlite,macros')"
 )
-def integration(filter=None, skip_docker=False, backend=None, features=None):
+@angreal.argument(
+    name="skip_python",
+    long="skip-python",
+    help="skip Python pytest scenarios (run only Rust integration tests)",
+    takes_value=False,
+    is_flag=True,
+)
+@angreal.argument(
+    name="python_file",
+    long="python-file",
+    required=False,
+    help="run a single tests/python/<name>.py scenario file (still scoped per-backend)",
+)
+def integration(
+    filter=None,
+    skip_docker=False,
+    backend=None,
+    features=None,
+    skip_python=False,
+    python_file=None,
+):
     """Run integration tests against PostgreSQL and/or SQLite databases.
+
+    Two layers run per backend:
+      1. Rust integration tests (cargo test -p cloacina --test integration ...).
+      2. Python pytest scenarios under tests/python/ against a freshly built
+         cloaca wheel — these exercise the Python binding surface end-to-end.
+    Use --skip-python to run only the Rust layer.
 
     Tests are compiled once with both backends enabled. By default, PostgreSQL
     tests run first, then SQLite tests run separately to avoid cross-backend
@@ -90,18 +124,32 @@ def integration(filter=None, skip_docker=False, backend=None, features=None):
 
     run_postgres = backend is None or backend == "postgres"
     run_sqlite = backend is None or backend == "sqlite"
+    backends_to_run = [b for b, on in (("postgres", run_postgres), ("sqlite", run_sqlite)) if on]
 
-    # Use provided features or default to both backends
     cargo_features = features if features else "postgres,sqlite,macros"
     is_default_features = cargo_features == "postgres,sqlite,macros"
 
-    # Pre-build test packages to avoid fork-after-OpenSSL-init SIGSEGV on Linux
-    # Build with appropriate backend features
     if is_default_features:
         build_test_packages()
     else:
-        # Build examples with single-backend features
         build_test_packages(backend=backend)
+
+    project_root = Path(angreal.get_root()).parent
+    venv_name = "test-env-unified"
+    venv_path = project_root / venv_name
+    py_venv = None
+    py_aggregator = TestAggregator()
+    python_failures = 0
+
+    if not skip_python:
+        try:
+            print_section_header("Building unified cloaca wheel for Python scenarios")
+            py_venv, _python_exe, _pip_exe = _build_and_install_cloaca_unified(venv_name)
+        except Exception as e:
+            print(f"Failed to build cloaca wheel for Python scenarios: {e}", file=sys.stderr)
+            if venv_path.exists():
+                shutil.rmtree(venv_path, ignore_errors=True)
+            raise
 
     if not skip_docker and run_postgres:
         # Start Docker services for PostgreSQL
@@ -121,23 +169,34 @@ def integration(filter=None, skip_docker=False, backend=None, features=None):
         if not is_default_features:
             feature_args = ["--no-default-features"] + feature_args
 
-        if run_postgres:
-            # Run PostgreSQL tests (exclude sqlite tests)
-            print_section_header("Running PostgreSQL integration tests")
-            postgres_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration"] + feature_args + [
-                           "--", "--test-threads=1", "--nocapture", "--skip", "sqlite"]
+        for backend_name in backends_to_run:
+            print_section_header(f"Running {backend_name.title()} Rust integration tests")
+            cargo_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration"] + feature_args
+            if backend_name == "postgres":
+                cargo_cmd += ["--", "--test-threads=1", "--nocapture", "--skip", "sqlite"]
+            else:
+                cargo_cmd += ["--", "--test-threads=1", "--nocapture", "sqlite"]
             if filter:
-                postgres_cmd.append(filter)
-            subprocess.run(postgres_cmd, check=True)
+                cargo_cmd.append(filter)
+            subprocess.run(cargo_cmd, check=True)
 
-        if run_sqlite:
-            # Run SQLite tests
-            print_section_header("Running SQLite integration tests")
-            sqlite_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration"] + feature_args + [
-                         "--", "--test-threads=1", "--nocapture", "sqlite"]
-            if filter:
-                sqlite_cmd.append(filter)
-            subprocess.run(sqlite_cmd, check=True)
+            if not skip_python:
+                print_section_header(f"Running {backend_name.title()} Python pytest scenarios")
+                ok = run_pytest_scenarios(
+                    venv=py_venv,
+                    project_root=project_root,
+                    backend_name=backend_name,
+                    aggregator=py_aggregator,
+                    filter=filter,
+                    file=python_file,
+                )
+                if not ok:
+                    python_failures += 1
+
+        if python_failures:
+            py_aggregator.print_failure_report()
+            failed = len(py_aggregator.get_failed_results())
+            raise RuntimeError(f"{failed} Python pytest scenario file(s) failed")
 
         print_final_success("All integration tests passed!")
     except subprocess.CalledProcessError as e:
@@ -147,3 +206,6 @@ def integration(filter=None, skip_docker=False, backend=None, features=None):
         if not skip_docker and run_postgres:
             docker_down()
             docker_clean()
+        if py_venv is not None and venv_path.exists():
+            print(f"\nCleaning up Python test environment: {venv_name}")
+            shutil.rmtree(venv_path, ignore_errors=True)

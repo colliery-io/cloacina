@@ -10,6 +10,114 @@ import re
 import subprocess
 
 
+def run_pytest_scenarios(
+    venv,
+    project_root: Path,
+    backend_name: str,
+    aggregator: "TestAggregator",
+    filter: Optional[str] = None,
+    file: Optional[str] = None,
+) -> bool:
+    """Run all (or filtered) tests/python/test_scenario_*.py against an already-built wheel.
+
+    Caller is responsible for:
+      - Building/installing the cloaca wheel into `venv` (use _build_and_install_cloaca_unified).
+      - Bringing up the database for `backend_name` (Docker postgres or local sqlite).
+
+    For postgres, this resets the schema between scenario files via smart_postgres_reset
+    (falling back to docker restart). For sqlite, it deletes lingering *.db files.
+
+    Returns True if all scenarios passed, False otherwise. Per-file results are added
+    to `aggregator`.
+    """
+    import os
+    from utils import (  # local import to avoid making this module depend on top-level utils at import time
+        docker_up,
+        docker_down,
+        check_postgres_container_health,
+        smart_postgres_reset,
+    )
+    import time
+
+    test_dir = project_root / "tests" / "python"
+    if file:
+        test_file_path = test_dir / file
+        if not test_file_path.exists():
+            print(f"Error: Test file {file} not found in {test_dir}")
+            return False
+        test_files = [test_file_path]
+    else:
+        test_files = sorted(test_dir.glob("test_*.py"))
+        if filter:
+            test_files = [f for f in test_files if filter in f.name]
+
+    print(f"Found {len(test_files)} python scenario files to run for {backend_name}")
+
+    pytest_exe = venv.path / "bin" / "pytest"
+    env = os.environ.copy()
+    env["CLOACA_BACKEND"] = backend_name
+
+    all_passed = True
+    file_results = []
+
+    for test_file in test_files:
+        print(f"\n--- pytest {test_file.name} ({backend_name}) ---", flush=True)
+
+        if backend_name == "postgres":
+            if smart_postgres_reset():
+                print("PostgreSQL state reset")
+            else:
+                print("Fast reset failed, restarting Docker...")
+                docker_down(remove_volumes=True)
+                docker_up()
+                time.sleep(10)
+                if not check_postgres_container_health():
+                    print(f"PostgreSQL unhealthy for {test_file.name}")
+                    file_results.append((test_file.name, False))
+                    all_passed = False
+                    continue
+        elif backend_name == "sqlite":
+            for db_file in project_root.glob("*.db*"):
+                try:
+                    db_file.unlink()
+                except FileNotFoundError:
+                    pass
+
+        cmd = [str(pytest_exe), "--timeout=10", str(test_file), "-v"]
+        if filter:
+            cmd.extend(["-k", filter])
+
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        passed = result.returncode == 0
+        aggregator.add_result(
+            TestResult(
+                file_name=test_file.name,
+                backend=backend_name,
+                passed=passed,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                return_code=result.returncode,
+            )
+        )
+        file_results.append((test_file.name, passed))
+        if passed:
+            print(f"PASSED: {test_file.name}")
+        else:
+            print(f"FAILED: {test_file.name}")
+            print("\n--- PYTEST OUTPUT ---")
+            print(result.stdout)
+            if result.stderr:
+                print("\n--- STDERR ---")
+                print(result.stderr)
+            print("--- END OUTPUT ---\n")
+            all_passed = False
+
+    passed = [n for n, ok in file_results if ok]
+    failed = [n for n, ok in file_results if not ok]
+    print(f"\nPython {backend_name} scenarios: {len(passed)} passed, {len(failed)} failed")
+    return all_passed
+
+
 def scrub_python_artifacts(deep: bool = False) -> int:
     """Clean Python build artifacts and test environments.
 
