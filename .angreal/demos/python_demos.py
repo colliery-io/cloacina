@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import time
 
-from cloaca.cloaca_utils import _build_and_install_cloaca_unified
+from cloacina.python_utils import _build_and_install_cloaca_unified
 from utils import docker_up, docker_down, check_postgres_container_health, smart_postgres_reset
 
 from .demos_utils import (

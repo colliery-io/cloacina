@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-20T02:07:05Z | 479 files | JavaScript, Python, Rust
+> Generated: 2026-04-20T12:29:51Z | 479 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1106,12 +1106,12 @@
 - pub `new` function L136-152 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, config: SchedulerConfig, s...` — Creates a new unified scheduler.
 - pub `with_defaults` function L155-162 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, shutdown: watch::Receiver<...` — Creates a new unified scheduler with default configuration.
 - pub `run_polling_loop` function L176-218 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Runs the main polling loop.
-- pub `register_trigger` function L789-802 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<Schedule, Valid...` — Registers a trigger with the scheduler.
-- pub `disable_trigger` function L805-816 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
-- pub `enable_trigger` function L819-830 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
+- pub `register_trigger` function L788-801 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<Schedule, Valid...` — Registers a trigger with the scheduler.
+- pub `disable_trigger` function L804-815 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
+- pub `enable_trigger` function L818-829 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
 -  `SchedulerConfig` type L78-88 — `impl Default for SchedulerConfig` — ```
 -  `default` function L79-87 — `() -> Self` — ```
--  `Scheduler` type L128-831 — `= Scheduler` — ```
+-  `Scheduler` type L128-830 — `= Scheduler` — ```
 -  `check_and_execute_cron_schedules` function L225-252 — `(&self) -> Result<(), WorkflowExecutionError>` — Checks for due cron schedules and executes them.
 -  `process_cron_schedule` function L255-363 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<(), WorkflowExecut...` — Processes a single cron schedule using the saga pattern.
 -  `is_cron_schedule_active` function L366-378 — `(&self, schedule: &Schedule, now: DateTime<Utc>) -> bool` — Checks if a cron schedule is within its active time window.
@@ -1120,32 +1120,32 @@
 -  `execute_cron_workflow` function L451-503 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the workflow executor.
 -  `create_cron_execution_audit` function L506-527 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Creates an audit record for a cron execution.
 -  `check_and_process_triggers` function L534-585 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Checks all enabled triggers and processes those that are due.
--  `process_trigger` function L588-713 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
--  `create_trigger_execution_audit` function L716-742 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
--  `execute_trigger_workflow` function L745-774 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the workflow executor.
--  `tests` module L834-1122 — `-` — ```
--  `create_test_cron_schedule` function L838-859 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
--  `create_test_trigger_schedule` function L861-882 — `(trigger_name: &str) -> Schedule` — ```
--  `test_scheduler_config_default` function L885-892 — `()` — ```
--  `test_is_cron_schedule_active_no_window` function L895-915 — `()` — ```
--  `test_is_cron_schedule_active_with_start_date_future` function L918-928 — `()` — ```
--  `test_is_cron_schedule_active_with_end_date_past` function L931-941 — `()` — ```
--  `test_catchup_policy_from_schedule` function L944-949 — `()` — ```
--  `test_catchup_policy_run_all` function L952-958 — `()` — ```
--  `test_trigger_schedule_helpers` function L961-968 — `()` — ```
--  `test_trigger_schedule_trigger_name_fallback` function L971-983 — `()` — ```
--  `test_scheduler_config_custom` function L990-1003 — `()` — ```
--  `test_scheduler_config_clone` function L1006-1017 — `()` — ```
--  `test_scheduler_config_debug` function L1020-1025 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_containing_now` function L1032-1043 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1046-1058 — `()` — ```
--  `test_catchup_policy_unknown_defaults_to_skip` function L1065-1068 — `()` — ```
--  `test_catchup_policy_none_defaults_to_skip` function L1071-1076 — `()` — ```
--  `test_catchup_policy_missing_defaults_correctly` function L1079-1085 — `()` — ```
--  `test_cron_schedule_helpers` function L1092-1099 — `()` — ```
--  `test_trigger_schedule_no_poll_interval` function L1102-1107 — `()` — ```
--  `test_trigger_schedule_allows_concurrent` function L1110-1114 — `()` — ```
--  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1117-1121 — `()` — ```
+-  `process_trigger` function L588-712 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
+-  `create_trigger_execution_audit` function L715-741 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
+-  `execute_trigger_workflow` function L744-773 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the workflow executor.
+-  `tests` module L833-1121 — `-` — ```
+-  `create_test_cron_schedule` function L837-858 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
+-  `create_test_trigger_schedule` function L860-881 — `(trigger_name: &str) -> Schedule` — ```
+-  `test_scheduler_config_default` function L884-891 — `()` — ```
+-  `test_is_cron_schedule_active_no_window` function L894-914 — `()` — ```
+-  `test_is_cron_schedule_active_with_start_date_future` function L917-927 — `()` — ```
+-  `test_is_cron_schedule_active_with_end_date_past` function L930-940 — `()` — ```
+-  `test_catchup_policy_from_schedule` function L943-948 — `()` — ```
+-  `test_catchup_policy_run_all` function L951-957 — `()` — ```
+-  `test_trigger_schedule_helpers` function L960-967 — `()` — ```
+-  `test_trigger_schedule_trigger_name_fallback` function L970-982 — `()` — ```
+-  `test_scheduler_config_custom` function L989-1002 — `()` — ```
+-  `test_scheduler_config_clone` function L1005-1016 — `()` — ```
+-  `test_scheduler_config_debug` function L1019-1024 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_containing_now` function L1031-1042 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1045-1057 — `()` — ```
+-  `test_catchup_policy_unknown_defaults_to_skip` function L1064-1067 — `()` — ```
+-  `test_catchup_policy_none_defaults_to_skip` function L1070-1075 — `()` — ```
+-  `test_catchup_policy_missing_defaults_correctly` function L1078-1084 — `()` — ```
+-  `test_cron_schedule_helpers` function L1091-1098 — `()` — ```
+-  `test_trigger_schedule_no_poll_interval` function L1101-1106 — `()` — ```
+-  `test_trigger_schedule_allows_concurrent` function L1109-1113 — `()` — ```
+-  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1116-1120 — `()` — ```
 
 #### crates/cloacina/src/error.rs
 
@@ -3383,29 +3383,29 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L28-881 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L39-472 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L475-534 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L537-594 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L597-746 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L749-767 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the runtime-scoped task registry (avoiding FFI isolation).
--  `create_workflow_from_host_registry_static` function L770-821 — `( runtime: &Arc<Runtime>, package_name: &str, workflow_name: &str, tenant_id: &s...` — Static version of create_workflow_from_host_registry for use in closures.
--  `register_package_triggers` function L830-880 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `tests` module L884-1086 — `-` — Package loading, unloading, and task/workflow registration.
--  `make_test_reconciler` function L895-902 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing, wired up to a scoped
--  `runtime_of` function L904-906 — `(r: &RegistryReconciler) -> Arc<Runtime>` — Package loading, unloading, and task/workflow registration.
--  `make_test_metadata` function L908-921 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata_with_triggers` function L923-940 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_with_no_triggers_returns_empty` function L948-957 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_tracks_registered_triggers` function L961-990 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_skips_unregistered_triggers` function L994-1014 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_mixed_registered_and_missing` function L1018-1055 — `()` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` struct L1062-1064 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` type L1067-1085 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
--  `name` function L1068-1070 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
--  `poll_interval` function L1072-1074 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
--  `allow_concurrent` function L1076-1078 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
--  `poll` function L1080-1084 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L28-880 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L39-471 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L474-533 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L536-594 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L597-744 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L747-766 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the runtime-scoped task registry (avoiding FFI isolation).
+-  `create_workflow_from_host_registry_static` function L769-820 — `( runtime: &Arc<Runtime>, package_name: &str, workflow_name: &str, tenant_id: &s...` — Static version of create_workflow_from_host_registry for use in closures.
+-  `register_package_triggers` function L829-879 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `tests` module L883-1085 — `-` — Package loading, unloading, and task/workflow registration.
+-  `make_test_reconciler` function L894-901 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing, wired up to a scoped
+-  `runtime_of` function L903-905 — `(r: &RegistryReconciler) -> Arc<Runtime>` — Package loading, unloading, and task/workflow registration.
+-  `make_test_metadata` function L907-920 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata_with_triggers` function L922-939 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_with_no_triggers_returns_empty` function L947-956 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_tracks_registered_triggers` function L960-989 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_skips_unregistered_triggers` function L993-1013 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_mixed_registered_and_missing` function L1017-1054 — `()` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` struct L1061-1063 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` type L1066-1084 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
+-  `name` function L1067-1069 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
+-  `poll_interval` function L1071-1073 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
+-  `allow_concurrent` function L1075-1077 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
+-  `poll` function L1079-1083 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -5658,8 +5658,8 @@
 - pub `PythonTriggerWrapper` struct L110-116 — `{ name: String, workflow_name: String, poll_interval: Duration, allow_concurrent...` — Python trigger wrapper implementing Rust Trigger trait.
 - pub `workflow_name` function L197-199 — `(&self) -> &str` — Get the workflow name this trigger is associated with
 - pub `TriggerDecorator` struct L229-234 — `{ name: Option<String>, workflow: String, poll_interval: Duration, allow_concurr...` — Decorator class that holds trigger configuration
-- pub `__call__` function L238-281 — `(&self, py: Python, func: PyObject) -> PyResult<PyObject>` — user-defined conditions and fire workflows when those conditions are met.
-- pub `trigger` function L316-331 — `( workflow: String, name: Option<String>, poll_interval: &str, allow_concurrent:...` — user-defined conditions and fire workflows when those conditions are met.
+- pub `__call__` function L238-279 — `(&self, py: Python, func: PyObject) -> PyResult<PyObject>` — user-defined conditions and fire workflows when those conditions are met.
+- pub `trigger` function L314-329 — `( workflow: String, name: Option<String>, poll_interval: &str, allow_concurrent:...` — user-defined conditions and fire workflows when those conditions are met.
 -  `PyTriggerResult` type L43-86 — `= PyTriggerResult` — user-defined conditions and fire workflows when those conditions are met.
 -  `skip` function L46-51 — `() -> Self` — Create a Skip result - condition not met, continue polling.
 -  `fire` function L59-65 — `(context: Option<&PyContext>) -> Self` — Create a Fire result - condition met, trigger the workflow.
@@ -5678,9 +5678,9 @@
 -  `poll` function L147-192 — `(&self) -> Result<TriggerResult, TriggerError>` — user-defined conditions and fire workflows when those conditions are met.
 -  `PythonTriggerWrapper` type L195-200 — `= PythonTriggerWrapper` — user-defined conditions and fire workflows when those conditions are met.
 -  `parse_duration` function L203-225 — `(s: &str) -> Result<Duration, String>` — Parse duration string like "5s", "100ms", "1m" into Duration
--  `TriggerDecorator` type L237-282 — `= TriggerDecorator` — user-defined conditions and fire workflows when those conditions are met.
--  `tests` module L334-344 — `-` — user-defined conditions and fire workflows when those conditions are met.
--  `test_parse_duration` function L338-343 — `()` — user-defined conditions and fire workflows when those conditions are met.
+-  `TriggerDecorator` type L237-280 — `= TriggerDecorator` — user-defined conditions and fire workflows when those conditions are met.
+-  `tests` module L332-342 — `-` — user-defined conditions and fire workflows when those conditions are met.
+-  `test_parse_duration` function L336-341 — `()` — user-defined conditions and fire workflows when those conditions are met.
 
 ### crates/cloacina-python/src/bindings/value_objects
 
@@ -6040,30 +6040,30 @@
 - pub `new` function L34-53 — `( name: &str, tenant: Option<&str>, package: Option<&str>, workflow: Option<&str...` — Create a new WorkflowBuilder with namespace context
 - pub `description` function L56-58 — `(&mut self, description: &str)` — Set the workflow description
 - pub `tag` function L61-63 — `(&mut self, key: &str, value: &str)` — Add a tag to the workflow
-- pub `add_task` function L66-149 — `(&mut self, py: Python, task: PyObject) -> PyResult<()>` — Add a task to the workflow by ID or function reference
-- pub `build` function L152-159 — `(&self) -> PyResult<PyWorkflow>` — Build the workflow
-- pub `__enter__` function L162-165 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry - establish workflow context for task decorators
-- pub `__exit__` function L168-216 — `( &mut self, _py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&...` — Context manager exit - clean up context and build workflow
-- pub `__repr__` function L219-221 — `(&self) -> String` — String representation
-- pub `PyWorkflow` struct L227-229 — `{ inner: cloacina::Workflow }` — Python wrapper for Workflow
-- pub `name` function L235-237 — `(&self) -> &str` — Get workflow name
-- pub `description` function L241-247 — `(&self) -> String` — Get workflow description
-- pub `version` function L251-253 — `(&self) -> &str` — Get workflow version
-- pub `topological_sort` function L256-261 — `(&self) -> PyResult<Vec<String>>` — Get topological sort of tasks
-- pub `get_execution_levels` function L264-274 — `(&self) -> PyResult<Vec<Vec<String>>>` — Get execution levels (tasks that can run in parallel)
-- pub `get_roots` function L277-283 — `(&self) -> Vec<String>` — Get root tasks (no dependencies)
-- pub `get_leaves` function L286-292 — `(&self) -> Vec<String>` — Get leaf tasks (no dependents)
-- pub `validate` function L295-299 — `(&self) -> PyResult<()>` — Validate the workflow
-- pub `__repr__` function L302-308 — `(&self) -> String` — String representation
-- pub `py_register_workflow` function L401-424 — `(name: String, constructor: PyObject) -> PyResult<()>` — Register a workflow constructor function on the thread-local Runtime
--  `PyWorkflowBuilder` type L30-222 — `= PyWorkflowBuilder`
--  `PyWorkflow` type L232-309 — `= PyWorkflow`
--  `tests` module L312-394 — `-`
--  `test_workflow_builder_new_defaults` function L316-321 — `()`
--  `test_workflow_builder_new_with_custom_namespace` function L324-334 — `()`
--  `test_workflow_builder_description_and_tag` function L337-345 — `()`
--  `test_workflow_builder_build_empty_returns_error` function L348-353 — `()`
--  `test_workflow_builder_build_with_task` function L356-393 — `()`
+- pub `add_task` function L66-147 — `(&mut self, py: Python, task: PyObject) -> PyResult<()>` — Add a task to the workflow by ID or function reference
+- pub `build` function L150-157 — `(&self) -> PyResult<PyWorkflow>` — Build the workflow
+- pub `__enter__` function L160-163 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry - establish workflow context for task decorators
+- pub `__exit__` function L166-214 — `( &mut self, _py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&...` — Context manager exit - clean up context and build workflow
+- pub `__repr__` function L217-219 — `(&self) -> String` — String representation
+- pub `PyWorkflow` struct L225-227 — `{ inner: cloacina::Workflow }` — Python wrapper for Workflow
+- pub `name` function L233-235 — `(&self) -> &str` — Get workflow name
+- pub `description` function L239-245 — `(&self) -> String` — Get workflow description
+- pub `version` function L249-251 — `(&self) -> &str` — Get workflow version
+- pub `topological_sort` function L254-259 — `(&self) -> PyResult<Vec<String>>` — Get topological sort of tasks
+- pub `get_execution_levels` function L262-272 — `(&self) -> PyResult<Vec<Vec<String>>>` — Get execution levels (tasks that can run in parallel)
+- pub `get_roots` function L275-281 — `(&self) -> Vec<String>` — Get root tasks (no dependencies)
+- pub `get_leaves` function L284-290 — `(&self) -> Vec<String>` — Get leaf tasks (no dependents)
+- pub `validate` function L293-297 — `(&self) -> PyResult<()>` — Validate the workflow
+- pub `__repr__` function L300-306 — `(&self) -> String` — String representation
+- pub `py_register_workflow` function L399-420 — `(name: String, constructor: PyObject) -> PyResult<()>` — Register a workflow constructor function on the thread-local Runtime
+-  `PyWorkflowBuilder` type L30-220 — `= PyWorkflowBuilder`
+-  `PyWorkflow` type L230-307 — `= PyWorkflow`
+-  `tests` module L310-392 — `-`
+-  `test_workflow_builder_new_defaults` function L314-319 — `()`
+-  `test_workflow_builder_new_with_custom_namespace` function L322-332 — `()`
+-  `test_workflow_builder_description_and_tag` function L335-343 — `()`
+-  `test_workflow_builder_build_empty_returns_error` function L346-351 — `()`
+-  `test_workflow_builder_build_with_task` function L354-391 — `()`
 
 #### crates/cloacina-python/src/workflow_context.rs
 
@@ -6121,16 +6121,16 @@
 -  `poll_interval` function L158-160 — `(&self) -> std::time::Duration` — - Discovered for Python packages via `@cloaca.trigger`
 -  `allow_concurrent` function L161-163 — `(&self) -> bool` — - Discovered for Python packages via `@cloaca.trigger`
 -  `poll` function L164-166 — `(&self) -> Result<TriggerResult, TriggerError>` — - Discovered for Python packages via `@cloaca.trigger`
--  `trigger_register_verify_deregister_roundtrip` function L175-198 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `multiple_triggers_register_and_deregister_independently` function L202-246 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `python_trigger_decorator_registers_and_wraps` function L254-304 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `python_trigger_poll_returns_result` function L308-338 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_with_triggers_validates_successfully` function L345-348 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_trigger_referencing_package_name_is_valid` function L351-355 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_trigger_referencing_task_id_is_valid` function L358-362 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_trigger_referencing_unknown_workflow_fails` function L365-369 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_duplicate_trigger_names_fails` function L372-376 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_trigger_invalid_poll_interval_fails` function L379-383 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `trigger_register_verify_deregister_roundtrip` function L175-200 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `multiple_triggers_register_and_deregister_independently` function L204-249 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `python_trigger_decorator_registers_and_wraps` function L257-307 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `python_trigger_poll_returns_result` function L311-341 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_with_triggers_validates_successfully` function L348-351 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_referencing_package_name_is_valid` function L354-358 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_referencing_task_id_is_valid` function L361-365 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_referencing_unknown_workflow_fails` function L368-372 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_duplicate_trigger_names_fails` function L375-379 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_invalid_poll_interval_fails` function L382-386 — `()` — - Discovered for Python packages via `@cloaca.trigger`
 
 ### crates/cloacina-server
 
