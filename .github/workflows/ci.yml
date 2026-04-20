@@ -87,6 +87,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-check-
 
+      - name: Credential-logging guard (OPS-03 / T-0443)
+        run: python3 scripts/check_credential_logging.py
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
