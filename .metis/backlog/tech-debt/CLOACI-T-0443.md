@@ -4,15 +4,15 @@ level: task
 title: "Defensive practice — lint/CI guard against credential logging in log and print statements"
 short_code: "CLOACI-T-0443"
 created_at: 2026-04-08T13:43:25.906031+00:00
-updated_at: 2026-04-08T13:43:25.906031+00:00
+updated_at: 2026-04-20T11:21:27.802952+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -42,6 +42,10 @@ Establish a defensive practice that prevents credential leakage from recurring i
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] A `SensitiveString` or `MaskedUrl` newtype wraps database URLs, with `Display`/`Debug` impls that mask credentials automatically
 - [ ] All `info!()`/`debug!()` log calls that format a database URL go through the newtype — no raw URL strings in log output
 - [ ] OR: a clippy lint / CI grep check that flags `database_url` appearing in `info!()`, `debug!()`, `eprintln!()`, or `println!()` macro invocations
@@ -66,4 +70,12 @@ Write a clippy lint that flags tracing macro invocations containing variables na
 
 ## Status Updates
 
-*To be added during implementation*
+- **2026-04-20**: Implemented Option B (CI grep guard).
+  - Added `scripts/check_credential_logging.py`: scans git-tracked `*.rs` files, parses `info!/debug!/trace!/warn!/error!/eprintln!/println!/eprint!/print!` invocations (multi-line aware with string and char-literal skipping), and flags any invocation whose body references `database_url`, `db_url`, `connection_string`, or `password` **after** stripping (a) string literals, (b) any `mask_*(...)` helper call (e.g. `mask_db_url`, `mask_password`), and (c) lines preceded by `// allow(credential-logging): <reason>`.
+  - Wired into CI: new step in `.github/workflows/ci.yml` `quick-checks` job runs `python3 scripts/check_credential_logging.py` alongside fmt/clippy.
+  - Wired into angreal: new `check credential-logging` command in `.angreal/task_check.py` for local/pre-commit runs.
+  - Fixed existing violations the guard surfaced:
+    - `crates/cloacina/tests/fixtures.rs`: Postgres and SQLite `new_*` logged raw `db_url`; routed through `mask_db_url()`.
+    - `examples/features/workflows/per-tenant-credentials/src/main.rs:76` logged admin-provided password cleartext; wrapped in `mask_password()` like its siblings.
+  - Verified detection with 8 synthetic cases (raw/masked/qualified/literal-only/allow-comment variants) — all pass.
+  - Final state: guard is clean across 392 Rust files; `cargo check` remains clean for `crates/cloacina` (sqlite+tests) and the per-tenant-credentials example.

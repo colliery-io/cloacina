@@ -73,7 +73,10 @@ async fn demonstrate_admin_tenant_creation(
         Ok(tenant_a_creds) => {
             info!("✓ Tenant A created successfully!");
             info!("  Username: {}", tenant_a_creds.username);
-            info!("  Password: {} (admin-provided)", tenant_a_creds.password);
+            info!(
+                "  Password: {} (admin-provided)",
+                mask_password(&tenant_a_creds.password)
+            );
             info!("  Schema: {}", tenant_a_creds.schema_name);
             info!(
                 "  Connection: {}",

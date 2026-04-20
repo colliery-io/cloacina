@@ -30,6 +30,7 @@
 
 use cloacina::database::connection::Database;
 use cloacina::database::BackendType;
+use cloacina::logging::mask_db_url;
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
 use diesel::sql_types::Text;
@@ -237,7 +238,8 @@ impl TestFixture {
 
         info!(
             "Test fixture created (PostgreSQL) with URL: {}, schema: {}",
-            db_url, schema
+            mask_db_url(&db_url),
+            schema
         );
 
         TestFixture {
@@ -257,7 +259,10 @@ impl TestFixture {
             cloacina::init_logging(None);
         });
 
-        info!("Test fixture created (SQLite) with URL: {}", db_url);
+        info!(
+            "Test fixture created (SQLite) with URL: {}",
+            mask_db_url(&db_url)
+        );
 
         TestFixture {
             initialized: false,
