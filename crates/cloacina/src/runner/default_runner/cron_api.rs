@@ -336,24 +336,7 @@ impl DefaultRunner {
     /// * `Some(Arc<WorkflowRegistry>)` - If the registry is enabled and initialized
     /// * `None` - If the registry is not enabled or not yet initialized
     pub async fn get_workflow_registry(&self) -> Option<Arc<dyn WorkflowRegistry>> {
-        let registry = self.workflow_registry.read().await;
-        registry.clone()
-    }
-
-    /// Get the current status of the registry reconciler (if enabled)
-    ///
-    /// # Returns
-    /// * `Some(ReconcilerStatus)` - If the reconciler is enabled and initialized
-    /// * `None` - If the reconciler is not enabled or not yet initialized
-    pub async fn get_registry_reconciler_status(
-        &self,
-    ) -> Option<crate::registry::ReconcilerStatus> {
-        let reconciler = self.registry_reconciler.read().await;
-        if let Some(reconciler) = reconciler.as_ref() {
-            Some(reconciler.get_status().await)
-        } else {
-            None
-        }
+        self.service_manager.read().await.workflow_registry.clone()
     }
 
     /// Check if the registry reconciler is enabled in the configuration
