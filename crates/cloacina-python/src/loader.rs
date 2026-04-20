@@ -29,7 +29,11 @@ use std::time::Duration;
 
 use super::task::{pop_workflow_context, push_workflow_context};
 use super::workflow_context::PyWorkflowContext;
+use cloacina::runtime::Runtime;
 use cloacina::task::TaskNamespace;
+use std::sync::Arc;
+
+use crate::runtime_scope::{current_runtime, ScopedRuntime};
 
 /// Default timeout for Python module import (seconds).
 const IMPORT_TIMEOUT_SECS: u64 = 60;
@@ -113,7 +117,7 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
     module.add_class::<super::workflow::PyWorkflowBuilder>()?;
     module.add_class::<super::workflow::PyWorkflow>()?;
     module.add_function(wrap_pyfunction!(
-        super::workflow::register_workflow_constructor,
+        super::workflow::py_register_workflow,
         &module
     )?)?;
 
@@ -212,6 +216,7 @@ pub fn import_and_register_python_workflow(
     entry_module: &str,
     package_name: &str,
     tenant_id: &str,
+    runtime: Arc<Runtime>,
 ) -> Result<Vec<TaskNamespace>, PythonLoaderError> {
     // Default: use package_name as workflow_name
     import_and_register_python_workflow_named(
@@ -221,6 +226,7 @@ pub fn import_and_register_python_workflow(
         package_name,
         package_name,
         tenant_id,
+        runtime,
     )
 }
 
@@ -231,6 +237,7 @@ pub fn import_and_register_python_workflow_named(
     package_name: &str,
     workflow_name: &str,
     tenant_id: &str,
+    runtime: Arc<Runtime>,
 ) -> Result<Vec<TaskNamespace>, PythonLoaderError> {
     // SECURITY: Check for stdlib shadowing before importing
     validate_no_stdlib_shadowing(workflow_dir, vendor_dir)?;
@@ -246,6 +253,11 @@ pub fn import_and_register_python_workflow_named(
     // PyO3 operations must happen on a thread that can acquire the GIL.
     // Wrap in a timeout to catch infinite loops during import.
     let handle = std::thread::spawn(move || -> Result<Vec<TaskNamespace>, PythonLoaderError> {
+        // Install the scoped runtime on this worker thread so every
+        // @task/@trigger/@workflow_builder registration triggered by the
+        // import below resolves it via `current_runtime()`.
+        let _scope =
+            ScopedRuntime::new(runtime.clone()).map_err(PythonLoaderError::RuntimeError)?;
         Python::with_gil(|py| {
             // 1. Ensure cloaca module is available
             ensure_cloaca_module(py)?;
@@ -288,7 +300,12 @@ pub fn import_and_register_python_workflow_named(
             pop_workflow_context();
 
             // 5b. Drain any Python triggers registered via @cloaca.trigger decorators
-            //     during the module import, wrap them, and register in the global trigger registry.
+            //     during the module import, wrap them, and register into the scoped Runtime.
+            let rt = current_runtime().ok_or_else(|| {
+                PythonLoaderError::RuntimeError(
+                    "No Runtime installed for Python workflow import".to_string(),
+                )
+            })?;
             let python_triggers = crate::trigger::drain_python_triggers();
             for trigger_def in python_triggers {
                 let trigger_name = trigger_def.name.clone();
@@ -298,36 +315,37 @@ pub fn import_and_register_python_workflow_named(
                 // PythonTriggerWrapper is Send+Sync and holds a PyObject that's
                 // accessed only under the GIL.
                 let wrapper_for_closure = wrapper.clone();
-                cloacina::trigger::register_trigger_constructor(trigger_name.clone(), move || {
-                    wrapper_for_closure.clone()
-                });
+                rt.register_trigger(trigger_name.clone(), move || wrapper_for_closure.clone());
                 tracing::info!("Registered Python trigger: {}", trigger_name);
             }
 
-            // 6. Collect registered tasks and build workflow
+            // 6. Collect registered tasks (from the scoped Runtime) and build workflow.
             let (t, p, w) = context.as_components();
-
-            let registry = cloacina::task::global_task_registry();
-            let guard = registry.read();
 
             let mut namespaces = Vec::new();
             let mut workflow = cloacina::Workflow::new(w);
             workflow.set_tenant(t);
             workflow.set_package(p);
 
-            for (namespace, constructor) in guard.iter() {
+            // Scan the Runtime's task namespaces for matches. We don't have a
+            // filter API yet, so enumerate through known namespace prefixes by
+            // probing the task registry via a lightweight iteration helper.
+            for namespace in rt.task_namespaces() {
                 if namespace.tenant_id == t
                     && namespace.package_name == p
                     && namespace.workflow_id == w
                 {
-                    namespaces.push(namespace.clone());
-                    let task_instance = constructor();
-                    workflow.add_task(task_instance).map_err(|e| {
-                        PythonLoaderError::RegistrationError(format!("Failed to add task: {}", e))
-                    })?;
+                    if let Some(task_instance) = rt.get_task(&namespace) {
+                        namespaces.push(namespace.clone());
+                        workflow.add_task(task_instance).map_err(|e| {
+                            PythonLoaderError::RegistrationError(format!(
+                                "Failed to add task: {}",
+                                e
+                            ))
+                        })?;
+                    }
                 }
             }
-            drop(guard);
 
             if namespaces.is_empty() {
                 return Err(PythonLoaderError::RegistrationError(format!(
@@ -343,9 +361,7 @@ pub fn import_and_register_python_workflow_named(
             let final_workflow = workflow.finalize();
 
             let workflow_name = final_workflow.name().to_string();
-            cloacina::workflow::register_workflow_constructor(workflow_name, move || {
-                final_workflow.clone()
-            });
+            rt.register_workflow(workflow_name, move || final_workflow.clone());
 
             tracing::info!(
                 "Python workflow imported: {} tasks registered for {}::{}::{}",
@@ -389,6 +405,7 @@ pub fn import_python_computation_graph(
     vendor_dir: &Path,
     entry_module: &str,
     graph_name: &str,
+    runtime: Arc<Runtime>,
 ) -> Result<String, PythonLoaderError> {
     validate_no_stdlib_shadowing(workflow_dir, vendor_dir)?;
 
@@ -399,6 +416,8 @@ pub fn import_python_computation_graph(
     let timeout = Duration::from_secs(IMPORT_TIMEOUT_SECS);
 
     let handle = std::thread::spawn(move || -> Result<String, PythonLoaderError> {
+        let _scope =
+            ScopedRuntime::new(runtime.clone()).map_err(PythonLoaderError::RuntimeError)?;
         Python::with_gil(|py| {
             ensure_cloaca_module(py)?;
 

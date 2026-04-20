@@ -165,14 +165,17 @@ async fn test_pause_running_workflow() {
         .build()
         .unwrap();
 
-    // Register tasks
+    // Register tasks in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace1 = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "slow_first_task",
     );
-    register_task_constructor(namespace1, || Arc::new(slow_first_task_task()));
+    runtime.register_task(namespace1, || {
+        Arc::new(slow_first_task_task()) as Arc<dyn cloacina::Task>
+    });
 
     let namespace2 = TaskNamespace::new(
         workflow.tenant(),
@@ -181,12 +184,13 @@ async fn test_pause_running_workflow() {
         "slow_second_task",
     );
     let first_ns_clone = first_ns.clone();
-    register_task_constructor(namespace2, move || {
+    runtime.register_task(namespace2, move || {
         Arc::new(slow_second_task_task().with_dependencies(vec![first_ns_clone.clone()]))
+            as Arc<dyn cloacina::Task>
     });
 
     // Register workflow
-    register_workflow_constructor(workflow.name().to_string(), {
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -196,6 +200,7 @@ async fn test_pause_running_workflow() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -275,14 +280,17 @@ async fn test_resume_paused_workflow() {
         .build()
         .unwrap();
 
-    // Register tasks
+    // Register tasks in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace1 = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "slow_first_task",
     );
-    register_task_constructor(namespace1, || Arc::new(slow_first_task_task()));
+    runtime.register_task(namespace1, || {
+        Arc::new(slow_first_task_task()) as Arc<dyn cloacina::Task>
+    });
 
     let namespace2 = TaskNamespace::new(
         workflow.tenant(),
@@ -291,12 +299,13 @@ async fn test_resume_paused_workflow() {
         "slow_second_task",
     );
     let first_ns_clone = first_ns.clone();
-    register_task_constructor(namespace2, move || {
+    runtime.register_task(namespace2, move || {
         Arc::new(slow_second_task_task().with_dependencies(vec![first_ns_clone.clone()]))
+            as Arc<dyn cloacina::Task>
     });
 
     // Register workflow
-    register_workflow_constructor(workflow.name().to_string(), {
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -306,6 +315,7 @@ async fn test_resume_paused_workflow() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -392,17 +402,20 @@ async fn test_pause_non_running_workflow_fails() {
         .build()
         .unwrap();
 
-    // Register task
+    // Register task in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "quick_task",
     );
-    register_task_constructor(namespace, || Arc::new(quick_task_task()));
+    runtime.register_task(namespace, || {
+        Arc::new(quick_task_task()) as Arc<dyn cloacina::Task>
+    });
 
     // Register workflow
-    register_workflow_constructor(workflow.name().to_string(), {
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -412,6 +425,7 @@ async fn test_pause_non_running_workflow_fails() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -465,17 +479,20 @@ async fn test_resume_non_paused_workflow_fails() {
         .build()
         .unwrap();
 
-    // Register task
+    // Register task in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "slow_first_task",
     );
-    register_task_constructor(namespace, || Arc::new(slow_first_task_task()));
+    runtime.register_task(namespace, || {
+        Arc::new(slow_first_task_task()) as Arc<dyn cloacina::Task>
+    });
 
     // Register workflow
-    register_workflow_constructor(workflow.name().to_string(), {
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -485,6 +502,7 @@ async fn test_resume_non_paused_workflow_fails() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();

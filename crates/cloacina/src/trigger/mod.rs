@@ -295,11 +295,7 @@ pub trait Trigger: Send + Sync + fmt::Debug {
     async fn poll(&self) -> Result<TriggerResult, TriggerError>;
 }
 
-// Re-export registry functions for convenience
-pub use registry::{
-    deregister_trigger, get_trigger, global_trigger_registry, is_trigger_registered,
-    register_trigger, register_trigger_constructor,
-};
+pub use registry::TriggerConstructor;
 
 #[cfg(test)]
 mod tests {

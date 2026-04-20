@@ -195,17 +195,20 @@ async fn test_defer_until_full_workflow() {
         .build()
         .unwrap();
 
-    // Register task constructor (the macro-generated task struct)
+    // Register task constructor (the macro-generated task struct) in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "deferred_flag_task",
     );
-    register_task_constructor(namespace, || Arc::new(deferred_flag_task_task()));
+    runtime.register_task(namespace, || {
+        Arc::new(deferred_flag_task_task()) as Arc<dyn cloacina::Task>
+    });
 
     // Register workflow
-    register_workflow_constructor("defer_pipeline".to_string(), {
+    runtime.register_workflow("defer_pipeline".to_string(), {
         let wf = workflow.clone();
         move || wf.clone()
     });
@@ -215,6 +218,7 @@ async fn test_defer_until_full_workflow() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -293,14 +297,17 @@ async fn test_defer_until_with_downstream_dependency() {
         .build()
         .unwrap();
 
-    // Register both task constructors
+    // Register both task constructors in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let ns1 = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "deferred_flag_task",
     );
-    register_task_constructor(ns1, || Arc::new(deferred_flag_task_task()));
+    runtime.register_task(ns1, || {
+        Arc::new(deferred_flag_task_task()) as Arc<dyn cloacina::Task>
+    });
 
     let ns2 = TaskNamespace::new(
         workflow.tenant(),
@@ -308,9 +315,11 @@ async fn test_defer_until_with_downstream_dependency() {
         workflow.name(),
         "after_deferred_task",
     );
-    register_task_constructor(ns2, || Arc::new(after_deferred_task_task()));
+    runtime.register_task(ns2, || {
+        Arc::new(after_deferred_task_task()) as Arc<dyn cloacina::Task>
+    });
 
-    register_workflow_constructor("defer_chain_pipeline".to_string(), {
+    runtime.register_workflow("defer_chain_pipeline".to_string(), {
         let wf = workflow.clone();
         move || wf.clone()
     });
@@ -319,6 +328,7 @@ async fn test_defer_until_with_downstream_dependency() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -390,15 +400,18 @@ async fn test_sub_status_transitions_during_deferral() {
         .build()
         .unwrap();
 
+    let runtime = cloacina::Runtime::empty();
     let namespace = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "slow_deferred_task",
     );
-    register_task_constructor(namespace, || Arc::new(slow_deferred_task_task()));
+    runtime.register_task(namespace, || {
+        Arc::new(slow_deferred_task_task()) as Arc<dyn cloacina::Task>
+    });
 
-    register_workflow_constructor("sub_status_pipeline".to_string(), {
+    runtime.register_workflow("sub_status_pipeline".to_string(), {
         let wf = workflow.clone();
         move || wf.clone()
     });
@@ -407,6 +420,7 @@ async fn test_sub_status_transitions_during_deferral() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();

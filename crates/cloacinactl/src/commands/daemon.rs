@@ -490,7 +490,7 @@ async fn register_triggers_from_reconcile(
                 }
             } else {
                 // Custom poll trigger — look for registered Trigger impl
-                if let Some(trigger) = cloacina::trigger::get_trigger(&trigger_def.name) {
+                if let Some(trigger) = runner.runtime().get_trigger(&trigger_def.name) {
                     match scheduler
                         .register_trigger(trigger.as_ref(), &trigger_def.workflow)
                         .await

@@ -28,10 +28,7 @@ use cloacina::packaging::{
     Manifest, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime, TaskDefinition,
     TriggerDefinition,
 };
-use cloacina::trigger::{
-    deregister_trigger, is_trigger_registered, register_trigger_constructor, Trigger, TriggerError,
-    TriggerResult,
-};
+use cloacina::trigger::{Trigger, TriggerError, TriggerResult};
 
 fn rust_manifest_with_triggers() -> Manifest {
     Manifest {
@@ -178,24 +175,28 @@ impl Trigger for TestTrigger {
 fn trigger_register_verify_deregister_roundtrip() {
     let name = "integration_test_trigger_roundtrip";
 
-    // Simulate what the reconciler does: register a trigger constructor
-    register_trigger_constructor(name, {
+    // Simulate what the reconciler does: register a trigger constructor on a
+    // scoped runtime.
+    let runtime = cloacina::Runtime::empty();
+    runtime.register_trigger(name.to_string(), {
         let name = name.to_string();
-        move || std::sync::Arc::new(TestTrigger { name: name.clone() })
+        move || {
+            std::sync::Arc::new(TestTrigger { name: name.clone() }) as std::sync::Arc<dyn Trigger>
+        }
     });
 
     // Verify it's registered (reconciler's verification step)
-    assert!(is_trigger_registered(name));
+    assert!(runtime.get_trigger(name).is_some());
 
     // Get the trigger and verify it works
-    let trigger = cloacina::trigger::get_trigger(name).unwrap();
+    let trigger = runtime.get_trigger(name).unwrap();
     assert_eq!(trigger.name(), name);
     assert_eq!(trigger.poll_interval(), std::time::Duration::from_secs(5));
     assert!(!trigger.allow_concurrent());
 
     // Deregister (reconciler's unload step)
-    assert!(deregister_trigger(name));
-    assert!(!is_trigger_registered(name));
+    assert!(runtime.unregister_trigger(name));
+    assert!(runtime.get_trigger(name).is_none());
 }
 
 #[test]
@@ -207,31 +208,40 @@ fn multiple_triggers_register_and_deregister_independently() {
         "integration_multi_trigger_c",
     ];
 
+    let runtime = cloacina::Runtime::empty();
+
     // Register all
     for name in &names {
-        register_trigger_constructor(*name, {
+        runtime.register_trigger(name.to_string(), {
             let name = name.to_string();
-            move || std::sync::Arc::new(TestTrigger { name: name.clone() })
+            move || {
+                std::sync::Arc::new(TestTrigger { name: name.clone() })
+                    as std::sync::Arc<dyn Trigger>
+            }
         });
     }
 
     // All registered
     for name in &names {
-        assert!(is_trigger_registered(name), "{} should be registered", name);
+        assert!(
+            runtime.get_trigger(name).is_some(),
+            "{} should be registered",
+            name
+        );
     }
 
     // Deregister middle one
-    assert!(deregister_trigger(names[1]));
-    assert!(is_trigger_registered(names[0]));
-    assert!(!is_trigger_registered(names[1]));
-    assert!(is_trigger_registered(names[2]));
+    assert!(runtime.unregister_trigger(names[1]));
+    assert!(runtime.get_trigger(names[0]).is_some());
+    assert!(runtime.get_trigger(names[1]).is_none());
+    assert!(runtime.get_trigger(names[2]).is_some());
 
     // Deregister rest
-    assert!(deregister_trigger(names[0]));
-    assert!(deregister_trigger(names[2]));
+    assert!(runtime.unregister_trigger(names[0]));
+    assert!(runtime.unregister_trigger(names[2]));
     for name in &names {
         assert!(
-            !is_trigger_registered(name),
+            runtime.get_trigger(name).is_none(),
             "{} should be deregistered",
             name
         );
@@ -275,22 +285,25 @@ fn python_trigger_decorator_registers_and_wraps() {
     );
     assert!(!triggers[0].allow_concurrent);
 
-    // Wrap and register — same as the loader does
+    // Wrap and register on a scoped runtime — same as the loader does
+    let runtime = cloacina::Runtime::empty();
     let wrapper = std::sync::Arc::new(cloacina_python::trigger::PythonTriggerWrapper::new(
         &triggers[0],
     ));
     let wrapper_clone = wrapper.clone();
-    register_trigger_constructor("test_inbox_check", move || wrapper_clone.clone());
+    runtime.register_trigger("test_inbox_check".to_string(), move || {
+        wrapper_clone.clone() as std::sync::Arc<dyn Trigger>
+    });
 
-    // Verify it's in the global registry
-    assert!(is_trigger_registered("test_inbox_check"));
+    // Verify it's in the runtime registry
+    assert!(runtime.get_trigger("test_inbox_check").is_some());
 
-    let trigger = cloacina::trigger::get_trigger("test_inbox_check").unwrap();
+    let trigger = runtime.get_trigger("test_inbox_check").unwrap();
     assert_eq!(trigger.name(), "test_inbox_check");
     assert_eq!(trigger.poll_interval(), std::time::Duration::from_secs(10));
 
     // Cleanup
-    deregister_trigger("test_inbox_check");
+    runtime.unregister_trigger("test_inbox_check");
 }
 
 #[tokio::test]

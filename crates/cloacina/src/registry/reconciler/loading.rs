@@ -21,8 +21,9 @@ use tracing::{debug, error, info, warn};
 use super::{PackageState, RegistryReconciler};
 use crate::registry::error::RegistryError;
 use crate::registry::types::{WorkflowMetadata, WorkflowPackageId};
-use crate::task::{global_task_registry, TaskNamespace};
-use crate::workflow::global_workflow_registry;
+use crate::task::TaskNamespace;
+use crate::Runtime;
+use std::sync::Arc;
 
 impl RegistryReconciler {
     /// Load a package into the global registries.
@@ -175,12 +176,28 @@ impl RegistryReconciler {
 
             let staging = work_dir.path().join("python-staging");
             let tenant_id = self.config.default_tenant_id.clone();
+            let cloacina_runtime =
+                self.runtime
+                    .clone()
+                    .ok_or_else(|| RegistryError::RegistrationFailed {
+                        message: format!(
+                        "Python package {} received but the reconciler has no Runtime attached — \
+                         Python loads require a scoped Runtime",
+                        metadata.package_name
+                    ),
+                    })?;
             let loaded = {
                 let archive_data = loaded_workflow.package_data.clone();
                 let runtime = runtime.clone();
+                let cloacina_runtime = cloacina_runtime.clone();
                 tokio::task::spawn_blocking(move || {
                     runtime
-                        .load_workflow_package(&archive_data, &staging, &tenant_id)
+                        .load_workflow_package(
+                            &archive_data,
+                            &staging,
+                            &tenant_id,
+                            &cloacina_runtime,
+                        )
                         .map_err(|e| RegistryError::RegistrationFailed { message: e })
                 })
                 .await
@@ -274,6 +291,25 @@ impl RegistryReconciler {
                                     library_data.clone(),
                                 );
                             decl.tenant_id = Some(self.config.default_tenant_id.clone());
+
+                            // Also register the CG on the attached Runtime so
+                            // executors can look it up without going through
+                            // the global CG registry.
+                            if let Some(runtime) = &self.runtime {
+                                let graph_fn = decl.reactor.graph_fn.clone();
+                                let accumulator_names: Vec<String> =
+                                    decl.accumulators.iter().map(|a| a.name.clone()).collect();
+                                let reaction_mode = graph_meta.reaction_mode.clone();
+                                runtime.register_computation_graph(
+                                    graph_meta.graph_name.clone(),
+                                    move || crate::ComputationGraphRegistration {
+                                        graph_fn: graph_fn.clone(),
+                                        accumulator_names: accumulator_names.clone(),
+                                        reaction_mode: reaction_mode.clone(),
+                                    },
+                                );
+                            }
+
                             if let Err(e) = scheduler.load_graph(decl).await {
                                 warn!(
                                     "Failed to load computation graph '{}': {}",
@@ -330,12 +366,23 @@ impl RegistryReconciler {
                     let gn = graph_name.clone();
                     let em = entry_module.clone();
 
+                    let cloacina_runtime =
+                        self.runtime
+                            .clone()
+                            .ok_or_else(|| RegistryError::RegistrationFailed {
+                                message: format!(
+                                "Python CG package {} received but the reconciler has no Runtime \
+                                 attached — Python loads require a scoped Runtime",
+                                metadata.package_name
+                            ),
+                            })?;
                     let maybe_decl = {
                         let archive_data = loaded_workflow.package_data.clone();
                         let gn_inner = gn.clone();
                         let em_inner = em.clone();
                         let tenant_inner = tenant.clone();
                         let runtime = runtime.clone();
+                        let cloacina_runtime = cloacina_runtime.clone();
                         tokio::task::spawn_blocking(move || {
                             runtime
                                 .load_cg_package(
@@ -345,6 +392,7 @@ impl RegistryReconciler {
                                     &gn_inner,
                                     &em_inner,
                                     &acc_overrides,
+                                    &cloacina_runtime,
                                 )
                                 .map_err(|e| RegistryError::RegistrationFailed { message: e })
                         })
@@ -406,12 +454,17 @@ impl RegistryReconciler {
         loaded_packages.insert(metadata.id, package_state);
         drop(loaded_packages);
 
-        // If a Runtime is attached, re-seed it from the globals so the newly
-        // registered tasks/workflows/triggers/CGs are visible to executors.
-        // This is the transitional path: the package's #[ctor]s have already
-        // populated the globals; we copy them into the Runtime here.
+        // Tasks, workflows, and CGs are registered directly on the Runtime by
+        // the Rust + Python load paths above. For Rust cdylib packages, we
+        // additionally seed the Runtime from `inventory` after dlopen so any
+        // `#[trigger]`/`#[computation_graph]`/`#[task]` entries emitted by the
+        // loaded library's `inventory::submit!` blocks land in the Runtime.
+        // Python packages register through the thread-local scope and do not
+        // need this re-seed.
         if let Some(runtime) = &self.runtime {
-            runtime.seed_from_globals();
+            if cloacina_manifest.metadata.language == "rust" {
+                runtime.seed_from_inventory();
+            }
         }
 
         Ok(())
@@ -435,19 +488,14 @@ impl RegistryReconciler {
                 })?;
         drop(loaded_packages);
 
-        // Unregister tasks from global task registry
-        self.unregister_package_tasks(package_id, &package_state.task_namespaces)
-            .await?;
-
-        // Unregister workflow from global workflow registry
-        if let Some(workflow_name) = &package_state.workflow_name {
-            self.unregister_package_workflow(workflow_name).await?;
-        }
-
-        // Unregister triggers from global trigger registry
-        if !package_state.trigger_names.is_empty() {
-            self.unregister_package_triggers(&package_state.trigger_names);
-        }
+        // Tell the task registrar (which owns dlopen handles) to drop the
+        // package so the cdylib is unloaded and any cached state is released.
+        let package_id_str = package_id.to_string();
+        self.task_registrar
+            .unregister_package_tasks(&package_id_str)
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to unregister package tasks: {}", e),
+            })?;
 
         // Mirror removals through the runtime so executors drop the stale
         // entries immediately.
@@ -512,9 +560,26 @@ impl RegistryReconciler {
         let package_id = metadata.id.to_string();
         let tenant_id = Some(self.config.default_tenant_id.as_str());
 
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| RegistryError::RegistrationFailed {
+                message: format!(
+                    "Rust package {} received but the reconciler has no Runtime attached — \
+                     Rust loads require a scoped Runtime",
+                    metadata.package_name
+                ),
+            })?;
+
         let task_namespaces = self
             .task_registrar
-            .register_package_tasks(&package_id, package_data, &package_metadata, tenant_id)
+            .register_package_tasks(
+                &package_id,
+                package_data,
+                &package_metadata,
+                tenant_id,
+                runtime,
+            )
             .await
             .map_err(RegistryError::Loader)?;
 
@@ -546,6 +611,17 @@ impl RegistryReconciler {
             .await
             .map_err(RegistryError::Loader)?;
 
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| RegistryError::RegistrationFailed {
+                message: format!(
+                    "Rust package {} received but the reconciler has no Runtime attached — \
+                     Rust loads require a scoped Runtime",
+                    metadata.package_name
+                ),
+            })?;
+
         // Check if package has tasks (which means it has a workflow since it was compiled with the macro)
         if !package_metadata.tasks.is_empty() {
             debug!(
@@ -571,10 +647,8 @@ impl RegistryReconciler {
                         // Handle both {workflow} placeholder and actual workflow_id
                         if workflow_part == "{workflow}" {
                             // This is a template, need to look up actual workflow_id from registered tasks
-                            let task_registry = crate::task::global_task_registry();
                             let mut found_id = None;
-                            let registry = task_registry.read();
-                            for (namespace, _) in registry.iter() {
+                            for namespace in runtime.task_namespaces() {
                                 if namespace.package_name == metadata.package_name
                                     && namespace.tenant_id == self.config.default_tenant_id
                                 {
@@ -616,46 +690,43 @@ impl RegistryReconciler {
                 task_package_name
             );
 
-            // Create the workflow directly using host registries (avoid FFI isolation issues)
+            // Create the workflow directly using the runtime-scoped task registry
+            // (avoid FFI isolation issues).
             let _workflow = self.create_workflow_from_host_registry(
                 &task_package_name, // Use the correct package name from task metadata
                 &workflow_name,
                 &self.config.default_tenant_id,
             )?;
 
-            // Register workflow constructor with global workflow registry
-            let workflow_registry = global_workflow_registry();
-            let mut registry = workflow_registry.write();
-
-            // Create a constructor that recreates the workflow from host registry each time
+            // Register workflow constructor on the runtime so it recreates the
+            // workflow from the runtime's task registry each time.
             let workflow_name_for_closure = workflow_name.clone();
-            let package_name_for_closure = task_package_name.clone(); // Use the correct package name
+            let package_name_for_closure = task_package_name.clone();
             let workflow_name_for_closure_static = workflow_name.clone();
             let tenant_id_for_closure = self.config.default_tenant_id.clone();
+            let runtime_for_closure: Arc<Runtime> = runtime.clone();
 
-            registry.insert(
-                workflow_name.clone(),
-                Box::new(move || {
-                    debug!(
-                        "Creating workflow instance for {} using host registry",
-                        workflow_name_for_closure
-                    );
+            runtime.register_workflow(workflow_name.clone(), move || {
+                debug!(
+                    "Creating workflow instance for {} using runtime registry",
+                    workflow_name_for_closure
+                );
 
-                    // Recreate the workflow from the host task registry each time
-                    match Self::create_workflow_from_host_registry_static(
-                        &package_name_for_closure,
-                        &workflow_name_for_closure_static,
-                        &tenant_id_for_closure,
-                    ) {
-                        Ok(workflow) => workflow,
-                        Err(e) => {
-                            error!("Failed to create workflow from host registry: {}", e);
-                            // Fallback to empty workflow
-                            crate::workflow::Workflow::new(&workflow_name_for_closure)
-                        }
+                // Recreate the workflow from the runtime task registry each time
+                match Self::create_workflow_from_host_registry_static(
+                    &runtime_for_closure,
+                    &package_name_for_closure,
+                    &workflow_name_for_closure_static,
+                    &tenant_id_for_closure,
+                ) {
+                    Ok(workflow) => workflow,
+                    Err(e) => {
+                        error!("Failed to create workflow from runtime registry: {}", e);
+                        // Fallback to empty workflow
+                        crate::workflow::Workflow::new(&workflow_name_for_closure)
                     }
-                }),
-            );
+                }
+            });
 
             info!(
                 "Registered workflow '{}' for package {} v{}",
@@ -672,80 +743,55 @@ impl RegistryReconciler {
         }
     }
 
-    /// Create a workflow using the host's global task registry (avoiding FFI isolation)
+    /// Create a workflow using the runtime-scoped task registry (avoiding FFI isolation).
     pub(super) fn create_workflow_from_host_registry(
         &self,
         package_name: &str,
         workflow_name: &str,
         tenant_id: &str,
     ) -> Result<crate::workflow::Workflow, RegistryError> {
-        // Create workflow and add registered tasks from host registry
-        let mut workflow = crate::workflow::Workflow::new(workflow_name);
-        workflow.set_tenant(tenant_id);
-        workflow.set_package(package_name);
-
-        // Add tasks from the host's global task registry
-        let task_registry = crate::task::global_task_registry();
-        let registry = task_registry.read();
-
-        let mut found_tasks = 0;
-        for (namespace, task_constructor) in registry.iter() {
-            // Only include tasks from this package, workflow, and tenant
-            if namespace.package_name == package_name
-                && namespace.workflow_id == workflow_name
-                && namespace.tenant_id == tenant_id
-            {
-                let task = task_constructor();
-                workflow
-                    .add_task(task)
-                    .map_err(|e| RegistryError::RegistrationFailed {
-                        message: format!(
-                            "Failed to add task {} to workflow: {:?}",
-                            namespace.task_id, e
-                        ),
-                    })?;
-                found_tasks += 1;
-            }
-        }
-
-        debug!(
-            "Created workflow '{}' with {} tasks from host registry",
-            workflow_name, found_tasks
-        );
-
-        // Validate and finalize the workflow
-        workflow
-            .validate()
-            .map_err(|e| RegistryError::RegistrationFailed {
-                message: format!("Workflow validation failed: {:?}", e),
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| RegistryError::RegistrationFailed {
+                message: "create_workflow_from_host_registry called without a Runtime attached"
+                    .to_string(),
             })?;
-
-        Ok(workflow.finalize())
+        Self::create_workflow_from_host_registry_static(
+            runtime,
+            package_name,
+            workflow_name,
+            tenant_id,
+        )
     }
 
-    /// Static version of create_workflow_from_host_registry for use in closures
+    /// Static version of create_workflow_from_host_registry for use in closures.
     pub(super) fn create_workflow_from_host_registry_static(
+        runtime: &Arc<Runtime>,
         package_name: &str,
         workflow_name: &str,
         tenant_id: &str,
     ) -> Result<crate::workflow::Workflow, RegistryError> {
-        // Create workflow and add registered tasks from host registry
+        // Create workflow and add registered tasks from the runtime task registry
         let mut workflow = crate::workflow::Workflow::new(workflow_name);
         workflow.set_tenant(tenant_id);
         workflow.set_package(package_name);
 
-        // Add tasks from the host's global task registry
-        let task_registry = crate::task::global_task_registry();
-        let registry = task_registry.read();
-
         let mut found_tasks = 0;
-        for (namespace, task_constructor) in registry.iter() {
+        for namespace in runtime.task_namespaces() {
             // Only include tasks from this package, workflow, and tenant
             if namespace.package_name == package_name
                 && namespace.workflow_id == workflow_name
                 && namespace.tenant_id == tenant_id
             {
-                let task = task_constructor();
+                let task = runtime.get_task(&namespace).ok_or_else(|| {
+                    RegistryError::RegistrationFailed {
+                        message: format!(
+                            "Task {} vanished from runtime registry between enumeration and lookup",
+                            namespace
+                        ),
+                    }
+                })?;
                 workflow
                     .add_task(task)
                     .map_err(|e| RegistryError::RegistrationFailed {
@@ -759,7 +805,7 @@ impl RegistryReconciler {
         }
 
         debug!(
-            "Created workflow '{}' with {} tasks from host registry (static)",
+            "Created workflow '{}' with {} tasks from runtime registry",
             workflow_name, found_tasks
         );
 
@@ -773,52 +819,13 @@ impl RegistryReconciler {
         Ok(workflow.finalize())
     }
 
-    /// Unregister tasks from the global task registry
-    pub(super) async fn unregister_package_tasks(
-        &self,
-        package_id: WorkflowPackageId,
-        task_namespaces: &[TaskNamespace],
-    ) -> Result<(), RegistryError> {
-        // First unregister from the task registrar (which handles dynamic library cleanup)
-        let package_id_str = package_id.to_string();
-        self.task_registrar
-            .unregister_package_tasks(&package_id_str)
-            .map_err(|e| RegistryError::RegistrationFailed {
-                message: format!("Failed to unregister package tasks: {}", e),
-            })?;
-
-        // Then unregister from the global task registry
-        let task_registry = global_task_registry();
-        let mut registry = task_registry.write();
-
-        for namespace in task_namespaces {
-            registry.remove(namespace);
-            debug!("Unregistered task: {}", namespace);
-        }
-
-        Ok(())
-    }
-
-    /// Unregister a workflow from the global workflow registry
-    pub(super) async fn unregister_package_workflow(
-        &self,
-        workflow_name: &str,
-    ) -> Result<(), RegistryError> {
-        let workflow_registry = global_workflow_registry();
-        let mut registry = workflow_registry.write();
-
-        registry.remove(workflow_name);
-        debug!("Unregistered workflow: {}", workflow_name);
-
-        Ok(())
-    }
-
     /// Verify and track triggers declared in a package's `CloacinaMetadata`.
     ///
-    /// The package's trigger implementations are registered by the package itself
-    /// via `ctor` when the cdylib is loaded.  This method checks that each
-    /// declared trigger actually appeared in the global trigger registry and
-    /// tracks its name so it can be removed when the package is unloaded.
+    /// The package's trigger implementations land in the Runtime via
+    /// `Runtime::seed_from_inventory()`, called immediately after the cdylib
+    /// is dlopened. This method checks that each declared trigger actually
+    /// appeared in the Runtime and tracks its name so it can be removed when
+    /// the package is unloaded.
     pub(super) fn register_package_triggers(
         &self,
         metadata: &WorkflowMetadata,
@@ -828,10 +835,18 @@ impl RegistryReconciler {
             return Ok(vec![]);
         }
 
+        let Some(runtime) = self.runtime.as_ref() else {
+            warn!(
+                "Package {} v{} declares triggers but the reconciler has no Runtime attached",
+                metadata.package_name, metadata.version
+            );
+            return Ok(vec![]);
+        };
+
         let mut tracked_trigger_names = Vec::new();
 
         for trigger_def in &cloacina_metadata.triggers {
-            if crate::trigger::registry::is_trigger_registered(&trigger_def.name) {
+            if runtime.get_trigger(&trigger_def.name).is_some() {
                 info!(
                     "Trigger '{}' (workflow: {}, interval: {}) registered from package {} v{}",
                     trigger_def.name,
@@ -844,7 +859,7 @@ impl RegistryReconciler {
             } else {
                 warn!(
                     "Trigger '{}' declared in package.toml for package {} v{} but not found in \
-                     registry — the package must provide a Trigger impl (via #[trigger] macro or \
+                     runtime — the package must provide a Trigger impl (via #[trigger] macro or \
                      manual registration)",
                     trigger_def.name, metadata.package_name, metadata.version
                 );
@@ -862,17 +877,6 @@ impl RegistryReconciler {
 
         Ok(tracked_trigger_names)
     }
-
-    /// Unregister triggers from the global trigger registry.
-    pub(super) fn unregister_package_triggers(&self, trigger_names: &[String]) {
-        for name in trigger_names {
-            if crate::trigger::deregister_trigger(name) {
-                debug!("Deregistered trigger: {}", name);
-            } else {
-                warn!("Trigger '{}' was not found in registry during unload", name);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -880,16 +884,24 @@ mod tests {
     use super::*;
     use crate::registry::reconciler::ReconcilerConfig;
     use crate::registry::workflow_registry::filesystem::FilesystemWorkflowRegistry;
+    use crate::Runtime;
     use serial_test::serial;
     use std::sync::Arc;
     use uuid::Uuid;
 
-    /// Create a minimal RegistryReconciler for testing.
+    /// Create a minimal RegistryReconciler for testing, wired up to a scoped
+    /// empty Runtime so trigger tracking doesn't depend on ambient globals.
     fn make_test_reconciler() -> RegistryReconciler {
         let registry = Arc::new(FilesystemWorkflowRegistry::new(vec![]));
         let config = ReconcilerConfig::default();
         let (_tx, rx) = tokio::sync::watch::channel(false);
-        RegistryReconciler::new(registry, config, rx).expect("Failed to create test reconciler")
+        let reconciler = RegistryReconciler::new(registry, config, rx)
+            .expect("Failed to create test reconciler");
+        reconciler.with_runtime(Arc::new(Runtime::empty()))
+    }
+
+    fn runtime_of(r: &RegistryReconciler) -> Arc<Runtime> {
+        r.runtime.clone().expect("reconciler must have a runtime")
     }
 
     fn make_test_metadata() -> WorkflowMetadata {
@@ -947,12 +959,13 @@ mod tests {
     #[serial]
     async fn register_triggers_tracks_registered_triggers() {
         let reconciler = make_test_reconciler();
+        let runtime = runtime_of(&reconciler);
         let metadata = make_test_metadata();
 
-        // Pre-register a trigger in the global registry
+        // Pre-register a trigger on the reconciler's runtime (simulating what
+        // `Runtime::seed_from_inventory()` would do after dlopen).
         let trigger_name = format!("test-trigger-{}", Uuid::new_v4());
-        crate::trigger::registry::register_trigger_constructor(trigger_name.clone(), || {
-            // Minimal trigger for testing — just need it in the registry
+        runtime.register_trigger(trigger_name.clone(), || {
             Arc::new(DummyTrigger {
                 name: "dummy".to_string(),
             })
@@ -973,9 +986,6 @@ mod tests {
             .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], trigger_name);
-
-        // Cleanup
-        crate::trigger::deregister_trigger(&trigger_name);
     }
 
     #[tokio::test]
@@ -998,7 +1008,7 @@ mod tests {
         let result = reconciler
             .register_package_triggers(&metadata, &cloacina_meta)
             .unwrap();
-        // Should be empty because the trigger is not actually registered in the global registry
+        // Should be empty because the trigger is not present in the runtime
         assert!(result.is_empty());
     }
 
@@ -1006,13 +1016,14 @@ mod tests {
     #[serial]
     async fn register_triggers_mixed_registered_and_missing() {
         let reconciler = make_test_reconciler();
+        let runtime = runtime_of(&reconciler);
         let metadata = make_test_metadata();
 
-        // Register one trigger, leave the other unregistered
+        // Register one trigger on the runtime, leave the other absent
         let registered_name = format!("registered-trigger-{}", Uuid::new_v4());
         let missing_name = format!("missing-trigger-{}", Uuid::new_v4());
 
-        crate::trigger::registry::register_trigger_constructor(registered_name.clone(), || {
+        runtime.register_trigger(registered_name.clone(), || {
             Arc::new(DummyTrigger {
                 name: "dummy".to_string(),
             })
@@ -1040,108 +1051,6 @@ mod tests {
             .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], registered_name);
-
-        // Cleanup
-        crate::trigger::deregister_trigger(&registered_name);
-    }
-
-    // -----------------------------------------------------------------------
-    // unregister_package_triggers tests
-    // -----------------------------------------------------------------------
-
-    #[tokio::test]
-    #[serial]
-    async fn unregister_triggers_removes_from_global_registry() {
-        let reconciler = make_test_reconciler();
-
-        let trigger_name = format!("unregister-test-{}", Uuid::new_v4());
-        crate::trigger::registry::register_trigger_constructor(trigger_name.clone(), || {
-            Arc::new(DummyTrigger {
-                name: "dummy".to_string(),
-            })
-        });
-
-        assert!(crate::trigger::registry::is_trigger_registered(
-            &trigger_name
-        ));
-
-        reconciler.unregister_package_triggers(std::slice::from_ref(&trigger_name));
-
-        assert!(!crate::trigger::registry::is_trigger_registered(
-            &trigger_name
-        ));
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn unregister_triggers_handles_already_removed() {
-        let reconciler = make_test_reconciler();
-
-        let trigger_name = format!("already-gone-{}", Uuid::new_v4());
-        // Don't register it — just try to unregister
-        // Should not panic, just log a warning
-        reconciler.unregister_package_triggers(&[trigger_name]);
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn unregister_triggers_empty_list_is_noop() {
-        let reconciler = make_test_reconciler();
-        reconciler.unregister_package_triggers(&[]);
-    }
-
-    // -----------------------------------------------------------------------
-    // unregister_package_workflow tests
-    // -----------------------------------------------------------------------
-
-    #[tokio::test]
-    #[serial]
-    async fn unregister_workflow_removes_from_global_registry() {
-        let reconciler = make_test_reconciler();
-
-        let workflow_name = format!("test-wf-{}", Uuid::new_v4());
-
-        // Register a workflow constructor
-        {
-            let registry = global_workflow_registry();
-            let mut reg = registry.write();
-            let wf_name = workflow_name.clone();
-            reg.insert(
-                workflow_name.clone(),
-                Box::new(move || crate::workflow::Workflow::new(&wf_name)),
-            );
-        }
-
-        // Verify it's there
-        {
-            let registry = global_workflow_registry();
-            let reg = registry.read();
-            assert!(reg.contains_key(&workflow_name));
-        }
-
-        // Unregister
-        reconciler
-            .unregister_package_workflow(&workflow_name)
-            .await
-            .unwrap();
-
-        // Verify it's gone
-        {
-            let registry = global_workflow_registry();
-            let reg = registry.read();
-            assert!(!reg.contains_key(&workflow_name));
-        }
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn unregister_workflow_nonexistent_is_ok() {
-        let reconciler = make_test_reconciler();
-        // Should succeed even if workflow doesn't exist
-        let result = reconciler
-            .unregister_package_workflow("does-not-exist")
-            .await;
-        assert!(result.is_ok());
     }
 
     // -----------------------------------------------------------------------

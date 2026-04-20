@@ -252,8 +252,11 @@ impl TriggerDecorator {
         // Create Arc'd function for sharing with constructor
         let shared_function = Arc::new(func.clone_ref(py));
 
-        // Register trigger constructor in the global registry
-        cloacina::trigger::register_trigger_constructor(trigger_name.clone(), move || {
+        // Register trigger constructor in the scoped Runtime
+        let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+            PyValueError::new_err("@trigger decorator called outside a Runtime scope")
+        })?;
+        rt.register_trigger(trigger_name.clone(), move || {
             let function_clone = Python::with_gil(|py| (*shared_function).clone_ref(py));
             Arc::new(PythonTriggerWrapper {
                 name: name_for_constructor.clone(),

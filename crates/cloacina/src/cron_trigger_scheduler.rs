@@ -51,7 +51,8 @@ use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::executor::{WorkflowExecutionError, WorkflowExecutor};
 use crate::models::schedule::{CatchupPolicy, NewSchedule, NewScheduleExecution, Schedule};
-use crate::trigger::{get_trigger, Trigger, TriggerError};
+use crate::runtime::Runtime;
+use crate::trigger::{Trigger, TriggerError};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -116,6 +117,8 @@ pub struct Scheduler {
     executor: Arc<dyn WorkflowExecutor>,
     config: SchedulerConfig,
     shutdown: watch::Receiver<bool>,
+    /// Scoped runtime used to look up trigger constructors.
+    runtime: Arc<Runtime>,
     /// Tracks when each trigger was last polled (by trigger name).
     last_poll_times: HashMap<String, Instant>,
     /// Tracks when cron schedules were last checked.
@@ -135,12 +138,14 @@ impl Scheduler {
         executor: Arc<dyn WorkflowExecutor>,
         config: SchedulerConfig,
         shutdown: watch::Receiver<bool>,
+        runtime: Arc<Runtime>,
     ) -> Self {
         Self {
             dal,
             executor,
             config,
             shutdown,
+            runtime,
             last_poll_times: HashMap::new(),
             last_cron_check: None,
         }
@@ -151,8 +156,9 @@ impl Scheduler {
         dal: Arc<DAL>,
         executor: Arc<dyn WorkflowExecutor>,
         shutdown: watch::Receiver<bool>,
+        runtime: Arc<Runtime>,
     ) -> Self {
-        Self::new(dal, executor, SchedulerConfig::default(), shutdown)
+        Self::new(dal, executor, SchedulerConfig::default(), shutdown, runtime)
     }
 
     // -----------------------------------------------------------------------
@@ -587,9 +593,11 @@ impl Scheduler {
             trigger_name, schedule.workflow_name
         );
 
-        // Get the trigger instance from registry
-        let trigger = get_trigger(trigger_name).ok_or_else(|| TriggerError::TriggerNotFound {
-            name: trigger_name.to_string(),
+        // Get the trigger instance from the scoped runtime
+        let trigger = self.runtime.get_trigger(trigger_name).ok_or_else(|| {
+            TriggerError::TriggerNotFound {
+                name: trigger_name.to_string(),
+            }
         })?;
 
         // Poll the trigger with timeout

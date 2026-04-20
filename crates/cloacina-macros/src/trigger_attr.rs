@@ -253,14 +253,6 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
             #fn_block
         }
 
-        #[ctor::ctor]
-        fn #auto_register_name() {
-            cloacina::trigger::register_trigger_constructor(
-                #trigger_name,
-                || std::sync::Arc::new(#struct_name),
-            );
-        }
-
         cloacina::inventory::submit! {
             cloacina::TriggerEntry {
                 name: #trigger_name,
@@ -378,14 +370,6 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
                     }
                 }
             }
-        }
-
-        #[ctor::ctor]
-        fn #auto_register_name() {
-            cloacina::trigger::register_trigger_constructor(
-                #trigger_name,
-                || std::sync::Arc::new(#struct_name::new()),
-            );
         }
 
         cloacina::inventory::submit! {

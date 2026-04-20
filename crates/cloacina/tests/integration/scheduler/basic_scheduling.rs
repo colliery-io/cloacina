@@ -65,12 +65,14 @@ async fn test_schedule_workflow_execution() {
         .build()
         .expect("Failed to build workflow");
 
-    // Register workflow globally before creating scheduler
-    cloacina::register_workflow_constructor("test-workflow".to_string(), move || workflow.clone());
+    // Register workflow in a test-scoped runtime.
+    let runtime = Arc::new(cloacina::Runtime::empty());
+    runtime.register_workflow("test-workflow".to_string(), move || workflow.clone());
 
     let scheduler = TaskScheduler::new(database.clone())
         .await
-        .expect("Failed to create scheduler");
+        .expect("Failed to create scheduler")
+        .with_runtime(runtime.clone());
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context
@@ -142,13 +144,17 @@ async fn test_workflow_version_tracking() {
         .build()
         .expect("Failed to build workflow");
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("versioned-workflow".to_string(), {
+    // Register workflow in a test-scoped runtime.
+    let runtime = Arc::new(cloacina::Runtime::empty());
+    runtime.register_workflow("versioned-workflow".to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    let scheduler = TaskScheduler::new(database.clone())
+        .await
+        .unwrap()
+        .with_runtime(runtime.clone());
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context

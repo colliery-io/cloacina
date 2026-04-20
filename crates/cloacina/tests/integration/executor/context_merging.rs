@@ -155,14 +155,17 @@ async fn test_context_merging_latest_wins() {
         .build()
         .unwrap();
 
-    // Register tasks with correct namespaces and dependencies in global registry
+    // Register tasks with correct namespaces and dependencies into a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace1 = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "early_producer_task",
     );
-    register_task_constructor(namespace1, || Arc::new(early_producer_task_task()));
+    runtime.register_task(namespace1, || {
+        Arc::new(early_producer_task_task()) as Arc<dyn cloacina::Task>
+    });
 
     let namespace2 = TaskNamespace::new(
         workflow.tenant(),
@@ -171,8 +174,9 @@ async fn test_context_merging_latest_wins() {
         "late_producer_task",
     );
     let early_ns_for_closure = early_ns.clone();
-    register_task_constructor(namespace2, move || {
+    runtime.register_task(namespace2, move || {
         Arc::new(late_producer_task_task().with_dependencies(vec![early_ns_for_closure.clone()]))
+            as Arc<dyn cloacina::Task>
     });
 
     let namespace3 = TaskNamespace::new(
@@ -183,15 +187,15 @@ async fn test_context_merging_latest_wins() {
     );
     let early_ns_for_merger = early_ns.clone();
     let late_ns_for_merger = late_ns.clone();
-    register_task_constructor(namespace3, move || {
+    runtime.register_task(namespace3, move || {
         Arc::new(merger_task_task().with_dependencies(vec![
             early_ns_for_merger.clone(),
             late_ns_for_merger.clone(),
-        ]))
+        ])) as Arc<dyn cloacina::Task>
     });
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor(workflow_name.clone(), {
+    // Register workflow in the same runtime.
+    runtime.register_workflow(workflow_name.clone(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -206,6 +210,7 @@ async fn test_context_merging_latest_wins() {
         .database_url(&database_url)
         .schema(&schema)
         .with_config(config)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();
@@ -302,17 +307,20 @@ async fn test_execution_scope_context_setup() {
         .build()
         .unwrap();
 
-    // Register task with correct namespace in global registry
+    // Register task with correct namespace in a test-scoped runtime.
+    let runtime = cloacina::Runtime::empty();
     let namespace = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
         workflow.name(),
         "scope_inspector_task",
     );
-    register_task_constructor(namespace, || Arc::new(scope_inspector_task_task()));
+    runtime.register_task(namespace, || {
+        Arc::new(scope_inspector_task_task()) as Arc<dyn cloacina::Task>
+    });
 
-    // Register workflow in global registry for scheduler to find
-    register_workflow_constructor(workflow_name.clone(), {
+    // Register workflow in the same runtime.
+    runtime.register_workflow(workflow_name.clone(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -322,6 +330,7 @@ async fn test_execution_scope_context_setup() {
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();

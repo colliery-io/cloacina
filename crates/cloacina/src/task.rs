@@ -336,8 +336,6 @@
 pub mod namespace;
 
 use crate::error::{RegistrationError, ValidationError};
-use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -625,49 +623,6 @@ impl Default for TaskRegistry {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Type alias for the task constructor function stored in the global registry
-type TaskConstructor = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
-
-/// Type alias for the global task registry containing task constructors
-type GlobalTaskRegistry = Arc<RwLock<HashMap<TaskNamespace, TaskConstructor>>>;
-
-/// Global registry for automatically registering tasks created with the `#[task]` macro
-static GLOBAL_TASK_REGISTRY: Lazy<GlobalTaskRegistry> =
-    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
-
-/// Register a task constructor function globally with namespace
-///
-/// This is used internally by the `workflow!` macro to automatically register tasks.
-/// Most users won't call this directly.
-pub fn register_task_constructor<F>(namespace: TaskNamespace, constructor: F)
-where
-    F: Fn() -> Arc<dyn Task> + Send + Sync + 'static,
-{
-    let mut registry = GLOBAL_TASK_REGISTRY.write();
-    registry.insert(namespace.clone(), Box::new(constructor));
-    tracing::debug!(
-        "Successfully registered task constructor for namespace: {}",
-        namespace
-    );
-}
-
-/// Get the global task registry
-///
-/// This provides access to the global task registry used by the macro system.
-/// Most users won't need to call this directly.
-pub fn global_task_registry() -> GlobalTaskRegistry {
-    GLOBAL_TASK_REGISTRY.clone()
-}
-
-/// Get a task instance from the global registry by namespace
-///
-/// This is a convenience function for getting task instances without
-/// directly accessing the registry.
-pub fn get_task(namespace: &TaskNamespace) -> Option<Arc<dyn Task>> {
-    let registry = GLOBAL_TASK_REGISTRY.read();
-    registry.get(namespace).map(|constructor| constructor())
 }
 
 #[cfg(test)]

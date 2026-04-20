@@ -267,8 +267,12 @@ pub type CompiledGraphFn =
     Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + Send + Sync>;
 
 // ---------------------------------------------------------------------------
-// Global registry (for embedded-mode auto-registration via #[ctor])
+// Computation graph constructor types
 // ---------------------------------------------------------------------------
+//
+// The process-global computation-graph registry was removed in CLOACI-T-0509.
+// Constructors are owned by `cloacina::Runtime`, which is seeded from the
+// `inventory` entries emitted by the `#[computation_graph]` macro.
 
 /// Metadata about a registered computation graph.
 pub struct ComputationGraphRegistration {
@@ -281,39 +285,6 @@ pub struct ComputationGraphRegistration {
 }
 
 pub type ComputationGraphConstructor = Box<dyn Fn() -> ComputationGraphRegistration + Send + Sync>;
-pub type GlobalComputationGraphRegistry =
-    Arc<parking_lot::RwLock<HashMap<String, ComputationGraphConstructor>>>;
-
-static GLOBAL_COMPUTATION_GRAPH_REGISTRY: once_cell::sync::Lazy<GlobalComputationGraphRegistry> =
-    once_cell::sync::Lazy::new(|| Arc::new(parking_lot::RwLock::new(HashMap::new())));
-
-/// Register a computation graph constructor in the global registry.
-pub fn register_computation_graph_constructor<F>(graph_name: String, constructor: F)
-where
-    F: Fn() -> ComputationGraphRegistration + Send + Sync + 'static,
-{
-    let mut registry = GLOBAL_COMPUTATION_GRAPH_REGISTRY.write();
-    registry.insert(graph_name.clone(), Box::new(constructor));
-    tracing::debug!("Registered computation graph constructor: {}", graph_name);
-}
-
-/// Get the global computation graph registry.
-pub fn global_computation_graph_registry() -> GlobalComputationGraphRegistry {
-    GLOBAL_COMPUTATION_GRAPH_REGISTRY.clone()
-}
-
-/// List all registered computation graph names.
-pub fn list_registered_graphs() -> Vec<String> {
-    let registry = GLOBAL_COMPUTATION_GRAPH_REGISTRY.read();
-    registry.keys().cloned().collect()
-}
-
-/// Remove a computation graph from the global registry.
-pub fn deregister_computation_graph(graph_name: &str) {
-    let mut registry = GLOBAL_COMPUTATION_GRAPH_REGISTRY.write();
-    registry.remove(graph_name);
-    tracing::debug!("Deregistered computation graph constructor: {}", graph_name);
-}
 
 // Re-export types module for backward compat path: `cloacina_computation_graph::types::serialize`
 pub mod types {

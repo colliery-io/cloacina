@@ -394,8 +394,14 @@ impl TaskDecorator {
         let namespace =
             cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
 
+        let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {
+            PyValueError::new_err(
+                "@task decorator called outside a Runtime scope — install a ScopedRuntime \
+                 before importing Python workflow modules",
+            )
+        })?;
         py.allow_threads(|| {
-            cloacina::register_task_constructor(namespace.clone(), {
+            rt.register_task(namespace.clone(), {
                 let task_id_clone = task_id.clone();
                 let deps_clone = deps.clone();
                 let policy_clone = policy.clone();

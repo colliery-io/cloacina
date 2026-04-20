@@ -537,10 +537,7 @@ pub fn setup_test() {
 pub use database::connection::Database;
 
 // Re-export key types for convenience
-pub use computation_graph::{
-    global_computation_graph_registry, register_computation_graph_constructor,
-    ComputationGraphRegistration,
-};
+pub use computation_graph::ComputationGraphRegistration;
 pub use context::Context;
 pub use cron_evaluator::{CronError, CronEvaluator};
 pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};
@@ -574,17 +571,9 @@ pub use runner::DefaultRunnerBuilder;
 pub use runner::{DefaultRunner, DefaultRunnerConfig};
 pub use runtime::Runtime;
 pub use task::namespace::parse_namespace;
-pub use task::{
-    global_task_registry, register_task_constructor, Task, TaskNamespace, TaskRegistry, TaskState,
-};
-pub use trigger::{
-    get_trigger, global_trigger_registry, register_trigger, register_trigger_constructor, Trigger,
-    TriggerConfig, TriggerError, TriggerResult,
-};
-pub use workflow::{
-    get_all_workflows, global_workflow_registry, register_workflow_constructor, DependencyGraph,
-    Workflow, WorkflowBuilder, WorkflowMetadata,
-};
+pub use task::{Task, TaskNamespace, TaskRegistry, TaskState};
+pub use trigger::{Trigger, TriggerConfig, TriggerError, TriggerResult};
+pub use workflow::{DependencyGraph, Workflow, WorkflowBuilder, WorkflowMetadata};
 
 // Re-export the macros from cloacina-macros
 #[cfg(feature = "macros")]

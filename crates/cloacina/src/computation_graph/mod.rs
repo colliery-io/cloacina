@@ -38,8 +38,5 @@ pub use accumulator::{
     AccumulatorError, AccumulatorRuntimeConfig, BatchAccumulator, BatchAccumulatorConfig,
     BoundarySender, EventSource, PollingAccumulator,
 };
-pub use global_registry::{
-    deregister_computation_graph, global_computation_graph_registry, list_registered_graphs,
-    register_computation_graph_constructor, ComputationGraphRegistration,
-};
+pub use global_registry::ComputationGraphRegistration;
 pub use types::{GraphError, GraphResult, InputCache, SourceName};

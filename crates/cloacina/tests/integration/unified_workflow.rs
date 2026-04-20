@@ -89,9 +89,10 @@ pub async fn test_trigger() -> Result<TriggerResult, TriggerError> {
 
 #[test]
 fn test_trigger_registered() {
-    // The #[trigger] macro auto-registers the trigger in the global registry
+    // The #[trigger] macro auto-registers the trigger; verify via Runtime.
+    let runtime = cloacina::Runtime::new();
     assert!(
-        cloacina::trigger::is_trigger_registered("test_trigger"),
+        runtime.get_trigger("test_trigger").is_some(),
         "Trigger should be auto-registered by #[trigger] macro"
     );
 }
@@ -108,8 +109,9 @@ pub async fn my_trigger_fn() -> Result<TriggerResult, TriggerError> {
 
 #[test]
 fn test_trigger_custom_name() {
+    let runtime = cloacina::Runtime::new();
     assert!(
-        cloacina::trigger::is_trigger_registered("custom_named_trigger"),
+        runtime.get_trigger("custom_named_trigger").is_some(),
         "Trigger should be registered under custom name"
     );
 }
@@ -121,8 +123,9 @@ fn nightly_job() {}
 
 #[test]
 fn test_cron_trigger_registered() {
+    let runtime = cloacina::Runtime::new();
     assert!(
-        cloacina::trigger::is_trigger_registered("nightly_job"),
+        runtime.get_trigger("nightly_job").is_some(),
         "Cron trigger should be auto-registered"
     );
 }
@@ -136,17 +139,20 @@ fn frequent_check() {}
 
 #[test]
 fn test_cron_trigger_custom_name() {
+    let runtime = cloacina::Runtime::new();
     assert!(
-        cloacina::trigger::is_trigger_registered("every_five_minutes"),
+        runtime.get_trigger("every_five_minutes").is_some(),
         "Cron trigger should be registered under custom name"
     );
 }
 
 #[test]
 fn test_cron_trigger_poll_returns_result() {
-    // Get the trigger from registry and verify poll works
-    let trigger =
-        cloacina::trigger::get_trigger("nightly_job").expect("nightly_job trigger should exist");
+    // Get the trigger from runtime and verify poll works
+    let runtime = cloacina::Runtime::new();
+    let trigger = runtime
+        .get_trigger("nightly_job")
+        .expect("nightly_job trigger should exist");
 
     // Verify basic properties
     assert_eq!(trigger.name(), "nightly_job");
