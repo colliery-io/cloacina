@@ -740,12 +740,20 @@ impl PyDefaultRunner {
     #[new]
     pub fn new(database_url: &str) -> PyResult<Self> {
         let database_url = database_url.to_string();
+        // Share the caller's ScopedRuntime (installed by the cloaca pymodule
+        // init, and where `@task`/`WorkflowBuilder` register) so the runner's
+        // scheduler can find workflows registered before the runner existed.
+        let rt_arc = crate::runtime_scope::current_runtime();
         spawn_runtime(move |rt| {
             info!(
                 "Creating DefaultRunner with database_url: {}",
                 cloacina::logging::mask_db_url(&database_url)
             );
-            rt.block_on(cloacina::DefaultRunner::new(&database_url))
+            let mut builder = cloacina::DefaultRunner::builder().database_url(&database_url);
+            if let Some(arc) = rt_arc {
+                builder = builder.runtime_arc(arc);
+            }
+            rt.block_on(builder.build())
         })
     }
 
@@ -757,11 +765,15 @@ impl PyDefaultRunner {
     ) -> PyResult<PyDefaultRunner> {
         let database_url = database_url.to_string();
         let rust_config = config.to_rust_config();
+        let rt_arc = crate::runtime_scope::current_runtime();
         spawn_runtime(move |rt| {
-            rt.block_on(cloacina::DefaultRunner::with_config(
-                &database_url,
-                rust_config,
-            ))
+            let mut builder = cloacina::DefaultRunner::builder()
+                .database_url(&database_url)
+                .with_config(rust_config);
+            if let Some(arc) = rt_arc {
+                builder = builder.runtime_arc(arc);
+            }
+            rt.block_on(builder.build())
         })
     }
 
@@ -793,13 +805,20 @@ impl PyDefaultRunner {
 
         let database_url = database_url.to_string();
         let schema = schema.to_string();
+        let rt_arc = crate::runtime_scope::current_runtime();
         spawn_runtime(move |rt| {
             info!(
                 "Creating DefaultRunner with schema: {} and database_url: {}",
                 schema,
                 cloacina::logging::mask_db_url(&database_url)
             );
-            rt.block_on(cloacina::DefaultRunner::with_schema(&database_url, &schema))
+            let mut builder = cloacina::DefaultRunner::builder()
+                .database_url(&database_url)
+                .schema(&schema);
+            if let Some(arc) = rt_arc {
+                builder = builder.runtime_arc(arc);
+            }
+            rt.block_on(builder.build())
         })
     }
 

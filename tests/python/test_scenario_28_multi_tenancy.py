@@ -64,7 +64,7 @@ class TestMultiTenancyBasics:
 
         # We expect connection errors for invalid URLs, not validation errors
         for valid_name in valid_names:
-            with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+            with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
                 cloaca.DefaultRunner.with_schema("postgresql://invalid_host/test", valid_name)
 
 
@@ -77,10 +77,10 @@ class TestPostgreSQLMultiTenancy:
         test_url = "postgresql://test:test@invalid_host:5432/test_db"
 
         # Both should fail with connection error, not validation error
-        with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+        with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
             cloaca.DefaultRunner.with_schema(test_url, "tenant_acme")
 
-        with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+        with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
             cloaca.DefaultRunner.with_schema(test_url, "tenant_globex")
 
     def test_different_schema_names(self):
@@ -92,7 +92,7 @@ class TestPostgreSQLMultiTenancy:
 
         for schema in schema_names:
             # Should fail with connection error, not schema validation error
-            with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+            with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
                 cloaca.DefaultRunner.with_schema(test_url, schema)
 
 
@@ -114,13 +114,13 @@ class TestMultiTenancyAPI:
         """Test that method is properly static."""
         # Should be callable without instance
         # This will fail due to connection, but tests that it's static
-        with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+        with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
             cloaca.DefaultRunner.with_schema("postgresql://invalid/test", "test_schema")
 
     def test_basic_usage_pattern(self):
         """Test that usage examples work as expected."""
         # Example 1: Basic tenant creation (should fail with connection error)
-        with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+        with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
             cloaca.DefaultRunner.with_schema(
                 "postgresql://user:pass@invalid_host/db",
                 "tenant_example"
@@ -129,7 +129,7 @@ class TestMultiTenancyAPI:
         # Example 2: Multiple tenants (should fail with connection error)
         tenant_names = ["tenant_0", "tenant_1", "tenant_2"]
         for i, name in enumerate(tenant_names):
-            with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+            with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
                 cloaca.DefaultRunner.with_schema(
                     "postgresql://user:pass@invalid_host/db",
                     name
@@ -149,7 +149,7 @@ class TestMultiTenancyIntegration:
                 return context
 
         # Test that schema creation would work with workflows (fails due to connection)
-        with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+        with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
             cloaca.DefaultRunner.with_schema(
                 "postgresql://test:test@invalid_host/test",
                 "test_tenant_a"
@@ -158,7 +158,7 @@ class TestMultiTenancyIntegration:
     def test_tenant_cron_concepts(self):
         """Test that multi-tenant concepts work with cron system."""
         # Test that schema creation would work with cron (fails due to connection)
-        with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+        with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
             cloaca.DefaultRunner.with_schema(
                 "postgresql://test:test@invalid_host/test",
                 "cron_tenant_a"
@@ -175,7 +175,7 @@ class TestMultiTenancyDocumentation:
 
         for schema in schema_names:
             # Each would get isolated schema in real PostgreSQL
-            with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+            with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
                 cloaca.DefaultRunner.with_schema(
                     "postgresql://user:pass@localhost/cloacina",
                     schema
@@ -185,7 +185,7 @@ class TestMultiTenancyDocumentation:
         valid_schemas = ["tenant123", "TENANT_ABC", "tenant_user_data"]
 
         for schema in valid_schemas:
-            with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):
+            with pytest.raises((RuntimeError, ValueError), match="Failed to set up schema"):
                 cloaca.DefaultRunner.with_schema(
                     "postgresql://user:pass@localhost/cloacina",
                     schema
@@ -208,5 +208,5 @@ class TestMultiTenancyDocumentation:
         # Connection error
         try:
             cloaca.DefaultRunner.with_schema("postgresql://invalid_host/test", "valid_schema")
-        except ValueError as e:
-            assert "Failed to create DefaultRunner with schema" in str(e)
+        except (RuntimeError, ValueError) as e:
+            assert "Failed to set up schema" in str(e)

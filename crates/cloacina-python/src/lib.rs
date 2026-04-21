@@ -90,6 +90,20 @@ use pyo3::prelude::*;
 
 #[pymodule]
 fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Install a process-default ScopedRuntime for standalone Python usage
+    // (tutorials, scripts, tests that import cloaca directly). Without this,
+    // module-level `@cloaca.task` and `WorkflowBuilder.__exit__` fail because
+    // the decorator/lifecycle code looks up the current Runtime via the
+    // thread-local slot in `runtime_scope`. The server loader path installs
+    // its own ScopedRuntime on a dedicated loader thread; this default is
+    // thread-local to the import thread and does not conflict with that.
+    if runtime_scope::current_runtime().is_none() {
+        let rt = std::sync::Arc::new(cloacina::Runtime::empty());
+        let guard = runtime_scope::ScopedRuntime::new(rt)
+            .expect("install process-default Runtime in cloaca pymodule init");
+        std::mem::forget(guard);
+    }
+
     m.add_class::<context::PyContext>()?;
 
     m.add_function(wrap_pyfunction!(task::task, m)?)?;
