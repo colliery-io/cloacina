@@ -144,7 +144,14 @@ def integration(
     if not skip_python:
         try:
             print_section_header("Building unified cloaca wheel for Python scenarios")
-            py_venv, _python_exe, _pip_exe = _build_and_install_cloaca_unified(venv_name)
+            # Pass the cargo feature set through so the wheel matches the
+            # lane. Otherwise a sqlite-only lane builds the wheel with
+            # maturin's defaults (postgres+sqlite+macros) and the resulting
+            # libcloacina.so fails to link when libpq has been removed from
+            # the runner to verify sqlite-only purity.
+            py_venv, _python_exe, _pip_exe = _build_and_install_cloaca_unified(
+                venv_name, cargo_features=cargo_features if not is_default_features else None,
+            )
         except Exception as e:
             print(f"Failed to build cloaca wheel for Python scenarios: {e}", file=sys.stderr)
             if venv_path.exists():

@@ -121,3 +121,13 @@ Landed fix:
 Verification run (2026-04-20, local):
 - `angreal demos python-tutorial-01`: green — workflow registered, executed, all three tasks completed.
 - `angreal cloacina integration`: green — Rust integration suite + Python pytest scenarios (both postgres and sqlite).
+
+### Feature Build (sqlite-only) CI fix (2026-04-20)
+
+PR 84's initial CI surfaced another pre-existing failure on main: `Feature Build (sqlite-only)` fails with `rust-lld: error: unable to find library -lpq`. Root cause: the sqlite-only lane removes libpq from the runner to verify purity, then `angreal cloacina integration` builds the cloaca wheel via `maturin build --release` without feature overrides, so cloacina-python's defaults (`postgres,sqlite,macros`) kick in and pull in libpq.
+
+Fix rolled into this PR:
+- `.angreal/cloacina/integration.py`: forward the caller's `--features` selection into the wheel build when it differs from defaults.
+- `.angreal/cloacina/python_utils.py`: `_build_and_install_cloaca_unified` now accepts `cargo_features=` and passes `--no-default-features --features <...>` to maturin when set.
+
+Verified locally: `maturin build --release --manylinux off --no-default-features --features sqlite,macros` in `crates/cloacina-python` succeeds and the resulting wheel has no libpq runtime requirement.

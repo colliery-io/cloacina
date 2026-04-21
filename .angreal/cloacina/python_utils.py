@@ -382,10 +382,13 @@ def get_workspace_version() -> str:
     raise ValueError("Could not find version in workspace Cargo.toml")
 
 
-def _build_and_install_cloaca_unified(venv_name):
+def _build_and_install_cloaca_unified(venv_name, cargo_features=None):
     """Build unified cloaca wheel and install it in a test environment.
 
-    The unified wheel supports both PostgreSQL and SQLite at runtime.
+    By default the wheel is built with the cloacina-python crate's default
+    features (postgres+sqlite+macros). Pass ``cargo_features`` (e.g.
+    ``"sqlite,macros"``) to scope the wheel to a specific backend — required
+    on the sqlite-only CI lane where libpq has been removed from the runner.
     Returns the VirtualEnv object and paths to executables.
     """
     project_root = Path(angreal.get_root()).parent
@@ -423,6 +426,9 @@ def _build_and_install_cloaca_unified(venv_name):
         "--release",
         "--manylinux", "off",  # skip auditwheel repair (avoids libpq.so resolution)
     ]
+    if cargo_features:
+        # Scope the wheel to a specific backend (e.g. sqlite-only lane).
+        maturin_cmd += ["--no-default-features", "--features", cargo_features]
 
     print(f"[DEBUG] Running: {' '.join(maturin_cmd)} in {crate_dir}", flush=True)
     result = subprocess.run(
