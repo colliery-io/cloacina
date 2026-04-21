@@ -2,6 +2,7 @@
 Utility functions for Cloacina development.
 """
 
+import os
 import subprocess
 import sys
 import time
@@ -74,7 +75,7 @@ def docker_up():
                 check=True
             )
         print("Docker services started successfully.")
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"Error starting Docker services: {e}", file=sys.stderr)
         return 1
     return 0
@@ -95,7 +96,7 @@ def docker_down(remove_volumes=False):
         except (subprocess.CalledProcessError, FileNotFoundError):
             subprocess.run(cmd_docker_compose, check=True)
         print("Docker services stopped successfully.")
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"Error stopping Docker services: {e}", file=sys.stderr)
         return 1
     return 0
@@ -116,7 +117,7 @@ def docker_clean():
                 check=True
             )
         print("Docker services and volumes cleaned successfully.")
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"Error cleaning Docker volumes: {e}", file=sys.stderr)
         return 1
     return 0
@@ -239,14 +240,41 @@ def smart_postgres_reset() -> bool:
     """Reset PostgreSQL state.
 
     This function will:
-    1. Try to reset using SQL if possible
-    2. Fall back to container restart if needed
+    1. Try a direct ``psql`` reset (works on macOS CI where Postgres is
+       installed via Homebrew and there is no Docker container to `exec`
+       into).
+    2. Fall back to ``docker exec cloacina-postgres psql`` for the normal
+       containerized setup.
+    3. Fall back to a container restart if neither reset path succeeds.
 
     Returns:
         True if reset was successful, False otherwise
     """
+    # Step 1: direct psql (no Docker required — used on macOS CI with
+    # Homebrew Postgres, and fine anywhere else if libpq's psql is on PATH).
     try:
-        # First try SQL reset
+        env = os.environ.copy()
+        env.setdefault("PGPASSWORD", "cloacina")
+        direct = subprocess.run(
+            [
+                "psql",
+                "-h", "localhost",
+                "-U", "cloacina",
+                "-d", "cloacina",
+                "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if direct.returncode == 0:
+            return True
+    except FileNotFoundError:
+        # psql binary not present — fall through to docker exec path.
+        pass
+
+    try:
+        # Step 2: SQL reset via docker exec
         result = subprocess.run(
             [
                 "docker", "exec", "cloacina-postgres",
