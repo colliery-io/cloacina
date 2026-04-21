@@ -537,6 +537,7 @@ pub struct DefaultRunnerBuilder {
     pub(super) schema: Option<String>,
     pub(super) config: DefaultRunnerConfig,
     pub(super) runtime: Option<Runtime>,
+    pub(super) runtime_arc: Option<Arc<Runtime>>,
 }
 
 impl Default for DefaultRunnerBuilder {
@@ -553,6 +554,7 @@ impl DefaultRunnerBuilder {
             schema: None,
             config: DefaultRunnerConfig::default(),
             runtime: None,
+            runtime_arc: None,
         }
     }
 
@@ -584,6 +586,17 @@ impl DefaultRunnerBuilder {
     /// If not set, [`Runtime::from_global()`] is used as the default.
     pub fn runtime(mut self, runtime: Runtime) -> Self {
         self.runtime = Some(runtime);
+        self
+    }
+
+    /// Use an existing shared [`Arc<Runtime>`] for this runner.
+    ///
+    /// Unlike [`runtime`](Self::runtime), this preserves the caller's `Arc`
+    /// identity so other components (e.g. Python decorators installed via
+    /// `ScopedRuntime`) that already hold a clone of the same `Arc<Runtime>`
+    /// share state with the runner. If both are set, `runtime_arc` wins.
+    pub fn runtime_arc(mut self, runtime: Arc<Runtime>) -> Self {
+        self.runtime_arc = Some(runtime);
         self
     }
 
@@ -656,8 +669,12 @@ impl DefaultRunnerBuilder {
                 .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
         }
 
-        // Resolve runtime: use provided or a fresh inventory-seeded one.
-        let runtime = Arc::new(self.runtime.unwrap_or_else(Runtime::new));
+        // Resolve runtime: prefer a caller-supplied Arc (so shared state with
+        // e.g. Python ScopedRuntime is preserved), else wrap a by-value
+        // Runtime, else create a fresh inventory-seeded one.
+        let runtime = self
+            .runtime_arc
+            .unwrap_or_else(|| Arc::new(self.runtime.unwrap_or_else(Runtime::new)));
 
         // Create scheduler with the scoped runtime
         let scheduler = TaskScheduler::with_poll_interval(

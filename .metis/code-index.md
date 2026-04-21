@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-20T16:47:15Z | 480 files | JavaScript, Python, Rust
+> Generated: 2026-04-21T01:23:35Z | 479 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -80,7 +80,6 @@
 │   │   │   ├── execution_planner/
 │   │   │   │   ├── context_manager.rs
 │   │   │   │   ├── mod.rs
-│   │   │   │   ├── recovery.rs
 │   │   │   │   ├── scheduler_loop.rs
 │   │   │   │   ├── stale_claim_sweeper.rs
 │   │   │   │   ├── state_manager.rs
@@ -232,7 +231,6 @@
 │   │           │   ├── cron_basic.rs
 │   │           │   ├── dependency_resolution.rs
 │   │           │   ├── mod.rs
-│   │           │   ├── recovery.rs
 │   │           │   ├── stale_claims.rs
 │   │           │   └── trigger_rules.rs
 │   │           ├── signing/
@@ -618,6 +616,8 @@
 │                   ├── build.rs
 │                   └── src/
 │                       └── main.rs
+├── scripts/
+│   └── check_credential_logging.py
 └── tests/
     └── python/
         ├── conftest.py
@@ -2580,19 +2580,6 @@
 -  `get_task_trigger_rules` function L627-636 — `( &self, workflow: &Workflow, task_namespace: &TaskNamespace, ) -> serde_json::V...` — Gets trigger rules for a specific task from the task implementation.
 -  `get_task_configuration` function L639-646 — `( &self, _workflow: &Workflow, _task_namespace: &TaskNamespace, ) -> serde_json:...` — Gets task configuration (currently returns empty object).
 
-#### crates/cloacina/src/execution_planner/recovery.rs
-
-- pub `RecoveryResult` enum L35-40 — `Recovered | Abandoned` — Result of attempting to recover a task.
-- pub `RecoveryManager` struct L46-49 — `{ dal: &'a DAL, runtime: Arc<Runtime> }` — Recovery operations for the scheduler.
-- pub `new` function L53-55 — `(dal: &'a DAL, runtime: Arc<Runtime>) -> Self` — Creates a new RecoveryManager.
-- pub `recover_orphaned_tasks` function L67-173 — `(&self) -> Result<(), ValidationError>` — Detects and recovers tasks orphaned by system interruptions.
--  `MAX_RECOVERY_ATTEMPTS` variable L43 — `: i32` — Maximum number of recovery attempts before abandoning a task.
--  `recover_tasks_for_known_workflow` function L176-203 — `( &self, tasks: Vec<TaskExecution>, ) -> Result<usize, ValidationError>` — Recovers tasks from workflows that are still available in the registry.
--  `abandon_tasks_for_unknown_workflow` function L206-286 — `( &self, workflow_exec: WorkflowExecutionRecord, tasks: Vec<TaskExecution>, avai...` — Abandons tasks from workflows that are no longer available in the registry.
--  `recover_single_task` function L289-329 — `( &self, task: TaskExecution, ) -> Result<RecoveryResult, ValidationError>` — Recovers a single orphaned task with retry limit enforcement.
--  `abandon_task_permanently` function L332-378 — `(&self, task: TaskExecution) -> Result<(), ValidationError>` — Permanently abandons a task that has exceeded recovery limits.
--  `record_recovery_event` function L381-384 — `(&self, event: NewRecoveryEvent) -> Result<(), ValidationError>` — Records a recovery event for monitoring and debugging.
-
 #### crates/cloacina/src/execution_planner/scheduler_loop.rs
 
 - pub `SchedulerLoop` struct L47-58 — `{ dal: &'a DAL, runtime: Arc<Runtime>, instance_id: Uuid, poll_interval: Duratio...` — Scheduler loop operations.
@@ -3635,34 +3622,35 @@
 - pub `enable_claiming` function L457-460 — `(mut self, value: bool) -> Self` — Enables or disables task claiming for horizontal scaling.
 - pub `heartbeat_interval` function L463-466 — `(mut self, value: Duration) -> Self` — Sets the heartbeat interval for claimed tasks.
 - pub `build` function L471-498 — `(self) -> Result<DefaultRunnerConfig, ConfigError>` — Builds and validates the configuration.
-- pub `DefaultRunnerBuilder` struct L535-540 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `new` function L550-557 — `() -> Self` — Creates a new builder with default configuration
-- pub `database_url` function L560-563 — `(mut self, url: &str) -> Self` — Sets the database URL
-- pub `schema` function L569-572 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
-- pub `with_config` function L575-578 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `runtime` function L585-588 — `(mut self, runtime: Runtime) -> Self` — Sets a scoped [`Runtime`] for this runner.
-- pub `build` function L602-714 — `(self) -> Result<DefaultRunner, WorkflowExecutionError>` — Builds the DefaultRunner
-- pub `routing_config` function L732-735 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+- pub `DefaultRunnerBuilder` struct L535-541 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `new` function L551-559 — `() -> Self` — Creates a new builder with default configuration
+- pub `database_url` function L562-565 — `(mut self, url: &str) -> Self` — Sets the database URL
+- pub `schema` function L571-574 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
+- pub `with_config` function L577-580 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
+- pub `runtime` function L587-590 — `(mut self, runtime: Runtime) -> Self` — Sets a scoped [`Runtime`] for this runner.
+- pub `runtime_arc` function L598-601 — `(mut self, runtime: Arc<Runtime>) -> Self` — Use an existing shared [`Arc<Runtime>`] for this runner.
+- pub `build` function L615-731 — `(self) -> Result<DefaultRunner, WorkflowExecutionError>` — Builds the DefaultRunner
+- pub `routing_config` function L749-752 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
 -  `DefaultRunnerConfig` type L100-250 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L267-303 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L268-302 — `() -> Self` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L305-499 — `= DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfig` type L501-507 — `impl Default for DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `default` function L502-506 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L542-546 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `default` function L543-545 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L548-736 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `validate_schema_name` function L591-599 — `(schema: &str) -> Result<(), WorkflowExecutionError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L739-914 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L743-758 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L761-787 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L790-799 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L802-826 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L829-845 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L848-851 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L854-867 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L870-878 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L881-913 — `()` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L543-547 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `default` function L544-546 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L549-753 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `validate_schema_name` function L604-612 — `(schema: &str) -> Result<(), WorkflowExecutionError>` — Validates the schema name contains only alphanumeric characters and underscores
+-  `tests` module L756-931 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L760-775 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L778-804 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L807-816 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L819-843 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L846-862 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L865-868 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L871-884 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L887-895 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L898-930 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
@@ -3705,58 +3693,58 @@
 
 #### crates/cloacina/src/runner/default_runner/service_manager.rs
 
--  `BackgroundService` interface L46-55 — `{ fn name(), fn start(), fn shutdown() }` — A background service whose lifecycle is owned by the [`ServiceManager`].
--  `ServiceManager` struct L58-72 — `{ services: Vec<Box<dyn BackgroundService>>, shutdown_tx: broadcast::Sender<()>,...` — Owns and orchestrates the runner's background services.
--  `ServiceManager` type L74-115 — `= ServiceManager` — reactive scheduler, unified scheduler, etc).
--  `new` function L75-86 — `() -> Self` — reactive scheduler, unified scheduler, etc).
--  `register` function L88-90 — `(&mut self, service: Box<dyn BackgroundService>)` — reactive scheduler, unified scheduler, etc).
--  `start_all` function L93-99 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Start every registered service in registration order.
--  `shutdown_all` function L102-114 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Broadcast shutdown and await each service in reverse registration order.
--  `TaskSchedulerService` struct L122-126 — `{ scheduler: Arc<TaskScheduler>, span: tracing::Span, handle: Option<JoinHandle<...` — Wraps the per-runner `TaskScheduler` polling loop.
--  `TaskSchedulerService` type L128-136 — `= TaskSchedulerService` — reactive scheduler, unified scheduler, etc).
--  `new` function L129-135 — `(scheduler: Arc<TaskScheduler>, span: tracing::Span) -> Self` — reactive scheduler, unified scheduler, etc).
--  `TaskSchedulerService` type L139-178 — `impl BackgroundService for TaskSchedulerService` — reactive scheduler, unified scheduler, etc).
--  `name` function L140-142 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
--  `start` function L144-170 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
--  `shutdown` function L172-177 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
--  `UnifiedSchedulerService` struct L181-186 — `{ scheduler: Arc<Scheduler>, inner_shutdown_tx: watch::Sender<bool>, span: traci...` — Wraps the unified cron + trigger scheduler loop.
--  `UnifiedSchedulerService` type L188-201 — `= UnifiedSchedulerService` — reactive scheduler, unified scheduler, etc).
--  `new` function L189-200 — `( scheduler: Arc<Scheduler>, inner_shutdown_tx: watch::Sender<bool>, span: traci...` — reactive scheduler, unified scheduler, etc).
--  `UnifiedSchedulerService` type L204-244 — `impl BackgroundService for UnifiedSchedulerService` — reactive scheduler, unified scheduler, etc).
--  `name` function L205-207 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
--  `start` function L209-236 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
--  `shutdown` function L238-243 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
--  `CronRecoveryServiceWrapper` struct L247-252 — `{ service: Arc<CronRecoveryService>, inner_shutdown_tx: watch::Sender<bool>, spa...` — Wraps the cron recovery loop.
--  `CronRecoveryServiceWrapper` type L254-267 — `= CronRecoveryServiceWrapper` — reactive scheduler, unified scheduler, etc).
--  `new` function L255-266 — `( service: Arc<CronRecoveryService>, inner_shutdown_tx: watch::Sender<bool>, spa...` — reactive scheduler, unified scheduler, etc).
--  `CronRecoveryServiceWrapper` type L270-310 — `impl BackgroundService for CronRecoveryServiceWrapper` — reactive scheduler, unified scheduler, etc).
--  `name` function L271-273 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
--  `start` function L275-302 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
--  `shutdown` function L304-309 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
--  `RegistryReconcilerService` struct L314-319 — `{ reconciler: Option<RegistryReconciler>, inner_shutdown_tx: watch::Sender<bool>...` — Wraps the registry reconciler loop.
--  `RegistryReconcilerService` type L321-334 — `= RegistryReconcilerService` — reactive scheduler, unified scheduler, etc).
--  `new` function L322-333 — `( reconciler: RegistryReconciler, inner_shutdown_tx: watch::Sender<bool>, span: ...` — reactive scheduler, unified scheduler, etc).
--  `RegistryReconcilerService` type L337-382 — `impl BackgroundService for RegistryReconcilerService` — reactive scheduler, unified scheduler, etc).
--  `name` function L338-340 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
--  `start` function L342-374 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
--  `shutdown` function L376-381 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
--  `StaleClaimSweeperService` struct L385-390 — `{ sweeper: Option<StaleClaimSweeper>, inner_shutdown_tx: watch::Sender<bool>, sp...` — Wraps the stale-claim sweeper loop.
--  `StaleClaimSweeperService` type L392-405 — `= StaleClaimSweeperService` — reactive scheduler, unified scheduler, etc).
--  `new` function L393-404 — `( sweeper: StaleClaimSweeper, inner_shutdown_tx: watch::Sender<bool>, span: trac...` — reactive scheduler, unified scheduler, etc).
--  `StaleClaimSweeperService` type L408-449 — `impl BackgroundService for StaleClaimSweeperService` — reactive scheduler, unified scheduler, etc).
--  `name` function L409-411 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
--  `start` function L413-441 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
--  `shutdown` function L443-448 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
+-  `BackgroundService` interface L45-54 — `{ fn name(), fn start(), fn shutdown() }` — A background service whose lifecycle is owned by the [`ServiceManager`].
+-  `ServiceManager` struct L57-71 — `{ services: Vec<Box<dyn BackgroundService>>, shutdown_tx: broadcast::Sender<()>,...` — Owns and orchestrates the runner's background services.
+-  `ServiceManager` type L73-114 — `= ServiceManager` — reactive scheduler, unified scheduler, etc).
+-  `new` function L74-85 — `() -> Self` — reactive scheduler, unified scheduler, etc).
+-  `register` function L87-89 — `(&mut self, service: Box<dyn BackgroundService>)` — reactive scheduler, unified scheduler, etc).
+-  `start_all` function L92-98 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Start every registered service in registration order.
+-  `shutdown_all` function L101-113 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Broadcast shutdown and await each service in reverse registration order.
+-  `TaskSchedulerService` struct L121-125 — `{ scheduler: Arc<TaskScheduler>, span: tracing::Span, handle: Option<JoinHandle<...` — Wraps the per-runner `TaskScheduler` polling loop.
+-  `TaskSchedulerService` type L127-135 — `= TaskSchedulerService` — reactive scheduler, unified scheduler, etc).
+-  `new` function L128-134 — `(scheduler: Arc<TaskScheduler>, span: tracing::Span) -> Self` — reactive scheduler, unified scheduler, etc).
+-  `TaskSchedulerService` type L138-177 — `impl BackgroundService for TaskSchedulerService` — reactive scheduler, unified scheduler, etc).
+-  `name` function L139-141 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
+-  `start` function L143-169 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
+-  `shutdown` function L171-176 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
+-  `UnifiedSchedulerService` struct L180-185 — `{ scheduler: Arc<Scheduler>, inner_shutdown_tx: watch::Sender<bool>, span: traci...` — Wraps the unified cron + trigger scheduler loop.
+-  `UnifiedSchedulerService` type L187-200 — `= UnifiedSchedulerService` — reactive scheduler, unified scheduler, etc).
+-  `new` function L188-199 — `( scheduler: Arc<Scheduler>, inner_shutdown_tx: watch::Sender<bool>, span: traci...` — reactive scheduler, unified scheduler, etc).
+-  `UnifiedSchedulerService` type L203-243 — `impl BackgroundService for UnifiedSchedulerService` — reactive scheduler, unified scheduler, etc).
+-  `name` function L204-206 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
+-  `start` function L208-235 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
+-  `shutdown` function L237-242 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
+-  `CronRecoveryServiceWrapper` struct L246-251 — `{ service: Arc<CronRecoveryService>, inner_shutdown_tx: watch::Sender<bool>, spa...` — Wraps the cron recovery loop.
+-  `CronRecoveryServiceWrapper` type L253-266 — `= CronRecoveryServiceWrapper` — reactive scheduler, unified scheduler, etc).
+-  `new` function L254-265 — `( service: Arc<CronRecoveryService>, inner_shutdown_tx: watch::Sender<bool>, spa...` — reactive scheduler, unified scheduler, etc).
+-  `CronRecoveryServiceWrapper` type L269-309 — `impl BackgroundService for CronRecoveryServiceWrapper` — reactive scheduler, unified scheduler, etc).
+-  `name` function L270-272 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
+-  `start` function L274-301 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
+-  `shutdown` function L303-308 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
+-  `RegistryReconcilerService` struct L313-318 — `{ reconciler: Option<RegistryReconciler>, inner_shutdown_tx: watch::Sender<bool>...` — Wraps the registry reconciler loop.
+-  `RegistryReconcilerService` type L320-333 — `= RegistryReconcilerService` — reactive scheduler, unified scheduler, etc).
+-  `new` function L321-332 — `( reconciler: RegistryReconciler, inner_shutdown_tx: watch::Sender<bool>, span: ...` — reactive scheduler, unified scheduler, etc).
+-  `RegistryReconcilerService` type L336-381 — `impl BackgroundService for RegistryReconcilerService` — reactive scheduler, unified scheduler, etc).
+-  `name` function L337-339 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
+-  `start` function L341-373 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
+-  `shutdown` function L375-380 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
+-  `StaleClaimSweeperService` struct L384-389 — `{ sweeper: Option<StaleClaimSweeper>, inner_shutdown_tx: watch::Sender<bool>, sp...` — Wraps the stale-claim sweeper loop.
+-  `StaleClaimSweeperService` type L391-404 — `= StaleClaimSweeperService` — reactive scheduler, unified scheduler, etc).
+-  `new` function L392-403 — `( sweeper: StaleClaimSweeper, inner_shutdown_tx: watch::Sender<bool>, span: trac...` — reactive scheduler, unified scheduler, etc).
+-  `StaleClaimSweeperService` type L407-448 — `impl BackgroundService for StaleClaimSweeperService` — reactive scheduler, unified scheduler, etc).
+-  `name` function L408-410 — `(&self) -> &'static str` — reactive scheduler, unified scheduler, etc).
+-  `start` function L412-440 — `( &mut self, mut shutdown_rx: broadcast::Receiver<()>, ) -> Result<(), WorkflowE...` — reactive scheduler, unified scheduler, etc).
+-  `shutdown` function L442-447 — `(&mut self) -> Result<(), WorkflowExecutionError>` — reactive scheduler, unified scheduler, etc).
 
 #### crates/cloacina/src/runner/default_runner/services.rs
 
--  `DefaultRunner` type L41-279 — `= DefaultRunner` — lifecycle from that point on.
+-  `DefaultRunner` type L41-276 — `= DefaultRunner` — lifecycle from that point on.
 -  `create_runner_span` function L43-61 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
 -  `start_background_services` function L65-100 — `(&self) -> Result<(), WorkflowExecutionError>` — Constructs every enabled background service, registers them with the
 -  `register_unified_scheduler` function L102-136 — `( &self, manager: &mut ServiceManager, ) -> Result<(), WorkflowExecutionError>` — lifecycle from that point on.
 -  `register_cron_recovery` function L138-171 — `( &self, manager: &mut ServiceManager, ) -> Result<(), WorkflowExecutionError>` — lifecycle from that point on.
--  `register_registry_reconciler` function L173-249 — `( &self, manager: &mut ServiceManager, ) -> Result<(), WorkflowExecutionError>` — lifecycle from that point on.
--  `register_stale_claim_sweeper` function L251-278 — `( &self, manager: &mut ServiceManager, ) -> Result<(), WorkflowExecutionError>` — lifecycle from that point on.
+-  `register_registry_reconciler` function L173-246 — `( &self, manager: &mut ServiceManager, ) -> Result<(), WorkflowExecutionError>` — lifecycle from that point on.
+-  `register_stale_claim_sweeper` function L248-275 — `( &self, manager: &mut ServiceManager, ) -> Result<(), WorkflowExecutionError>` — lifecycle from that point on.
 
 #### crates/cloacina/src/runner/default_runner/workflow_executor_impl.rs
 
@@ -4279,42 +4267,42 @@
 
 #### crates/cloacina/tests/fixtures.rs
 
-- pub `get_or_init_postgres_fixture` function L80-103 — `() -> Arc<Mutex<TestFixture>>` — Gets or initializes the PostgreSQL test fixture singleton
-- pub `get_or_init_sqlite_fixture` function L116-127 — `() -> Arc<Mutex<TestFixture>>` — Gets or initializes the SQLite test fixture singleton
-- pub `get_or_init_fixture` function L132-134 — `() -> Arc<Mutex<TestFixture>>` — Get the default fixture for the current backend configuration.
-- pub `get_or_init_fixture` function L139-141 — `() -> Arc<Mutex<TestFixture>>` — Get the default fixture for the current backend configuration.
-- pub `get_all_fixtures` function L160-170 — `() -> Vec<(&'static str, Arc<Mutex<TestFixture>>)>` — Returns all enabled backend fixtures for parameterized testing.
-- pub `TestFixture` struct L216-225 — `{ initialized: bool, db: Database, db_url: String, schema: String }` — Represents a test fixture for the Cloacina project.
-- pub `new_postgres` function L233-249 — `(db: Database, db_url: String, schema: String) -> Self` — Creates a new TestFixture instance for PostgreSQL
-- pub `new_sqlite` function L255-268 — `(db: Database, db_url: String) -> Self` — Creates a new TestFixture instance for SQLite
-- pub `get_dal` function L271-273 — `(&self) -> cloacina::dal::DAL` — Get a DAL instance using the database
-- pub `get_database` function L276-278 — `(&self) -> Database` — Get a clone of the database instance
-- pub `get_database_url` function L281-283 — `(&self) -> String` — Get the database URL for this fixture
-- pub `get_schema` function L286-288 — `(&self) -> String` — Get the schema name for this fixture
-- pub `get_current_backend` function L291-307 — `(&self) -> &'static str` — Get the name of the current backend (postgres or sqlite)
-- pub `create_storage` function L310-312 — `(&self) -> cloacina::dal::UnifiedRegistryStorage` — Create a unified storage backend using this fixture's database (primary storage method)
-- pub `create_backend_storage` function L316-318 — `(&self) -> Box<dyn cloacina::registry::traits::RegistryStorage>` — Create storage backend matching the current database backend
-- pub `create_unified_storage` function L321-323 — `(&self) -> cloacina::dal::UnifiedRegistryStorage` — Create a unified storage backend using this fixture's database
-- pub `create_filesystem_storage` function L326-331 — `(&self) -> cloacina::dal::FilesystemRegistryStorage` — Create a filesystem storage backend for testing
-- pub `initialize` function L334-363 — `(&mut self)` — Initialize the fixture with additional setup
-- pub `reset_database` function L366-452 — `(&mut self)` — Reset the database by truncating all tables in the test schema
-- pub `poll_until` function L472-491 — `( timeout: std::time::Duration, interval: std::time::Duration, msg: &str, condit...` — Poll a condition until it returns true, or timeout.
-- pub `fixtures` module L508-574 — `-` — for integration tests.
--  `INIT` variable L40 — `: Once` — for integration tests.
--  `POSTGRES_FIXTURE` variable L42 — `: OnceCell<Arc<Mutex<TestFixture>>>` — for integration tests.
--  `SQLITE_FIXTURE` variable L44 — `: OnceCell<Arc<Mutex<TestFixture>>>` — for integration tests.
--  `DEFAULT_POSTGRES_URL` variable L48 — `: &str` — Default PostgreSQL connection URL
--  `get_test_schema` function L53-60 — `() -> String` — Get the test schema name from environment variable or generate a unique one
--  `DEFAULT_SQLITE_URL` variable L64 — `: &str` — Default SQLite connection URL (in-memory with shared cache for testing)
--  `backend_test` macro L186-206 — `-` — Macro for defining tests that run on all enabled backends.
--  `TestFixture` type L227-453 — `= TestFixture` — for integration tests.
--  `TableName` struct L384-387 — `{ tablename: String }` — for integration tests.
--  `TableName` struct L428-431 — `{ name: String }` — for integration tests.
--  `TestFixture` type L493-498 — `impl Drop for TestFixture` — for integration tests.
--  `drop` function L494-497 — `(&mut self)` — for integration tests.
--  `TableCount` struct L501-504 — `{ count: i64 }` — for integration tests.
--  `test_migration_function_postgres` function L515-542 — `()` — for integration tests.
--  `test_migration_function_sqlite` function L547-573 — `()` — for integration tests.
+- pub `get_or_init_postgres_fixture` function L81-104 — `() -> Arc<Mutex<TestFixture>>` — Gets or initializes the PostgreSQL test fixture singleton
+- pub `get_or_init_sqlite_fixture` function L117-128 — `() -> Arc<Mutex<TestFixture>>` — Gets or initializes the SQLite test fixture singleton
+- pub `get_or_init_fixture` function L133-135 — `() -> Arc<Mutex<TestFixture>>` — Get the default fixture for the current backend configuration.
+- pub `get_or_init_fixture` function L140-142 — `() -> Arc<Mutex<TestFixture>>` — Get the default fixture for the current backend configuration.
+- pub `get_all_fixtures` function L161-171 — `() -> Vec<(&'static str, Arc<Mutex<TestFixture>>)>` — Returns all enabled backend fixtures for parameterized testing.
+- pub `TestFixture` struct L217-226 — `{ initialized: bool, db: Database, db_url: String, schema: String }` — Represents a test fixture for the Cloacina project.
+- pub `new_postgres` function L234-251 — `(db: Database, db_url: String, schema: String) -> Self` — Creates a new TestFixture instance for PostgreSQL
+- pub `new_sqlite` function L257-273 — `(db: Database, db_url: String) -> Self` — Creates a new TestFixture instance for SQLite
+- pub `get_dal` function L276-278 — `(&self) -> cloacina::dal::DAL` — Get a DAL instance using the database
+- pub `get_database` function L281-283 — `(&self) -> Database` — Get a clone of the database instance
+- pub `get_database_url` function L286-288 — `(&self) -> String` — Get the database URL for this fixture
+- pub `get_schema` function L291-293 — `(&self) -> String` — Get the schema name for this fixture
+- pub `get_current_backend` function L296-312 — `(&self) -> &'static str` — Get the name of the current backend (postgres or sqlite)
+- pub `create_storage` function L315-317 — `(&self) -> cloacina::dal::UnifiedRegistryStorage` — Create a unified storage backend using this fixture's database (primary storage method)
+- pub `create_backend_storage` function L321-323 — `(&self) -> Box<dyn cloacina::registry::traits::RegistryStorage>` — Create storage backend matching the current database backend
+- pub `create_unified_storage` function L326-328 — `(&self) -> cloacina::dal::UnifiedRegistryStorage` — Create a unified storage backend using this fixture's database
+- pub `create_filesystem_storage` function L331-336 — `(&self) -> cloacina::dal::FilesystemRegistryStorage` — Create a filesystem storage backend for testing
+- pub `initialize` function L339-368 — `(&mut self)` — Initialize the fixture with additional setup
+- pub `reset_database` function L371-457 — `(&mut self)` — Reset the database by truncating all tables in the test schema
+- pub `poll_until` function L477-496 — `( timeout: std::time::Duration, interval: std::time::Duration, msg: &str, condit...` — Poll a condition until it returns true, or timeout.
+- pub `fixtures` module L513-579 — `-` — for integration tests.
+-  `INIT` variable L41 — `: Once` — for integration tests.
+-  `POSTGRES_FIXTURE` variable L43 — `: OnceCell<Arc<Mutex<TestFixture>>>` — for integration tests.
+-  `SQLITE_FIXTURE` variable L45 — `: OnceCell<Arc<Mutex<TestFixture>>>` — for integration tests.
+-  `DEFAULT_POSTGRES_URL` variable L49 — `: &str` — Default PostgreSQL connection URL
+-  `get_test_schema` function L54-61 — `() -> String` — Get the test schema name from environment variable or generate a unique one
+-  `DEFAULT_SQLITE_URL` variable L65 — `: &str` — Default SQLite connection URL (in-memory with shared cache for testing)
+-  `backend_test` macro L187-207 — `-` — Macro for defining tests that run on all enabled backends.
+-  `TestFixture` type L228-458 — `= TestFixture` — for integration tests.
+-  `TableName` struct L389-392 — `{ tablename: String }` — for integration tests.
+-  `TableName` struct L433-436 — `{ name: String }` — for integration tests.
+-  `TestFixture` type L498-503 — `impl Drop for TestFixture` — for integration tests.
+-  `drop` function L499-502 — `(&mut self)` — for integration tests.
+-  `TableCount` struct L506-509 — `{ count: i64 }` — for integration tests.
+-  `test_migration_function_postgres` function L520-547 — `()` — for integration tests.
+-  `test_migration_function_sqlite` function L552-578 — `()` — for integration tests.
 
 ### crates/cloacina/tests/integration
 
@@ -4374,7 +4362,7 @@
 -  `Output` type L737 — `= BetaData` — graph, and generates a callable async function that routes data correctly.
 -  `process` function L738-740 — `(&mut self, event: Vec<u8>) -> Option<BetaData>` — graph, and generates a callable async function that routes data correctly.
 -  `test_sequential_input_strategy` function L837-920 — `()` — graph, and generates a callable async function that routes data correctly.
--  `resilience_tests` module L927-1921 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `resilience_tests` module L927-1950 — `-` — graph, and generates a callable async function that routes data correctly.
 -  `test_dal` function L933-943 — `() -> cloacina::dal::unified::DAL` — Helper: create an in-memory SQLite DAL for testing.
 -  `test_boundary_sender_sequence_numbers` function L946-964 — `()` — graph, and generates a callable async function that routes data correctly.
 -  `test_boundary_sender_with_sequence_recovery` function L967-981 — `()` — graph, and generates a callable async function that routes data correctly.
@@ -4397,7 +4385,7 @@
 -  `SumBatcher` type L1677-1687 — `= SumBatcher` — graph, and generates a callable async function that routes data correctly.
 -  `Output` type L1678 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
 -  `process_batch` function L1679-1686 — `(&mut self, events: Vec<Vec<u8>>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
--  `test_supervisor_individual_accumulator_restart` function L1775-1920 — `()` — Test: Supervisor restarts crashed accumulator individually.
+-  `test_supervisor_individual_accumulator_restart` function L1775-1949 — `()` — Test: Supervisor restarts crashed accumulator individually.
 -  `PanicAfterTwoFactory` struct L1794-1796 — `{ spawn_count: std::sync::atomic::AtomicU32 }` — Factory that produces accumulators that panic after 2 events on first spawn,
 -  `PanicAfterTwoFactory` type L1798-1849 — `impl AccumulatorFactory for PanicAfterTwoFactory` — graph, and generates a callable async function that routes data correctly.
 -  `spawn` function L1799-1848 — `( &self, name: String, boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>, s...` — graph, and generates a callable async function that routes data correctly.
@@ -4405,6 +4393,7 @@
 -  `MaybePanicAccumulator` type L1817-1826 — `= MaybePanicAccumulator` — graph, and generates a callable async function that routes data correctly.
 -  `Output` type L1818 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
 -  `process` function L1819-1825 — `(&mut self, event: Vec<u8>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `poll_until` function L1873-1886 — `( mut pred: F, timeout: std::time::Duration, label: &str, )` — graph, and generates a callable async function that routes data correctly.
 
 #### crates/cloacina/tests/integration/context.rs
 
@@ -4585,18 +4574,18 @@
 -  `create_test_filesystem_storage` function L113-120 — `() -> FilesystemRegistryStorage` — Helper to create a test filesystem storage (for tests that specifically need filesystem)
 -  `test_workflow_registry_creation` function L124-140 — `()` — including storage, metadata extraction, validation, and task registration.
 -  `test_register_workflow_with_invalid_package` function L144-165 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_register_real_workflow_package` function L169-210 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_get_workflow_nonexistent` function L214-225 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_unregister_nonexistent_workflow` function L229-242 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_list_workflows_empty` function L246-258 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_workflow_registry_with_multiple_packages` function L262-293 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_concurrent_registry_operations` function L297-347 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_registry_error_handling` function L351-374 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_storage_integration` function L378-398 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_database_integration` function L402-423 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_registry_memory_safety` function L427-445 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_package_lifecycle` function L449-477 — `()` — including storage, metadata extraction, validation, and task registration.
--  `test_validation_integration` function L481-503 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_register_real_workflow_package` function L169-213 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_get_workflow_nonexistent` function L217-228 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_unregister_nonexistent_workflow` function L232-245 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_list_workflows_empty` function L249-261 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_workflow_registry_with_multiple_packages` function L265-296 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_concurrent_registry_operations` function L300-350 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_registry_error_handling` function L354-377 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_storage_integration` function L381-401 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_database_integration` function L405-426 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_registry_memory_safety` function L430-448 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_package_lifecycle` function L452-480 — `()` — including storage, metadata extraction, validation, and task registration.
+-  `test_validation_integration` function L484-506 — `()` — including storage, metadata extraction, validation, and task registration.
 
 #### crates/cloacina/tests/integration/runner_configurable_registry_tests.rs
 
@@ -4964,23 +4953,6 @@
 -  `recovery` module L21 — `-`
 -  `stale_claims` module L22 — `-`
 -  `trigger_rules` module L23 — `-`
-
-#### crates/cloacina/tests/integration/scheduler/recovery.rs
-
--  `postgres_tests` module L21-602 — `-`
--  `test_orphaned_task_recovery` function L35-109 — `()`
--  `test_task_abandonment_after_max_retries` function L113-193 — `()`
--  `test_no_recovery_needed` function L197-273 — `()`
--  `test_multiple_orphaned_tasks_recovery` function L277-413 — `()`
--  `test_recovery_event_details` function L417-478 — `()`
--  `test_graceful_recovery_for_unknown_workflow` function L482-601 — `()`
--  `sqlite_tests` module L605-1194 — `-`
--  `test_orphaned_task_recovery` function L619-693 — `()`
--  `test_task_abandonment_after_max_retries` function L697-781 — `()`
--  `test_no_recovery_needed` function L785-861 — `()`
--  `test_multiple_orphaned_tasks_recovery` function L865-1005 — `()`
--  `test_recovery_event_details` function L1009-1070 — `()`
--  `test_graceful_recovery_for_unknown_workflow` function L1074-1193 — `()`
 
 #### crates/cloacina/tests/integration/scheduler/stale_claims.rs
 
@@ -5627,26 +5599,26 @@
 - pub `__repr__` function L260-266 — `(&self) -> String`
 - pub `from_result` function L270-272 — `(result: cloacina::executor::WorkflowExecutionResult) -> Self`
 - pub `PyDefaultRunner` struct L706-708 — `{ runtime_handle: Mutex<AsyncRuntimeHandle> }` — Python wrapper for DefaultRunner
-- pub `new` function L741-750 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
-- pub `with_config` function L754-766 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
-- pub `with_schema` function L777-804 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `execute` function L807-821 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyW...` — Execute a workflow by name with context
-- pub `shutdown` function L824-840 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
-- pub `register_cron_workflow` function L855-870 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
-- pub `list_cron_schedules` function L878-898 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
-- pub `set_cron_schedule_enabled` function L901-914 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
-- pub `delete_cron_schedule` function L917-924 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
-- pub `get_cron_schedule` function L927-936 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
-- pub `update_cron_schedule` function L939-954 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
-- pub `get_cron_execution_history` function L957-981 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
-- pub `get_cron_execution_stats` function L987-1010 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
-- pub `list_trigger_schedules` function L1018-1038 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
-- pub `get_trigger_schedule` function L1041-1057 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
-- pub `set_trigger_enabled` function L1060-1073 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
-- pub `get_trigger_execution_history` function L1077-1101 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
-- pub `__repr__` function L1107-1109 — `(&self) -> String`
-- pub `__enter__` function L1111-1113 — `(slf: PyRef<Self>) -> PyRef<Self>`
-- pub `__exit__` function L1115-1124 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...`
+- pub `new` function L741-758 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
+- pub `with_config` function L762-778 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
+- pub `with_schema` function L789-823 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `execute` function L826-840 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyW...` — Execute a workflow by name with context
+- pub `shutdown` function L843-859 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
+- pub `register_cron_workflow` function L874-889 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
+- pub `list_cron_schedules` function L897-917 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
+- pub `set_cron_schedule_enabled` function L920-933 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
+- pub `delete_cron_schedule` function L936-943 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
+- pub `get_cron_schedule` function L946-955 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
+- pub `update_cron_schedule` function L958-973 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
+- pub `get_cron_execution_history` function L976-1000 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
+- pub `get_cron_execution_stats` function L1006-1029 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
+- pub `list_trigger_schedules` function L1037-1057 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
+- pub `get_trigger_schedule` function L1060-1076 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
+- pub `set_trigger_enabled` function L1079-1092 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
+- pub `get_trigger_execution_history` function L1096-1120 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
+- pub `__repr__` function L1126-1128 — `(&self) -> String`
+- pub `__enter__` function L1130-1132 — `(slf: PyRef<Self>) -> PyRef<Self>`
+- pub `__exit__` function L1134-1143 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...`
 -  `SHUTDOWN_TIMEOUT` variable L30 — `: Duration` — Timeout for waiting on runtime thread shutdown
 -  `RuntimeMessage` enum L49-158 — `Execute | RegisterCronWorkflow | ListCronSchedules | SetCronScheduleEnabled | De...` — Message types for communication with the async runtime thread
 -  `AsyncRuntimeHandle` struct L161-164 — `{ tx: mpsc::UnboundedSender<RuntimeMessage>, thread_handle: Option<thread::JoinH...` — Handle to the background async runtime thread
@@ -5665,36 +5637,36 @@
 -  `spawn_runtime` function L642-698 — `(create_runner: F) -> PyResult<PyDefaultRunner>` — Spawn a background thread running a Tokio runtime with a DefaultRunner
 -  `PyDefaultRunner` type L711-735 — `= PyDefaultRunner` — Internal (non-Python) helpers.
 -  `send_and_recv` function L715-734 — `( &self, message: RuntimeMessage, response_rx: oneshot::Receiver<Result<T, cloac...` — Send a message to the runtime thread and block until a response arrives.
--  `PyDefaultRunner` type L738-1125 — `= PyDefaultRunner`
--  `tests` module L1129-1621 — `-`
--  `TEST_PG_URL` variable L1133 — `: &str`
--  `unique_sqlite_url` function L1135-1140 — `() -> String`
--  `test_runner_repr` function L1144-1151 — `()`
--  `test_runner_shutdown` function L1155-1161 — `()`
--  `test_runner_context_manager` function L1165-1177 — `()`
--  `test_runner_list_cron_schedules_empty` function L1181-1191 — `()`
--  `test_runner_list_trigger_schedules_empty` function L1195-1205 — `()`
--  `test_runner_get_trigger_schedule_not_found` function L1209-1218 — `()`
--  `test_runner_register_cron_workflow` function L1222-1239 — `()`
--  `test_runner_list_cron_schedules_after_register` function L1243-1263 — `()`
--  `test_runner_get_cron_schedule` function L1267-1287 — `()`
--  `test_runner_set_cron_schedule_enabled` function L1291-1313 — `()`
--  `test_runner_delete_cron_schedule` function L1317-1339 — `()`
--  `test_runner_update_cron_schedule` function L1343-1367 — `()`
--  `test_runner_get_cron_execution_history_empty` function L1371-1391 — `()`
--  `test_runner_get_cron_execution_stats` function L1395-1407 — `()`
--  `test_runner_set_cron_schedule_enabled_invalid_id` function L1411-1420 — `()`
--  `test_runner_set_trigger_enabled` function L1424-1433 — `()`
--  `test_runner_get_trigger_execution_history` function L1437-1447 — `()`
--  `test_workflow_result_completed` function L1451-1482 — `()`
--  `test_workflow_result_failed` function L1486-1505 — `()`
--  `test_runner_execute_nonexistent_workflow` function L1509-1522 — `()`
--  `test_runner_get_cron_execution_stats_invalid_date` function L1533-1542 — `()`
--  `test_runner_list_cron_schedules_enabled_only` function L1546-1575 — `()`
--  `test_with_schema_rejects_sqlite` function L1581-1585 — `()`
--  `test_with_schema_rejects_empty_schema` function L1589-1596 — `()`
--  `test_with_schema_rejects_invalid_chars` function L1600-1607 — `()`
--  `test_shutdown_error_display` function L1611-1620 — `()`
+-  `PyDefaultRunner` type L738-1144 — `= PyDefaultRunner`
+-  `tests` module L1148-1640 — `-`
+-  `TEST_PG_URL` variable L1152 — `: &str`
+-  `unique_sqlite_url` function L1154-1159 — `() -> String`
+-  `test_runner_repr` function L1163-1170 — `()`
+-  `test_runner_shutdown` function L1174-1180 — `()`
+-  `test_runner_context_manager` function L1184-1196 — `()`
+-  `test_runner_list_cron_schedules_empty` function L1200-1210 — `()`
+-  `test_runner_list_trigger_schedules_empty` function L1214-1224 — `()`
+-  `test_runner_get_trigger_schedule_not_found` function L1228-1237 — `()`
+-  `test_runner_register_cron_workflow` function L1241-1258 — `()`
+-  `test_runner_list_cron_schedules_after_register` function L1262-1282 — `()`
+-  `test_runner_get_cron_schedule` function L1286-1306 — `()`
+-  `test_runner_set_cron_schedule_enabled` function L1310-1332 — `()`
+-  `test_runner_delete_cron_schedule` function L1336-1358 — `()`
+-  `test_runner_update_cron_schedule` function L1362-1386 — `()`
+-  `test_runner_get_cron_execution_history_empty` function L1390-1410 — `()`
+-  `test_runner_get_cron_execution_stats` function L1414-1426 — `()`
+-  `test_runner_set_cron_schedule_enabled_invalid_id` function L1430-1439 — `()`
+-  `test_runner_set_trigger_enabled` function L1443-1452 — `()`
+-  `test_runner_get_trigger_execution_history` function L1456-1466 — `()`
+-  `test_workflow_result_completed` function L1470-1501 — `()`
+-  `test_workflow_result_failed` function L1505-1524 — `()`
+-  `test_runner_execute_nonexistent_workflow` function L1528-1541 — `()`
+-  `test_runner_get_cron_execution_stats_invalid_date` function L1552-1561 — `()`
+-  `test_runner_list_cron_schedules_enabled_only` function L1565-1594 — `()`
+-  `test_with_schema_rejects_sqlite` function L1600-1604 — `()`
+-  `test_with_schema_rejects_empty_schema` function L1608-1615 — `()`
+-  `test_with_schema_rejects_invalid_chars` function L1619-1626 — `()`
+-  `test_shutdown_error_display` function L1630-1639 — `()`
 
 #### crates/cloacina-python/src/bindings/trigger.rs
 
@@ -5929,14 +5901,14 @@
 - pub `runtime_scope` module L83 — `-` — `#[pymodule]` definition.
 -  `computation_graph_tests` module L31 — `-` — `#[pymodule]` definition.
 -  `runtime_impl` module L78 — `-` — `#[pymodule]` definition.
--  `cloaca` function L92-143 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — `#[pymodule]` definition.
--  `tests` module L146-362 — `-` — `#[pymodule]` definition.
--  `test_python_workflow_via_with_gil` function L151-197 — `()` — `#[pymodule]` definition.
--  `test_ensure_cloaca_module_registers_in_sys_modules` function L200-230 — `()` — `#[pymodule]` definition.
--  `test_cloaca_var_and_var_or_from_python` function L233-289 — `()` — `#[pymodule]` definition.
--  `test_cloaca_cg_decorators_are_callable` function L292-326 — `()` — `#[pymodule]` definition.
--  `test_validate_no_stdlib_shadowing_rejects_os_py` function L329-345 — `()` — `#[pymodule]` definition.
--  `test_validate_no_stdlib_shadowing_allows_normal_packages` function L348-361 — `()` — `#[pymodule]` definition.
+-  `cloaca` function L92-157 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — `#[pymodule]` definition.
+-  `tests` module L160-376 — `-` — `#[pymodule]` definition.
+-  `test_python_workflow_via_with_gil` function L165-211 — `()` — `#[pymodule]` definition.
+-  `test_ensure_cloaca_module_registers_in_sys_modules` function L214-244 — `()` — `#[pymodule]` definition.
+-  `test_cloaca_var_and_var_or_from_python` function L247-303 — `()` — `#[pymodule]` definition.
+-  `test_cloaca_cg_decorators_are_callable` function L306-340 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_rejects_os_py` function L343-359 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_allows_normal_packages` function L362-375 — `()` — `#[pymodule]` definition.
 
 #### crates/cloacina-python/src/loader.rs
 
@@ -9542,9 +9514,9 @@
 #### examples/features/workflows/per-tenant-credentials/src/main.rs
 
 -  `main` function L28-50 — `() -> Result<(), Box<dyn std::error::Error>>` — isolated tenant users with their own database credentials and schemas.
--  `demonstrate_admin_tenant_creation` function L52-122 — `( admin_database_url: &str, ) -> Result<(), Box<dyn std::error::Error>>` — isolated tenant users with their own database credentials and schemas.
--  `demonstrate_tenant_isolation` function L124-182 — `( admin_database_url: &str, ) -> Result<(), Box<dyn std::error::Error>>` — isolated tenant users with their own database credentials and schemas.
--  `mask_password` function L185-196 — `(connection_string: &str) -> String` — Masks passwords in connection strings for safe logging
+-  `demonstrate_admin_tenant_creation` function L52-125 — `( admin_database_url: &str, ) -> Result<(), Box<dyn std::error::Error>>` — isolated tenant users with their own database credentials and schemas.
+-  `demonstrate_tenant_isolation` function L127-185 — `( admin_database_url: &str, ) -> Result<(), Box<dyn std::error::Error>>` — isolated tenant users with their own database credentials and schemas.
+-  `mask_password` function L188-199 — `(connection_string: &str) -> String` — Masks passwords in connection strings for safe logging
 
 ### examples/features/workflows/python-workflow
 
@@ -10125,6 +10097,20 @@
 -  `basic_multi_tenant_demo` function L177-229 — `(database_url: &str) -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
 -  `advanced_admin_demo` function L231-291 — `(admin_database_url: &str) -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
 
+### scripts
+
+> *Semantic summary to be generated by AI agent.*
+
+#### scripts/check_credential_logging.py
+
+- pub `repo_root` function L53-60 — `def repo_root() -> Path`
+- pub `list_rust_files` function L63-78 — `def list_rust_files(root: Path) -> list[Path]`
+- pub `find_macro_invocation_end` function L81-125 — `def find_macro_invocation_end(text: str, open_paren_idx: int) -> int` — Return index just past the closing `)` of a macro invocation
+- pub `line_of` function L128-129 — `def line_of(text: str, idx: int) -> int`
+- pub `preceding_line` function L132-140 — `def preceding_line(text: str, idx: int) -> str`
+- pub `scan_file` function L143-178 — `def scan_file(path: Path, root: Path) -> list[tuple[Path, int, str, str]]`
+- pub `main` function L181-207 — `def main() -> int`
+
 ### tests/python
 
 > *Semantic summary to be generated by AI agent.*
@@ -10136,46 +10122,43 @@
 
 #### tests/python/test_scenario_01_basic_api.py
 
-- pub `TestBasicImports` class L13-44 — `{ test_import_cloaca_successfully, test_hello_world_function, test_core_classes_...` — Test that we can import and use basic Cloaca functionality.
-- pub `test_import_cloaca_successfully` method L16-22 — `def test_import_cloaca_successfully(self)` — Test that cloaca module imports without errors.
-- pub `test_hello_world_function` method L24-30 — `def test_hello_world_function(self)` — Test the hello_world function returns expected output.
-- pub `test_core_classes_available` method L32-44 — `def test_core_classes_available(self)` — Test that core classes are importable.
-- pub `TestContextOperations` class L47-222 — `{ test_empty_context_creation, test_context_creation_with_data, test_context_bas...` — Test Context class functionality without database operations.
-- pub `test_empty_context_creation` method L50-57 — `def test_empty_context_creation(self)` — Test creating empty context.
-- pub `test_context_creation_with_data` method L59-83 — `def test_context_creation_with_data(self)` — Test creating context with initial data.
-- pub `test_context_basic_operations` method L85-105 — `def test_context_basic_operations(self)` — Test basic get/set/contains operations.
-- pub `test_context_insert_and_update` method L107-127 — `def test_context_insert_and_update(self)` — Test insert and update operations with error handling.
-- pub `test_context_remove_and_delete` method L129-155 — `def test_context_remove_and_delete(self)` — Test remove and delete operations.
-- pub `test_context_serialization` method L157-191 — `def test_context_serialization(self)` — Test JSON serialization and deserialization.
-- pub `test_context_dict_conversion` method L193-212 — `def test_context_dict_conversion(self)` — Test to_dict and update_from_dict operations.
-- pub `test_context_string_representation` method L214-222 — `def test_context_string_representation(self)` — Test context string representation.
-- pub `TestTaskDecorator` class L225-365 — `{ test_basic_task_decorator, test_task_decorator_with_dependencies, test_task_de...` — Test @task decorator functionality without execution.
-- pub `test_basic_task_decorator` method L228-245 — `def test_basic_task_decorator(self)` — Test basic task decorator usage.
-- pub `test_task_decorator_with_dependencies` method L247-274 — `def test_task_decorator_with_dependencies(self)` — Test task decorator with dependency specification.
-- pub `test_task_decorator_with_retry_policy` method L276-300 — `def test_task_decorator_with_retry_policy(self)` — Test task decorator with comprehensive retry configuration.
-- pub `test_task_decorator_auto_id` method L302-318 — `def test_task_decorator_auto_id(self)` — Test task decorator with automatic ID generation.
-- pub `test_task_decorator_function_references` method L320-347 — `def test_task_decorator_function_references(self)` — Test using function references in dependencies.
-- pub `test_task_decorator_return_none` method L349-365 — `def test_task_decorator_return_none(self)` — Test task that returns None (success case).
-- pub `TestWorkflowBuilder` class L368-567 — `{ test_basic_workflow_builder_creation, test_workflow_builder_with_tasks, test_w...` — Test WorkflowBuilder functionality without execution.
-- pub `test_basic_workflow_builder_creation` method L371-397 — `def test_basic_workflow_builder_creation(self)` — Test creating WorkflowBuilder with basic configuration.
-- pub `test_workflow_builder_with_tasks` method L399-431 — `def test_workflow_builder_with_tasks(self)` — Test building workflow with registered tasks.
-- pub `test_workflow_builder_function_references` method L433-457 — `def test_workflow_builder_function_references(self)` — Test adding tasks using function references.
-- pub `test_workflow_builder_error_handling` method L459-473 — `def test_workflow_builder_error_handling(self)` — Test error handling in WorkflowBuilder.
-- pub `test_workflow_validation` method L475-495 — `def test_workflow_validation(self)` — Test workflow validation functionality.
-- pub `test_workflow_properties` method L497-531 — `def test_workflow_properties(self)` — Test workflow property access and methods.
-- pub `test_workflow_version_consistency` method L533-567 — `def test_workflow_version_consistency(self)` — Test that identical workflows have identical versions.
-- pub `TestDefaultRunnerConfig` class L570-676 — `{ test_config_creation_with_defaults, test_config_creation_with_custom_values, t...` — Test DefaultRunnerConfig functionality.
-- pub `test_config_creation_with_defaults` method L573-589 — `def test_config_creation_with_defaults(self)` — Test creating config with default values.
-- pub `test_config_creation_with_custom_values` method L591-608 — `def test_config_creation_with_custom_values(self)` — Test creating config with custom values.
-- pub `test_config_property_access` method L610-637 — `def test_config_property_access(self)` — Test all config property getters and setters.
-- pub `test_config_to_dict` method L639-653 — `def test_config_to_dict(self)` — Test config dictionary conversion.
-- pub `test_config_static_default_method` method L655-665 — `def test_config_static_default_method(self)` — Test static default method.
-- pub `test_config_string_representation` method L667-676 — `def test_config_string_representation(self)` — Test config string representation.
-- pub `TestWorkflowContextManager` class L679-729 — `{ test_basic_workflow_context_manager, test_register_workflow_constructor }` — Test workflow context manager functionality.
-- pub `test_basic_workflow_context_manager` method L682-706 — `def test_basic_workflow_context_manager(self)` — Test basic workflow context manager usage.
-- pub `test_register_workflow_constructor` method L708-729 — `def test_register_workflow_constructor(self)` — Test manual workflow constructor registration.
-- pub `TestHelloClass` class L732-749 — `{ test_hello_class_creation }` — Test HelloClass functionality.
-- pub `test_hello_class_creation` method L735-749 — `def test_hello_class_creation(self)` — Test HelloClass creation and basic functionality.
+- pub `TestBasicImports` class L13-36 — `{ test_import_cloaca_successfully, test_core_classes_available }` — Test that we can import and use basic Cloaca functionality.
+- pub `test_import_cloaca_successfully` method L16-23 — `def test_import_cloaca_successfully(self)` — Test that cloaca module imports without errors.
+- pub `test_core_classes_available` method L25-36 — `def test_core_classes_available(self)` — Test that core classes are importable.
+- pub `TestContextOperations` class L39-214 — `{ test_empty_context_creation, test_context_creation_with_data, test_context_bas...` — Test Context class functionality without database operations.
+- pub `test_empty_context_creation` method L42-49 — `def test_empty_context_creation(self)` — Test creating empty context.
+- pub `test_context_creation_with_data` method L51-75 — `def test_context_creation_with_data(self)` — Test creating context with initial data.
+- pub `test_context_basic_operations` method L77-97 — `def test_context_basic_operations(self)` — Test basic get/set/contains operations.
+- pub `test_context_insert_and_update` method L99-119 — `def test_context_insert_and_update(self)` — Test insert and update operations with error handling.
+- pub `test_context_remove_and_delete` method L121-147 — `def test_context_remove_and_delete(self)` — Test remove and delete operations.
+- pub `test_context_serialization` method L149-183 — `def test_context_serialization(self)` — Test JSON serialization and deserialization.
+- pub `test_context_dict_conversion` method L185-204 — `def test_context_dict_conversion(self)` — Test to_dict and update_from_dict operations.
+- pub `test_context_string_representation` method L206-214 — `def test_context_string_representation(self)` — Test context string representation.
+- pub `TestTaskDecorator` class L217-357 — `{ test_basic_task_decorator, test_task_decorator_with_dependencies, test_task_de...` — Test @task decorator functionality without execution.
+- pub `test_basic_task_decorator` method L220-237 — `def test_basic_task_decorator(self)` — Test basic task decorator usage.
+- pub `test_task_decorator_with_dependencies` method L239-266 — `def test_task_decorator_with_dependencies(self)` — Test task decorator with dependency specification.
+- pub `test_task_decorator_with_retry_policy` method L268-292 — `def test_task_decorator_with_retry_policy(self)` — Test task decorator with comprehensive retry configuration.
+- pub `test_task_decorator_auto_id` method L294-310 — `def test_task_decorator_auto_id(self)` — Test task decorator with automatic ID generation.
+- pub `test_task_decorator_function_references` method L312-339 — `def test_task_decorator_function_references(self)` — Test using function references in dependencies.
+- pub `test_task_decorator_return_none` method L341-357 — `def test_task_decorator_return_none(self)` — Test task that returns None (success case).
+- pub `TestWorkflowBuilder` class L360-559 — `{ test_basic_workflow_builder_creation, test_workflow_builder_with_tasks, test_w...` — Test WorkflowBuilder functionality without execution.
+- pub `test_basic_workflow_builder_creation` method L363-389 — `def test_basic_workflow_builder_creation(self)` — Test creating WorkflowBuilder with basic configuration.
+- pub `test_workflow_builder_with_tasks` method L391-423 — `def test_workflow_builder_with_tasks(self)` — Test building workflow with registered tasks.
+- pub `test_workflow_builder_function_references` method L425-449 — `def test_workflow_builder_function_references(self)` — Test adding tasks using function references.
+- pub `test_workflow_builder_error_handling` method L451-465 — `def test_workflow_builder_error_handling(self)` — Test error handling in WorkflowBuilder.
+- pub `test_workflow_validation` method L467-487 — `def test_workflow_validation(self)` — Test workflow validation functionality.
+- pub `test_workflow_properties` method L489-523 — `def test_workflow_properties(self)` — Test workflow property access and methods.
+- pub `test_workflow_version_consistency` method L525-559 — `def test_workflow_version_consistency(self)` — Test that identical workflows have identical versions.
+- pub `TestDefaultRunnerConfig` class L562-668 — `{ test_config_creation_with_defaults, test_config_creation_with_custom_values, t...` — Test DefaultRunnerConfig functionality.
+- pub `test_config_creation_with_defaults` method L565-581 — `def test_config_creation_with_defaults(self)` — Test creating config with default values.
+- pub `test_config_creation_with_custom_values` method L583-600 — `def test_config_creation_with_custom_values(self)` — Test creating config with custom values.
+- pub `test_config_property_access` method L602-629 — `def test_config_property_access(self)` — Test all config property getters and setters.
+- pub `test_config_to_dict` method L631-645 — `def test_config_to_dict(self)` — Test config dictionary conversion.
+- pub `test_config_static_default_method` method L647-657 — `def test_config_static_default_method(self)` — Test static default method.
+- pub `test_config_string_representation` method L659-668 — `def test_config_string_representation(self)` — Test config string representation.
+- pub `TestWorkflowContextManager` class L671-721 — `{ test_basic_workflow_context_manager, test_register_workflow_constructor }` — Test workflow context manager functionality.
+- pub `test_basic_workflow_context_manager` method L674-698 — `def test_basic_workflow_context_manager(self)` — Test basic workflow context manager usage.
+- pub `test_register_workflow_constructor` method L700-721 — `def test_register_workflow_constructor(self)` — Test manual workflow constructor registration.
 
 #### tests/python/test_scenario_02_single_task_workflow_execution.py
 
@@ -10310,16 +10293,16 @@
 
 #### tests/python/test_scenario_29_event_triggers.py
 
-- pub `TestEventTriggers` class L11-147 — `{ test_trigger_result_skip, test_trigger_result_fire_no_context, test_trigger_re...` — Test event trigger functionality.
+- pub `TestEventTriggers` class L11-145 — `{ test_trigger_result_skip, test_trigger_result_fire_no_context, test_trigger_re...` — Test event trigger functionality.
 - pub `test_trigger_result_skip` method L14-22 — `def test_trigger_result_skip(self, shared_runner)` — Test TriggerResult.skip() creation.
 - pub `test_trigger_result_fire_no_context` method L24-32 — `def test_trigger_result_fire_no_context(self, shared_runner)` — Test TriggerResult.fire() without context.
 - pub `test_trigger_result_fire_with_context` method L34-42 — `def test_trigger_result_fire_with_context(self, shared_runner)` — Test TriggerResult.fire() with context.
-- pub `test_trigger_decorator_registration` method L44-78 — `def test_trigger_decorator_registration(self, shared_runner)` — Test that @trigger decorator registers triggers correctly.
-- pub `test_trigger_with_counter` method L80-114 — `def test_trigger_with_counter(self, shared_runner)` — Test trigger that fires after N polls.
-- pub `test_list_trigger_schedules` method L116-121 — `def test_list_trigger_schedules(self, shared_runner)` — Test listing trigger schedules.
-- pub `test_list_trigger_schedules_with_filters` method L123-133 — `def test_list_trigger_schedules_with_filters(self, shared_runner)` — Test listing trigger schedules with filtering options.
-- pub `test_get_nonexistent_trigger_schedule` method L135-140 — `def test_get_nonexistent_trigger_schedule(self, shared_runner)` — Test getting a trigger schedule that doesn't exist.
-- pub `test_get_trigger_execution_history` method L142-147 — `def test_get_trigger_execution_history(self, shared_runner)` — Test getting execution history for a trigger.
+- pub `test_trigger_decorator_registration` method L44-77 — `def test_trigger_decorator_registration(self, shared_runner)` — Test that @trigger decorator registers triggers correctly.
+- pub `test_trigger_with_counter` method L79-112 — `def test_trigger_with_counter(self, shared_runner)` — Test trigger that fires after N polls.
+- pub `test_list_trigger_schedules` method L114-119 — `def test_list_trigger_schedules(self, shared_runner)` — Test listing trigger schedules.
+- pub `test_list_trigger_schedules_with_filters` method L121-131 — `def test_list_trigger_schedules_with_filters(self, shared_runner)` — Test listing trigger schedules with filtering options.
+- pub `test_get_nonexistent_trigger_schedule` method L133-138 — `def test_get_nonexistent_trigger_schedule(self, shared_runner)` — Test getting a trigger schedule that doesn't exist.
+- pub `test_get_trigger_execution_history` method L140-145 — `def test_get_trigger_execution_history(self, shared_runner)` — Test getting execution history for a trigger.
 
 #### tests/python/test_scenario_30_task_callbacks.py
 

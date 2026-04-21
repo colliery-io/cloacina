@@ -195,17 +195,20 @@ async fn test_register_real_workflow_package() {
     let package_id =
         result.expect("Package registration should succeed with .cloacina package data");
 
-    // Verify the package was registered
-    let workflows = registry.list_workflows().await.unwrap();
-    assert!(!workflows.is_empty(), "Should have registered workflow");
-
-    let workflow = &workflows[0];
-    assert_eq!(workflow.id, package_id);
+    // Verify the package was registered. `list_workflows` filters to
+    // `build_status = 'success'` so it won't see freshly-registered rows,
+    // which are inserted as `queued` and wait for the compiler-service to
+    // build them (T-0523). Use `inspect_package_by_id`, which returns
+    // rows regardless of build outcome.
+    let inspected = registry
+        .inspect_package_by_id(package_id)
+        .await
+        .expect("inspect_package_by_id must succeed")
+        .expect("registered package must be inspectable by id");
+    assert_eq!(inspected.metadata.id, package_id);
     println!(
-        "Successfully registered workflow: {} v{} with {} tasks",
-        workflow.package_name,
-        workflow.version,
-        workflow.tasks.len()
+        "Successfully registered workflow: {} v{} (build_status: {})",
+        inspected.metadata.package_name, inspected.metadata.version, inspected.build_status,
     );
 }
 

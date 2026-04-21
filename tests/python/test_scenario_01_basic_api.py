@@ -17,17 +17,10 @@ class TestBasicImports:
         """Test that cloaca module imports without errors."""
         import cloaca
 
-        # Verify core functions are available
-        assert hasattr(cloaca, 'hello_world')
-        assert callable(cloaca.hello_world)
-
-    def test_hello_world_function(self):
-        """Test the hello_world function returns expected output."""
-        import cloaca
-
-        result = cloaca.hello_world()
-        assert isinstance(result, str)
-        assert result == "Hello from Cloaca backend!"
+        # Verify core public surface is available.
+        assert hasattr(cloaca, 'Context')
+        assert hasattr(cloaca, 'WorkflowBuilder')
+        assert hasattr(cloaca, 'DefaultRunner')
 
     def test_core_classes_available(self):
         """Test that core classes are importable."""
@@ -37,7 +30,6 @@ class TestBasicImports:
         assert hasattr(cloaca, 'Context')
         assert hasattr(cloaca, 'DefaultRunnerConfig')
         assert hasattr(cloaca, 'WorkflowBuilder')
-        assert hasattr(cloaca, 'HelloClass')
 
         # Test decorator availability
         assert hasattr(cloaca, 'task')
@@ -617,7 +609,7 @@ class TestDefaultRunnerConfig:
         assert isinstance(config.max_concurrent_tasks, int)
         assert isinstance(config.scheduler_poll_interval_ms, int)
         assert isinstance(config.task_timeout_seconds, int)
-        assert isinstance(config.pipeline_timeout_seconds, (int, type(None)))
+        assert isinstance(config.workflow_timeout_seconds, (int, type(None)))
         assert isinstance(config.db_pool_size, int)
         assert isinstance(config.enable_recovery, bool)
         assert isinstance(config.enable_cron_scheduling, bool)
@@ -727,23 +719,3 @@ class TestWorkflowContextManager:
         workflow = create_manual_workflow()
         assert workflow.name == "manual_workflow"
         assert workflow.description == "Manually registered workflow"
-
-
-class TestHelloClass:
-    """Test HelloClass functionality."""
-
-    def test_hello_class_creation(self):
-        """Test HelloClass creation and basic functionality."""
-        import cloaca
-
-        hello = cloaca.HelloClass()
-        assert hello is not None
-
-        # Test message method
-        message = hello.get_message()
-        assert message == "Hello from HelloClass!"
-
-        # Test string representation
-        repr_str = repr(hello)
-        assert isinstance(repr_str, str)
-        assert "HelloClass" in repr_str

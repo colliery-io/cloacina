@@ -56,7 +56,6 @@ class TestEventTriggers:
 
         # Define a trigger using the decorator
         @cloaca.trigger(
-            workflow="trigger_test_workflow",
             name="test_rng_trigger",
             poll_interval="1s",
             allow_concurrent=False,
@@ -93,7 +92,6 @@ class TestEventTriggers:
                 return context
 
         @cloaca.trigger(
-            workflow="counter_workflow",
             name="counter_trigger",
             poll_interval="100ms",
         )
