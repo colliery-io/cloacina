@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-21T01:23:35Z | 479 files | JavaScript, Python, Rust
+> Generated: 2026-04-22T03:54:10Z | 480 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -208,6 +208,7 @@
 │   │           ├── error_paths.rs
 │   │           ├── event_dedup.rs
 │   │           ├── executor/
+│   │           │   ├── claim_loss_cancellation.rs
 │   │           │   ├── context_merging.rs
 │   │           │   ├── defer_until.rs
 │   │           │   ├── mod.rs
@@ -1153,19 +1154,19 @@
 - pub `ContextError` enum L132-153 — `Serialization | KeyNotFound | TypeMismatch | KeyExists | Database | ConnectionPo...` — Errors that can occur during context operations.
 - pub `RegistrationError` enum L175-184 — `DuplicateTaskId | InvalidTaskId | RegistrationFailed` — Errors that can occur during task registration.
 - pub `ValidationError` enum L191-249 — `CyclicDependency | MissingDependency | DuplicateTaskId | EmptyWorkflow | Invalid...` — Errors that can occur during Workflow and dependency validation.
-- pub `ExecutorError` enum L265-301 — `Database | ConnectionPool | TaskNotFound | TaskExecution | Context | TaskTimeout...` — Errors that can occur during task execution.
-- pub `WorkflowError` enum L313-337 — `DuplicateTask | TaskNotFound | InvalidDependency | CyclicDependency | Unreachabl...` — Errors that can occur during workflow construction and management.
-- pub `SubgraphError` enum L344-350 — `TaskNotFound | UnsupportedOperation` — Errors that can occur when creating Workflow subgraphs.
+- pub `ExecutorError` enum L265-304 — `Database | ConnectionPool | TaskNotFound | TaskExecution | Context | TaskTimeout...` — Errors that can occur during task execution.
+- pub `WorkflowError` enum L316-340 — `DuplicateTask | TaskNotFound | InvalidDependency | CyclicDependency | Unreachabl...` — Errors that can occur during workflow construction and management.
+- pub `SubgraphError` enum L347-353 — `TaskNotFound | UnsupportedOperation` — Errors that can occur when creating Workflow subgraphs.
 -  `ContextError` type L155-168 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
 -  `from` function L156-167 — `(err: cloacina_workflow::ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
 -  `ValidationError` type L251-255 — `= ValidationError` — relevant context information to aid in troubleshooting and recovery.
 -  `from` function L252-254 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
 -  `ContextError` type L257-261 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
 -  `from` function L258-260 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `ExecutorError` type L303-307 — `= ExecutorError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L304-306 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `TaskError` type L353-376 — `= TaskError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L354-375 — `(error: ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `ExecutorError` type L306-310 — `= ExecutorError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L307-309 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `TaskError` type L356-379 — `= TaskError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L357-378 — `(error: ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
 
 #### crates/cloacina/src/graph.rs
 
@@ -2670,22 +2671,29 @@
 - pub `take_task_handle` function L67-73 — `() -> TaskHandle` — Takes the current task's `TaskHandle` out of task-local storage.
 - pub `return_task_handle` function L79-83 — `(handle: TaskHandle)` — Returns a `TaskHandle` to task-local storage after the user function completes.
 - pub `with_task_handle` function L89-100 — `(handle: TaskHandle, f: F) -> (T, Option<TaskHandle>)` — Runs an async future with a `TaskHandle` available in task-local storage.
-- pub `TaskHandle` struct L110-114 — `{ slot_token: SlotToken, task_execution_id: UniversalUuid, dal: Option<DAL> }` — Execution control handle passed to tasks that need concurrency management.
-- pub `defer_until` function L163-228 — `( &mut self, condition: F, poll_interval: Duration, ) -> Result<(), ExecutorErro...` — Release the concurrency slot while polling an external condition.
-- pub `task_execution_id` function L231-233 — `(&self) -> UniversalUuid` — Returns the task execution ID associated with this handle.
-- pub `is_slot_held` function L236-238 — `(&self) -> bool` — Returns whether the handle currently holds a concurrency slot.
--  `TaskHandle` type L116-248 — `= TaskHandle` — ```
--  `new` function L121-127 — `(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self` — Creates a new TaskHandle.
--  `with_dal` function L130-140 — `( slot_token: SlotToken, task_execution_id: UniversalUuid, dal: DAL, ) -> Self` — Creates a new TaskHandle with DAL for sub_status persistence.
--  `into_slot_token` function L245-247 — `(self) -> SlotToken` — Consumes the handle, returning the inner SlotToken.
--  `tests` module L251-412 — `-` — ```
--  `make_handle` function L257-264 — `(semaphore: &Arc<Semaphore>) -> TaskHandle` — ```
--  `test_defer_until_releases_and_reclaims_slot` function L267-295 — `()` — ```
--  `test_defer_until_immediate_condition` function L298-309 — `()` — ```
--  `test_defer_until_frees_slot_for_other_tasks` function L312-343 — `()` — ```
--  `test_task_local_round_trip` function L346-368 — `()` — ```
--  `test_task_local_not_returned_yields_none` function L371-386 — `()` — ```
--  `test_with_task_handle_preserves_handle_through_defer` function L389-411 — `()` — ```
+- pub `TaskHandle` struct L110-115 — `{ slot_token: SlotToken, task_execution_id: UniversalUuid, dal: Option<DAL>, can...` — Execution control handle passed to tasks that need concurrency management.
+- pub `defer_until` function L186-251 — `( &mut self, condition: F, poll_interval: Duration, ) -> Result<(), ExecutorErro...` — Release the concurrency slot while polling an external condition.
+- pub `task_execution_id` function L254-256 — `(&self) -> UniversalUuid` — Returns the task execution ID associated with this handle.
+- pub `is_slot_held` function L259-261 — `(&self) -> bool` — Returns whether the handle currently holds a concurrency slot.
+- pub `is_cancelled` function L271-276 — `(&self) -> bool` — Returns `true` if the executor has signaled that this task's claim
+- pub `cancelled` function L290-298 — `(&self)` — Resolves when the executor signals cancellation (claim lost).
+-  `TaskHandle` type L117-308 — `= TaskHandle` — ```
+-  `new` function L122-129 — `(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self` — Creates a new TaskHandle.
+-  `with_dal` function L133-144 — `( slot_token: SlotToken, task_execution_id: UniversalUuid, dal: DAL, ) -> Self` — Creates a new TaskHandle with DAL for sub_status persistence.
+-  `with_dal_and_cancel` function L151-163 — `( slot_token: SlotToken, task_execution_id: UniversalUuid, dal: DAL, cancel_rx: ...` — Creates a new TaskHandle with DAL and a cancellation watch receiver
+-  `into_slot_token` function L305-307 — `(self) -> SlotToken` — Consumes the handle, returning the inner SlotToken.
+-  `tests` module L311-581 — `-` — ```
+-  `make_handle` function L317-324 — `(semaphore: &Arc<Semaphore>) -> TaskHandle` — ```
+-  `test_defer_until_releases_and_reclaims_slot` function L327-355 — `()` — ```
+-  `test_defer_until_immediate_condition` function L358-369 — `()` — ```
+-  `test_defer_until_frees_slot_for_other_tasks` function L372-403 — `()` — ```
+-  `test_task_local_round_trip` function L406-428 — `()` — ```
+-  `test_task_local_not_returned_yields_none` function L431-446 — `()` — ```
+-  `test_is_cancelled_default_false_without_channel` function L449-465 — `()` — ```
+-  `test_is_cancelled_reflects_watch_value` function L468-490 — `()` — ```
+-  `test_cancelled_future_resolves_after_signal` function L493-516 — `()` — ```
+-  `test_cancelled_future_does_not_fire_when_sender_dropped` function L519-555 — `()` — ```
+-  `test_with_task_handle_preserves_handle_through_defer` function L558-580 — `()` — ```
 
 #### crates/cloacina/src/executor/thread_task_executor.rs
 
@@ -2694,53 +2702,54 @@
 - pub `with_runtime_and_registry` function L111-131 — `( database: Database, task_registry: Arc<TaskRegistry>, runtime: Arc<Runtime>, c...` — Creates a new ThreadTaskExecutor with a specific runtime.
 - pub `with_runtime` function L134-137 — `(mut self, runtime: Arc<Runtime>) -> Self` — Sets the runtime for this executor, replacing the default.
 - pub `semaphore` function L143-145 — `(&self) -> &Arc<Semaphore>` — Returns a reference to the concurrency semaphore.
--  `ThreadTaskExecutor` type L92-679 — `= ThreadTaskExecutor` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L92-717 — `= ThreadTaskExecutor` — to the executor based on routing rules.
 -  `build_task_context` function L155-280 — `( &self, claimed_task: &ClaimedTask, dependencies: &[crate::task::TaskNamespace]...` — Builds the execution context for a task by loading its dependencies.
 -  `merge_context_values` function L294-329 — `( existing: &serde_json::Value, new: &serde_json::Value, ) -> serde_json::Value` — Merges two context values using smart merging strategy.
 -  `execute_with_timeout` function L339-348 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, ) -> Result<Conte...` — Executes a task with timeout protection.
--  `handle_task_result` function L365-414 — `( &self, claimed_task: ClaimedTask, result: Result<Context<serde_json::Value>, E...` — Handles the result of task execution.
--  `save_task_context` function L424-454 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Saves the task's execution context to the database.
--  `complete_task_transaction` function L467-514 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Marks a task as completed in the database.
--  `mark_task_failed` function L525-562 — `( &self, task_execution_id: UniversalUuid, error: &ExecutorError, ) -> Result<()...` — Marks a task as failed in the database.
--  `should_retry_task` function L578-615 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried.
--  `is_transient_error` function L624-641 — `(&self, error: &ExecutorError) -> bool` — Determines if an error is transient and potentially retryable.
--  `schedule_task_retry` function L651-678 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
--  `ThreadTaskExecutor` type L681-696 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
--  `clone` function L682-695 — `(&self) -> Self` — to the executor based on routing rules.
--  `ThreadTaskExecutor` type L703-1027 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
--  `execute` function L704-1006 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
--  `has_capacity` function L1008-1010 — `(&self) -> bool` — to the executor based on routing rules.
--  `metrics` function L1012-1022 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
--  `name` function L1024-1026 — `(&self) -> &str` — to the executor based on routing rules.
--  `tests` module L1030-1314 — `-` — to the executor based on routing rules.
--  `test_merge_primitives_latest_wins` function L1039-1044 — `()` — to the executor based on routing rules.
--  `test_merge_string_latest_wins` function L1047-1052 — `()` — to the executor based on routing rules.
--  `test_merge_different_types_latest_wins` function L1055-1060 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_deduplicates` function L1063-1068 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_no_overlap` function L1071-1076 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_complete_overlap` function L1079-1084 — `()` — to the executor based on routing rules.
--  `test_merge_objects_no_conflict` function L1087-1092 — `()` — to the executor based on routing rules.
--  `test_merge_objects_conflicting_keys` function L1095-1100 — `()` — to the executor based on routing rules.
--  `test_merge_objects_recursive` function L1103-1108 — `()` — to the executor based on routing rules.
--  `test_merge_nested_arrays_in_objects` function L1111-1116 — `()` — to the executor based on routing rules.
--  `test_merge_null_latest_wins` function L1119-1124 — `()` — to the executor based on routing rules.
--  `test_merge_bool_latest_wins` function L1127-1132 — `()` — to the executor based on routing rules.
--  `sqlite_tests` module L1138-1267 — `-` — to the executor based on routing rules.
--  `test_executor` function L1141-1146 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
--  `test_is_transient_timeout` function L1149-1152 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_not_found` function L1155-1158 — `()` — to the executor based on routing rules.
--  `test_is_transient_connection_pool` function L1161-1165 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_with_timeout_msg` function L1168-1177 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_permanent` function L1180-1189 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_network` function L1192-1201 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_unavailable` function L1204-1213 — `()` — to the executor based on routing rules.
--  `test_executor_has_capacity_initially` function L1220-1223 — `()` — to the executor based on routing rules.
--  `test_executor_metrics_initial` function L1226-1233 — `()` — to the executor based on routing rules.
--  `test_executor_name` function L1236-1239 — `()` — to the executor based on routing rules.
--  `test_executor_clone_shares_semaphore` function L1242-1250 — `()` — to the executor based on routing rules.
--  `test_executor_custom_config` function L1253-1266 — `()` — to the executor based on routing rules.
--  `test_new_uses_empty_runtime_not_from_global` function L1275-1288 — `()` — to the executor based on routing rules.
--  `test_with_runtime_and_registry_uses_provided_runtime` function L1292-1313 — `()` — to the executor based on routing rules.
+-  `execute_with_cancellation` function L356-379 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, mut cancel_rx: to...` — Runs [`execute_with_timeout`] racing against a cancellation signal
+-  `handle_task_result` function L396-445 — `( &self, claimed_task: ClaimedTask, result: Result<Context<serde_json::Value>, E...` — Handles the result of task execution.
+-  `save_task_context` function L455-485 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Saves the task's execution context to the database.
+-  `complete_task_transaction` function L498-545 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Marks a task as completed in the database.
+-  `mark_task_failed` function L556-593 — `( &self, task_execution_id: UniversalUuid, error: &ExecutorError, ) -> Result<()...` — Marks a task as failed in the database.
+-  `should_retry_task` function L609-653 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried.
+-  `is_transient_error` function L662-679 — `(&self, error: &ExecutorError) -> bool` — Determines if an error is transient and potentially retryable.
+-  `schedule_task_retry` function L689-716 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
+-  `ThreadTaskExecutor` type L719-734 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
+-  `clone` function L720-733 — `(&self) -> Self` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L741-1088 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
+-  `execute` function L742-1067 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
+-  `has_capacity` function L1069-1071 — `(&self) -> bool` — to the executor based on routing rules.
+-  `metrics` function L1073-1083 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
+-  `name` function L1085-1087 — `(&self) -> &str` — to the executor based on routing rules.
+-  `tests` module L1091-1375 — `-` — to the executor based on routing rules.
+-  `test_merge_primitives_latest_wins` function L1100-1105 — `()` — to the executor based on routing rules.
+-  `test_merge_string_latest_wins` function L1108-1113 — `()` — to the executor based on routing rules.
+-  `test_merge_different_types_latest_wins` function L1116-1121 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_deduplicates` function L1124-1129 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_no_overlap` function L1132-1137 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_complete_overlap` function L1140-1145 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_no_conflict` function L1148-1153 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_conflicting_keys` function L1156-1161 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_recursive` function L1164-1169 — `()` — to the executor based on routing rules.
+-  `test_merge_nested_arrays_in_objects` function L1172-1177 — `()` — to the executor based on routing rules.
+-  `test_merge_null_latest_wins` function L1180-1185 — `()` — to the executor based on routing rules.
+-  `test_merge_bool_latest_wins` function L1188-1193 — `()` — to the executor based on routing rules.
+-  `sqlite_tests` module L1199-1328 — `-` — to the executor based on routing rules.
+-  `test_executor` function L1202-1207 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
+-  `test_is_transient_timeout` function L1210-1213 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_not_found` function L1216-1219 — `()` — to the executor based on routing rules.
+-  `test_is_transient_connection_pool` function L1222-1226 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_with_timeout_msg` function L1229-1238 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_permanent` function L1241-1250 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_network` function L1253-1262 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_unavailable` function L1265-1274 — `()` — to the executor based on routing rules.
+-  `test_executor_has_capacity_initially` function L1281-1284 — `()` — to the executor based on routing rules.
+-  `test_executor_metrics_initial` function L1287-1294 — `()` — to the executor based on routing rules.
+-  `test_executor_name` function L1297-1300 — `()` — to the executor based on routing rules.
+-  `test_executor_clone_shares_semaphore` function L1303-1311 — `()` — to the executor based on routing rules.
+-  `test_executor_custom_config` function L1314-1327 — `()` — to the executor based on routing rules.
+-  `test_new_uses_empty_runtime_not_from_global` function L1336-1349 — `()` — to the executor based on routing rules.
+-  `test_with_runtime_and_registry_uses_provided_runtime` function L1353-1374 — `()` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 
@@ -4794,6 +4803,19 @@
 
 > *Semantic summary to be generated by AI agent.*
 
+#### crates/cloacina/tests/integration/executor/claim_loss_cancellation.rs
+
+-  `LAYER_1_COMPLETED_NATURALLY` variable L51 — `: AtomicBool` — Set inside the Layer 1 task body if the sleep ran to completion.
+-  `LAYER_2_OBSERVED_CANCEL` variable L56 — `: AtomicBool` — Set inside the Layer 2 task body when it observes cancellation via the
+-  `layer1_sleep_task` function L63-70 — `(_context: &mut Context<Value>) -> Result<(), TaskError>` — a competing runner stealing the claim.
+-  `layer2_cooperative_task` function L73-84 — `( _context: &mut Context<Value>, handle: &mut TaskHandle, ) -> Result<(), TaskEr...` — a competing runner stealing the claim.
+-  `steal_claim` function L93-140 — `(database: &cloacina::database::Database, task_execution_id: UniversalUuid)` — Force-reassign `claimed_by` on the task_executions row to simulate a
+-  `find_claimed_task_id` function L144-186 — `( database: &cloacina::database::Database, workflow_execution_id: UniversalUuid,...` — Look up the task_execution row id for a given workflow execution + task
+-  `wait_for_claim` function L188-214 — `( database: &cloacina::database::Database, workflow_execution_id: UniversalUuid,...` — a competing runner stealing the claim.
+-  `short_heartbeat_config` function L216-221 — `() -> DefaultRunnerConfig` — a competing runner stealing the claim.
+-  `layer_1_heartbeat_cancellation_aborts_sleeping_task` function L228-297 — `()` — a competing runner stealing the claim.
+-  `layer_2_cooperative_cancellation_via_task_handle` function L304-371 — `()` — a competing runner stealing the claim.
+
 #### crates/cloacina/tests/integration/executor/context_merging.rs
 
 -  `WorkflowTask` struct L28-31 — `{ id: String, dependencies: Vec<TaskNamespace> }`
@@ -4829,11 +4851,12 @@
 
 #### crates/cloacina/tests/integration/executor/mod.rs
 
-- pub `context_merging` module L17 — `-`
-- pub `defer_until` module L18 — `-`
-- pub `multi_tenant` module L19 — `-`
-- pub `pause_resume` module L20 — `-`
-- pub `task_execution` module L21 — `-`
+- pub `claim_loss_cancellation` module L17 — `-`
+- pub `context_merging` module L18 — `-`
+- pub `defer_until` module L19 — `-`
+- pub `multi_tenant` module L20 — `-`
+- pub `pause_resume` module L21 — `-`
+- pub `task_execution` module L22 — `-`
 
 #### crates/cloacina/tests/integration/executor/multi_tenant.rs
 
