@@ -211,7 +211,7 @@ pub async fn run(
         "Total task executions by status and reason. \
          reason is `ok` on success, or one of the bounded failure categories: \
          `task_error`, `timeout`, `validation_failed`, `infrastructure`, \
-         `task_not_found`, `claim_lost` (reserved), `unknown`."
+         `task_not_found`, `claim_lost`, `unknown`."
     );
     metrics::describe_counter!(
         "cloacina_api_requests_total",

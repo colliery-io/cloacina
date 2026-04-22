@@ -21,7 +21,7 @@ used as labels. Adding a new metric should preserve this invariant; see
 | Name | Labels | Description |
 |------|--------|-------------|
 | `cloacina_workflows_total` | `status`, `reason` | Total workflow executions. `status` ∈ `completed`, `failed`. `reason` is `ok` on success, `dependency_failed` on failure (workflow failure is always downstream of task failure). |
-| `cloacina_tasks_total` | `status`, `reason` | Total task executions. `status` ∈ `completed`, `failed`. `reason` is `ok` on success, or one of: `task_error`, `timeout`, `validation_failed`, `infrastructure`, `task_not_found`, `claim_lost` (reserved — not emitted yet; tracked for T-0487), `unknown`. |
+| `cloacina_tasks_total` | `status`, `reason` | Total task executions. `status` ∈ `completed`, `failed`. `reason` is `ok` on success, or one of: `task_error`, `timeout`, `validation_failed`, `infrastructure`, `task_not_found`, `claim_lost`, `unknown`. |
 | `cloacina_api_requests_total` | `method`, `status` | Total HTTP API requests. `method` is the HTTP verb; `status` is the numeric HTTP status code. |
 
 ### Histograms

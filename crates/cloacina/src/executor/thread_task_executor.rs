@@ -55,13 +55,13 @@ use async_trait::async_trait;
 /// Bounded reason value for `cloacina_tasks_total{status="failed", reason=...}`.
 ///
 /// Cardinality is closed: the set of returned values is fixed here so label
-/// explosion is impossible. `claim_lost` is reserved for the claim-loss
-/// cancellation path (T-0481 / T-0487) and is not emitted from this site.
+/// explosion is impossible.
 fn failure_reason(err: &ExecutorError) -> &'static str {
     match err {
         ExecutorError::TaskTimeout => "timeout",
         ExecutorError::TaskExecution(_) => "task_error",
         ExecutorError::Validation(_) => "validation_failed",
+        ExecutorError::ClaimLost => "claim_lost",
         ExecutorError::Database(_)
         | ExecutorError::ConnectionPool(_)
         | ExecutorError::Context(_)
@@ -1170,6 +1170,7 @@ mod tests {
                 ExecutorError::TaskNotFound("missing".into()),
                 "task_not_found",
             ),
+            (ExecutorError::ClaimLost, "claim_lost"),
             (ExecutorError::InvalidScope("scope".into()), "unknown"),
         ];
 
