@@ -193,7 +193,7 @@ async fn wait_for_claim(
     let owned_name = task_short_name.to_string();
     let db = database.clone();
     poll_until(
-        Duration::from_secs(10),
+        Duration::from_secs(30),
         Duration::from_millis(50),
         "task should be claimed by the runner",
         move || {
@@ -282,9 +282,10 @@ async fn layer_1_heartbeat_cancellation_aborts_sleeping_task() {
     steal_claim(&database, task_execution_id).await;
 
     // Give the heartbeat loop several ticks plus slack for scheduler + DB
-    // round-trips. We only need ~100ms for claim-loss detection; 2s is
-    // generous.
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // round-trips. 100ms should be enough for claim-loss detection; 5s is
+    // generous for slower CI runners (the postgres-only lane observed
+    // ~2s round-trip latency).
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     assert!(
         !LAYER_1_COMPLETED_NATURALLY.load(Ordering::SeqCst),
@@ -359,7 +360,7 @@ async fn layer_2_cooperative_cancellation_via_task_handle() {
     // Layer 2 must fire before Layer 1 would (both ride the same watch
     // channel; Layer 2 simply wins the select! inside the task body).
     poll_until(
-        Duration::from_secs(5),
+        Duration::from_secs(20),
         Duration::from_millis(25),
         "cooperative task must observe cancellation via TaskHandle",
         || async { LAYER_2_OBSERVED_CANCEL.load(Ordering::SeqCst) },
