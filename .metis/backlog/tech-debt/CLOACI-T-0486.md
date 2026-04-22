@@ -4,7 +4,7 @@ level: task
 title: "Consolidate cloaca test harness into cloacina — cloaca is a Python interface, not a separate system"
 short_code: "CLOACI-T-0486"
 created_at: 2026-04-13T15:22:25.093649+00:00
-updated_at: 2026-04-20T11:24:12.491683+00:00
+updated_at: 2026-04-21T02:45:09.997152+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -37,6 +37,8 @@ initiative_id: NULL
 - **Current Problems**: The `angreal cloaca` namespace implies cloaca is a separate system with its own test harness. This is confusing — it's the Python interface to cloacina. The separation adds cognitive overhead ("do I run `angreal cloaca test` or `angreal cloacina test`?").
 - **Benefits of Fixing**: Single `angreal cloacina` namespace for all testing (Rust unit, integration, macros, Python bindings). Clearer mental model.
 - **Risk Assessment**: Low risk. Mostly renaming angreal tasks and moving test scripts. No code changes to the actual library.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

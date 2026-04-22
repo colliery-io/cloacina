@@ -4,7 +4,7 @@ level: task
 title: "Remove RecoveryManager — verify stale_claim_sweeper fully subsumes it"
 short_code: "CLOACI-T-0502"
 created_at: 2026-04-16T17:26:59.912489+00:00
-updated_at: 2026-04-20T11:22:51.133829+00:00
+updated_at: 2026-04-21T02:45:13.848904+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -36,6 +36,8 @@ The original hardening intent (I-0051) was for `RecoverySweepService` / `stale_c
 - **Current problems**: Two recovery implementations coexist. `RecoveryManager` still lives at `execution_planner/recovery.rs` (9 public/private methods handling orphaned task recovery, workflow-known vs. workflow-unknown cases, permanent abandonment, recovery event recording). `stale_claim_sweeper.rs` handles heartbeat-based detection. It's unclear to new readers which is authoritative.
 - **Benefits of fixing**: Single recovery code path. Simpler mental model. Less dead code to maintain.
 - **Risk**: If the sweeper *doesn't* cover one of `RecoveryManager`'s cases, deletion causes silent regressions. Hence the verify-first approach.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

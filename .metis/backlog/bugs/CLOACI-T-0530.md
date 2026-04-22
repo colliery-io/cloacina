@@ -4,7 +4,7 @@ level: task
 title: "Investigate flake: computation_graph::resilience_tests::test_supervisor_individual_accumulator_restart"
 short_code: "CLOACI-T-0530"
 created_at: 2026-04-19T02:47:48.132108+00:00
-updated_at: 2026-04-20T11:22:05.389678+00:00
+updated_at: 2026-04-21T02:45:20.923636+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

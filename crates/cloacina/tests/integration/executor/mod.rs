@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+pub mod claim_loss_cancellation;
 pub mod context_merging;
 pub mod defer_until;
 pub mod multi_tenant;

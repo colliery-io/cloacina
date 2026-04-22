@@ -370,6 +370,46 @@ impl ThreadTaskExecutor {
         }
     }
 
+    /// Runs [`execute_with_timeout`] racing against a cancellation signal
+    /// fed by the heartbeat loop. If the heartbeat detects `ClaimLost`, it
+    /// flips the channel to `true`, the task future is dropped, and this
+    /// returns [`ExecutorError::ClaimLost`]. This is the "Layer 1"
+    /// cancellation of T-0487 — cooperative observation via `TaskHandle` is
+    /// layered on top for tasks that need graceful cleanup.
+    async fn execute_with_cancellation(
+        &self,
+        task: &dyn Task,
+        context: Context<serde_json::Value>,
+        mut cancel_rx: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<Context<serde_json::Value>, ExecutorError> {
+        // Convert the watch signal into a bool *before* entering the select!
+        // arm body so we don't hold a `watch::Ref` (which is !Send) across
+        // the subsequent await.
+        let wait_cancelled = async { cancel_rx.wait_for(|&v| v).await.is_ok() };
+        // `biased;` gives the task arm priority. When the watch fires, both
+        // arms can become ready on the same poll (the task's own
+        // `TaskHandle::cancelled()` observes the same signal). Without
+        // `biased`, `select!` picks randomly — which races Layer 2's
+        // cooperative cleanup against Layer 1's drop. With `biased`, a task
+        // that cooperatively handles cancellation runs to completion; a
+        // task that ignores the signal still falls through to Layer 1
+        // because its arm stays `Pending` while the cancel arm is ready.
+        tokio::select! {
+            biased;
+            r = self.execute_with_timeout(task, context) => r,
+            fired = wait_cancelled => {
+                if fired {
+                    Err(ExecutorError::ClaimLost)
+                } else {
+                    // Sender dropped without firing — the heartbeat was
+                    // aborted via the success/failure path. Never resolve on
+                    // this arm so the task future can complete normally.
+                    std::future::pending().await
+                }
+            }
+        }
+    }
+
     /// Handles the result of task execution.
     ///
     /// This method:
@@ -614,6 +654,13 @@ impl ThreadTaskExecutor {
         error: &ExecutorError,
         retry_policy: &RetryPolicy,
     ) -> Result<bool, ExecutorError> {
+        // Claim loss means another runner owns the task now; retrying from
+        // this runner would either fight for the claim or spawn a duplicate
+        // attempt. Let the owning runner drive the outcome.
+        if matches!(error, ExecutorError::ClaimLost) {
+            return Ok(false);
+        }
+
         // Check if we've exceeded max retry attempts
         if claimed_task.attempt >= retry_policy.max_attempts {
             debug!(
@@ -772,12 +819,20 @@ impl TaskExecutor for ThreadTaskExecutor {
             }
         }
 
+        // Cancellation channel — the heartbeat loop flips this to `true` if
+        // it detects `ClaimLost`. The execution future races against it via
+        // `execute_with_cancellation` (Layer 1), and tasks holding a
+        // `TaskHandle` can observe it cooperatively via
+        // `TaskHandle::is_cancelled` / `cancelled()` (Layer 2). See T-0487.
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
         // If claiming is enabled, start a background heartbeat task.
         let heartbeat_handle = if self.config.enable_claiming {
             let dal = self.dal.clone();
             let task_id = event.task_execution_id;
             let runner_id = self.instance_id;
             let interval = self.config.heartbeat_interval;
+            let cancel_tx = cancel_tx.clone();
             Some(tokio::spawn(async move {
                 let mut ticker = tokio::time::interval(interval);
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -790,8 +845,9 @@ impl TaskExecutor for ThreadTaskExecutor {
                         Ok(crate::dal::unified::task_execution::HeartbeatResult::ClaimLost) => {
                             tracing::warn!(
                                 task_id = %task_id,
-                                "Heartbeat failed — claim lost to another runner"
+                                "Heartbeat failed — claim lost, signaling cancellation"
                             );
+                            let _ = cancel_tx.send(true);
                             break;
                         }
                         Err(e) => {
@@ -894,8 +950,12 @@ impl TaskExecutor for ThreadTaskExecutor {
         // task-local storage so the macro-generated code can access it.
         let execution_result = if task.requires_handle() {
             let slot_token = SlotToken::new(permit, self.semaphore.clone());
-            let handle =
-                TaskHandle::with_dal(slot_token, event.task_execution_id, self.dal.clone());
+            let handle = TaskHandle::with_dal_and_cancel(
+                slot_token,
+                event.task_execution_id,
+                self.dal.clone(),
+                cancel_rx.clone(),
+            );
 
             // Set initial sub_status to Active
             if let Err(e) = self
@@ -911,8 +971,11 @@ impl TaskExecutor for ThreadTaskExecutor {
                 );
             }
 
-            let (result, _returned_handle) =
-                with_task_handle(handle, self.execute_with_timeout(task.as_ref(), context)).await;
+            let (result, _returned_handle) = with_task_handle(
+                handle,
+                self.execute_with_cancellation(task.as_ref(), context, cancel_rx.clone()),
+            )
+            .await;
 
             // Clear sub_status when task completes
             if let Err(e) = self
@@ -934,8 +997,15 @@ impl TaskExecutor for ThreadTaskExecutor {
         } else {
             // No handle needed — permit is held as _permit for the duration.
             let _permit = permit;
-            self.execute_with_timeout(task.as_ref(), context).await
+            self.execute_with_cancellation(task.as_ref(), context, cancel_rx.clone())
+                .await
         };
+        // Drop the local cancel sender so that, once the heartbeat task's
+        // clone is aborted, receivers can observe the channel close rather
+        // than hang forever. (Not strictly required since the select! arm
+        // already holds the last ref during execution, but makes the
+        // post-execution state tidier for debugging.)
+        drop(cancel_tx);
         let duration = start.elapsed();
         metrics::histogram!("cloacina_task_duration_seconds").record(duration.as_secs_f64());
         metrics::gauge!("cloacina_active_tasks").decrement(1.0);
