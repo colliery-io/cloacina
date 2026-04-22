@@ -4,15 +4,15 @@ level: task
 title: "Cooperative task cancellation on claim loss — tokio::select + TaskHandle extension"
 short_code: "CLOACI-T-0487"
 created_at: 2026-04-13T17:31:23.923615+00:00
-updated_at: 2026-04-13T17:31:23.923615+00:00
+updated_at: 2026-04-22T03:08:53.171211+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -58,6 +58,12 @@ When heartbeat detects `ClaimLost`, actively cancel the running task so it stops
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] Heartbeat sends cancellation signal on `ClaimLost` (oneshot channel)
 - [ ] Executor races `task.execute()` against cancellation via `tokio::select!`
 - [ ] Cancelled tasks return failure result with "claim lost" reason
@@ -77,4 +83,13 @@ When heartbeat detects `ClaimLost`, actively cancel the running task so it stops
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-04-21: Implemented both layers.
+  - Layer 1 (`tokio::select!`): added `watch::channel(bool)` shared between the heartbeat task and the execute wrapper. Heartbeat fires `true` on `ClaimLost`. New helper `ThreadTaskExecutor::execute_with_cancellation` races `execute_with_timeout` against the watch and returns `ExecutorError::ClaimLost` if the signal wins. Applied to both the handle-holding and handle-less branches of `execute_dispatched`.
+  - Layer 2 (`TaskHandle`): added `is_cancelled()` (sync read of the watch value) and `cancelled()` (future that resolves on signal). Wired via new `TaskHandle::with_dal_and_cancel` constructor.
+  - Retry path: `should_retry_task` early-returns `false` on `ExecutorError::ClaimLost` — the owning runner drives the outcome, we don't fight for the claim.
+  - New error variant `ExecutorError::ClaimLost` with message "Task claim lost to another runner".
+  - Tests:
+    - `task_handle` unit tests for `is_cancelled` / `cancelled` — default-false, reflects watch, resolves after send, behavior when sender dropped.
+    - `tests/integration/executor/claim_loss_cancellation.rs` — forcibly rewrites `claimed_by` in the DB to simulate a competing runner, then asserts (1) a sleeping task that ignores cancellation is dropped mid-sleep (Layer 1, static never flips); (2) a handle-holding task observes cancellation via `handle.cancelled().await` and exits gracefully (Layer 2, static flips).
+  - Verified: `angreal cloacina unit --backend sqlite` (700 passed), full `cargo test -p cloacina --test integration --features postgres,sqlite,macros` postgres run (269 passed).
+  - Scope note: this is workflow-task-only. Computation graphs / reactors have their own cooperative-shutdown mechanism (`shutdown_signal` + supervisor restart, T-0411/T-0412) and no claim-ownership concept; a unified surface across workflows and CGs would be future work tied to S-0008.

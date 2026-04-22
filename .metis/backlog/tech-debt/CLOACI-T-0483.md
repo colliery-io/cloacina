@@ -4,7 +4,7 @@ level: task
 title: "Extract ServiceManager from DefaultRunner"
 short_code: "CLOACI-T-0483"
 created_at: 2026-04-11T14:49:51.972114+00:00
-updated_at: 2026-04-20T11:21:58.045091+00:00
+updated_at: 2026-04-21T02:45:02.626095+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -36,6 +36,8 @@ EVO-004, LEG-012 (REC-013)
 
 ### Priority
 - [x] P3 - Low (when time permits)
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -281,6 +281,9 @@ pub enum ExecutorError {
     #[error("Task execution timeout")]
     TaskTimeout,
 
+    #[error("Task claim lost to another runner")]
+    ClaimLost,
+
     #[error("Semaphore acquisition error: {0}")]
     Semaphore(#[from] tokio::sync::AcquireError),
 

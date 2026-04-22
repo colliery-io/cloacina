@@ -4,7 +4,7 @@ level: task
 title: "Defensive practice — lint/CI guard against credential logging in log and print statements"
 short_code: "CLOACI-T-0443"
 created_at: 2026-04-08T13:43:25.906031+00:00
-updated_at: 2026-04-20T11:21:27.802952+00:00
+updated_at: 2026-04-21T02:44:58.556207+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,6 +39,8 @@ Establish a defensive practice that prevents credential leakage from recurring i
 - **Current Problems**: Database URLs with embedded passwords can be logged via `info!()`, `debug!()`, or `eprintln!()` anywhere in the codebase. The only protection is the developer remembering to call `mask_db_url()` — a manual practice that already failed once (Python bindings).
 - **Benefits of Fixing**: Systemic prevention of credential leakage. New code paths automatically protected.
 - **Risk Assessment**: Without this, every new module that touches database URLs is a potential leak.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
