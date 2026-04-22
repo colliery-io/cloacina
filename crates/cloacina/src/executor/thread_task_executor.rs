@@ -363,7 +363,16 @@ impl ThreadTaskExecutor {
         // arm body so we don't hold a `watch::Ref` (which is !Send) across
         // the subsequent await.
         let wait_cancelled = async { cancel_rx.wait_for(|&v| v).await.is_ok() };
+        // `biased;` gives the task arm priority. When the watch fires, both
+        // arms can become ready on the same poll (the task's own
+        // `TaskHandle::cancelled()` observes the same signal). Without
+        // `biased`, `select!` picks randomly — which races Layer 2's
+        // cooperative cleanup against Layer 1's drop. With `biased`, a task
+        // that cooperatively handles cancellation runs to completion; a
+        // task that ignores the signal still falls through to Layer 1
+        // because its arm stays `Pending` while the cancel arm is ready.
         tokio::select! {
+            biased;
             r = self.execute_with_timeout(task, context) => r,
             fired = wait_cancelled => {
                 if fired {

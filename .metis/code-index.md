@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-22T03:10:29Z | 480 files | JavaScript, Python, Rust
+> Generated: 2026-04-22T03:54:10Z | 480 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4813,8 +4813,8 @@
 -  `find_claimed_task_id` function L144-186 — `( database: &cloacina::database::Database, workflow_execution_id: UniversalUuid,...` — Look up the task_execution row id for a given workflow execution + task
 -  `wait_for_claim` function L188-214 — `( database: &cloacina::database::Database, workflow_execution_id: UniversalUuid,...` — a competing runner stealing the claim.
 -  `short_heartbeat_config` function L216-221 — `() -> DefaultRunnerConfig` — a competing runner stealing the claim.
--  `layer_1_heartbeat_cancellation_aborts_sleeping_task` function L228-296 — `()` — a competing runner stealing the claim.
--  `layer_2_cooperative_cancellation_via_task_handle` function L303-370 — `()` — a competing runner stealing the claim.
+-  `layer_1_heartbeat_cancellation_aborts_sleeping_task` function L228-297 — `()` — a competing runner stealing the claim.
+-  `layer_2_cooperative_cancellation_via_task_handle` function L304-371 — `()` — a competing runner stealing the claim.
 
 #### crates/cloacina/tests/integration/executor/context_merging.rs
 

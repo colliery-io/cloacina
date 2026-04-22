@@ -237,7 +237,7 @@
     "crates/cloacina/tests/integration/error.rs": "2c151e4f78166462ee20c027c524da9366fd71bd05fa6dfedaefe182a8e54dfd",
     "crates/cloacina/tests/integration/error_paths.rs": "4c141854d4e40c8ee9b89b7c21c6e3dd3ff07786a59d54a4586e07dd27453413",
     "crates/cloacina/tests/integration/event_dedup.rs": "5daa4a5d2c7803f4b9f11b31fac6f011f860489d1e8fe36eb8cdd745e180f140",
-    "crates/cloacina/tests/integration/executor/claim_loss_cancellation.rs": "bd308eb9bc239a5ef2076656dd2e0b4a6c9c518a3f7176bf8168482f2fd30eee",
+    "crates/cloacina/tests/integration/executor/claim_loss_cancellation.rs": "610b4d1c178d255351c16be37c2c8bd9550cc16a0ab9a0147e49d5168dc49e38",
     "crates/cloacina/tests/integration/executor/context_merging.rs": "0a22f6e56a04d4a133647f12c2502f4206a156be88014099d5e26840a065532b",
     "crates/cloacina/tests/integration/executor/defer_until.rs": "71f42636e0d4991c4857e88727f75599afbfc4c6b991a80bfae798b1d3e54855",
     "crates/cloacina/tests/integration/executor/mod.rs": "b8f7cceea3a4315ef64d5e49cbd3453a9c8abaf29077986fed216503078b96f0",
