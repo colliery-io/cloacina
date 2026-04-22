@@ -182,6 +182,10 @@ impl<'a> SchedulerLoop<'a> {
             .get_active_executions()
             .await?;
 
+        // SQL-derived gauge — re-seeded every tick so it cannot drift on crash,
+        // claim loss, or any path that skips finalize_workflow_execution.
+        metrics::gauge!("cloacina_active_workflows").set(active_executions.len() as f64);
+
         if active_executions.is_empty() {
             // Even with no active workflow executions, dispatch any Ready tasks (e.g., retries)
             if self.dispatcher.is_some() {
@@ -351,7 +355,13 @@ impl<'a> SchedulerLoop<'a> {
                 .workflow_execution()
                 .mark_failed(execution.id, &reason)
                 .await?;
-            metrics::counter!("cloacina_workflows_total", "status" => "failed").increment(1);
+            // Workflow-level failures are always downstream of task failures.
+            metrics::counter!(
+                "cloacina_workflows_total",
+                "status" => "failed",
+                "reason" => "dependency_failed",
+            )
+            .increment(1);
             info!(
                 "Workflow execution failed: {} (name: {}, {})",
                 execution.id, execution.workflow_name, reason
@@ -361,19 +371,26 @@ impl<'a> SchedulerLoop<'a> {
                 .workflow_execution()
                 .mark_completed(execution.id)
                 .await?;
-            metrics::counter!("cloacina_workflows_total", "status" => "completed").increment(1);
+            metrics::counter!(
+                "cloacina_workflows_total",
+                "status" => "completed",
+                "reason" => "ok",
+            )
+            .increment(1);
             info!(
                 "Workflow execution completed: {} (name: {}, {} completed, {} skipped)",
                 execution.id, execution.workflow_name, completed_count, skipped_count
             );
         }
 
-        // Record workflow execution duration and decrement active gauge
+        // Record workflow execution duration. The active-workflows gauge is
+        // SQL-derived in process_active_executions and does NOT need an
+        // explicit decrement here — the next tick will re-seed it from the
+        // authoritative row count.
         let duration = chrono::Utc::now() - execution.started_at.0;
         if let Ok(secs) = duration.to_std() {
             metrics::histogram!("cloacina_workflow_duration_seconds").record(secs.as_secs_f64());
         }
-        metrics::gauge!("cloacina_active_workflows").decrement(1.0);
 
         Ok(())
     }

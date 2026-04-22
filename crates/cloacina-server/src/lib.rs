@@ -202,12 +202,24 @@ pub async fn run(
     // Register metric descriptions
     metrics::describe_counter!(
         "cloacina_workflows_total",
-        "Total workflow executions by status"
+        "Total workflow executions by status and reason. \
+         reason is `ok` on success, or a bounded failure category \
+         (currently `dependency_failed`) on failure."
     );
-    metrics::describe_counter!("cloacina_tasks_total", "Total task executions by status");
+    metrics::describe_counter!(
+        "cloacina_tasks_total",
+        "Total task executions by status and reason. \
+         reason is `ok` on success, or one of the bounded failure categories: \
+         `task_error`, `timeout`, `validation_failed`, `infrastructure`, \
+         `task_not_found`, `claim_lost` (reserved), `unknown`."
+    );
     metrics::describe_counter!(
         "cloacina_api_requests_total",
-        "Total API requests by method, path, and status"
+        "Total API requests by HTTP method and response status code"
+    );
+    metrics::describe_histogram!(
+        "cloacina_api_request_duration_seconds",
+        "API request handler duration by HTTP method and response status code"
     );
     metrics::describe_histogram!(
         "cloacina_workflow_duration_seconds",
@@ -491,16 +503,29 @@ fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Middleware that counts API requests by method and status code.
+/// Middleware that counts API requests by method and status code, and records
+/// handler duration as a histogram.
 async fn api_request_metrics(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let method = request.method().to_string();
+    let started = std::time::Instant::now();
     let response = next.run(request).await;
+    let elapsed = started.elapsed().as_secs_f64();
     let status = response.status().as_u16().to_string();
-    metrics::counter!("cloacina_api_requests_total", "method" => method, "status" => status)
-        .increment(1);
+    metrics::counter!(
+        "cloacina_api_requests_total",
+        "method" => method.clone(),
+        "status" => status.clone(),
+    )
+    .increment(1);
+    metrics::histogram!(
+        "cloacina_api_request_duration_seconds",
+        "method" => method,
+        "status" => status,
+    )
+    .record(elapsed);
     response
 }
 
@@ -795,9 +820,24 @@ mod tests {
         let state = test_state().await;
 
         // Record some test metrics so the output isn't empty
-        metrics::counter!("cloacina_workflows_total", "status" => "completed").increment(3);
-        metrics::counter!("cloacina_tasks_total", "status" => "completed").increment(10);
-        metrics::counter!("cloacina_tasks_total", "status" => "failed").increment(2);
+        metrics::counter!(
+            "cloacina_workflows_total",
+            "status" => "completed",
+            "reason" => "ok",
+        )
+        .increment(3);
+        metrics::counter!(
+            "cloacina_tasks_total",
+            "status" => "completed",
+            "reason" => "ok",
+        )
+        .increment(10);
+        metrics::counter!(
+            "cloacina_tasks_total",
+            "status" => "failed",
+            "reason" => "task_error",
+        )
+        .increment(2);
 
         let app = build_router(state);
 
@@ -842,6 +882,54 @@ mod tests {
         assert!(
             text.contains("cloacina_tasks_total"),
             "Metrics should contain task counters. Got:\n{}",
+            text
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_api_request_duration_histogram_emitted() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        // Fire a request through the middleware stack so the histogram records.
+        let _ = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+
+        assert!(
+            text.contains("cloacina_api_request_duration_seconds"),
+            "Metrics output should include the API request duration histogram. Got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("cloacina_api_requests_total"),
+            "Metrics output should include the API request counter. Got:\n{}",
             text
         );
     }

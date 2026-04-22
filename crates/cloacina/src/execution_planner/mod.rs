@@ -419,7 +419,11 @@ impl TaskScheduler {
             .await?
         );
 
-        metrics::gauge!("cloacina_active_workflows").increment(1.0);
+        // NOTE: cloacina_active_workflows gauge is SQL-derived — re-seeded
+        // each tick in SchedulerLoop::process_active_executions from the
+        // workflow_executions row count. We intentionally do NOT increment
+        // here; doing so would cause gauge drift on any code path that skips
+        // finalize_workflow_execution (crash, claim loss, etc.).
         info!("Workflow execution scheduled: {}", workflow_execution_id);
         Ok(workflow_execution_id.into())
     }
