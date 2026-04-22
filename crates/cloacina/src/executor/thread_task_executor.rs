@@ -52,6 +52,29 @@ use crate::Runtime;
 use crate::{parse_namespace, Context, Database, Task, TaskRegistry};
 use async_trait::async_trait;
 
+/// Bounded reason value for `cloacina_tasks_total{status="failed", reason=...}`.
+///
+/// Cardinality is closed: the set of returned values is fixed here so label
+/// explosion is impossible.
+fn failure_reason(err: &ExecutorError) -> &'static str {
+    match err {
+        ExecutorError::TaskTimeout => "timeout",
+        ExecutorError::TaskExecution(_) => "task_error",
+        ExecutorError::Validation(_) => "validation_failed",
+        ExecutorError::ClaimLost => "claim_lost",
+        ExecutorError::Database(_)
+        | ExecutorError::ConnectionPool(_)
+        | ExecutorError::Context(_)
+        | ExecutorError::ContextLoadFailed(_) => "infrastructure",
+        ExecutorError::TaskNotFound(_) | ExecutorError::WorkflowExecutionNotFound(_) => {
+            "task_not_found"
+        }
+        ExecutorError::Serialization(_)
+        | ExecutorError::InvalidScope(_)
+        | ExecutorError::Semaphore(_) => "unknown",
+    }
+}
+
 /// ThreadTaskExecutor is a thread-based implementation of task execution.
 ///
 /// This executor runs tasks in the current thread/process and manages:
@@ -413,7 +436,12 @@ impl ThreadTaskExecutor {
                 self.complete_task_transaction(&claimed_task, result_context)
                     .await?;
 
-                metrics::counter!("cloacina_tasks_total", "status" => "completed").increment(1);
+                metrics::counter!(
+                    "cloacina_tasks_total",
+                    "status" => "completed",
+                    "reason" => "ok",
+                )
+                .increment(1);
                 info!("Task completed successfully: {}", claimed_task.task_name);
             }
             Err(error) => {
@@ -441,7 +469,12 @@ impl ThreadTaskExecutor {
                     // Mark task as permanently failed
                     self.mark_task_failed(claimed_task.task_execution_id, &error)
                         .await?;
-                    metrics::counter!("cloacina_tasks_total", "status" => "failed").increment(1);
+                    metrics::counter!(
+                        "cloacina_tasks_total",
+                        "status" => "failed",
+                        "reason" => failure_reason(&error),
+                    )
+                    .increment(1);
                     error!(
                         "Task failed permanently: {} - {}",
                         claimed_task.task_name, error
@@ -1100,6 +1133,69 @@ impl TaskExecutor for ThreadTaskExecutor {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // -----------------------------------------------------------------------
+    // failure_reason — bounded reason label for cloacina_tasks_total
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn failure_reason_covers_every_variant_with_bounded_values() {
+        use crate::error::TaskError;
+
+        let cases: Vec<(ExecutorError, &str)> = vec![
+            (ExecutorError::TaskTimeout, "timeout"),
+            (
+                ExecutorError::TaskExecution(TaskError::ExecutionFailed {
+                    message: "boom".into(),
+                    task_id: "t".into(),
+                    timestamp: chrono::Utc::now(),
+                }),
+                "task_error",
+            ),
+            (
+                ExecutorError::Validation(crate::error::ValidationError::InvalidTaskName(
+                    "x".into(),
+                )),
+                "validation_failed",
+            ),
+            (
+                ExecutorError::ConnectionPool("pool exhausted".into()),
+                "infrastructure",
+            ),
+            (
+                ExecutorError::ContextLoadFailed("bad".into()),
+                "infrastructure",
+            ),
+            (
+                ExecutorError::TaskNotFound("missing".into()),
+                "task_not_found",
+            ),
+            (ExecutorError::ClaimLost, "claim_lost"),
+            (ExecutorError::InvalidScope("scope".into()), "unknown"),
+        ];
+
+        let allowed: std::collections::HashSet<&'static str> = [
+            "timeout",
+            "task_error",
+            "validation_failed",
+            "infrastructure",
+            "task_not_found",
+            "claim_lost",
+            "unknown",
+        ]
+        .into_iter()
+        .collect();
+
+        for (err, expected) in cases {
+            let got = failure_reason(&err);
+            assert_eq!(got, expected, "wrong reason for {:?}", err);
+            assert!(
+                allowed.contains(got),
+                "reason {} is not in the bounded set",
+                got
+            );
+        }
+    }
 
     // -----------------------------------------------------------------------
     // merge_context_values tests
