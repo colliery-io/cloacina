@@ -11,7 +11,7 @@ In this tutorial you'll push events into the `orderbook` accumulator of the `pri
 - The accumulator WebSocket endpoint URL and query-parameter auth
 - The wire format: text or binary frames containing JSON (debug mode) or raw bytes (release mode)
 - How to open a connection, send events, and close cleanly using Python's standard library
-- How to verify the graph fired by polling `/v1/health/reactors`
+- How to verify the graph fired by polling `/v1/health/graphs`
 - The reactor WebSocket endpoint for manual commands (`ForceFire`, `GetState`, `Pause`, `Resume`)
 
 ## Prerequisites
@@ -29,7 +29,7 @@ In this tutorial you'll push events into the `orderbook` accumulator of the `pri
 
 ## Background: the accumulator WebSocket endpoint
 
-Each accumulator registered with the `ReactiveScheduler` is reachable at:
+Each accumulator registered with the `ComputationGraphScheduler` is reachable at:
 
 ```
 GET /v1/ws/accumulator/{name}
@@ -220,7 +220,7 @@ Sending event to orderbook accumulator on localhost:8080...
 After the event is delivered, the `price_signal` reactor evaluates its `when_any` firing condition. Because `orderbook` is the only declared source and it just received a value, the reactor fires immediately.
 
 ```bash
-curl -s "${BASE_URL}/v1/health/reactors/price_signal" \
+curl -s "${BASE_URL}/v1/health/graphs/price_signal" \
   -H "Authorization: Bearer ${TOKEN}" | python3 -m json.tool
 ```
 

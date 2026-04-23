@@ -279,7 +279,7 @@ Check if a key is authorized for a specific operation.
 
 Registry mapping endpoint names to channel senders.
 
-Shared between the Reactive Scheduler (registers on spawn) and
+Shared between the Graph Scheduler (registers on spawn) and
 WebSocket handlers (look up on message receipt).
 
 #### Fields

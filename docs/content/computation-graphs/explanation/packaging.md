@@ -127,7 +127,7 @@ Package uploaded
             → Done
 ```
 
-The key step is `build_declaration_from_ffi`, implemented in `packaging_bridge.rs`. It takes the FFI metadata and the library bytes and produces a `ComputationGraphDeclaration` that the `ReactiveScheduler` can consume. This is where the `LoadedGraphPlugin` is created — the library is loaded here, and the handle lives inside the `CompiledGraphFn` closure for the lifetime of the reactor.
+The key step is `build_declaration_from_ffi`, implemented in `packaging_bridge.rs`. It takes the FFI metadata and the library bytes and produces a `ComputationGraphDeclaration` that the `ComputationGraphScheduler` can consume. This is where the `LoadedGraphPlugin` is created — the library is loaded here, and the handle lives inside the `CompiledGraphFn` closure for the lifetime of the reactor.
 
 ## Manifest Accumulator Config
 
@@ -180,12 +180,12 @@ In both cases, the host's accumulator is a dumb byte forwarder. All type-aware p
 
 ## Python Computation Graphs
 
-Python computation graphs follow a different path. Instead of FFI via fidius, they are loaded via PyO3. The reconciler extracts the Python package, imports the entry module, and the `@computation_graph` decorator registers the graph's executor in the same global registry as Rust graphs. The reactive scheduler then handles them identically.
+Python computation graphs follow a different path. Instead of FFI via fidius, they are loaded via PyO3. The reconciler extracts the Python package, imports the entry module, and the `@computation_graph` decorator registers the graph's executor in the same global registry as Rust graphs. The graph scheduler then handles them identically.
 
 The Python path bypasses the `LoadedGraphPlugin` / fidius mechanism entirely. Graph execution happens in the Python interpreter (via `spawn_blocking` to avoid blocking the async runtime), with the cache passed across the PyO3 boundary as a `HashMap<String, String>`.
 
 ## Further Reading
 
-- [Architecture]({{< ref "architecture" >}}) — the process model and where the reactive scheduler lives
+- [Architecture]({{< ref "architecture" >}}) — the process model and where the graph scheduler lives
 - [Accumulator Design]({{< ref "accumulator-design" >}}) — how accumulators work and what the FFI accumulators are doing
 - [Performance Characteristics]({{< ref "performance" >}}) — the overhead cost of the FFI boundary

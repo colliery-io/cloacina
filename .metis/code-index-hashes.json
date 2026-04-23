@@ -137,7 +137,7 @@
     "crates/cloacina/src/executor/mod.rs": "222a174eea7e2c8466bdce137d1ffa200c11eb54fa03d65da6940f31600093bb",
     "crates/cloacina/src/executor/slot_token.rs": "962254bf92047414809679c8d346b31923daf40675b7b849c45e00db0ed3ff65",
     "crates/cloacina/src/executor/task_handle.rs": "9f20b3593eb1180998bceceb27bfa21af050873925a69a0097298f11c7b820ee",
-    "crates/cloacina/src/executor/thread_task_executor.rs": "cc37896edf546d9b8f762359a10ee44d9e707d417cf0a4ab49e098e8bb6e3aee",
+    "crates/cloacina/src/executor/thread_task_executor.rs": "74bd56e825f71cb32377fd82762df07173c41abc25c60a222d637441d94ade44",
     "crates/cloacina/src/executor/types.rs": "f6a8efe21abb3e5155b278ca8842042a2705f3113473b9c8bf19c60fe33dacee",
     "crates/cloacina/src/executor/workflow_executor.rs": "ef54cfd89c5157aa0f360df84934ab51d3d867df2c6dc78aee72a3c6e54d5c19",
     "crates/cloacina/src/graph.rs": "2be43b6d3afdc6c87183985f8a2031095ab1fb49e494fa6f47b383aa45a6e63c",

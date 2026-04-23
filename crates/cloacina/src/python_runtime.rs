@@ -62,7 +62,7 @@ pub trait PythonRuntime: Send + Sync {
     ) -> Result<LoadedPythonWorkflow, String>;
 
     /// Extract + import a Python computation graph package, then build the
-    /// [`ComputationGraphDeclaration`] the `ReactiveScheduler` loads. Returns
+    /// [`ComputationGraphDeclaration`] the `ComputationGraphScheduler` loads. Returns
     /// `None` if the imported module registered no executor for
     /// `graph_name` — matches the prior behavior where the caller silently
     /// moves on.

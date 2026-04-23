@@ -38,7 +38,7 @@ background services for scheduling and task execution.
 | `workflow_registry` | `Arc < RwLock < Option < Arc < dyn WorkflowRegistry > > > >` | Optional workflow registry for packaged workflows |
 | `registry_reconciler` | `Arc < RwLock < Option < Arc < RegistryReconciler > > > >` | Optional registry reconciler for packaged workflows |
 | `unified_scheduler` | `Arc < RwLock < Option < Arc < Scheduler > > > >` | Optional unified scheduler for both cron and trigger-based workflow execution |
-| `reactive_scheduler` | `Arc < RwLock < Option < Arc < crate :: computation_graph :: scheduler :: ReactiveScheduler > > > >` | Optional reactive scheduler for computation graph packages |
+| `graph_scheduler` | `Arc < RwLock < Option < Arc < crate :: computation_graph :: scheduler :: ComputationGraphScheduler > > > >` | Optional graph scheduler for computation graph packages |
 
 #### Methods
 
@@ -264,7 +264,7 @@ Creates a new unified executor with custom configuration
             workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
             registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
             unified_scheduler: Arc::new(RwLock::new(None)), // Initially empty
-            reactive_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            graph_scheduler: Arc::new(RwLock::new(None)), // Initially empty
         };
 
         // Start the background services immediately
@@ -348,25 +348,25 @@ the unified scheduler has not yet been initialized.
 
 
 
-##### `set_reactive_scheduler` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `set_graph_scheduler` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
 
 
 ```rust
-async fn set_reactive_scheduler (& self , scheduler : Arc < crate :: computation_graph :: scheduler :: ReactiveScheduler > ,)
+async fn set_graph_scheduler (& self , scheduler : Arc < crate :: computation_graph :: scheduler :: ComputationGraphScheduler > ,)
 ```
 
-Set the reactive scheduler for computation graph package routing. Must be called before `start_services()` so the reconciler can route CG packages.
+Set the graph scheduler for computation graph package routing. Must be called before `start_services()` so the reconciler can route CG packages.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub async fn set_reactive_scheduler(
+    pub async fn set_graph_scheduler(
         &self,
-        scheduler: Arc<crate::computation_graph::scheduler::ReactiveScheduler>,
+        scheduler: Arc<crate::computation_graph::scheduler::ComputationGraphScheduler>,
     ) {
-        let mut lock = self.reactive_scheduler.write().await;
+        let mut lock = self.graph_scheduler.write().await;
         *lock = Some(scheduler);
     }
 ```

@@ -163,8 +163,34 @@ Total: ~6 symbol renames, ~25 call-site updates, ~10 test-name updates.
 4. **`build_python_graph_declaration`** — builds a declaration struct that is the input to the reactor. Arguably `build_python_reactor_declaration` since the output is consumed by `load_reactor`.
 5. **Migration dir `…computation_graph_state_tables`** — the name suggests spec state but the dir contains `reactor_state`. Cannot rename the dir (replay history). Leave with an inline SQL comment pointing to the naming convention.
 
+### 2026-04-22 — Nomenclature resolved; authority spec published
+
+Published **CLOACI-S-0011 Cloacina primitive nomenclature**. That spec is now the authoritative naming reference; this task executes its rollout.
+
+**Model from S-0011 (supersedes the two-layer model in the earlier audit):**
+
+Five primitives — trigger, reactor, accumulator, workflow, computation graph. Reactor is a specialized-trigger *noun* (not a runtime layer name), and computation graph is the quantum of execution for the compiled-pipeline model. The 2026-04-19 audit's proposal to rename `list_graphs` → `list_reactors`, `load_graph` → `load_reactor`, etc., runs *opposite* to S-0011's R5 and is superseded.
+
+**Rename surface — follow S-0011 R5.** Authoritative table lives in the spec; summary:
+
+- `ReactiveScheduler` → `ComputationGraphScheduler`
+- `reactive_scheduler` fields/vars → `graph_scheduler`
+- `src/routes/health_reactive.rs` → `health_graphs.rs`
+- `GET /v1/health/reactors[/{name}]` → `GET /v1/health/graphs[/{name}]`
+- Response `{"reactors": [...]}` → `{"graphs": [...]}`
+- Per-graph `reactor_paused` field → `paused`
+- `cloacinactl reactor <verb>` → `cloacinactl graph <verb>` (straight rename, no alias)
+- `cloacinactl/src/nouns/reactor/` → `cloacinactl/src/nouns/graph/`
+- `CLOACI-S-0008` title: *"… Reactive Computation Graphs"* → *"… Computation Graphs"*
+- `docs/content/computation-graphs/explanation/reactive-scheduling.md` → `computation-graph-scheduling.md`
+- Docs pass across `docs/content/computation-graphs/**` per S-0011 R1–R3.
+
+**Keep unchanged (per S-0011 R6)**: `#[computation_graph]`, `#[reactor]`, `#[accumulator]` macros; `Reactor` trait, `ReactorDeclaration`, `Accumulator` trait; `/v1/health/accumulators`, `/v1/ws/accumulator/{name}`, `/v1/ws/reactor/{name}`; `CLOACI-S-0005 Reactor` title; crate names.
+
+**Load-bearing verbs to keep**: `load_graph`, `unload_graph`, `list_graphs` on the scheduler — they correctly refer to computation graphs (the spec's preferred noun), not to reactors. The previous audit's proposal to rename them is rejected.
+
+**Rollout**: single PR. Rust + HTTP + CLI + docs pass + S-0008 title rename. No behavior changes.
+
 ### Next step
 
-**Paused pending a nomenclature conversation.** Dylan's position (2026-04-19): computation graph and reactor are separate concepts, not a two-layer spec/runtime split. The rename proposals above assume the latter and need to be re-evaluated against the actual model before any code changes land.
-
-Task stays open with the audit intact — the inventory of where each term is used is still useful input regardless of how the naming discussion resolves. No rename PR until the conceptual split is settled.
+Unblocked. Proceed with the rename pass.

@@ -170,7 +170,7 @@ Registry Reconciler for synchronizing database state with in-memory registries
 | `task_registrar` | `TaskRegistrar` | Task registrar for managing dynamic task registration |
 | `shutdown_rx` | `watch :: Receiver < bool >` | Shutdown signal receiver |
 | `interval` | `Interval` | Reconciliation interval timer |
-| `reactive_scheduler` | `Arc < tokio :: sync :: RwLock < Option < Arc < ReactiveScheduler > > > >` | Optional reactive scheduler for computation graph packages.
+| `graph_scheduler` | `Arc < tokio :: sync :: RwLock < Option < Arc < ComputationGraphScheduler > > > >` | Optional graph scheduler for computation graph packages.
 Shared reference so it can be set after construction. |
 
 #### Methods
@@ -209,7 +209,7 @@ Create a new Registry Reconciler
             task_registrar,
             shutdown_rx,
             interval,
-            reactive_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
+            graph_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 ```
@@ -218,22 +218,22 @@ Create a new Registry Reconciler
 
 
 
-##### `with_reactive_scheduler` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `with_graph_scheduler` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
-fn with_reactive_scheduler (self , scheduler : Arc < ReactiveScheduler >) -> Self
+fn with_graph_scheduler (self , scheduler : Arc < ComputationGraphScheduler >) -> Self
 ```
 
-Set the reactive scheduler for computation graph package routing.
+Set the graph scheduler for computation graph package routing.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn with_reactive_scheduler(self, scheduler: Arc<ReactiveScheduler>) -> Self {
+    pub fn with_graph_scheduler(self, scheduler: Arc<ComputationGraphScheduler>) -> Self {
         // Use try_write since this is called during initialization (not async)
-        if let Ok(mut lock) = self.reactive_scheduler.try_write() {
+        if let Ok(mut lock) = self.graph_scheduler.try_write() {
             *lock = Some(scheduler);
         }
         self
@@ -244,24 +244,24 @@ Set the reactive scheduler for computation graph package routing.
 
 
 
-##### `set_reactive_scheduler_slot` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `set_graph_scheduler_slot` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
-fn set_reactive_scheduler_slot (& mut self , slot : Arc < tokio :: sync :: RwLock < Option < Arc < ReactiveScheduler > > > > ,)
+fn set_graph_scheduler_slot (& mut self , slot : Arc < tokio :: sync :: RwLock < Option < Arc < ComputationGraphScheduler > > > > ,)
 ```
 
-Replace the reactive scheduler slot with a shared reference from the runner. This allows the runner to inject the scheduler after construction.
+Replace the graph scheduler slot with a shared reference from the runner. This allows the runner to inject the scheduler after construction.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn set_reactive_scheduler_slot(
+    pub fn set_graph_scheduler_slot(
         &mut self,
-        slot: Arc<tokio::sync::RwLock<Option<Arc<ReactiveScheduler>>>>,
+        slot: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>>>>,
     ) {
-        self.reactive_scheduler = slot;
+        self.graph_scheduler = slot;
     }
 ```
 

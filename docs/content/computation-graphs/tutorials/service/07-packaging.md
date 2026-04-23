@@ -30,7 +30,7 @@ In this tutorial you'll take a computation graph from Rust source code all the w
 
 ## Background: how packaged graphs work
 
-A computation graph package is a Rust crate compiled as a `cdylib`. The server's reconciler watches for newly uploaded `.cloacina` archives, extracts the source, compiles it, and loads the resulting shared library via fidius FFI. Once loaded, the graph's accumulators and reactor are registered with the `ReactiveScheduler` and start accepting events.
+A computation graph package is a Rust crate compiled as a `cdylib`. The server's reconciler watches for newly uploaded `.cloacina` archives, extracts the source, compiles it, and loads the resulting shared library via fidius FFI. Once loaded, the graph's accumulators and reactor are registered with the `ComputationGraphScheduler` and start accepting events.
 
 The key distinction from a packaged workflow: the graph plugin exposes an `execute_graph()` FFI method that receives a serialized `InputCache` snapshot and returns the terminal node outputs. The host server owns all accumulator channels and the reactor loop — your plugin only contains the pure computation logic.
 
@@ -273,7 +273,7 @@ Poll the reactor health endpoint until your graph appears:
 # Poll every 5 seconds for up to 2 minutes
 for i in $(seq 1 24); do
   echo "--- attempt $i ---"
-  curl -s "${BASE_URL}/v1/health/reactors" \
+  curl -s "${BASE_URL}/v1/health/graphs" \
     -H "Authorization: Bearer ${TOKEN}" | \
     python3 -m json.tool
   sleep 5
@@ -283,14 +283,14 @@ done
 While compiling you'll see an empty reactor list:
 
 ```json
-{ "reactors": [] }
+{ "graphs": [] }
 ```
 
 Once loaded:
 
 ```json
 {
-  "reactors": [
+  "graphs": [
     {
       "name": "price_signal",
       "health": { "state": "running" },
@@ -333,7 +333,7 @@ When the server receives a `.cloacina` source package with `package_type = ["com
 2. Injects a `[patch.crates-io]` section into `Cargo.toml` so path dependencies resolve to the server's bundled Cloacina version
 3. Runs `cargo build --lib --release` (or `--debug` depending on server mode)
 4. Calls `build_declaration_from_ffi()` to convert the `GraphPackageMetadata` returned by the FFI plugin into a `ComputationGraphDeclaration`
-5. Calls `ReactiveScheduler::load_graph()` to spawn the accumulator tasks and reactor loop
+5. Calls `ComputationGraphScheduler::load_graph()` to spawn the accumulator tasks and reactor loop
 
 The FFI boundary uses JSON (debug builds) or bincode (release builds) for the `InputCache` snapshot passed to `execute_graph()`.
 
@@ -343,7 +343,7 @@ The FFI boundary uses JSON (debug builds) or bincode (release builds) for the `I
 
 **HTTP 400 on upload**: The archive is malformed. Check that the top-level directory matches `{name}-{version}` and that `package.toml` is present.
 
-**Graph never appears in `/v1/health/reactors`**: Check the server logs. Look for `cargo build` errors — the most common cause is a version mismatch in `Cargo.toml`. Make sure `cloacina-computation-graph`, `cloacina-macros`, `cloacina-workflow-plugin`, and `cloacina-build` all use the same version.
+**Graph never appears in `/v1/health/graphs`**: Check the server logs. Look for `cargo build` errors — the most common cause is a version mismatch in `Cargo.toml`. Make sure `cloacina-computation-graph`, `cloacina-macros`, `cloacina-workflow-plugin`, and `cloacina-build` all use the same version.
 
 **Accumulator shows `"unhealthy"`**: The accumulator task crashed, usually due to a deserialization failure on the first event. Check that the event payload you send matches the boundary type (`OrderBook` in this example).
 

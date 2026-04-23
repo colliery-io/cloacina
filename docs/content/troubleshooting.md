@@ -468,7 +468,7 @@ The computation graph is loaded and the accumulators are receiving data, but the
 
 **Cause:**
 
-The reactive scheduler fires the graph function only when the reaction criteria are satisfied:
+The graph scheduler fires the graph function only when the reaction criteria are satisfied:
 - **`when_any`**: At least one accumulator has received a new value since the last execution.
 - **`when_all`**: All declared accumulators have received at least one value.
 
@@ -518,12 +518,12 @@ The accumulator's internal channel was closed because:
 
 **Solution:**
 
-1. **Ensure registration order:** Register the computation graph before starting producers. The reactive scheduler creates channels during graph registration.
+1. **Ensure registration order:** Register the computation graph before starting producers. The graph scheduler creates channels during graph registration.
 
 2. **Check channel capacity.** If using bounded channels, increase the buffer or switch to unbounded:
    ```rust
    // In scheduler configuration
-   let scheduler = ReactiveScheduler::new(config);
+   let scheduler = ComputationGraphScheduler::new(config);
    ```
 
 3. **Verify source names match exactly** between the publisher and the graph declaration. Source names are case-sensitive and use the `SourceName` type.

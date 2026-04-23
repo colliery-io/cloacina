@@ -426,7 +426,7 @@ The `inputs` dict maps source names to data dicts. Each key should match an accu
 
 ### Reactive Execution (Packaged Deployment)
 
-In a packaged deployment, computation graphs run inside the reactive scheduler. The runtime:
+In a packaged deployment, computation graphs run inside the graph scheduler. The runtime:
 
 1. Starts each registered accumulator (subscribing to streams, setting up polling timers, etc.)
 2. Feeds accumulator output into the input cache

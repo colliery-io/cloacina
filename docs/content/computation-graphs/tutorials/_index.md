@@ -6,7 +6,7 @@ weight: 10
 
 # Computation Graph Tutorials
 
-Learn Cloacina's reactive computation graph system through progressive, hands-on tutorials.
+Learn Cloacina's computation graph system through progressive, hands-on tutorials.
 
 ## Library (Embedded)
 

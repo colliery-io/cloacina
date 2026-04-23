@@ -1,7 +1,7 @@
 # cloacina::computation_graph::packaging_bridge <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">Rust</span>
 
 
-Bridge from FFI-loaded package metadata to ReactiveScheduler types.
+Bridge from FFI-loaded package metadata to ComputationGraphScheduler types.
 
 Converts `GraphPackageMetadata` + library data into `ComputationGraphDeclaration`
 with `AccumulatorFactory` implementations and a `CompiledGraphFn` that calls
@@ -187,7 +187,7 @@ fn new (config : std :: collections :: HashMap < String , String >) -> Self
 fn build_declaration_from_ffi (graph_meta : & GraphPackageMetadata , library_data : Vec < u8 > ,) -> ComputationGraphDeclaration
 ```
 
-Convert FFI graph metadata + library data into a `ComputationGraphDeclaration` that the `ReactiveScheduler` can load.
+Convert FFI graph metadata + library data into a `ComputationGraphDeclaration` that the `ComputationGraphScheduler` can load.
 
 The library is loaded once here and the handle is kept alive in the
 `CompiledGraphFn` closure for reuse on every reactor fire.

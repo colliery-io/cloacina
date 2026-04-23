@@ -100,7 +100,7 @@ Notice that `ingest` simply passes its input through — the accumulator already
 
 ## Step 3: Push events through the accumulator and graph
 
-In a live deployment the accumulator runs as part of the reactive runtime. For this tutorial you call it directly to simulate the pipeline.
+In a live deployment the accumulator runs as part of the computation graph runtime. For this tutorial you call it directly to simulate the pipeline.
 
 ```python
 events = [

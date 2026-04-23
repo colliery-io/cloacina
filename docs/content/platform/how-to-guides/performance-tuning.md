@@ -340,7 +340,7 @@ Computation graphs run as long-lived reactive pipelines separate from the workfl
 
 ### Boundary channel capacity
 
-The boundary channel between accumulators and the reactor defaults to **256 slots** (set in the Reactive Scheduler's `load_graph` method). The merge channel within each accumulator defaults to **1024 slots** (`AccumulatorRuntimeConfig::default()`).
+The boundary channel between accumulators and the reactor defaults to **256 slots** (set in the Graph Scheduler's `load_graph` method). The merge channel within each accumulator defaults to **1024 slots** (`AccumulatorRuntimeConfig::default()`).
 
 If accumulators produce data faster than the reactor processes it, the channel fills and backpressure slows the producers. Signs of channel saturation:
 - Accumulator health transitioning to Disconnected

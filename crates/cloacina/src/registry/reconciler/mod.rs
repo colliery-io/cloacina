@@ -40,7 +40,7 @@ use tokio::sync::watch;
 use tokio::time::{interval, Interval};
 use tracing::{debug, error, info, warn};
 
-use crate::computation_graph::scheduler::ReactiveScheduler;
+use crate::computation_graph::scheduler::ComputationGraphScheduler;
 use crate::registry::error::RegistryError;
 use crate::registry::loader::package_loader::PackageLoader;
 use crate::registry::loader::task_registrar::TaskRegistrar;
@@ -184,9 +184,9 @@ pub struct RegistryReconciler {
     /// Reconciliation interval timer
     interval: Interval,
 
-    /// Optional reactive scheduler for computation graph packages.
+    /// Optional graph scheduler for computation graph packages.
     /// Shared reference so it can be set after construction.
-    reactive_scheduler: Arc<tokio::sync::RwLock<Option<Arc<ReactiveScheduler>>>>,
+    graph_scheduler: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>>>>,
 }
 
 impl RegistryReconciler {
@@ -213,7 +213,7 @@ impl RegistryReconciler {
             task_registrar,
             shutdown_rx,
             interval,
-            reactive_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
+            graph_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -225,22 +225,22 @@ impl RegistryReconciler {
         self
     }
 
-    /// Set the reactive scheduler for computation graph package routing.
-    pub fn with_reactive_scheduler(self, scheduler: Arc<ReactiveScheduler>) -> Self {
+    /// Set the graph scheduler for computation graph package routing.
+    pub fn with_graph_scheduler(self, scheduler: Arc<ComputationGraphScheduler>) -> Self {
         // Use try_write since this is called during initialization (not async)
-        if let Ok(mut lock) = self.reactive_scheduler.try_write() {
+        if let Ok(mut lock) = self.graph_scheduler.try_write() {
             *lock = Some(scheduler);
         }
         self
     }
 
-    /// Replace the reactive scheduler slot with a shared reference from the runner.
+    /// Replace the graph scheduler slot with a shared reference from the runner.
     /// This allows the runner to inject the scheduler after construction.
-    pub fn set_reactive_scheduler_slot(
+    pub fn set_graph_scheduler_slot(
         &mut self,
-        slot: Arc<tokio::sync::RwLock<Option<Arc<ReactiveScheduler>>>>,
+        slot: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>>>>,
     ) {
-        self.reactive_scheduler = slot;
+        self.graph_scheduler = slot;
     }
 
     /// Start the background reconciliation loop

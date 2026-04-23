@@ -5,7 +5,7 @@ weight: 10
 
 # Computation Graph Architecture
 
-Cloacina's computation graph system is a reactive scheduling engine built alongside — but architecturally independent from — the existing cron/trigger workflow scheduler. Where workflows are database-backed, horizontally scalable, and claim-based, computation graphs are event-driven, in-process, and compiled. This document explains the model, why it exists, and how the pieces fit together.
+Cloacina's computation graph system is a graph scheduling engine built alongside — but architecturally independent from — the existing cron/trigger workflow scheduler. Where workflows are database-backed, horizontally scalable, and claim-based, computation graphs are event-driven, in-process, and compiled. This document explains the model, why it exists, and how the pieces fit together.
 
 ## Why a Separate System?
 
@@ -53,7 +53,7 @@ Everything in this diagram except the graph function is a long-lived tokio task.
 
 ## Process Model
 
-The reactive scheduler manages three kinds of long-lived processes:
+The graph scheduler manages three kinds of long-lived processes:
 
 **Accumulators** — one per data source. Each runs its own event loop, consuming from its backend (Kafka topic, socket, Postgres, push channel). When an event arrives, the accumulator's `process()` function is called. If it returns `Some(boundary)`, the boundary is serialized and sent to the reactor over a tokio mpsc channel. Accumulators are independent — they do not know about each other, and they do not know about the graph.
 
@@ -127,12 +127,12 @@ For workloads where every boundary must produce exactly one graph execution, the
 
 The ontology is deliberately distinct. A "node" in a computation graph is not a "task" in a workflow. A "reactor" is not a "trigger". These are different concepts serving different workloads, and the naming reflects that.
 
-## Where the Reactive Scheduler Lives
+## Where the Graph Scheduler Lives
 
-The reactive scheduler runs inside the API server process (Postgres-only). It is loaded by the reconciler when packages containing computation graphs are registered. The same API server hosts:
+The graph scheduler runs inside the API server process (Postgres-only). It is loaded by the reconciler when packages containing computation graphs are registered. The same API server hosts:
 
 - The unified scheduler (cron + triggers, database-backed, horizontally scalable)
-- The reactive scheduler (computation graphs, event-driven, per-graph processes)
+- The graph scheduler (computation graphs, event-driven, per-graph processes)
 - The WebSocket layer (auth, accumulator and reactor endpoints)
 - The shared DAL (Postgres)
 

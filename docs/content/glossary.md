@@ -32,7 +32,7 @@ The Python bindings package for Cloacina. Cloaca exposes Cloacina's workflow orc
 
 ### Cloacina
 
-The core Rust workflow orchestration and computation graph engine. Cloacina provides DAG-based workflow execution, reactive computation graphs, cron scheduling, multi-tenancy, and a packaging system for distributable workflows. See [Architecture Overview]({{< ref "/workflows/explanation/architecture-overview" >}}).
+The core Rust workflow orchestration and computation graph engine. Cloacina provides DAG-based workflow execution, computation graphs, cron scheduling, multi-tenancy, and a packaging system for distributable workflows. See [Architecture Overview]({{< ref "/workflows/explanation/architecture-overview" >}}).
 
 ### Computation Graph
 

@@ -83,7 +83,7 @@ impl DefaultRunner {
             self.register_cron_recovery(&mut manager).await?;
         }
 
-        // Registry reconciler must be wired before the reactive scheduler is
+        // Registry reconciler must be wired before the graph scheduler is
         // installed externally.
         if self.config.enable_registry_reconciler() {
             self.register_registry_reconciler(&mut manager).await?;
@@ -229,9 +229,9 @@ impl DefaultRunner {
                     message: format!("Failed to create registry reconciler: {}", e),
                 })?;
 
-        // Share the manager's reactive scheduler slot so that a later
-        // `set_reactive_scheduler()` is observable to the reconciler.
-        registry_reconciler.set_reactive_scheduler_slot(manager.reactive_scheduler.clone());
+        // Share the manager's graph scheduler slot so that a later
+        // `set_graph_scheduler()` is observable to the reconciler.
+        registry_reconciler.set_graph_scheduler_slot(manager.graph_scheduler.clone());
         registry_reconciler = registry_reconciler.with_runtime(self.runtime.clone());
 
         manager.workflow_registry = Some(workflow_registry_arc);

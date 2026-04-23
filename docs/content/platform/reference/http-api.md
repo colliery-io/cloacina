@@ -649,7 +649,7 @@ Get trigger details and recent executions. Matches by trigger name or workflow n
 
 ## Reactive Health
 
-Health endpoints for the reactive computation graph system. These endpoints require authentication.
+Health endpoints for the computation graph system. These endpoints require authentication.
 
 ### GET /v1/health/accumulators
 
@@ -668,15 +668,15 @@ List all registered accumulators with their health status.
 }
 ```
 
-### GET /v1/health/reactors
+### GET /v1/health/graphs
 
-List all reactors with their health status.
+List loaded computation graphs with their health status. `paused` reports the pause state of the graph's reactor.
 
 **Response:** `200 OK`
 
 ```json
 {
-  "reactors": [
+  "graphs": [
     {
       "name": "pricing_graph",
       "health": {"state": "running"},
@@ -687,15 +687,15 @@ List all reactors with their health status.
 }
 ```
 
-### GET /v1/health/reactors/{name}
+### GET /v1/health/graphs/{name}
 
-Get health details for a specific reactor.
+Get health details for a specific computation graph.
 
 **Path parameters:**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `name` | string | Reactor name |
+| `name` | string | Graph name |
 
 **Response:** `200 OK`
 
@@ -712,7 +712,7 @@ Get health details for a specific reactor.
 
 | Status | Body |
 |---|---|
-| `404` | `{"error": "reactor 'pricing_graph' not found"}` |
+| `404` | `{"error": "graph 'pricing_graph' not found"}` |
 
 ## WebSocket Endpoints
 

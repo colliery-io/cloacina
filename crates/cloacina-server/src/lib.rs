@@ -31,7 +31,7 @@ use tracing_appender::rolling;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use cloacina::computation_graph::registry::EndpointRegistry;
-use cloacina::computation_graph::scheduler::ReactiveScheduler;
+use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
 use cloacina::database::Database;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::security::SecurityConfig;
@@ -98,7 +98,7 @@ pub struct AppState {
     pub runner: Arc<DefaultRunner>,
     pub key_cache: Arc<crate::routes::auth::KeyCache>,
     pub endpoint_registry: EndpointRegistry,
-    pub reactive_scheduler: Arc<ReactiveScheduler>,
+    pub graph_scheduler: Arc<ComputationGraphScheduler>,
     pub security_config: SecurityConfig,
     /// Short-lived WebSocket auth tickets (single-use, TTL-based).
     pub ws_tickets: Arc<crate::routes::auth::WsTicketStore>,
@@ -247,22 +247,20 @@ pub async fn run(
 
     let endpoint_registry = EndpointRegistry::new();
     let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
-    let reactive_scheduler = Arc::new(ReactiveScheduler::with_dal(
+    let graph_scheduler = Arc::new(ComputationGraphScheduler::with_dal(
         endpoint_registry.clone(),
         unified_dal,
     ));
 
-    // Wire reactive scheduler into the runner so the reconciler can route CG packages
-    runner
-        .set_reactive_scheduler(reactive_scheduler.clone())
-        .await;
+    // Wire graph scheduler into the runner so the reconciler can route CG packages
+    runner.set_graph_scheduler(graph_scheduler.clone()).await;
 
     let state = AppState {
         database: runner.database().clone(),
         runner: Arc::new(runner),
         key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
         endpoint_registry,
-        reactive_scheduler,
+        graph_scheduler,
         security_config: SecurityConfig {
             require_signatures,
             ..SecurityConfig::default()
@@ -278,7 +276,7 @@ pub async fn run(
     bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
 
     // Keep references for shutdown
-    let scheduler_for_shutdown = state.reactive_scheduler.clone();
+    let scheduler_for_shutdown = state.graph_scheduler.clone();
     let runner_for_shutdown = state.runner.clone();
 
     // Build router
@@ -311,7 +309,7 @@ pub async fn run(
         let mut rx = shutdown_rx; // move, not clone — only consumer
         tokio::spawn(async move {
             let _ = rx.changed().await;
-            info!("Shutting down reactive scheduler...");
+            info!("Shutting down graph scheduler...");
             scheduler.shutdown_all().await;
             info!("Reactive scheduler shutdown complete");
         })
@@ -323,9 +321,9 @@ pub async fn run(
     )
     .with_graceful_shutdown(async move {
         shutdown_signal().await;
-        // Signal the reactive scheduler to shut down first
+        // Signal the graph scheduler to shut down first
         let _ = shutdown_tx.send(true);
-        // Wait for reactive scheduler to finish flushing/persisting
+        // Wait for graph scheduler to finish flushing/persisting
         let _ = scheduler_handle.await;
         // Shut down the workflow runner (scheduler loop, executor, stale claim sweeper)
         info!("Shutting down workflow runner...");
@@ -457,19 +455,19 @@ fn build_router(state: AppState) -> Router {
             crate::routes::auth::require_auth,
         ));
 
-    // Reactive health routes — behind auth
-    let reactive_health_routes = Router::new()
+    // Computation graph health routes — behind auth
+    let graph_health_routes = Router::new()
         .route(
             "/v1/health/accumulators",
-            get(crate::routes::health_reactive::list_accumulators),
+            get(crate::routes::health_graphs::list_accumulators),
         )
         .route(
-            "/v1/health/reactors",
-            get(crate::routes::health_reactive::list_reactors),
+            "/v1/health/graphs",
+            get(crate::routes::health_graphs::list_graphs),
         )
         .route(
-            "/v1/health/reactors/{name}",
-            get(crate::routes::health_reactive::get_reactor),
+            "/v1/health/graphs/{name}",
+            get(crate::routes::health_graphs::get_graph),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -491,7 +489,7 @@ fn build_router(state: AppState) -> Router {
         .route("/metrics", get(metrics))
         // All authenticated routes under /v1/
         .nest("/v1", auth_routes)
-        .merge(reactive_health_routes)
+        .merge(graph_health_routes)
         .merge(ws_routes)
         .fallback(fallback_404)
         // Body size limit: 100MB (matches PackageValidator)
@@ -540,7 +538,7 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     let db_ready = state.database.get_postgres_connection().await.is_ok();
 
     // Check if any computation graphs have crashed
-    let graphs = state.reactive_scheduler.list_graphs().await;
+    let graphs = state.graph_scheduler.list_graphs().await;
     let crashed_graphs: Vec<&str> = graphs
         .iter()
         .filter(|g| !g.running)
@@ -709,7 +707,7 @@ mod tests {
             runner: Arc::new(runner),
             key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
             endpoint_registry: EndpointRegistry::new(),
-            reactive_scheduler: Arc::new(ReactiveScheduler::new(EndpointRegistry::new())),
+            graph_scheduler: Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new())),
             security_config: SecurityConfig::default(),
             ws_tickets: Arc::new(crate::routes::auth::WsTicketStore::new(
                 std::time::Duration::from_secs(60),
