@@ -4,15 +4,15 @@ level: task
 title: "Flake: executor::task_execution::test_task_executor_context_loading_with_dependencies (postgres/macos)"
 short_code: "CLOACI-T-0531"
 created_at: 2026-04-20T17:20:19.846176+00:00
-updated_at: 2026-04-20T17:20:19.846176+00:00
+updated_at: 2026-04-22T12:10:56.375393+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -35,6 +35,12 @@ Diagnose and fix the intermittent failure of `executor::task_execution::test_tas
 - **Affected Users**: contributors pushing PRs that touch crates/cloacina; every merge train is affected by intermittent red CI.
 - **Reproduction**: so far observed only on the GitHub-hosted `macos-latest` runner with the postgres backend. Not reproduced locally or on ubuntu.
 - **Expected vs Actual**: test should assert context loading with dependencies deterministically; actual behavior is intermittent failure on macos-latest postgres.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -63,3 +69,4 @@ Diagnose and fix the intermittent failure of `executor::task_execution::test_tas
 ## Status Updates
 
 - 2026-04-20: Filed as fast-follow after the 2026-04-20 merge train (#79, #80, #81, #82, #83). Both #79 and #81 hit this failure on `macos-latest` postgres during PR CI; merged via `--admin`. Not yet investigated.
+- 2026-04-22: Closing as incidentally resolved. Since T-0530 landed the supervisor restart fix, `test_task_executor_context_loading_with_dependencies` has not re-appeared on the `Integration Tests (postgres, macos-latest)` lane: T-0532 PR CI green, T-0487 PR CI green (two separate full matrices), plus two nightly runs green. No additional code change needed — T-0530's work on timing/ordering in the computation_graph suite most likely also stabilized this test's shared fixture. Reopen if it surfaces again.

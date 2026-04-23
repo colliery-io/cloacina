@@ -266,7 +266,7 @@ Wait for compilation (60–120 seconds on first build):
 
 ```bash
 for i in $(seq 1 30); do
-  result=$(curl -s "${BASE_URL}/v1/health/reactors" \
+  result=$(curl -s "${BASE_URL}/v1/health/graphs" \
     -H "Authorization: Bearer ${TOKEN}")
   if echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if any(r['name']=='kafka_price_signal' for r in d['reactors']) else 1)" 2>/dev/null; then
     echo "Graph loaded!"
@@ -293,7 +293,7 @@ echo '{"best_bid": 100.10, "best_ask": 100.15}' | \
 After a short delay (the Kafka consumer poll interval is at most a few hundred milliseconds), verify the reactor fired:
 
 ```bash
-curl -s "${BASE_URL}/v1/health/reactors/kafka_price_signal" \
+curl -s "${BASE_URL}/v1/health/graphs/kafka_price_signal" \
   -H "Authorization: Bearer ${TOKEN}" | python3 -m json.tool
 ```
 
@@ -590,4 +590,4 @@ You've now seen all three deployment modes for computation graphs on the Cloacin
 2. [Tutorial 08]({{< ref "/computation-graphs/tutorials/service/08-websocket-events/" >}}) — pushing events via WebSocket
 3. Tutorial 09 (this page) — Kafka-sourced stream accumulators
 
-For production deployments, see the reference documentation for PAK-scoped authorization on accumulator and reactor endpoints, and the explanation pages covering the `ReactiveScheduler` architecture and offset management.
+For production deployments, see the reference documentation for PAK-scoped authorization on accumulator and reactor endpoints, and the explanation pages covering the `ComputationGraphScheduler` architecture and offset management.

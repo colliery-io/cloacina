@@ -19,7 +19,7 @@
 pub mod auth;
 pub mod error;
 pub mod executions;
-pub mod health_reactive;
+pub mod health_graphs;
 pub mod keys;
 pub mod tenants;
 pub mod triggers;

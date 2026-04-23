@@ -1,6 +1,6 @@
 ---
 title: "Computation Graphs"
-description: "Cloacina's reactive computation graph system — accumulators, reactors, and compiled graph execution for event-driven workloads"
+description: "Cloacina's computation graph system — accumulators, reactors, and compiled graph execution for event-driven workloads"
 weight: 20
 ---
 

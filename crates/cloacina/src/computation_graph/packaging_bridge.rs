@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-//! Bridge from FFI-loaded package metadata to ReactiveScheduler types.
+//! Bridge from FFI-loaded package metadata to ComputationGraphScheduler types.
 //!
 //! Converts `GraphPackageMetadata` + library data into `ComputationGraphDeclaration`
 //! with `AccumulatorFactory` implementations and a `CompiledGraphFn` that calls
@@ -108,7 +108,7 @@ impl LoadedGraphPlugin {
 }
 
 /// Convert FFI graph metadata + library data into a `ComputationGraphDeclaration`
-/// that the `ReactiveScheduler` can load.
+/// that the `ComputationGraphScheduler` can load.
 ///
 /// The library is loaded once here and the handle is kept alive in the
 /// `CompiledGraphFn` closure for reuse on every reactor fire.

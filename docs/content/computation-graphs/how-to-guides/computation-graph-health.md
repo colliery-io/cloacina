@@ -23,8 +23,8 @@ Cloacina exposes two levels of health checking:
 | `GET /health` | None | Liveness — server is up |
 | `GET /ready` | None | Readiness — DB reachable and no graphs crashed |
 | `GET /v1/health/accumulators` | Required | Per-accumulator status |
-| `GET /v1/health/reactors` | Required | Per-reactor status summary |
-| `GET /v1/health/reactors/{name}` | Required | Single reactor detail |
+| `GET /v1/health/graphs` | Required | Per-reactor status summary |
+| `GET /v1/health/graphs/{name}` | Required | Single reactor detail |
 
 The `/ready` endpoint returns `503 Service Unavailable` when any registered computation graph has crashed (its task has exited), making it suitable for Kubernetes readiness probes and load balancer health checks.
 
@@ -75,7 +75,7 @@ A `disconnected` accumulator continues to accept socket pushes but is not receiv
 ## Listing reactor health
 
 ```bash
-curl -s http://localhost:8080/v1/health/reactors \
+curl -s http://localhost:8080/v1/health/graphs \
   -H "Authorization: Bearer $API_KEY" | jq
 ```
 
@@ -83,7 +83,7 @@ Response:
 
 ```json
 {
-  "reactors": [
+  "graphs": [
     {
       "name": "market_pipeline",
       "health": {
@@ -122,7 +122,7 @@ The `paused` field indicates whether the reactor is accepting boundaries but ski
 ## Getting detail for a specific reactor
 
 ```bash
-curl -s http://localhost:8080/v1/health/reactors/market_pipeline \
+curl -s http://localhost:8080/v1/health/graphs/market_pipeline \
   -H "Authorization: Bearer $API_KEY" | jq
 ```
 
@@ -217,7 +217,7 @@ set -euo pipefail
 BASE_URL="${CLOACINA_URL:-http://localhost:8080}"
 API_KEY="${API_KEY:?API_KEY must be set}"
 
-reactors=$(curl -sf "${BASE_URL}/v1/health/reactors" \
+reactors=$(curl -sf "${BASE_URL}/v1/health/graphs" \
   -H "Authorization: Bearer ${API_KEY}" | jq -r '.reactors[]')
 
 echo "$reactors" | jq -r 'select(.health.state != "live") |

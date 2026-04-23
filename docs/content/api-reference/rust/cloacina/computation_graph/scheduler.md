@@ -1,7 +1,7 @@
 # cloacina::computation_graph::scheduler <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">Rust</span>
 
 
-Reactive Scheduler — spawns, supervises, and shuts down accumulator/reactor tasks from computation graph declarations.
+Graph Scheduler — spawns, supervises, and shuts down accumulator/reactor tasks from computation graph declarations.
 
 The reactive counterpart to the Unified Scheduler. Receives declarations
 from the reconciler, wires channels, spawns tokio tasks, registers endpoints,
@@ -16,7 +16,7 @@ and restarts tasks on panic.
 
 **Derives:** `Clone`
 
-Declaration of a computation graph to be loaded by the Reactive Scheduler.
+Declaration of a computation graph to be loaded by the Graph Scheduler.
 
 #### Fields
 
@@ -128,12 +128,12 @@ State for a running computation graph.
 
 
 
-### `cloacina::computation_graph::scheduler::ReactiveScheduler`
+### `cloacina::computation_graph::scheduler::ComputationGraphScheduler`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
-The Reactive Scheduler.
+The Graph Scheduler.
 
 #### Fields
 

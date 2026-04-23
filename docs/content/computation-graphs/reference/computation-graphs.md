@@ -886,7 +886,7 @@ group = "mm_pricing_group"
 
 1. The reconciler discovers `.cloacina` packages in the configured package directory
 2. For `type = "computation_graph"` packages, `build_declaration_from_ffi()` loads the cdylib via fidius and creates a `ComputationGraphDeclaration`
-3. The `ReactiveScheduler` spawns accumulators + reactor from the declaration
+3. The `ComputationGraphScheduler` spawns accumulators + reactor from the declaration
 4. On each reactor fire, `execute_graph()` is called via FFI on the loaded plugin
 5. The plugin deserializes the cache, runs the compiled graph, and returns serialized terminal outputs
 

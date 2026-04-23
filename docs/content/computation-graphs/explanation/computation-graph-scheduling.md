@@ -1,12 +1,12 @@
 ---
-title: "Reactive Scheduling"
-description: "How the reactive scheduler manages computation graph lifecycles, accumulator supervision, and health-driven execution"
+title: "Graph Scheduling"
+description: "How the graph scheduler manages computation graph lifecycles, accumulator supervision, and health-driven execution"
 weight: 50
 ---
 
-# Reactive Scheduling Architecture
+# Graph Scheduling Architecture
 
-The reactive scheduler is the counterpart to the workflow scheduler. While the workflow scheduler polls the database for ready tasks and fires them on a timer, the reactive scheduler is **event-driven** — it manages long-lived processes and fires computation graphs when data arrives.
+The graph scheduler is the counterpart to the workflow scheduler. While the workflow scheduler polls the database for ready tasks and fires them on a timer, the graph scheduler is **event-driven** — it manages long-lived processes and fires computation graphs when data arrives.
 
 Key terms:
 - **Accumulator** — a long-lived process that ingests events from an external source (Kafka, WebSocket, database poll) and emits typed data snapshots called *boundaries*
@@ -20,24 +20,24 @@ Key terms:
 
 Cloacina offers two scheduling models for different workload shapes:
 
-| Aspect | Workflow Scheduler | Reactive Scheduler |
+| Aspect | Workflow Scheduler | Graph Scheduler |
 |--------|-------------------|--------------------|
 | **Trigger** | Timer (cron), event trigger polls, or API call | Data arrival from accumulators |
 | **Execution** | One-shot: schedule → run tasks → complete | Continuous: graph fires repeatedly as data flows |
 | **Lifetime** | Short (seconds to hours per execution) | Long (runs indefinitely until shutdown) |
 | **State** | Database-backed context between tasks | In-memory input cache, checkpoint-backed recovery |
-| **Scaling** | Multiple runners claim tasks from database | Single reactive scheduler per graph instance |
+| **Scaling** | Multiple runners claim tasks from database | Single graph scheduler per graph instance |
 | **Use case** | ETL, batch jobs, scheduled reports | Streaming analytics, real-time pricing, monitoring |
 
 Choose workflows when your workload has a clear start and end. Choose computation graphs when you need continuous, low-latency reaction to incoming data.
 
 ## Architecture
 
-The reactive scheduler manages three layers:
+The graph scheduler manages three layers:
 
 ```text
 ┌─────────────────────────────────────────────────────┐
-│                 Reactive Scheduler                    │
+│                 Graph Scheduler                    │
 │                                                       │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
 │  │ Accumulator  │  │ Accumulator  │  │ Accumulator  │  │
@@ -142,7 +142,7 @@ See [Using Sequential Input Strategy]({{< ref "/workflows/how-to-guides/sequenti
 
 ## Supervision and Restart
 
-The reactive scheduler monitors spawned tasks and restarts them on failure with exponential backoff.
+The graph scheduler monitors spawned tasks and restarts them on failure with exponential backoff.
 
 ### Accumulator Restart
 
@@ -190,7 +190,7 @@ Without a DAL (embedded mode), state is lost on restart — accumulators and the
 
 ## Comparison with Workflow Cron Scheduling
 
-| Feature | Cron Scheduling | Reactive Scheduling |
+| Feature | Cron Scheduling | Graph Scheduling |
 |---------|----------------|---------------------|
 | Minimum latency | Poll interval (typically seconds) | Event-driven (sub-millisecond within process) |
 | Missed execution handling | Catch-up on restart | N/A — continuous processing |

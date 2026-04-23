@@ -1,7 +1,7 @@
 ---
 id: horizontal-scaling-for-reactive
 level: specification
-title: "Horizontal Scaling for Reactive Computation Graphs"
+title: "Horizontal Scaling for Computation Graphs"
 short_code: "CLOACI-S-0008"
 created_at: 2026-04-16T12:23:48.379788+00:00
 updated_at: 2026-04-16T12:23:48.379788+00:00
@@ -18,11 +18,11 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Horizontal Scaling for Reactive Computation Graphs
+# Horizontal Scaling for Computation Graphs
 
 ## Overview
 
-Enable multiple Cloacina server instances to share the execution of reactive computation graphs. Today the reactive scheduler is single-instance: every instance loads every graph, the EndpointRegistry is in-memory, and there is no coordination between instances. This specification defines the claiming, heartbeat, and rebalancing protocols that allow graphs to be distributed across a fleet of instances with automatic failover and active load balancing.
+Enable multiple Cloacina server instances to share the execution of computation graphs. Today the graph scheduler is single-instance: every instance loads every graph, the EndpointRegistry is in-memory, and there is no coordination between instances. This specification defines the claiming, heartbeat, and rebalancing protocols that allow graphs to be distributed across a fleet of instances with automatic failover and active load balancing.
 
 The workflow scheduler already supports horizontal scaling via database-level task claiming (`FOR UPDATE SKIP LOCKED`, heartbeats, stale claim sweeper). This specification extends the same pattern to long-lived computation graphs.
 

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-22T03:54:10Z | 480 files | JavaScript, Python, Rust
+> Generated: 2026-04-22T12:37:05Z | 480 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2702,54 +2702,54 @@
 - pub `with_runtime_and_registry` function L111-131 — `( database: Database, task_registry: Arc<TaskRegistry>, runtime: Arc<Runtime>, c...` — Creates a new ThreadTaskExecutor with a specific runtime.
 - pub `with_runtime` function L134-137 — `(mut self, runtime: Arc<Runtime>) -> Self` — Sets the runtime for this executor, replacing the default.
 - pub `semaphore` function L143-145 — `(&self) -> &Arc<Semaphore>` — Returns a reference to the concurrency semaphore.
--  `ThreadTaskExecutor` type L92-717 — `= ThreadTaskExecutor` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L92-726 — `= ThreadTaskExecutor` — to the executor based on routing rules.
 -  `build_task_context` function L155-280 — `( &self, claimed_task: &ClaimedTask, dependencies: &[crate::task::TaskNamespace]...` — Builds the execution context for a task by loading its dependencies.
 -  `merge_context_values` function L294-329 — `( existing: &serde_json::Value, new: &serde_json::Value, ) -> serde_json::Value` — Merges two context values using smart merging strategy.
 -  `execute_with_timeout` function L339-348 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, ) -> Result<Conte...` — Executes a task with timeout protection.
--  `execute_with_cancellation` function L356-379 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, mut cancel_rx: to...` — Runs [`execute_with_timeout`] racing against a cancellation signal
--  `handle_task_result` function L396-445 — `( &self, claimed_task: ClaimedTask, result: Result<Context<serde_json::Value>, E...` — Handles the result of task execution.
--  `save_task_context` function L455-485 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Saves the task's execution context to the database.
--  `complete_task_transaction` function L498-545 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Marks a task as completed in the database.
--  `mark_task_failed` function L556-593 — `( &self, task_execution_id: UniversalUuid, error: &ExecutorError, ) -> Result<()...` — Marks a task as failed in the database.
--  `should_retry_task` function L609-653 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried.
--  `is_transient_error` function L662-679 — `(&self, error: &ExecutorError) -> bool` — Determines if an error is transient and potentially retryable.
--  `schedule_task_retry` function L689-716 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
--  `ThreadTaskExecutor` type L719-734 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
--  `clone` function L720-733 — `(&self) -> Self` — to the executor based on routing rules.
--  `ThreadTaskExecutor` type L741-1088 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
--  `execute` function L742-1067 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
--  `has_capacity` function L1069-1071 — `(&self) -> bool` — to the executor based on routing rules.
--  `metrics` function L1073-1083 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
--  `name` function L1085-1087 — `(&self) -> &str` — to the executor based on routing rules.
--  `tests` module L1091-1375 — `-` — to the executor based on routing rules.
--  `test_merge_primitives_latest_wins` function L1100-1105 — `()` — to the executor based on routing rules.
--  `test_merge_string_latest_wins` function L1108-1113 — `()` — to the executor based on routing rules.
--  `test_merge_different_types_latest_wins` function L1116-1121 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_deduplicates` function L1124-1129 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_no_overlap` function L1132-1137 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_complete_overlap` function L1140-1145 — `()` — to the executor based on routing rules.
--  `test_merge_objects_no_conflict` function L1148-1153 — `()` — to the executor based on routing rules.
--  `test_merge_objects_conflicting_keys` function L1156-1161 — `()` — to the executor based on routing rules.
--  `test_merge_objects_recursive` function L1164-1169 — `()` — to the executor based on routing rules.
--  `test_merge_nested_arrays_in_objects` function L1172-1177 — `()` — to the executor based on routing rules.
--  `test_merge_null_latest_wins` function L1180-1185 — `()` — to the executor based on routing rules.
--  `test_merge_bool_latest_wins` function L1188-1193 — `()` — to the executor based on routing rules.
--  `sqlite_tests` module L1199-1328 — `-` — to the executor based on routing rules.
--  `test_executor` function L1202-1207 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
--  `test_is_transient_timeout` function L1210-1213 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_not_found` function L1216-1219 — `()` — to the executor based on routing rules.
--  `test_is_transient_connection_pool` function L1222-1226 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_with_timeout_msg` function L1229-1238 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_permanent` function L1241-1250 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_network` function L1253-1262 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_unavailable` function L1265-1274 — `()` — to the executor based on routing rules.
--  `test_executor_has_capacity_initially` function L1281-1284 — `()` — to the executor based on routing rules.
--  `test_executor_metrics_initial` function L1287-1294 — `()` — to the executor based on routing rules.
--  `test_executor_name` function L1297-1300 — `()` — to the executor based on routing rules.
--  `test_executor_clone_shares_semaphore` function L1303-1311 — `()` — to the executor based on routing rules.
--  `test_executor_custom_config` function L1314-1327 — `()` — to the executor based on routing rules.
--  `test_new_uses_empty_runtime_not_from_global` function L1336-1349 — `()` — to the executor based on routing rules.
--  `test_with_runtime_and_registry_uses_provided_runtime` function L1353-1374 — `()` — to the executor based on routing rules.
+-  `execute_with_cancellation` function L356-388 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, mut cancel_rx: to...` — Runs [`execute_with_timeout`] racing against a cancellation signal
+-  `handle_task_result` function L405-454 — `( &self, claimed_task: ClaimedTask, result: Result<Context<serde_json::Value>, E...` — Handles the result of task execution.
+-  `save_task_context` function L464-494 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Saves the task's execution context to the database.
+-  `complete_task_transaction` function L507-554 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Marks a task as completed in the database.
+-  `mark_task_failed` function L565-602 — `( &self, task_execution_id: UniversalUuid, error: &ExecutorError, ) -> Result<()...` — Marks a task as failed in the database.
+-  `should_retry_task` function L618-662 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried.
+-  `is_transient_error` function L671-688 — `(&self, error: &ExecutorError) -> bool` — Determines if an error is transient and potentially retryable.
+-  `schedule_task_retry` function L698-725 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
+-  `ThreadTaskExecutor` type L728-743 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
+-  `clone` function L729-742 — `(&self) -> Self` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L750-1097 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
+-  `execute` function L751-1076 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
+-  `has_capacity` function L1078-1080 — `(&self) -> bool` — to the executor based on routing rules.
+-  `metrics` function L1082-1092 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
+-  `name` function L1094-1096 — `(&self) -> &str` — to the executor based on routing rules.
+-  `tests` module L1100-1384 — `-` — to the executor based on routing rules.
+-  `test_merge_primitives_latest_wins` function L1109-1114 — `()` — to the executor based on routing rules.
+-  `test_merge_string_latest_wins` function L1117-1122 — `()` — to the executor based on routing rules.
+-  `test_merge_different_types_latest_wins` function L1125-1130 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_deduplicates` function L1133-1138 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_no_overlap` function L1141-1146 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_complete_overlap` function L1149-1154 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_no_conflict` function L1157-1162 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_conflicting_keys` function L1165-1170 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_recursive` function L1173-1178 — `()` — to the executor based on routing rules.
+-  `test_merge_nested_arrays_in_objects` function L1181-1186 — `()` — to the executor based on routing rules.
+-  `test_merge_null_latest_wins` function L1189-1194 — `()` — to the executor based on routing rules.
+-  `test_merge_bool_latest_wins` function L1197-1202 — `()` — to the executor based on routing rules.
+-  `sqlite_tests` module L1208-1337 — `-` — to the executor based on routing rules.
+-  `test_executor` function L1211-1216 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
+-  `test_is_transient_timeout` function L1219-1222 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_not_found` function L1225-1228 — `()` — to the executor based on routing rules.
+-  `test_is_transient_connection_pool` function L1231-1235 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_with_timeout_msg` function L1238-1247 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_permanent` function L1250-1259 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_network` function L1262-1271 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_execution_unavailable` function L1274-1283 — `()` — to the executor based on routing rules.
+-  `test_executor_has_capacity_initially` function L1290-1293 — `()` — to the executor based on routing rules.
+-  `test_executor_metrics_initial` function L1296-1303 — `()` — to the executor based on routing rules.
+-  `test_executor_name` function L1306-1309 — `()` — to the executor based on routing rules.
+-  `test_executor_clone_shares_semaphore` function L1312-1320 — `()` — to the executor based on routing rules.
+-  `test_executor_custom_config` function L1323-1336 — `()` — to the executor based on routing rules.
+-  `test_new_uses_empty_runtime_not_from_global` function L1345-1358 — `()` — to the executor based on routing rules.
+-  `test_with_runtime_and_registry_uses_provided_runtime` function L1362-1383 — `()` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 

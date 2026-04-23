@@ -325,13 +325,13 @@ async fn test_end_to_end_accumulator_reactor_graph() {
 }
 
 // =============================================================================
-// Test 5: ReactiveScheduler — load graph, push via registry, verify fire
+// Test 5: ComputationGraphScheduler — load graph, push via registry, verify fire
 // =============================================================================
 
 use cloacina::computation_graph::registry::EndpointRegistry;
 use cloacina::computation_graph::scheduler::{
     AccumulatorDeclaration, AccumulatorFactory, AccumulatorSpawnConfig,
-    ComputationGraphDeclaration, ReactiveScheduler, ReactorDeclaration,
+    ComputationGraphDeclaration, ComputationGraphScheduler, ReactorDeclaration,
 };
 use tokio::sync::mpsc as tokio_mpsc;
 use tokio::task::JoinHandle;
@@ -379,9 +379,9 @@ impl AccumulatorFactory for TestAccumulatorFactory {
 }
 
 #[tokio::test]
-async fn test_reactive_scheduler_end_to_end() {
+async fn test_computation_graph_scheduler_end_to_end() {
     let registry = EndpointRegistry::new();
-    let scheduler = ReactiveScheduler::new(registry.clone());
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
 
     let fire_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let fire_count_inner = fire_count.clone();
@@ -429,7 +429,7 @@ async fn test_reactive_scheduler_end_to_end() {
     let graphs = scheduler.list_graphs().await;
     assert_eq!(graphs.len(), 1);
     assert_eq!(graphs[0].name, "scheduler_test");
-    assert!(!graphs[0].reactor_paused);
+    assert!(!graphs[0].paused);
 
     // Pause the reactor via handle
     let handle = registry.get_reactor_handle("scheduler_test").await.unwrap();
@@ -1768,7 +1768,7 @@ mod resilience_tests {
 
     /// Test: Supervisor restarts crashed accumulator individually.
     ///
-    /// Uses the ReactiveScheduler with an accumulator factory that produces
+    /// Uses the ComputationGraphScheduler with an accumulator factory that produces
     /// an accumulator which panics after N events. Verifies the supervisor
     /// detects the crash and respawns the accumulator.
     #[tokio::test]
@@ -1776,7 +1776,7 @@ mod resilience_tests {
         use std::sync::atomic::{AtomicU32, Ordering};
 
         let registry = EndpointRegistry::new();
-        let scheduler = Arc::new(ReactiveScheduler::new(registry.clone()));
+        let scheduler = Arc::new(ComputationGraphScheduler::new(registry.clone()));
 
         let fire_count = Arc::new(AtomicU32::new(0));
         let fc = fire_count.clone();

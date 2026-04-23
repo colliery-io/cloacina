@@ -5,7 +5,7 @@ weight: 20
 
 # Accumulator Design
 
-An accumulator is the boundary between the outside world and the reactive computation graph. It is a long-lived tokio task that owns a connection to a data source, transforms raw events into typed boundary values, and pushes those values to the reactor. This document explains the four accumulator types, why each exists, and how the runtime manages state and health.
+An accumulator is the boundary between the outside world and the computation graph. It is a long-lived tokio task that owns a connection to a data source, transforms raw events into typed boundary values, and pushes those values to the reactor. This document explains the four accumulator types, why each exists, and how the runtime manages state and health.
 
 ## The Core Problem
 

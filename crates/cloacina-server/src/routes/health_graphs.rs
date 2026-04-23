@@ -14,11 +14,15 @@
  *  limitations under the License.
  */
 
-//! Health endpoints for the reactive computation graph system.
+//! Health endpoints for the computation graph system.
 //!
 //! - `GET /v1/health/accumulators` — list all accumulators with status
-//! - `GET /v1/health/reactors` — list all reactors with status
-//! - `GET /v1/health/reactors/{name}` — single reactor health
+//! - `GET /v1/health/graphs` — list loaded computation graphs with status
+//! - `GET /v1/health/graphs/{name}` — single graph health
+//!
+//! Endpoint semantic per CLOACI-S-0011: "currently running graph
+//! instances with their operational state" — not a catalog of
+//! registered-but-not-running graphs.
 
 use axum::{
     extract::{Path, State},
@@ -49,11 +53,11 @@ pub async fn list_accumulators(State(state): State<AppState>) -> impl IntoRespon
     Json(serde_json::json!({ "accumulators": accumulators }))
 }
 
-/// GET /v1/health/reactors — list all reactors with status.
-pub async fn list_reactors(State(state): State<AppState>) -> impl IntoResponse {
-    let graphs = state.reactive_scheduler.list_graphs().await;
+/// GET /v1/health/graphs — list loaded computation graphs with status.
+pub async fn list_graphs(State(state): State<AppState>) -> impl IntoResponse {
+    let loaded = state.graph_scheduler.list_graphs().await;
 
-    let reactors: Vec<serde_json::Value> = graphs
+    let graphs: Vec<serde_json::Value> = loaded
         .into_iter()
         .map(|g| {
             let health = g
@@ -67,22 +71,23 @@ pub async fn list_reactors(State(state): State<AppState>) -> impl IntoResponse {
                 "name": g.name,
                 "health": health,
                 "accumulators": g.accumulators,
-                "paused": g.reactor_paused,
+                // `paused` reflects the pause state of the graph's reactor.
+                "paused": g.paused,
             })
         })
         .collect();
 
-    Json(serde_json::json!({ "reactors": reactors }))
+    Json(serde_json::json!({ "graphs": graphs }))
 }
 
-/// GET /v1/health/reactors/{name} — single reactor health.
-pub async fn get_reactor(
+/// GET /v1/health/graphs/{name} — single graph health.
+pub async fn get_graph(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let graphs = state.reactive_scheduler.list_graphs().await;
+    let loaded = state.graph_scheduler.list_graphs().await;
 
-    if let Some(g) = graphs.into_iter().find(|g| g.name == name) {
+    if let Some(g) = loaded.into_iter().find(|g| g.name == name) {
         let health = g
             .health
             .as_ref()
@@ -97,14 +102,15 @@ pub async fn get_reactor(
                 "name": g.name,
                 "health": health,
                 "accumulators": g.accumulators,
-                "paused": g.reactor_paused,
+                // `paused` reflects the pause state of the graph's reactor.
+                "paused": g.paused,
             })),
         )
     } else {
         (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({
-                "error": format!("reactor '{}' not found", name)
+                "error": format!("graph '{}' not found", name)
             })),
         )
     }

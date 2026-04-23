@@ -283,7 +283,7 @@ impl RegistryReconciler {
                             }
                         }
 
-                        let scheduler_guard = self.reactive_scheduler.read().await;
+                        let scheduler_guard = self.graph_scheduler.read().await;
                         if let Some(ref scheduler) = *scheduler_guard {
                             let mut decl =
                                 crate::computation_graph::packaging_bridge::build_declaration_from_ffi(
@@ -317,13 +317,13 @@ impl RegistryReconciler {
                                 );
                             } else {
                                 info!(
-                                    "Computation graph '{}' loaded into ReactiveScheduler",
+                                    "Computation graph '{}' loaded into ComputationGraphScheduler",
                                     graph_meta.graph_name
                                 );
                             }
                         } else {
                             warn!(
-                                "Computation graph '{}' detected but no ReactiveScheduler configured",
+                                "Computation graph '{}' detected but no ComputationGraphScheduler configured",
                                 graph_meta.graph_name
                             );
                         }
@@ -408,16 +408,16 @@ impl RegistryReconciler {
                     };
 
                     if let Some(decl) = maybe_decl {
-                        let scheduler_guard = self.reactive_scheduler.read().await;
+                        let scheduler_guard = self.graph_scheduler.read().await;
                         if let Some(ref scheduler) = *scheduler_guard {
                             if let Err(e) = scheduler.load_graph(decl).await {
                                 warn!(
-                                    "Failed to load Python CG '{}' into ReactiveScheduler: {}",
+                                    "Failed to load Python CG '{}' into ComputationGraphScheduler: {}",
                                     gn, e
                                 );
                             } else {
                                 info!(
-                                    "Python computation graph '{}' loaded into ReactiveScheduler",
+                                    "Python computation graph '{}' loaded into ComputationGraphScheduler",
                                     gn
                                 );
                             }
@@ -514,9 +514,9 @@ impl RegistryReconciler {
             }
         }
 
-        // Unload computation graph from reactive scheduler
+        // Unload computation graph from graph scheduler
         if let Some(graph_name) = &package_state.graph_name {
-            let scheduler_guard = self.reactive_scheduler.read().await;
+            let scheduler_guard = self.graph_scheduler.read().await;
             if let Some(ref scheduler) = *scheduler_guard {
                 if let Err(e) = scheduler.unload_graph(graph_name).await {
                     warn!("Failed to unload computation graph '{}': {}", graph_name, e);

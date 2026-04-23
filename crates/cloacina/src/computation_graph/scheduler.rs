@@ -14,12 +14,12 @@
  *  limitations under the License.
  */
 
-//! Reactive Scheduler — spawns, supervises, and shuts down accumulator/reactor
-//! tasks from computation graph declarations.
+//! Computation graph scheduler — spawns, supervises, and shuts down
+//! accumulator/reactor tasks from computation graph declarations.
 //!
-//! The reactive counterpart to the Unified Scheduler. Receives declarations
-//! from the reconciler, wires channels, spawns tokio tasks, registers endpoints,
-//! and restarts tasks on panic.
+//! The companion to the Unified Scheduler for the computation graph
+//! primitive. Receives declarations from the reconciler, wires channels,
+//! spawns tokio tasks, registers endpoints, and restarts tasks on panic.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -101,7 +101,7 @@ pub struct ReactorDeclaration {
 pub struct GraphStatus {
     pub name: String,
     pub accumulators: Vec<String>,
-    pub reactor_paused: bool,
+    pub paused: bool,
     pub running: bool,
     /// Reactor health state machine value. None if health tracking is not configured.
     pub health: Option<super::reactor::ReactorHealth>,
@@ -144,7 +144,7 @@ const BACKOFF_MAX_SECS: u64 = 60;
 const SUCCESS_RESET_SECS: u64 = 60;
 
 /// The Reactive Scheduler.
-pub struct ReactiveScheduler {
+pub struct ComputationGraphScheduler {
     /// Endpoint registry for WebSocket routing.
     registry: EndpointRegistry,
     /// Running computation graphs.
@@ -153,7 +153,7 @@ pub struct ReactiveScheduler {
     dal: Option<crate::dal::unified::DAL>,
 }
 
-impl ReactiveScheduler {
+impl ComputationGraphScheduler {
     pub fn new(registry: EndpointRegistry) -> Self {
         Self {
             registry,
@@ -345,7 +345,7 @@ impl ReactiveScheduler {
                     .iter()
                     .map(|(n, _)| n.clone())
                     .collect(),
-                reactor_paused: running.reactor_shared.is_paused(),
+                paused: running.reactor_shared.is_paused(),
                 running: !running.reactor_handle.is_finished(),
                 health: running
                     .reactor_health_rx
@@ -751,7 +751,7 @@ mod tests {
     #[tokio::test]
     async fn test_load_graph_push_event_fires() {
         let registry = EndpointRegistry::new();
-        let scheduler = ReactiveScheduler::new(registry.clone());
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
 
         let fire_count = Arc::new(AtomicU32::new(0));
         let fire_count_inner = fire_count.clone();
@@ -793,7 +793,7 @@ mod tests {
         let graphs = scheduler.list_graphs().await;
         assert_eq!(graphs.len(), 1);
         assert_eq!(graphs[0].name, "test_graph");
-        assert!(!graphs[0].reactor_paused);
+        assert!(!graphs[0].paused);
 
         scheduler.shutdown_all().await;
     }
@@ -801,7 +801,7 @@ mod tests {
     #[tokio::test]
     async fn test_unload_graph_deregisters() {
         let registry = EndpointRegistry::new();
-        let scheduler = ReactiveScheduler::new(registry.clone());
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
 
         let graph_fn: CompiledGraphFn =
             Arc::new(|_cache: InputCache| Box::pin(async { GraphResult::completed(vec![]) }));
@@ -840,7 +840,7 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_load_rejected() {
         let registry = EndpointRegistry::new();
-        let scheduler = ReactiveScheduler::new(registry.clone());
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
 
         let graph_fn: CompiledGraphFn =
             Arc::new(|_cache: InputCache| Box::pin(async { GraphResult::completed(vec![]) }));

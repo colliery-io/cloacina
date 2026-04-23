@@ -20,7 +20,7 @@
 //! [`BackgroundService`]. The [`ServiceManager`] owns the collection,
 //! orchestrates `start_all()`/`shutdown_all()`, and provides typed slots so
 //! external callers can still reach individual service Arcs (registry,
-//! reactive scheduler, unified scheduler, etc).
+//! graph scheduler, unified scheduler, etc).
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -28,7 +28,7 @@ use tokio::sync::{broadcast, watch, RwLock};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
-use crate::computation_graph::scheduler::ReactiveScheduler;
+use crate::computation_graph::scheduler::ComputationGraphScheduler;
 use crate::execution_planner::stale_claim_sweeper::StaleClaimSweeper;
 use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::registry::{traits::WorkflowRegistry, RegistryReconciler};
@@ -64,10 +64,10 @@ pub(in crate::runner) struct ServiceManager {
     pub(super) cron_recovery: Option<Arc<CronRecoveryService>>,
     pub(super) workflow_registry: Option<Arc<dyn WorkflowRegistry>>,
     pub(super) unified_scheduler: Option<Arc<Scheduler>>,
-    /// Shared reactive-scheduler slot — set by `DefaultRunner::set_reactive_scheduler`
+    /// Shared graph-scheduler slot — set by `DefaultRunner::set_graph_scheduler`
     /// and observed by the registry reconciler. The slot is shared via Arc so
     /// updates are visible to whoever holds a clone.
-    pub(super) reactive_scheduler: Arc<RwLock<Option<Arc<ReactiveScheduler>>>>,
+    pub(super) graph_scheduler: Arc<RwLock<Option<Arc<ComputationGraphScheduler>>>>,
 }
 
 impl ServiceManager {
@@ -80,7 +80,7 @@ impl ServiceManager {
             cron_recovery: None,
             workflow_registry: None,
             unified_scheduler: None,
-            reactive_scheduler: Arc::new(RwLock::new(None)),
+            graph_scheduler: Arc::new(RwLock::new(None)),
         }
     }
 

@@ -54,7 +54,7 @@ use service_manager::ServiceManager;
 ///
 /// Holds only top-level state — runtime, database, config, and the task
 /// scheduler. All background services (cron, recovery, registry reconciler,
-/// reactive scheduler, stale-claim sweeper, ...) live inside the
+/// graph scheduler, stale-claim sweeper, ...) live inside the
 /// [`ServiceManager`], which owns their handles and shutdown wiring.
 ///
 /// # Shutdown
@@ -183,13 +183,13 @@ impl DefaultRunner {
         self.service_manager.read().await.unified_scheduler.clone()
     }
 
-    /// Set the reactive scheduler for computation graph package routing.
+    /// Set the graph scheduler for computation graph package routing.
     /// Must be called before `start_services()` so the reconciler can route CG packages.
-    pub async fn set_reactive_scheduler(
+    pub async fn set_graph_scheduler(
         &self,
-        scheduler: Arc<crate::computation_graph::scheduler::ReactiveScheduler>,
+        scheduler: Arc<crate::computation_graph::scheduler::ComputationGraphScheduler>,
     ) {
-        let slot = self.service_manager.read().await.reactive_scheduler.clone();
+        let slot = self.service_manager.read().await.graph_scheduler.clone();
         *slot.write().await = Some(scheduler);
     }
 

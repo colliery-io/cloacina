@@ -597,7 +597,7 @@ impl PythonGraphExecutor {
 /// Build a [`ComputationGraphDeclaration`] from a registered Python graph executor.
 ///
 /// This bridges the Python CG world (decorators + `ComputationGraphBuilder`) into
-/// the Rust `ReactiveScheduler` by wrapping the Python executor in a `CompiledGraphFn`.
+/// the Rust `ComputationGraphScheduler` by wrapping the Python executor in a `CompiledGraphFn`.
 pub fn build_python_graph_declaration(
     graph_name: &str,
     tenant_id: Option<String>,
