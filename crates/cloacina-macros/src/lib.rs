@@ -46,6 +46,7 @@
 
 pub(crate) mod computation_graph;
 pub(crate) mod packaged_workflow;
+mod reactor_attr;
 mod registry;
 pub(crate) mod tasks;
 mod trigger_attr;
@@ -134,6 +135,26 @@ pub fn trigger(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn computation_graph(args: TokenStream, input: TokenStream) -> TokenStream {
     computation_graph::computation_graph_attr(args, input)
+}
+
+/// Declare a reactor as a unit struct.
+///
+/// The reactor bundles accumulators + firing criteria and publishes an
+/// `InputCache` whenever its criteria are met. Graphs declared with
+/// `#[computation_graph(trigger = reactor(ReactorType), ...)]` bind to it
+/// by type path.
+///
+/// ```rust,ignore
+/// #[reactor(
+///     name = "risk_signals",
+///     accumulators = [alpha, beta],
+///     criteria = when_any(alpha, beta),
+/// )]
+/// pub struct RiskSignals;
+/// ```
+#[proc_macro_attribute]
+pub fn reactor(args: TokenStream, input: TokenStream) -> TokenStream {
+    reactor_attr::reactor_attr(args, input)
 }
 
 /// Define a passthrough accumulator (socket-only, no event loop).

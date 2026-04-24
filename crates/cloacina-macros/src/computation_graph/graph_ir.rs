@@ -21,13 +21,14 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::parser::{ParsedEdge, ParsedTopology, ReactionCriteria};
+use super::parser::{ParsedEdge, ParsedTopology, TriggerSpec};
 
 /// The complete validated graph, ready for code generation.
 #[derive(Debug)]
 pub struct GraphIR {
-    /// Reaction criteria (when_any / when_all + accumulator names)
-    pub react: ReactionCriteria,
+    /// How this graph is triggered — bundled reactor, named reactor, or
+    /// trigger-less.
+    pub trigger: TriggerSpec,
     /// Nodes in topological order (entry nodes first, terminal nodes last)
     pub sorted_nodes: Vec<String>,
     /// Node details keyed by name
@@ -210,10 +211,27 @@ impl GraphIR {
         let sorted_nodes = topological_sort(&nodes)?;
 
         Ok(GraphIR {
-            react: parsed.react,
+            trigger: parsed.trigger,
             sorted_nodes,
             nodes,
         })
+    }
+
+    /// Return the set of accumulator names referenced by the graph's entry
+    /// nodes (nodes with no incoming edges). This is the set checked at
+    /// compile time against the bound reactor's accumulator list for split
+    /// form; it's also what we publish on `ComputationGraphRegistration`.
+    pub fn entry_accumulators(&self) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for node in self.entry_nodes() {
+            for input in &node.cache_inputs {
+                if seen.insert(input.clone()) {
+                    out.push(input.clone());
+                }
+            }
+        }
+        out
     }
 
     /// Get all terminal nodes (leaves of the graph).
@@ -329,7 +347,7 @@ fn topological_sort(nodes: &HashMap<String, GraphNode>) -> Result<Vec<String>, G
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::computation_graph::parser::{ReactionMode, RoutingVariant};
+    use crate::computation_graph::parser::{ReactionCriteria, ReactionMode, RoutingVariant};
     use syn::Ident;
 
     fn ident(name: &str) -> Ident {
@@ -338,10 +356,10 @@ mod tests {
 
     fn make_topology(edges: Vec<ParsedEdge>) -> ParsedTopology {
         ParsedTopology {
-            react: ReactionCriteria {
+            trigger: TriggerSpec::Bundled(ReactionCriteria {
                 mode: ReactionMode::WhenAny,
                 accumulators: vec![ident("alpha")],
-            },
+            }),
             edges,
         }
     }

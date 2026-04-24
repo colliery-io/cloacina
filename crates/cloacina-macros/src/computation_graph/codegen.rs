@@ -27,7 +27,7 @@ use quote::{format_ident, quote};
 use syn::{Ident, ItemFn, ItemMod};
 
 use super::graph_ir::{GraphEdge, GraphIR, GraphNode};
-use super::parser::ReactionMode;
+use super::parser::{ReactionMode, TriggerSpec};
 
 /// Convert a snake_case Ident to PascalCase string for struct naming.
 fn pascal_case_ident(ident: &Ident) -> Ident {
@@ -117,19 +117,263 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // Collect return types from routing nodes so we can `use Type::*` for variant patterns
     let routing_use_stmts = generate_routing_use_stmts(ir, &functions, mod_name);
 
-    // Generate #[ctor] registration for global registry
+    // Generate inventory registration for global registry
     let mod_name_str = mod_name.to_string();
     let auto_register_name = format_ident!("_auto_register_graph_{}", mod_name);
+    let _ = auto_register_name; // reserved for future diagnostics
 
-    let accumulator_names: Vec<String> = ir
-        .react
-        .accumulators
-        .iter()
-        .map(|a| a.to_string())
-        .collect();
-    let reaction_mode_str = match ir.react.mode {
-        ReactionMode::WhenAny => "when_any",
-        ReactionMode::WhenAll => "when_all",
+    // Path roots that differ between internal (cloacina) and external consumers.
+    let cg_path = if is_cloacina_crate_early {
+        quote! { ::cloacina_computation_graph }
+    } else {
+        quote! { ::cloacina_computation_graph }
+    };
+    let reactor_entry_path = if is_cloacina_crate_early {
+        quote! { crate::inventory_entries::ReactorEntry }
+    } else {
+        quote! { ::cloacina::ReactorEntry }
+    };
+    let inventory_path = if is_cloacina_crate_early {
+        quote! { crate::inventory }
+    } else {
+        quote! { ::cloacina::inventory }
+    };
+
+    // Entry accumulators as both strings (for per-graph const block) and
+    // compile-time-visible vec!.
+    let entry_acc_strs: Vec<String> = ir.entry_accumulators();
+    let entry_accs_vec = {
+        let entries = entry_acc_strs.iter();
+        quote! { vec![#(#entries.to_string()),*] }
+    };
+
+    // Derive per-trigger-form code fragments:
+    // - `legacy_acc_names_expr`: expression producing the `accumulator_names`
+    //   field of `ComputationGraphRegistration` (legacy, kept for packaging
+    //   FFI + reconciler).
+    // - `legacy_reaction_mode_expr`: expression producing `reaction_mode`.
+    // - `trigger_reactor_expr`: expression producing `Option<String>` for
+    //   `trigger_reactor`.
+    // - `ffi_accumulator_entries_expr`: expression producing the list of
+    //   `AccumulatorDeclarationEntry` values for the packaged FFI metadata.
+    // - `ffi_reaction_mode_expr`: expression producing the reaction-mode
+    //   string used in packaged FFI metadata.
+    // - `synth_reactor_decl`: items emitted adjacent to the graph (only
+    //   non-empty for the bundled form — the synthesized reactor struct +
+    //   inventory entry).
+    // - `type_binding_check`: const block emitted adjacent to the graph that
+    //   const-evaluates a subset check between entry accumulators and the
+    //   referenced reactor's `ACCUMULATORS` (only non-empty for the split
+    //   form; bundled form is checked at macro time below).
+    let synth_reactor_ident = format_ident!("__Reactor_{}", mod_name);
+    let synth_reactor_name_str = format!("__Reactor_{}", mod_name_str);
+
+    let (
+        legacy_acc_names_expr,
+        legacy_reaction_mode_expr,
+        trigger_reactor_expr,
+        ffi_accumulator_entries_expr,
+        ffi_reaction_mode_expr,
+        synth_reactor_decl,
+        type_binding_check,
+    ) = match &ir.trigger {
+        TriggerSpec::Bundled(criteria) => {
+            let acc_strs: Vec<String> = criteria
+                .accumulators
+                .iter()
+                .map(|i| i.to_string())
+                .collect();
+            let mode_str = match criteria.mode {
+                ReactionMode::WhenAny => "when_any",
+                ReactionMode::WhenAll => "when_all",
+            };
+            let mode_variant = match criteria.mode {
+                ReactionMode::WhenAny => quote! { WhenAny },
+                ReactionMode::WhenAll => quote! { WhenAll },
+            };
+
+            // Macro-time sanity: every entry-accumulator must be declared in
+            // the bundled `react = ...` list. This is the bundled-form
+            // equivalent of the split-form const-eval subset check.
+            for entry in &entry_acc_strs {
+                if !acc_strs.contains(entry) {
+                    return Err(syn::Error::new(
+                        proc_macro2::Span::call_site(),
+                        format!(
+                            "computation graph entry node references accumulator '{}' which is \
+                             not in the bundled reactor's 'react = ...' accumulator list",
+                            entry
+                        ),
+                    ));
+                }
+            }
+
+            let legacy_accs = {
+                let s = acc_strs.clone();
+                quote! { vec![#(#s.to_string()),*] }
+            };
+            let legacy_mode = quote! { #mode_str.to_string() };
+            let trigger_reactor = quote! { Some(#synth_reactor_name_str.to_string()) };
+            let ffi_accs = {
+                let names = acc_strs.clone();
+                quote! {
+                    vec![
+                        #(
+                            cloacina_workflow_plugin::AccumulatorDeclarationEntry {
+                                name: #names.to_string(),
+                                accumulator_type: "passthrough".to_string(),
+                                config: std::collections::HashMap::new(),
+                            }
+                        ),*
+                    ]
+                }
+            };
+            let ffi_mode = quote! { #mode_str.to_string() };
+
+            let synth_accs = acc_strs.clone();
+            let synth = quote! {
+                #[allow(non_camel_case_types)]
+                #[doc(hidden)]
+                pub struct #synth_reactor_ident;
+
+                impl #cg_path::Reactor for #synth_reactor_ident {
+                    const NAME: &'static str = #synth_reactor_name_str;
+                    const ACCUMULATORS: &'static [&'static str] = &[#(#synth_accs),*];
+                    const REACTION_MODE: #cg_path::ReactionMode =
+                        #cg_path::ReactionMode::#mode_variant;
+                }
+
+                #[cfg(not(test))]
+                #[cfg(not(feature = "packaged"))]
+                #inventory_path::submit! {
+                    #reactor_entry_path {
+                        name: #synth_reactor_name_str,
+                        constructor: || #cg_path::ReactorRegistration {
+                            name: #synth_reactor_name_str.to_string(),
+                            accumulator_names: vec![#(#synth_accs.to_string()),*],
+                            reaction_mode: #cg_path::ReactionMode::#mode_variant,
+                        },
+                    }
+                }
+            };
+
+            (
+                legacy_accs,
+                legacy_mode,
+                trigger_reactor,
+                ffi_accs,
+                ffi_mode,
+                synth,
+                proc_macro2::TokenStream::new(),
+            )
+        }
+        TriggerSpec::ByReactor(type_path) => {
+            // Emit a const-eval subset check between the graph's entry
+            // accumulators and the bound reactor's ACCUMULATORS.
+            let check_fn_ident = format_ident!("__cloacina_check_reactor_binding_{}", mod_name);
+            let panic_msg = format!(
+                "computation_graph '{}' has an entry accumulator that is not \
+                 in the referenced reactor's ACCUMULATORS set",
+                mod_name_str
+            );
+            let entry_lits = entry_acc_strs.clone();
+
+            let check = quote! {
+                #[doc(hidden)]
+                const fn #check_fn_ident() {
+                    const ENTRY: &[&str] = &[#(#entry_lits),*];
+                    let reactor: &[&str] =
+                        <#type_path as #cg_path::Reactor>::ACCUMULATORS;
+                    let mut i = 0usize;
+                    while i < ENTRY.len() {
+                        let e = ENTRY[i].as_bytes();
+                        let mut j = 0usize;
+                        let mut found = false;
+                        while j < reactor.len() {
+                            let r = reactor[j].as_bytes();
+                            if e.len() == r.len() {
+                                let mut k = 0usize;
+                                let mut eq = true;
+                                while k < e.len() {
+                                    if e[k] != r[k] {
+                                        eq = false;
+                                        break;
+                                    }
+                                    k += 1;
+                                }
+                                if eq {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            j += 1;
+                        }
+                        if !found {
+                            panic!(#panic_msg);
+                        }
+                        i += 1;
+                    }
+                }
+                const _: () = #check_fn_ident();
+            };
+
+            let legacy_accs = quote! {
+                <#type_path as #cg_path::Reactor>::ACCUMULATORS
+                    .iter()
+                    .map(|s| (*s).to_string())
+                    .collect::<Vec<String>>()
+            };
+            let legacy_mode = quote! {
+                <#type_path as #cg_path::Reactor>::REACTION_MODE
+                    .as_str()
+                    .to_string()
+            };
+            let trigger_reactor = quote! {
+                Some(<#type_path as #cg_path::Reactor>::NAME.to_string())
+            };
+            let ffi_accs = quote! {
+                <#type_path as #cg_path::Reactor>::ACCUMULATORS
+                    .iter()
+                    .map(|name| cloacina_workflow_plugin::AccumulatorDeclarationEntry {
+                        name: (*name).to_string(),
+                        accumulator_type: "passthrough".to_string(),
+                        config: std::collections::HashMap::new(),
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let ffi_mode = quote! {
+                <#type_path as #cg_path::Reactor>::REACTION_MODE
+                    .as_str()
+                    .to_string()
+            };
+
+            (
+                legacy_accs,
+                legacy_mode,
+                trigger_reactor,
+                ffi_accs,
+                ffi_mode,
+                proc_macro2::TokenStream::new(),
+                check,
+            )
+        }
+        TriggerSpec::None => {
+            let legacy_accs = quote! { Vec::<String>::new() };
+            let legacy_mode = quote! { "none".to_string() };
+            let trigger_reactor = quote! { None::<String> };
+            let ffi_accs =
+                quote! { Vec::<cloacina_workflow_plugin::AccumulatorDeclarationEntry>::new() };
+            let ffi_mode = quote! { "none".to_string() };
+            (
+                legacy_accs,
+                legacy_mode,
+                trigger_reactor,
+                ffi_accs,
+                ffi_mode,
+                proc_macro2::TokenStream::new(),
+                proc_macro2::TokenStream::new(),
+            )
+        }
     };
 
     // Generate the packaged FFI module (only when feature = "packaged")
@@ -169,17 +413,9 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                     Ok(cloacina_workflow_plugin::GraphPackageMetadata {
                         graph_name: #mod_name_str.to_string(),
                         package_name: env!("CARGO_PKG_NAME").to_string(),
-                        reaction_mode: #reaction_mode_str.to_string(),
+                        reaction_mode: #ffi_reaction_mode_expr,
                         input_strategy: "latest".to_string(),
-                        accumulators: vec![
-                            #(
-                                cloacina_workflow_plugin::AccumulatorDeclarationEntry {
-                                    name: #accumulator_names.to_string(),
-                                    accumulator_type: "passthrough".to_string(),
-                                    config: std::collections::HashMap::new(),
-                                }
-                            ),*
-                        ],
+                        accumulators: #ffi_accumulator_entries_expr,
                     })
                 }
 
@@ -284,8 +520,10 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                                 #compiled_fn_name(&cache).await
                             })
                         }),
-                        accumulator_names: vec![#(#accumulator_names.to_string()),*],
-                        reaction_mode: #reaction_mode_str.to_string(),
+                        entry_accumulators: #entry_accs_vec,
+                        trigger_reactor: #trigger_reactor_expr,
+                        accumulator_names: #legacy_acc_names_expr,
+                        reaction_mode: #legacy_reaction_mode_expr,
                     },
                 }
             }
@@ -315,8 +553,10 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                                 #compiled_fn_name(&cache).await
                             })
                         }),
-                        accumulator_names: vec![#(#accumulator_names.to_string()),*],
-                        reaction_mode: #reaction_mode_str.to_string(),
+                        entry_accumulators: #entry_accs_vec,
+                        trigger_reactor: #trigger_reactor_expr,
+                        accumulator_names: #legacy_acc_names_expr,
+                        reaction_mode: #legacy_reaction_mode_expr,
                     },
                 }
             }
@@ -332,7 +572,16 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
 
         #compiled_fn_body
 
-        // Embedded mode: #[ctor] registration for global registry
+        // Bundled form: synthesized reactor struct + inventory entry.
+        // Empty for split and trigger-less forms.
+        #synth_reactor_decl
+
+        // Split form: const-eval check that the graph's entry accumulators
+        // are a subset of the referenced reactor's ACCUMULATORS.
+        // Empty for bundled (checked at macro time) and trigger-less.
+        #type_binding_check
+
+        // Embedded mode: inventory registration for global registry
         #ctor_body
 
         // Packaged mode: FFI plugin exports for fidius

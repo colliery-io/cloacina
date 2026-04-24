@@ -149,6 +149,12 @@ pub struct ComputationGraphScheduler {
     registry: EndpointRegistry,
     /// Running computation graphs.
     graphs: Arc<RwLock<HashMap<String, RunningGraph>>>,
+    /// Trigger-less graph compiled functions, keyed by graph name. These are
+    /// graphs declared with `#[computation_graph(graph = { ... })]` (no
+    /// `react` / `trigger` clause). They are not spawned on a reactor — they
+    /// are invoked on demand, which T-02 workflow tasks and T-03 Python
+    /// decorators wire up.
+    triggerless_graphs: Arc<RwLock<HashMap<String, CompiledGraphFn>>>,
     /// DAL handle for persistence. None in embedded/test mode.
     dal: Option<crate::dal::unified::DAL>,
 }
@@ -158,6 +164,7 @@ impl ComputationGraphScheduler {
         Self {
             registry,
             graphs: Arc::new(RwLock::new(HashMap::new())),
+            triggerless_graphs: Arc::new(RwLock::new(HashMap::new())),
             dal: None,
         }
     }
@@ -167,6 +174,7 @@ impl ComputationGraphScheduler {
         Self {
             registry,
             graphs: Arc::new(RwLock::new(HashMap::new())),
+            triggerless_graphs: Arc::new(RwLock::new(HashMap::new())),
             dal: Some(dal),
         }
     }
@@ -302,6 +310,106 @@ impl ComputationGraphScheduler {
 
         self.graphs.write().await.insert(name, running);
         Ok(())
+    }
+
+    /// Load a computation graph that references a reactor declaration by
+    /// value (split form, from `#[computation_graph(trigger = reactor(T))]`).
+    ///
+    /// This spawns a fresh reactor instance tied to this graph, using the
+    /// criteria + accumulator list carried by `reactor`, and binds `graph_fn`
+    /// as the firing callback. The reactor is registered in the endpoint
+    /// registry under `graph_name` (not the reactor's own name), which keeps
+    /// parity with today's bundled-form operational surface. Sharing a
+    /// single reactor instance across multiple graphs is a later step
+    /// (T-01b) — for now, "split form" means "the user declared the reactor
+    /// separately and referenced it by type path," and the linkage still
+    /// gets one reactor instance per graph.
+    ///
+    /// `input_strategy` defaults to [`InputStrategy::Latest`].
+    pub async fn load_graph_split(
+        &self,
+        graph_name: String,
+        graph_fn: CompiledGraphFn,
+        reactor: &cloacina_computation_graph::ReactorRegistration,
+        accumulators: Vec<AccumulatorDeclaration>,
+        tenant_id: Option<String>,
+    ) -> Result<(), String> {
+        // Validate: every accumulator named in the reactor declaration must
+        // have an `AccumulatorDeclaration` supplied.
+        let supplied: std::collections::HashSet<&str> =
+            accumulators.iter().map(|a| a.name.as_str()).collect();
+        for name in &reactor.accumulator_names {
+            if !supplied.contains(name.as_str()) {
+                return Err(format!(
+                    "reactor '{}' declares accumulator '{}' but no AccumulatorDeclaration was \
+                     supplied for it",
+                    reactor.name, name
+                ));
+            }
+        }
+
+        let decl = ComputationGraphDeclaration {
+            name: graph_name,
+            accumulators,
+            reactor: ReactorDeclaration {
+                criteria: reactor.reaction_mode.into(),
+                strategy: InputStrategy::Latest,
+                graph_fn,
+            },
+            tenant_id,
+        };
+
+        self.load_graph(decl).await
+    }
+
+    /// Register a trigger-less computation graph — one declared with
+    /// `#[computation_graph(graph = { ... })]` and no `react` / `trigger`
+    /// clause. No reactor is spawned; the compiled function is kept by name
+    /// so that T-02 workflow tasks (or T-03 Python decorators) can invoke
+    /// the graph directly via [`Self::invoke_triggerless_graph`].
+    pub async fn register_triggerless_graph(
+        &self,
+        name: String,
+        graph_fn: CompiledGraphFn,
+    ) -> Result<(), String> {
+        let mut table = self.triggerless_graphs.write().await;
+        if table.contains_key(&name) {
+            return Err(format!(
+                "trigger-less graph '{}' is already registered",
+                name
+            ));
+        }
+        table.insert(name, graph_fn);
+        Ok(())
+    }
+
+    /// Invoke a previously-registered trigger-less graph by name. Returns
+    /// `None` if no graph with that name was registered.
+    pub async fn invoke_triggerless_graph(
+        &self,
+        name: &str,
+        cache: super::InputCache,
+    ) -> Option<super::GraphResult> {
+        let graph_fn = {
+            let table = self.triggerless_graphs.read().await;
+            table.get(name).cloned()
+        }?;
+        Some(graph_fn(cache).await)
+    }
+
+    /// List the names of every registered trigger-less graph.
+    pub async fn triggerless_graph_names(&self) -> Vec<String> {
+        self.triggerless_graphs
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// Deregister a trigger-less graph. Returns true if the entry existed.
+    pub async fn unregister_triggerless_graph(&self, name: &str) -> bool {
+        self.triggerless_graphs.write().await.remove(name).is_some()
     }
 
     /// Unload and shut down a computation graph.

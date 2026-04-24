@@ -79,6 +79,15 @@ pub enum ReactionCriteria {
     WhenAll,
 }
 
+impl From<cloacina_computation_graph::ReactionMode> for ReactionCriteria {
+    fn from(mode: cloacina_computation_graph::ReactionMode) -> Self {
+        match mode {
+            cloacina_computation_graph::ReactionMode::WhenAny => ReactionCriteria::WhenAny,
+            cloacina_computation_graph::ReactionMode::WhenAll => ReactionCriteria::WhenAll,
+        }
+    }
+}
+
 /// Input strategy — how the reactor handles data between executions.
 #[derive(Debug, Clone)]
 pub enum InputStrategy {

@@ -275,16 +275,109 @@ pub type CompiledGraphFn =
 // `inventory` entries emitted by the `#[computation_graph]` macro.
 
 /// Metadata about a registered computation graph.
+///
+/// The shape carries both the legacy bundled-form metadata
+/// (`accumulator_names` + `reaction_mode`, consumed by packaging FFI and the
+/// reconciler) and the new split-form metadata (`entry_accumulators` +
+/// `trigger_reactor`). Graphs emitted from the bundled form populate both.
+/// Graphs emitted from the split form also populate both — legacy fields are
+/// copied from the referenced reactor's declaration so downstream code that
+/// still reads them keeps working during the I-0101 migration.
+/// Trigger-less graphs carry empty legacy fields and `trigger_reactor = None`.
 pub struct ComputationGraphRegistration {
     /// The compiled graph function.
     pub graph_fn: CompiledGraphFn,
-    /// Accumulator names declared in the graph topology.
+    /// Accumulator names used by the graph's entry nodes. Enforced to be a
+    /// subset of the referenced reactor's `ACCUMULATORS` at macro expansion
+    /// for split form; identical to `accumulator_names` for bundled form.
+    pub entry_accumulators: Vec<String>,
+    /// Name of the reactor this graph is bound to, if any. `None` for
+    /// trigger-less graphs (T-02/T-03 invoke these directly from workflow
+    /// tasks or Python tasks).
+    pub trigger_reactor: Option<String>,
+    /// Accumulator names — legacy field kept for packaging FFI + reconciler
+    /// compatibility. For split-form graphs this mirrors the reactor's
+    /// accumulators; for trigger-less graphs it is empty.
     pub accumulator_names: Vec<String>,
-    /// Reaction mode: "when_any" or "when_all".
+    /// Reaction mode: `"when_any"`, `"when_all"`, or `"none"` for
+    /// trigger-less graphs. Legacy field retained for the same reasons as
+    /// `accumulator_names`.
     pub reaction_mode: String,
 }
 
 pub type ComputationGraphConstructor = Box<dyn Fn() -> ComputationGraphRegistration + Send + Sync>;
+
+// ---------------------------------------------------------------------------
+// Reactor
+// ---------------------------------------------------------------------------
+//
+// A reactor is a named bundle of accumulators + firing criteria. It fires an
+// `InputCache` whenever its criteria are met and publishes to any graph bound
+// to it by name.
+//
+// The `#[reactor]` attribute macro emits a unit struct + `impl Reactor for X`.
+// The struct is a compile-time handle: `#[computation_graph(trigger =
+// reactor(X))]` references it by type path so the graph macro can const-check
+// that its entry accumulators are a subset of `<X as Reactor>::ACCUMULATORS`.
+//
+// The synthesized bundled-form reactor struct is named `__Reactor_<graphname>`
+// (double-underscore prefix) so operational listings can filter it out by
+// default.
+
+/// How a reactor decides when to fire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReactionMode {
+    /// Fire as soon as any one accumulator has new input.
+    WhenAny,
+    /// Fire only when every accumulator has new input since the last firing.
+    WhenAll,
+}
+
+impl ReactionMode {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            ReactionMode::WhenAny => "when_any",
+            ReactionMode::WhenAll => "when_all",
+        }
+    }
+}
+
+impl fmt::Display for ReactionMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Compile-time handle for a reactor declaration.
+///
+/// Implemented by the unit struct emitted by `#[reactor]`. The constants are
+/// readable at `const` context, which the `#[computation_graph]` macro uses to
+/// const-check the graph's entry accumulators against the reactor's
+/// accumulator set.
+pub trait Reactor {
+    /// Reactor name as declared in `#[reactor(name = "...")]`.
+    const NAME: &'static str;
+    /// Declared accumulator names. Order matches the `accumulators = [...]`
+    /// clause; uniqueness is enforced at macro expansion.
+    const ACCUMULATORS: &'static [&'static str];
+    /// Firing criteria.
+    const REACTION_MODE: ReactionMode;
+}
+
+/// Runtime-side description of a reactor.
+///
+/// Populated by the `#[reactor]` macro's emitted inventory entry and by the
+/// bundled `#[computation_graph]` form's synthesized reactor.
+#[derive(Debug, Clone)]
+pub struct ReactorRegistration {
+    /// Reactor name. User-declared reactors carry the name the user wrote.
+    /// Bundled-form synthesized reactors carry `__Reactor_<graphname>`.
+    pub name: String,
+    pub accumulator_names: Vec<String>,
+    pub reaction_mode: ReactionMode,
+}
+
+pub type ReactorConstructor = Box<dyn Fn() -> ReactorRegistration + Send + Sync>;
 
 // Re-export types module for backward compat path: `cloacina_computation_graph::types::serialize`
 pub mod types {

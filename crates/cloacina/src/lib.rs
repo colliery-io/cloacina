@@ -537,6 +537,9 @@ pub fn setup_test() {
 pub use database::connection::Database;
 
 // Re-export key types for convenience
+pub use cloacina_computation_graph::{
+    ReactionMode as ComputationReactionMode, Reactor, ReactorConstructor, ReactorRegistration,
+};
 pub use computation_graph::ComputationGraphRegistration;
 pub use context::Context;
 pub use cron_evaluator::{CronError, CronEvaluator};
@@ -563,8 +566,8 @@ pub use graph::{
     DependencyEdge, GraphEdge, GraphMetadata, GraphNode, TaskNode, WorkflowGraph, WorkflowGraphData,
 };
 pub use inventory_entries::{
-    ComputationGraphEntry, StreamBackendEntry, StreamBackendFactoryFn, TaskEntry, TriggerEntry,
-    WorkflowEntry,
+    ComputationGraphEntry, ReactorEntry, StreamBackendEntry, StreamBackendFactoryFn, TaskEntry,
+    TriggerEntry, WorkflowEntry,
 };
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use runner::DefaultRunnerBuilder;

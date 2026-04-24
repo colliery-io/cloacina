@@ -46,7 +46,10 @@ use crate::computation_graph::stream_backend::{
 use crate::task::{Task, TaskNamespace};
 use crate::trigger::Trigger;
 use crate::workflow::Workflow;
-use cloacina_computation_graph::{ComputationGraphConstructor, ComputationGraphRegistration};
+use cloacina_computation_graph::{
+    ComputationGraphConstructor, ComputationGraphRegistration, ReactorConstructor,
+    ReactorRegistration,
+};
 
 /// Type alias for task constructor functions.
 pub type TaskConstructorFn = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
@@ -72,6 +75,7 @@ struct RuntimeInner {
     workflows: RwLock<HashMap<String, WorkflowConstructorFn>>,
     triggers: RwLock<HashMap<String, TriggerConstructorFn>>,
     computation_graphs: RwLock<HashMap<String, ComputationGraphConstructor>>,
+    reactors: RwLock<HashMap<String, ReactorConstructor>>,
     stream_backends: RwLock<HashMap<String, StreamBackendFactory>>,
 }
 
@@ -103,6 +107,7 @@ impl Runtime {
                 workflows: RwLock::new(HashMap::new()),
                 triggers: RwLock::new(HashMap::new()),
                 computation_graphs: RwLock::new(HashMap::new()),
+                reactors: RwLock::new(HashMap::new()),
                 stream_backends: RwLock::new(HashMap::new()),
             }),
         }
@@ -116,7 +121,8 @@ impl Runtime {
     /// workflow package to pick up the entries emitted by that cdylib.
     pub fn seed_from_inventory(&self) {
         use crate::inventory_entries::{
-            ComputationGraphEntry, StreamBackendEntry, TaskEntry, TriggerEntry, WorkflowEntry,
+            ComputationGraphEntry, ReactorEntry, StreamBackendEntry, TaskEntry, TriggerEntry,
+            WorkflowEntry,
         };
 
         for entry in inventory::iter::<TaskEntry> {
@@ -138,6 +144,11 @@ impl Runtime {
         for entry in inventory::iter::<ComputationGraphEntry> {
             let ctor = entry.constructor;
             self.register_computation_graph(entry.name.to_string(), move || ctor());
+        }
+
+        for entry in inventory::iter::<ReactorEntry> {
+            let ctor = entry.constructor;
+            self.register_reactor(entry.name.to_string(), move || ctor());
         }
 
         for entry in inventory::iter::<StreamBackendEntry> {
@@ -301,6 +312,53 @@ impl Runtime {
             .computation_graphs
             .read()
             .keys()
+            .cloned()
+            .collect()
+    }
+
+    // -----------------------------------------------------------------------
+    // Reactor registry
+    // -----------------------------------------------------------------------
+
+    /// Register a reactor constructor by name.
+    ///
+    /// Reactors declared via `#[reactor]` or synthesized by the bundled form
+    /// of `#[computation_graph]` land here. Graphs that declare
+    /// `trigger = reactor(X)` bind to the named reactor at load time.
+    pub fn register_reactor<F>(&self, name: String, constructor: F)
+    where
+        F: Fn() -> ReactorRegistration + Send + Sync + 'static,
+    {
+        self.inner
+            .reactors
+            .write()
+            .insert(name, Box::new(constructor));
+    }
+
+    /// Remove a reactor constructor. Returns true if the entry existed.
+    pub fn unregister_reactor(&self, name: &str) -> bool {
+        self.inner.reactors.write().remove(name).is_some()
+    }
+
+    /// Look up and instantiate a reactor registration by name.
+    pub fn get_reactor(&self, name: &str) -> Option<ReactorRegistration> {
+        self.inner.reactors.read().get(name).map(|ctor| ctor())
+    }
+
+    /// Get every registered reactor name.
+    pub fn reactor_names(&self) -> Vec<String> {
+        self.inner.reactors.read().keys().cloned().collect()
+    }
+
+    /// Get every registered reactor name that was declared by the user.
+    /// Filters out synthesized bundled-form reactors (whose names start with
+    /// the `__Reactor_` prefix).
+    pub fn user_reactor_names(&self) -> Vec<String> {
+        self.inner
+            .reactors
+            .read()
+            .keys()
+            .filter(|n| !n.starts_with("__Reactor_"))
             .cloned()
             .collect()
     }

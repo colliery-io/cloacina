@@ -38,7 +38,7 @@ use crate::computation_graph::stream_backend::{StreamBackend, StreamConfig, Stre
 use crate::task::{Task, TaskNamespace};
 use crate::trigger::Trigger;
 use crate::workflow::Workflow;
-use cloacina_computation_graph::ComputationGraphRegistration;
+use cloacina_computation_graph::{ComputationGraphRegistration, ReactorRegistration};
 
 /// Task entry emitted by `#[task]`.
 pub struct TaskEntry {
@@ -70,6 +70,17 @@ pub struct ComputationGraphEntry {
     pub constructor: fn() -> ComputationGraphRegistration,
 }
 inventory::collect!(ComputationGraphEntry);
+
+/// Reactor entry emitted by `#[reactor]` (standalone form) and by the
+/// desugared bundled form of `#[computation_graph]`.
+///
+/// Synthesized reactors from the bundled form carry a `__Reactor_`-prefixed
+/// name so operational listings can filter them out.
+pub struct ReactorEntry {
+    pub name: &'static str,
+    pub constructor: fn() -> ReactorRegistration,
+}
+inventory::collect!(ReactorEntry);
 
 /// Stream-backend entry emitted by the stream-backend registration helper.
 ///

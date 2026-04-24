@@ -1948,3 +1948,306 @@ mod resilience_tests {
         scheduler.shutdown_all().await;
     }
 } // mod resilience_tests
+
+// =============================================================================
+// Split-form and trigger-less macros (CLOACI-T-0538)
+// =============================================================================
+//
+// These exercise the `#[reactor]` macro and the new `trigger = reactor(T)` /
+// no-trigger forms of `#[computation_graph]`. End-to-end scheduler wiring
+// for the split form is covered elsewhere (M5); these tests verify that the
+// macros expand, type-bind at compile time, and land in the expected
+// Runtime registries via inventory.
+
+#[cloacina_macros::reactor(
+    name = "cloaci_t_0538_reactor_split",
+    accumulators = [alpha],
+    criteria = when_any(alpha),
+)]
+pub struct CloaciT0538SplitReactor;
+
+#[cloacina_macros::computation_graph(
+    trigger = reactor(CloaciT0538SplitReactor),
+    graph = {
+        entry(alpha) -> output,
+    }
+)]
+pub mod cloaci_t_0538_split_graph {
+    use super::*;
+
+    pub async fn entry(alpha: Option<&AlphaData>) -> ProcessedData {
+        ProcessedData {
+            result: alpha.map(|a| a.value).unwrap_or(0.0) * 3.0,
+        }
+    }
+
+    pub async fn output(input: &ProcessedData) -> OutputConfirmation {
+        OutputConfirmation {
+            published: true,
+            value: input.result,
+        }
+    }
+}
+
+#[cloacina_macros::computation_graph(graph = {
+    entry(alpha) -> output,
+})]
+pub mod cloaci_t_0538_triggerless_graph {
+    use super::*;
+
+    pub async fn entry(alpha: Option<&AlphaData>) -> ProcessedData {
+        ProcessedData {
+            result: alpha.map(|a| a.value).unwrap_or(0.0) + 1.0,
+        }
+    }
+
+    pub async fn output(input: &ProcessedData) -> OutputConfirmation {
+        OutputConfirmation {
+            published: true,
+            value: input.result,
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_reactor_trait_constants() {
+    use cloacina::{ComputationReactionMode, Reactor};
+    assert_eq!(
+        <CloaciT0538SplitReactor as Reactor>::NAME,
+        "cloaci_t_0538_reactor_split"
+    );
+    assert_eq!(
+        <CloaciT0538SplitReactor as Reactor>::ACCUMULATORS,
+        &["alpha"]
+    );
+    assert_eq!(
+        <CloaciT0538SplitReactor as Reactor>::REACTION_MODE,
+        ComputationReactionMode::WhenAny
+    );
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_split_form_compiled_fn_runs() {
+    // Split-form graph: compiled fn is present and runs against an
+    // InputCache identically to a bundled-form graph with the same
+    // topology. This proves the macro expansion produced valid Rust
+    // (including the compile-time subset-check const block referencing
+    // `<CloaciT0538SplitReactor as Reactor>::ACCUMULATORS`).
+    let mut cache = InputCache::new();
+    cache.update(
+        SourceName::new("alpha"),
+        serialize(&AlphaData { value: 2.0 }).unwrap(),
+    );
+    let result = cloaci_t_0538_split_graph_compiled(&cache).await;
+    assert!(result.is_completed(), "split-form graph should complete");
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_triggerless_form_compiled_fn_runs() {
+    let mut cache = InputCache::new();
+    cache.update(
+        SourceName::new("alpha"),
+        serialize(&AlphaData { value: 4.0 }).unwrap(),
+    );
+    let result = cloaci_t_0538_triggerless_graph_compiled(&cache).await;
+    assert!(result.is_completed(), "trigger-less graph should complete");
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_split_form_scheduler_end_to_end() {
+    // Exercise the new `ComputationGraphScheduler::load_graph_split` path
+    // against a reactor registration (what `#[reactor]` emits) and a graph
+    // compiled function (what the split-form `#[computation_graph]` emits).
+    // Push an event through the accumulator registry and assert the graph
+    // fires.
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    let fire_count = Arc::new(AtomicU32::new(0));
+    let fire_count_inner = fire_count.clone();
+    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = fire_count_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0538_reactor_split".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+
+    scheduler
+        .load_graph_split(
+            "cloaci_t_0538_split_scheduler".to_string(),
+            graph_fn,
+            &reactor_reg,
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            None,
+        )
+        .await
+        .expect("load_graph_split should succeed");
+
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 7.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Poll for the fire rather than a fixed sleep.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && fire_count.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        fire_count.load(Ordering::SeqCst),
+        1,
+        "split-form graph should have fired via the reactor"
+    );
+
+    scheduler
+        .unload_graph("cloaci_t_0538_split_scheduler")
+        .await
+        .expect("unload should succeed");
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_triggerless_scheduler_invocation() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
+    use cloacina_computation_graph::CompiledGraphFn;
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry);
+
+    let graph_fn: CompiledGraphFn = Arc::new(|cache: InputCache| {
+        Box::pin(async move { cloaci_t_0538_triggerless_graph_compiled(&cache).await })
+    });
+
+    scheduler
+        .register_triggerless_graph("cloaci_t_0538_triggerless".to_string(), graph_fn.clone())
+        .await
+        .expect("register should succeed");
+
+    assert!(scheduler
+        .triggerless_graph_names()
+        .await
+        .iter()
+        .any(|n| n == "cloaci_t_0538_triggerless"));
+
+    // Duplicate registration is rejected.
+    assert!(scheduler
+        .register_triggerless_graph("cloaci_t_0538_triggerless".to_string(), graph_fn.clone(),)
+        .await
+        .is_err());
+
+    // Direct invocation runs the compiled function.
+    let mut cache = InputCache::new();
+    cache.update(
+        SourceName::new("alpha"),
+        serialize(&AlphaData { value: 11.0 }).unwrap(),
+    );
+    let result = scheduler
+        .invoke_triggerless_graph("cloaci_t_0538_triggerless", cache)
+        .await
+        .expect("invocation should return Some(result)");
+    assert!(result.is_completed());
+
+    // Unregister and confirm it's gone.
+    assert!(
+        scheduler
+            .unregister_triggerless_graph("cloaci_t_0538_triggerless")
+            .await
+    );
+    assert!(scheduler.triggerless_graph_names().await.is_empty());
+    assert!(scheduler
+        .invoke_triggerless_graph("cloaci_t_0538_triggerless", InputCache::new())
+        .await
+        .is_none());
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_split_missing_accumulator_fails() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry);
+
+    let graph_fn: CompiledGraphFn =
+        Arc::new(|_cache: InputCache| Box::pin(async { unreachable!() }));
+
+    // Reactor declares `alpha` but we supply no accumulators.
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0538_broken_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+
+    let result = scheduler
+        .load_graph_split(
+            "cloaci_t_0538_broken".to_string(),
+            graph_fn,
+            &reactor_reg,
+            vec![],
+            None,
+        )
+        .await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("accumulator 'alpha'"));
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
+    // The `#[computation_graph]` and `#[reactor]` macros gate their
+    // `inventory::submit!` entries with `#[cfg(not(test))]` for the same
+    // test-isolation reasons the existing bundled form does — so we can't
+    // observe the emitted registrations here by seeding from inventory.
+    // Instead, simulate what the macros would emit and verify the Runtime
+    // surface accepts and surfaces them as expected, including the
+    // dunder-prefix filter on `user_reactor_names`.
+    let rt = cloacina::Runtime::empty();
+
+    rt.register_reactor("cloaci_t_0538_reactor_split".to_string(), || {
+        cloacina::ReactorRegistration {
+            name: "cloaci_t_0538_reactor_split".to_string(),
+            accumulator_names: vec!["alpha".to_string()],
+            reaction_mode: cloacina::ComputationReactionMode::WhenAny,
+        }
+    });
+    rt.register_reactor("__Reactor_linear_chain".to_string(), || {
+        cloacina::ReactorRegistration {
+            name: "__Reactor_linear_chain".to_string(),
+            accumulator_names: vec!["alpha".to_string()],
+            reaction_mode: cloacina::ComputationReactionMode::WhenAny,
+        }
+    });
+
+    assert_eq!(rt.reactor_names().len(), 2);
+    let user = rt.user_reactor_names();
+    assert_eq!(user, vec!["cloaci_t_0538_reactor_split".to_string()]);
+
+    let reactor = rt.get_reactor("cloaci_t_0538_reactor_split").unwrap();
+    assert_eq!(reactor.accumulator_names, vec!["alpha".to_string()]);
+    assert_eq!(
+        reactor.reaction_mode,
+        cloacina::ComputationReactionMode::WhenAny
+    );
+}

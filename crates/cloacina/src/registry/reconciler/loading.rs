@@ -304,6 +304,15 @@ impl RegistryReconciler {
                                     graph_meta.graph_name.clone(),
                                     move || crate::ComputationGraphRegistration {
                                         graph_fn: graph_fn.clone(),
+                                        // Packaged CG loading predates the
+                                        // split form (I-0101). Entry
+                                        // accumulators mirror the declared
+                                        // accumulator set, and the reactor
+                                        // is bundled with the graph, so we
+                                        // don't carry a separate reactor
+                                        // binding.
+                                        entry_accumulators: accumulator_names.clone(),
+                                        trigger_reactor: None,
                                         accumulator_names: accumulator_names.clone(),
                                         reaction_mode: reaction_mode.clone(),
                                     },

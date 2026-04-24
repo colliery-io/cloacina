@@ -35,13 +35,60 @@
 
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{braced, Ident, Token};
+use syn::{braced, Ident, Token, TypePath};
 
 /// The full parsed topology from the macro attribute.
-#[derive(Debug)]
+///
+/// Supports three shapes:
+/// - `react = when_any(...)` + `graph = { ... }` — bundled form; desugars to a
+///   synthesized reactor named `__Reactor_<graphname>`.
+/// - `trigger = reactor(TypePath)` + `graph = { ... }` — split form; the graph
+///   binds at runtime to the already-declared reactor whose struct is
+///   `TypePath`, and the graph macro emits a compile-time subset check
+///   between entry accumulators and `<TypePath as Reactor>::ACCUMULATORS`.
+/// - `graph = { ... }` only — trigger-less form; the graph is registered by
+///   name only and is invoked directly (T-02 workflow tasks, T-03 Python).
 pub struct ParsedTopology {
-    pub react: ReactionCriteria,
+    pub trigger: TriggerSpec,
     pub edges: Vec<ParsedEdge>,
+}
+
+impl std::fmt::Debug for ParsedTopology {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParsedTopology")
+            .field("trigger", &self.trigger)
+            .field("edges", &self.edges)
+            .finish()
+    }
+}
+
+/// Which form of trigger the user declared.
+pub enum TriggerSpec {
+    /// `react = when_any(a, b)` — bundled form.
+    Bundled(ReactionCriteria),
+    /// `trigger = reactor(TypePath)` — split form referencing a standalone
+    /// reactor declaration by type path.
+    ByReactor(TypePath),
+    /// No `react` and no `trigger` — the graph is trigger-less.
+    None,
+}
+
+impl std::fmt::Debug for TriggerSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TriggerSpec::Bundled(r) => f.debug_tuple("Bundled").field(r).finish(),
+            TriggerSpec::ByReactor(tp) => {
+                let segs: Vec<String> = tp
+                    .path
+                    .segments
+                    .iter()
+                    .map(|s| s.ident.to_string())
+                    .collect();
+                f.debug_tuple("ByReactor").field(&segs.join("::")).finish()
+            }
+            TriggerSpec::None => f.write_str("None"),
+        }
+    }
 }
 
 /// Reaction criteria: when_any or when_all with accumulator names.
@@ -102,7 +149,10 @@ impl ParsedEdge {
 impl Parse for ParsedTopology {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut react: Option<ReactionCriteria> = None;
+        let mut trigger_reactor: Option<TypePath> = None;
         let mut edges: Option<Vec<ParsedEdge>> = None;
+        let mut react_key_span: Option<proc_macro2::Span> = None;
+        let mut trigger_key_span: Option<proc_macro2::Span> = None;
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -113,7 +163,36 @@ impl Parse for ParsedTopology {
                     if react.is_some() {
                         return Err(syn::Error::new(key.span(), "duplicate 'react' field"));
                     }
+                    react_key_span = Some(key.span());
                     react = Some(input.parse()?);
+                }
+                "trigger" => {
+                    if trigger_reactor.is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate 'trigger' field"));
+                    }
+                    trigger_key_span = Some(key.span());
+                    // Expect: reactor(TypePath)
+                    let kind: Ident = input.parse()?;
+                    if kind != "reactor" {
+                        return Err(syn::Error::new(
+                            kind.span(),
+                            format!(
+                                "unknown trigger kind '{}', expected 'reactor' \
+                                 (e.g. trigger = reactor(RiskSignals))",
+                                kind
+                            ),
+                        ));
+                    }
+                    let paren;
+                    syn::parenthesized!(paren in input);
+                    let type_path: TypePath = paren.parse()?;
+                    if !paren.is_empty() {
+                        return Err(syn::Error::new(
+                            paren.span(),
+                            "reactor(...) takes exactly one type path argument",
+                        ));
+                    }
+                    trigger_reactor = Some(type_path);
                 }
                 "graph" => {
                     if edges.is_some() {
@@ -124,7 +203,10 @@ impl Parse for ParsedTopology {
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
-                        format!("unknown field '{}', expected 'react' or 'graph'", other),
+                        format!(
+                            "unknown field '{}', expected 'react', 'trigger', or 'graph'",
+                            other
+                        ),
                     ));
                 }
             }
@@ -133,14 +215,29 @@ impl Parse for ParsedTopology {
             let _ = input.parse::<Token![,]>();
         }
 
-        let react = react.ok_or_else(|| {
-            syn::Error::new(proc_macro2::Span::call_site(), "missing 'react' field")
-        })?;
         let edges = edges.ok_or_else(|| {
             syn::Error::new(proc_macro2::Span::call_site(), "missing 'graph' field")
         })?;
 
-        Ok(ParsedTopology { react, edges })
+        let trigger = match (react, trigger_reactor) {
+            (Some(_), Some(_)) => {
+                let span = trigger_key_span
+                    .or(react_key_span)
+                    .unwrap_or_else(proc_macro2::Span::call_site);
+                return Err(syn::Error::new(
+                    span,
+                    "'react' and 'trigger' cannot both be set — pick one. \
+                     'react = when_any(...)' is the bundled form; \
+                     'trigger = reactor(T)' is the split form referencing a \
+                     standalone #[reactor] declaration",
+                ));
+            }
+            (Some(r), None) => TriggerSpec::Bundled(r),
+            (None, Some(t)) => TriggerSpec::ByReactor(t),
+            (None, None) => TriggerSpec::None,
+        };
+
+        Ok(ParsedTopology { trigger, edges })
     }
 }
 
@@ -275,6 +372,13 @@ mod tests {
         syn::parse2::<ParsedTopology>(tokens)
     }
 
+    fn bundled(trigger: &TriggerSpec) -> &ReactionCriteria {
+        match trigger {
+            TriggerSpec::Bundled(r) => r,
+            other => panic!("expected TriggerSpec::Bundled, got {:?}", other),
+        }
+    }
+
     #[test]
     fn test_parse_when_any() {
         let tokens = quote! {
@@ -284,11 +388,12 @@ mod tests {
             }
         };
         let topology = parse_topology(tokens).unwrap();
-        assert_eq!(topology.react.mode, ReactionMode::WhenAny);
-        assert_eq!(topology.react.accumulators.len(), 3);
-        assert_eq!(topology.react.accumulators[0].to_string(), "alpha");
-        assert_eq!(topology.react.accumulators[1].to_string(), "beta");
-        assert_eq!(topology.react.accumulators[2].to_string(), "gamma");
+        let react = bundled(&topology.trigger);
+        assert_eq!(react.mode, ReactionMode::WhenAny);
+        assert_eq!(react.accumulators.len(), 3);
+        assert_eq!(react.accumulators[0].to_string(), "alpha");
+        assert_eq!(react.accumulators[1].to_string(), "beta");
+        assert_eq!(react.accumulators[2].to_string(), "gamma");
     }
 
     #[test]
@@ -300,8 +405,64 @@ mod tests {
             }
         };
         let topology = parse_topology(tokens).unwrap();
-        assert_eq!(topology.react.mode, ReactionMode::WhenAll);
-        assert_eq!(topology.react.accumulators.len(), 2);
+        let react = bundled(&topology.trigger);
+        assert_eq!(react.mode, ReactionMode::WhenAll);
+        assert_eq!(react.accumulators.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_split_form_trigger_reactor() {
+        let tokens = quote! {
+            trigger = reactor(my_crate::RiskSignals),
+            graph = {
+                entry(alpha) -> output,
+            }
+        };
+        let topology = parse_topology(tokens).unwrap();
+        match topology.trigger {
+            TriggerSpec::ByReactor(tp) => {
+                // Reconstruct the path string for assertion
+                let path = tp.path.segments.last().unwrap().ident.to_string();
+                assert_eq!(path, "RiskSignals");
+            }
+            other => panic!("expected ByReactor, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_triggerless_form() {
+        let tokens = quote! {
+            graph = {
+                entry(alpha) -> output,
+            }
+        };
+        let topology = parse_topology(tokens).unwrap();
+        assert!(matches!(topology.trigger, TriggerSpec::None));
+    }
+
+    #[test]
+    fn test_error_react_and_trigger_both_set() {
+        let tokens = quote! {
+            react = when_any(alpha),
+            trigger = reactor(SomeReactor),
+            graph = { a(alpha) -> b },
+        };
+        let result = parse_topology(tokens);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("cannot both be set"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_error_trigger_unknown_kind() {
+        let tokens = quote! {
+            trigger = schedule("0 * * * *"),
+            graph = { a -> b },
+        };
+        let result = parse_topology(tokens);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("unknown trigger kind"), "got: {}", err);
     }
 
     #[test]
@@ -470,19 +631,6 @@ mod tests {
             }
             _ => panic!("expected linear edge"),
         }
-    }
-
-    #[test]
-    fn test_error_missing_react() {
-        let tokens = quote! {
-            graph = {
-                a -> b,
-            }
-        };
-        let result = parse_topology(tokens);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("missing 'react' field"), "got: {}", err);
     }
 
     #[test]
