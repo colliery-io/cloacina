@@ -4,7 +4,7 @@
 format at `GET /metrics`. The endpoint is public (no auth) so Prometheus can
 scrape it without credential management.
 
-The exposition format is version-checked in CI via `angreal check
+The exposition format is version-checked in CI via `angreal test
 metrics-format`, which boots the server and pipes `/metrics` through
 `promtool check metrics`. If that job fails, a recent metric change broke
 the format — see T-0536 for how the check is wired.
@@ -114,5 +114,5 @@ When introducing a new metric:
 3. Update this document with a row, an operator-facing description, and at
    least one example PromQL query if the metric is meant to drive an alert
    or dashboard.
-4. Run `angreal check metrics-format` locally before pushing. The same
+4. Run `angreal test metrics-format` locally before pushing. The same
    check runs in CI (`metrics-format` job in `.github/workflows/cloacina.yml`).

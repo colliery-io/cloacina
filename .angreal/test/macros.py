@@ -1,17 +1,16 @@
 import subprocess
 import angreal  # type: ignore
 
-from .cloacina_utils import (
+from ._utils import (
     PROJECT_ROOT,
     print_section_header,
     print_final_success
 )
 
-# Define command group
-cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
+test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
 
 
-@cloacina()
+@test()
 @angreal.command(
     name="macros",
     about="run tests for macro validation system",

@@ -1,25 +1,21 @@
+"""Root-level registrar — imports each subpackage so its commands register.
+
+Angreal auto-loads files matching `.angreal/task_*.py` at the top level; we
+keep this file small and delegate all real logic to subpackages.
 """
-Unified task project file that imports commands from organized folders.
 
-This replaces the individual task_*.py files with a cleaner structure where
-each task group has its own folder with individual command files.
-"""
+# Test suites (unit, integration, macros, auth, all, coverage, metrics-format,
+# e2e {cli, compiler, ws}, soak {daemon, server}).
+import test  # noqa: F401
 
-# Import all command modules to register the commands
-from cloacina import unit  # noqa: F401
-from cloacina import integration  # noqa: F401
-from cloacina import macros  # noqa: F401
-from cloacina import all  # noqa: F401
-from cloacina import soak  # noqa: F401
-from cloacina import server_soak  # noqa: F401
-from cloacina import cloacinactl_e2e  # noqa: F401
-from cloacina import compiler_e2e  # noqa: F401
+# Lint — fmt, clippy, credential-logging, all.
+import lint  # noqa: F401
 
+# CI local mirrors — fast, full.
+import ci  # noqa: F401
 
-# Import demos module
-from demos import rust_demos  # noqa: F401
-from demos import python_demos  # noqa: F401
-# from demos import all as demos_all  # noqa: F401  # all.py removed
+# Demos — tutorials {rust, python}, features.
+import demos  # noqa: F401
 
-# Import performance module
+# Performance — simple, pipeline, parallel, computation-graph-bench, all, quick.
 import performance  # noqa: F401

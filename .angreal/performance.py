@@ -119,7 +119,7 @@ def performance_parallel(iterations: int=150, concurrency: int=32):
     name="computation-graph-bench",
     about="run computation graph latency and throughput benchmarks",
     when_to_use=["measuring CG pipeline latency", "finding throughput ceiling", "performance regression testing"],
-    when_not_to_use=["soak testing (use angreal cloacina server-soak)", "workflow performance"]
+    when_not_to_use=["soak testing (use angreal test soak server)", "workflow performance"]
 )
 @angreal.argument(name="latency_duration", python_type="int", long="latency-duration", takes_value=True, required=False, help="latency test duration in seconds")
 @angreal.argument(name="throughput_duration", python_type="int", long="throughput-duration", takes_value=True, required=False, help="throughput ramp duration in seconds")

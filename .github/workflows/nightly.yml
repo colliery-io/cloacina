@@ -173,7 +173,7 @@ jobs:
         run: cargo build --features "postgres,sqlite,macros,kafka"
 
       - name: Run unit tests
-        run: angreal cloacina unit
+        run: angreal test unit
 
   # -----------------------------------------------------------------------
   # Failure notification — auto-create GitHub issue
