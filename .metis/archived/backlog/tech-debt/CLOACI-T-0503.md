@@ -4,15 +4,15 @@ level: task
 title: "Investigate Python execution sandbox — status and gaps vs. original hardening intent"
 short_code: "CLOACI-T-0503"
 created_at: 2026-04-16T17:26:59.912489+00:00
-updated_at: 2026-04-22T12:20:00.390042+00:00
+updated_at: 2026-04-23T16:42:44.600980+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -35,6 +35,10 @@ I-0051 listed "Python sandbox" as a security goal alongside auth, path traversal
 
 - **Current problems**: Unknown. The original `archive/cloacina-server-week1` branch claimed Python sandboxing but it's not obvious what landed on main.
 - **Benefits of fixing**: Clarifies the security posture for multi-tenant server deployments; either confirms coverage or produces an actionable backlog.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

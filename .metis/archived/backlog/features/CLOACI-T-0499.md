@@ -7,7 +7,7 @@ created_at: 2026-04-16T12:41:51.010637+00:00
 updated_at: 2026-04-16T12:41:51.010637+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -41,6 +41,8 @@ Allow accumulators to trigger standard workflow executions. Today the two system
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] Accumulator boundary can be configured to trigger a named workflow
 - [ ] Boundary data is passed to the workflow as trigger context / input parameters
 - [ ] Works with all accumulator types (passthrough, polling, batch, stream)
@@ -58,4 +60,4 @@ Allow accumulators to trigger standard workflow executions. Today the two system
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-04-23: Superseded by **CLOACI-I-0100 Reactor-triggered workflows — DB-backed subscription fan-out**. This task predated CLOACI-S-0011 and was framed at the wrong primitive level (accumulators don't exist independently of a reactor). Under S-0011 the correct abstraction is reactor subscription. Work will proceed as the I-0100 initiative. Archiving.

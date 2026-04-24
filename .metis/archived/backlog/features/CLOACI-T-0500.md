@@ -7,7 +7,7 @@ created_at: 2026-04-16T12:41:52.023493+00:00
 updated_at: 2026-04-16T12:41:52.023493+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -41,6 +41,8 @@ Allow computation graphs to be embedded as tasks inside standard workflows. Toda
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] A workflow task type `computation_graph` that references a named CG
 - [ ] CG starts when the task is claimed, stops when the task completes
 - [ ] Configurable termination: time-bounded (`run_for: 5m`), event-count-bounded, or condition-based (terminal node returns a "done" signal)
@@ -67,4 +69,4 @@ Allow computation graphs to be embedded as tasks inside standard workflows. Toda
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-04-23: Superseded by **CLOACI-I-0101 Decouple computation graph from reactor; enable embedded CG workflow tasks**. The existing draft predated CLOACI-S-0011 and modeled the embedded CG as a long-lived reactive process (reactor + accumulators running inside the task), which the spec explicitly rejects — S-0011 says an embedded CG is "subsumed by the workflow... without its own reactor or standalone trigger surface." Under I-0101, embedded CGs invoke the compiled graph as a deterministic function inside a workflow task. This task is folded in as implementation work under that initiative. Archiving.

@@ -4,7 +4,7 @@ level: task
 title: "Audit metrics endpoints — coverage, accuracy, and Prometheus compatibility"
 short_code: "CLOACI-T-0498"
 created_at: 2026-04-16T12:41:49.569237+00:00
-updated_at: 2026-04-22T12:13:00.444699+00:00
+updated_at: 2026-04-23T16:42:14.729611+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -38,6 +38,8 @@ Deep review of the `/metrics` endpoint and all Prometheus instrumentation. The m
 ### Impact Assessment
 - **Affected Users**: Operators relying on metrics for observability
 - **Expected vs Actual**: Unknown — metrics were implemented but never validated against real scraping. Some counters may be phantom (registered but never incremented), label cardinality may be too high, CG-specific metrics (graph fires, accumulator throughput, reactor latency) may be missing entirely.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
