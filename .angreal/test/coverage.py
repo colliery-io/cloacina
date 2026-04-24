@@ -30,16 +30,20 @@ def run_cmd(cmd, description, env=None, check=True, cwd=None):
     return True
 
 
+test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
+
+
+@test()
 @angreal.command(
     name="coverage",
-    about="run all test styles and generate merged coverage report with cargo-llvm-cov",
+    about="merged cargo-llvm-cov coverage across unit, integration, macros, cloacinactl",
     when_to_use=[
         "measuring test coverage across all test styles",
         "finding untested code paths",
         "pre-release coverage audit",
     ],
     when_not_to_use=[
-        "quick testing (use angreal cloacina unit instead)",
+        "quick testing (use angreal test unit instead)",
         "CI coverage (use the nightly workflow)",
     ],
 )

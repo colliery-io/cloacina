@@ -9,11 +9,11 @@ import angreal  # type: ignore
 
 from utils import docker_up, docker_down, docker_clean
 
-from .cloacina_utils import (
+from ._utils import (
     print_section_header,
     print_final_success
 )
-from .python_utils import (
+from ._python_utils import (
     TestAggregator,
     _build_and_install_cloaca_unified,
     run_pytest_scenarios,
@@ -53,11 +53,10 @@ def build_test_packages(backend=None):
 
     print("Test packages built successfully.")
 
-# Define command group
-cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
+test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
 
 
-@cloacina()
+@test()
 @angreal.command(
     name="integration",
     about="run integration tests with backing services (Rust + Python pytest scenarios)",

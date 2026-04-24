@@ -363,7 +363,7 @@ If you're following along with the Cloacina repository, you can use angreal to r
 
 ```bash
 # From the Cloacina repository root
-angreal demos tutorial-02
+angreal demos tutorials rust 02
 ```
 
 This will run the tutorial code with all necessary dependencies.

@@ -31,13 +31,14 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from .cloacina_utils import print_final_success, print_section_header
+from .._utils import print_final_success, print_section_header
 
-cloacina = angreal.command_group(
-    name="cloacina", about="commands for Cloacina core engine tests"
+test = angreal.command_group(
+    name="test", about="Cloacina test suites (unit, integration, e2e, soak)"
 )
+e2e = angreal.command_group(name="e2e", about="end-to-end tests against a live server")
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = REPO_ROOT / "examples" / "fixtures"
 
 
@@ -330,12 +331,13 @@ def _poll_execution_status(
 # ---------------------------------------------------------------------------
 
 
-@cloacina()
+@test()
+@e2e()
 @angreal.command(
-    name="compiler-e2e",
-    about="run end-to-end cloacina-compiler integration tests (T-0527)",
+    name="compiler",
+    about="end-to-end cloacina-compiler integration tests (T-0527)",
 )
-def compiler_e2e():
+def compiler():
     print_section_header("cloacina-compiler e2e")
     _build_binaries()
     _start_postgres()

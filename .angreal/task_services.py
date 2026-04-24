@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 from utils import docker_up, docker_down, docker_clean
+from test._python_utils import scrub_python_artifacts
 
 # Define command group
 services = angreal.command_group(name="services", about="commands for managing backing services")
@@ -95,4 +96,30 @@ def clean():
                 if target_dir.exists():
                     shutil.rmtree(target_dir)
 
+    return 0
+
+
+@services()
+@angreal.command(
+    name="purge",
+    about="deep clean — docker services, target dirs, cargo artifacts, Python venvs",
+    when_to_use=["complete project reset", "fixing build issues", "freeing maximum disk space"],
+    when_not_to_use=["preserving development state", "during active work", "quick cleanups"],
+)
+def purge():
+    """Deep clean docker + target dirs + Python artifacts."""
+    print("Starting complete project purge...")
+
+    print("\n=== Cleaning Docker services and target dirs ===")
+    docker_result = clean()
+    if docker_result != 0:
+        print("Warning: services clean failed, continuing with other cleanup...")
+
+    print("\n=== Running deep Python artifact scrub ===")
+    scrub_result = scrub_python_artifacts(deep=True)
+
+    if docker_result != 0 or scrub_result != 0:
+        return 1
+
+    print("\n=== Purge complete ===")
     return 0

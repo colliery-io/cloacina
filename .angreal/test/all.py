@@ -4,14 +4,13 @@ from .unit import unit
 from .macros import macros
 from .integration import integration
 
-# Define command group
-cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
+test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
 
 
-@cloacina()
+@test()
 @angreal.command(
     name="all",
-    about="run all cloacina core tests (unit, integration, and macro tests)",
+    about="run unit, macros, and integration tests",
     when_to_use=["comprehensive testing", "pre-commit validation", "CI/CD full test suite"],
     when_not_to_use=["quick feedback loops", "testing specific features", "debugging individual tests"]
 )

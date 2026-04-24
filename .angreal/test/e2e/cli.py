@@ -20,9 +20,10 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from .cloacina_utils import print_section_header, print_final_success
+from .._utils import print_section_header, print_final_success
 
-cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
+test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
+e2e = angreal.command_group(name="e2e", about="end-to-end tests against a live server")
 
 
 def _build_binaries():
@@ -72,12 +73,13 @@ def _cloacinactl(home: Path, *args, env=None, check=True):
     return proc.returncode, proc.stdout, proc.stderr
 
 
-@cloacina()
+@test()
+@e2e()
 @angreal.command(
-    name="cli-e2e",
-    about="run end-to-end cloacinactl integration tests (T-0518)",
+    name="cli",
+    about="end-to-end cloacinactl integration tests (T-0518)",
 )
-def cli_e2e():
+def cli():
     print_section_header("cloacinactl e2e")
     _build_binaries()
     _start_postgres()
