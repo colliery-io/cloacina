@@ -43,7 +43,7 @@ Reactors are kept as a first-class noun despite being "a kind of trigger" becaus
 
 - User-facing noun: **reactor**.
 - Associated surfaces: `#[reactor]` / `ReactorDeclaration`, `Reactor` trait, per-reactor health, `/v1/ws/reactor/{name}`.
-- **Topological fact (today)**: a computation graph contains exactly one reactor. This 1:1 relationship is the source of the historical "reactor = graph" shorthand; this spec rejects that shorthand.
+- **Topology (post-I-0101)**: a reactor is a standalone publisher of firing events. Any number of computation graphs (and any number of workflow triggers, per I-0100) may declare the reactor as their upstream. The historical 1:1 bundling of reactor-plus-graph was a declaration-syntax coincidence, not a design invariant, and has been superseded — the primitive boundary is: reactor knows nothing about its downstream; subscribers declare upstream.
 
 ### Accumulator
 
@@ -79,7 +79,7 @@ A **computation graph** (CG) is a DAG where **the graph traversal is the quantum
 ┌─────────┐   consumes ┌──────────────┐
 │ Reactor │◀───────────│ Accumulator  │
 └─────────┘            └──────────────┘
-    │ fires (today: exactly one per graph)
+    │ publishes firings (any number of subscribers; see I-0101, I-0100)
     ▼
 ┌──────────────────────┐
 │ Computation graph    │
@@ -140,7 +140,7 @@ The `/v1/health/graphs` endpoint (post-rename) reports **currently running graph
 
 - The future generalization of reactor triggers to fire workflows (T-0499). When that lands, a follow-up spec amendment will define where reactor-as-trigger lives in the public surface.
 - Computation-graph-as-workflow-node (T-0500) is a capability addition; it does not alter nomenclature.
-- Multi-reactor-per-graph topologies. Today a graph has exactly one reactor; if that ever changes, this spec's wording about "the graph's reactor" becomes wrong and must be revised.
+- Multi-reactor-per-graph topologies (one graph declaring multiple reactor upstreams). A graph declares a single reactor as its trigger today; if that ever changes, this spec's wording about "the graph's reactor" must be revised. (Multi-graph-per-reactor — one reactor → many graph subscribers — is in scope for I-0101 and reflected in the Topology bullet above.)
 
 ## Rollout
 
@@ -157,4 +157,6 @@ Archived task docs and completed initiatives are **not** rewritten — they are 
 
 ## Changelog
 
-*To be filled after publication.*
+| Date | Change | Rationale |
+|------|--------|-----------|
+| 2026-04-24 | Replaced the reactor "topological fact (today)" bullet with a "topology (post-I-0101)" bullet: reactor is a standalone publisher; any number of graphs and workflow triggers may subscribe. Updated the Relationships diagram and Out-of-scope list to match. | I-0101 decouples the CG declaration from the reactor and removes the 1:1 bundling. Multi-graph-per-reactor falls out of the decoupled model at no cost and is in scope for I-0101. Multi-reactor-per-graph remains out of scope. |

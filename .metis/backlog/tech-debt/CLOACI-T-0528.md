@@ -4,7 +4,7 @@ level: task
 title: "Audit reactor vs computation_graph naming drift in core + server"
 short_code: "CLOACI-T-0528"
 created_at: 2026-04-18T16:32:39.189020+00:00
-updated_at: 2026-04-19T02:58:09.450466+00:00
+updated_at: 2026-04-23T16:42:11.150213+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -52,6 +52,8 @@ state, and vice versa.
 - **Risk if deferred**: Every new endpoint / DAL method / config knob
   compounds the drift. Renames get more expensive as more external
   consumers depend on the ambiguous names.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
