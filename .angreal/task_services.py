@@ -49,7 +49,13 @@ def down(volumes=False):
     name="reset",
     about="reset local services (stop and restart)",
     when_to_use=["fixing service issues", "starting fresh", "after configuration changes"],
-    when_not_to_use=["during active development", "when services are working correctly"]
+    when_not_to_use=["during active development", "when services are working correctly"],
+    tool=angreal.ToolDescription(
+        "Stop and restart backing services. With `--clean`, removes persistent volumes, "
+        "which destroys Postgres data. Do not run with --clean if another contributor has "
+        "local fixtures loaded.",
+        risk_level="destructive",
+    ),
 )
 @angreal.argument(
     name="clean",
@@ -72,7 +78,13 @@ def reset(clean=False):
     name="clean",
     about="stop and remove services including volumes",
     when_to_use=["complete cleanup", "fixing persistent issues", "freeing disk space"],
-    when_not_to_use=["preserving data", "during active development", "quick resets"]
+    when_not_to_use=["preserving data", "during active development", "quick resets"],
+    tool=angreal.ToolDescription(
+        "Stop docker services, remove their persistent volumes, and delete all `target/` "
+        "directories across the workspace and examples. Destroys local databases and "
+        "cached build artifacts.",
+        risk_level="destructive",
+    ),
 )
 def clean():
     """Stop and remove services including volumes."""
@@ -105,6 +117,13 @@ def clean():
     about="deep clean — docker services, target dirs, cargo artifacts, Python venvs",
     when_to_use=["complete project reset", "fixing build issues", "freeing maximum disk space"],
     when_not_to_use=["preserving development state", "during active work", "quick cleanups"],
+    tool=angreal.ToolDescription(
+        "Destroys all local state: stops docker services and removes volumes, deletes "
+        "every `target/` directory, scrubs Python build artifacts and virtualenvs. "
+        "Nothing survives. Intended only when the tree is wedged and a from-scratch "
+        "rebuild is acceptable.",
+        risk_level="destructive",
+    ),
 )
 def purge():
     """Deep clean docker + target dirs + Python artifacts."""

@@ -336,6 +336,11 @@ def _poll_execution_status(
 @angreal.command(
     name="compiler",
     about="end-to-end cloacina-compiler integration tests (T-0527)",
+    when_to_use=[
+        "validating cloacina-compiler against reconciler end-to-end",
+        "pre-release build-queue regression check",
+    ],
+    when_not_to_use=["unit testing", "running without docker"],
 )
 def compiler():
     print_section_header("cloacina-compiler e2e")

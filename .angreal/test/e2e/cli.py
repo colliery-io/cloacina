@@ -78,6 +78,11 @@ def _cloacinactl(home: Path, *args, env=None, check=True):
 @angreal.command(
     name="cli",
     about="end-to-end cloacinactl integration tests (T-0518)",
+    when_to_use=[
+        "validating cloacinactl against a live server",
+        "pre-release CLI regression check",
+    ],
+    when_not_to_use=["unit testing", "running without docker"],
 )
 def cli():
     print_section_header("cloacinactl e2e")

@@ -106,6 +106,12 @@ def _register(tutorial_file, tutorial_rel_path):
         about=f"run Python Tutorial {number}",
         when_to_use=["learning Cloacina's Python surface", "validating a tutorial change"],
         when_not_to_use=["production deployment", "performance benchmarking"],
+        tool=angreal.ToolDescription(
+            f"Run Python Tutorial {number}. With `--backend postgres`, the cleanup path "
+            "stops docker services and removes their volumes — any unrelated Postgres "
+            "state in the shared compose stack is destroyed. Sqlite backend is volume-safe.",
+            risk_level="destructive",
+        ),
     )
     @angreal.argument(
         name="backend",

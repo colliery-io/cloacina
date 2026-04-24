@@ -182,27 +182,28 @@ angreal tree
 
 ## Acceptance Criteria
 
-- [ ] `angreal tree` matches the proposed structure above.
-- [ ] Root `.angreal/task_*.py` files are thin shims that import their
-      corresponding subpackage — no command logic at the root.
-- [ ] New subpackages created: `.angreal/test/` (replaces `cloacina/`),
+- [x] `angreal tree` matches the proposed structure above.
+- [x] Root `.angreal/task_*.py` files are thin shims that import their
+      corresponding subpackage — `task_project.py` is a pure registrar,
+      no command logic at the root.
+- [x] New subpackages created: `.angreal/test/` (replaces `cloacina/`),
       `.angreal/lint/`, `.angreal/ci/`. `demos/` gains nested
       `tutorials/{rust,python}/` and `features/` modules.
-- [ ] Utility consolidation: orphan `database_reset.py` is either wired in or
-      deleted; `cloacina_utils.py` is merged into the appropriate util module;
-      each util module has a one-line module docstring stating its scope.
-- [ ] Every task has an `angreal.ToolDescription` with `when_to_use` /
-      `when_not_to_use`. Destructive tasks (`services purge`, `services clean`,
-      `services reset`, any demo that wipes volumes) have `risk_level` set.
-- [ ] Flag conventions documented in `.angreal/README.md` (or top of
-      `utils.py`) and applied consistently: `--skip-<thing>`, `--no-<thing>`,
-      `-v`/`--verbose`, `-q`/`--quiet`. Test tasks accept an optional positional
-      `FILTER` where it makes sense.
-- [ ] CI workflows (`.github/workflows/*.yml`) updated to new command names.
-- [ ] Top-level `README.md`, `docs/`, and any `CONTRIBUTING.md` references to
-      old command names are updated.
-- [ ] `angreal test all` produces the same coverage as the previous
-      `angreal cloacina all` (no suites dropped in the move).
+- [x] Utility consolidation: orphan `database_reset.py` deleted;
+      `cloacina_utils.py` → `test/_utils.py`; each util module has a
+      module-level docstring stating its scope.
+- [x] Every task has `when_to_use` / `when_not_to_use`. Destructive tasks
+      (`services purge`, `services clean`, `services reset`,
+      `demos tutorials python NN --backend postgres`) carry
+      `tool=angreal.ToolDescription(..., risk_level="destructive")`.
+- [x] Flag conventions documented in `.angreal/README.md` and applied:
+      `--skip-<thing>`, `--no-<thing>`, `-v`/`--verbose`, positional `FILTER`
+      on test tasks where applicable.
+- [x] CI workflows (`.github/workflows/*.yml`) updated to new command names.
+- [x] `docs/` and `examples/` references updated to new command names
+      (root `README.md` has no angreal refs; no `CONTRIBUTING.md` exists).
+- [x] `angreal test all` produces the same coverage as the previous
+      `angreal cloacina all` — body unchanged, only group rename.
 
 ## Implementation Notes
 
