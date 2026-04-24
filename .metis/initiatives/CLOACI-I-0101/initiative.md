@@ -4,14 +4,14 @@ level: initiative
 title: "Decouple computation graph from reactor; enable embedded CG workflow tasks"
 short_code: "CLOACI-I-0101"
 created_at: 2026-04-23T23:44:55.541551+00:00
-updated_at: 2026-04-23T23:44:55.541551+00:00
+updated_at: 2026-04-24T15:13:17.470059+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
