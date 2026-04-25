@@ -104,3 +104,30 @@ Design questions 1–4 settled with user (recorded above the AC). Implementation
 - **M5**: Integration tests (sqlite + postgres): trigger-less invoked by task, pre/post body wrapping, graph error → task failure → retry, graph timeout → cancellation, compile-failure test for reactor-triggered graph.
 
 Starting M1 now.
+
+### 2026-04-25 — M1 + M2 + M2.5 + M3 landed locally
+
+Three commits on `i-0101-cg-reactor-decouple`:
+
+- **`0f1b13c` (M1)**: `Graph` trait + `__CGHandle_<mod>` unit struct emitted alongside every `#[computation_graph]`. Re-exported from cloacina. Verified by `test_cloaci_t_0540_graph_handle_consts`.
+- **`0aeafd6` (M2)**: trigger-less compiled fn switches from `Fn(InputCache) -> GraphResult` to `Fn(Context<Value>) -> GraphResult`. Parser-time validation rejects cache inputs in trigger-less topologies. New `TriggerlessGraphFn` / `TriggerlessGraphRegistration` / `TriggerlessGraphEntry` types in cloacina (the leaf cg crate doesn't depend on Context). Runtime gains a parallel `triggerless_graphs` registry seeded from inventory. Scheduler-side trigger-less surface (scaffolding for a never-implemented design) deleted entirely.
+- **`71e446a` (M2.5 + M3)**:
+  - **M2.5**: `TriggerlessGraph` trait added (extends `Graph`, exposes `compiled_fn()` + `terminal_node_names()`). Trigger-less CGs implement it; reactor-triggered CGs do not — that omission is the compile-time gate. Trigger-less terminal pushes now serialize-to-`serde_json::Value` at the macro site, so consumers can downcast cheaply.
+  - **M3**: `TaskAttributes` grows `invokes_computation_graph: Option<TypePath>`. Parser accepts `invokes = computation_graph(GraphHandle)`. `generate_task_impl` wedges an invocation block after the user body that pulls the compiled fn through the trait, calls it with `context.clone_data()`, zips terminal names with outputs, and routes each Value back into the task's output context.
+
+**AC coverage so far:**
+- [x] Trigger-less form takes `&Context<Value>` (M2).
+- [x] `__CGHandle_<mod>` unit struct + `Graph` trait impl (M1).
+- [x] `#[task]` parses `invokes = computation_graph(GraphHandle)` (M3).
+- [x] Compile-time rejection of reactor-triggered graphs via `TriggerlessGraph` trait absence (M2.5/M3 — proven implicitly by build success of valid uses; explicit `compile_fail` test deferred).
+- [x] Executor path: macro emits the invocation in the task body, so no separate executor change.
+- [ ] Integration tests for retry / cancellation / timeout (M5 outstanding).
+- [ ] Compile-failure test for reactor-triggered graph (M5; needs trybuild or equivalent).
+- [ ] Pre/post body wrapping (current impl supports pre-body only — flagging as a documented limitation; "post" can be added if there's demand or via a sibling task).
+- [x] `cargo check --workspace --all-features` green; macro lib tests green; T-053x + T-054x integration tests green on sqlite (10 cases).
+
+**Remaining work** (M5):
+- Integration test: graph error → task fails → workflow retry.
+- Integration test: graph timeout → task cancellation per T-0487 path.
+- (Optional) trybuild / `compile_fail` test asserting `invokes = computation_graph(R)` fails when `R` is reactor-triggered.
+- Full angreal runs (unit, macros, integration sqlite + postgres) before transitioning to completed.

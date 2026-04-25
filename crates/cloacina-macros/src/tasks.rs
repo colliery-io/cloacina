@@ -58,6 +58,13 @@ pub struct TaskAttributes {
     /// invocation body that calls `<H as TriggerlessGraph>::compiled_fn()`
     /// and routes terminal outputs back into the task's context.
     pub invokes_computation_graph: Option<TypePath>,
+    /// Optional `post_invocation = fn_name` callback. Only meaningful with
+    /// `invokes`: the named async fn runs after the graph has fired and its
+    /// terminal outputs have been routed into the context, but before
+    /// `on_success`. Signature: `async fn(&mut Context<Value>) -> Result<(),
+    /// TaskError>`. Lets the user inspect the merged context (graph
+    /// outputs + pre-work additions) and react before the task is finalized.
+    pub post_invocation: Option<Expr>,
 }
 
 impl Parse for TaskAttributes {
@@ -74,6 +81,7 @@ impl Parse for TaskAttributes {
         let mut on_success = None;
         let mut on_failure = None;
         let mut invokes_computation_graph: Option<TypePath> = None;
+        let mut post_invocation: Option<Expr> = None;
 
         while !input.is_empty() {
             let name: Ident = input.parse()?;
@@ -160,6 +168,16 @@ impl Parse for TaskAttributes {
                     }
                     invokes_computation_graph = Some(type_path);
                 }
+                "post_invocation" => {
+                    if post_invocation.is_some() {
+                        return Err(syn::Error::new(
+                            name.span(),
+                            "duplicate 'post_invocation' field",
+                        ));
+                    }
+                    let expr: Expr = input.parse()?;
+                    post_invocation = Some(expr);
+                }
                 _ => {
                     return Err(syn::Error::new(
                         name.span(),
@@ -190,6 +208,7 @@ impl Parse for TaskAttributes {
             on_success,
             on_failure,
             invokes_computation_graph,
+            post_invocation,
         })
     }
 }
@@ -733,6 +752,30 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
     //    `serde_json::Value` at the terminal site) and routes each into the
     //    output context under its terminal name.
     // 4. On Error, surfaces the GraphError as a `TaskError::ExecutionFailed`.
+    // Optional post-invocation hook. Runs after the graph fires and its
+    // outputs have been routed into the context, before `on_success`. Only
+    // meaningful when `invokes` is set; when `invokes` is unset and the
+    // user supplies `post_invocation`, the macro errors at expansion.
+    if attrs.post_invocation.is_some() && attrs.invokes_computation_graph.is_none() {
+        return quote! {
+            compile_error!("`post_invocation` requires `invokes = computation_graph(...)` to be set");
+        };
+    }
+    let post_invocation_call = match &attrs.post_invocation {
+        Some(callback_fn) => quote! {
+            if let Err(post_err) = #callback_fn(&mut context).await {
+                let task_error = ::cloacina_workflow::TaskError::ExecutionFailed {
+                    message: format!("post_invocation callback failed: {:?}", post_err),
+                    task_id: #task_id.to_string(),
+                    timestamp: chrono::Utc::now(),
+                };
+                #on_failure_call
+                return Err(task_error);
+            }
+        },
+        None => quote! {},
+    };
+
     let graph_invocation = match &attrs.invokes_computation_graph {
         Some(handle_path) => quote! {
             {
@@ -829,6 +872,8 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                     Ok(()) => {
                         // Optional CG invocation (no-op when `invokes` is unset).
                         #graph_invocation
+                        // Optional post-invocation hook (no-op when unset).
+                        #post_invocation_call
                         #on_success_call
                         Ok(context)
                     },

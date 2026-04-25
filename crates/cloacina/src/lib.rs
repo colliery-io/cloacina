@@ -583,7 +583,7 @@ pub use workflow::{DependencyGraph, Workflow, WorkflowBuilder, WorkflowMetadata}
 // Re-export the macros from cloacina-macros
 #[cfg(feature = "macros")]
 pub use cloacina_macros::{
-    batch_accumulator, computation_graph, passthrough_accumulator, polling_accumulator,
+    batch_accumulator, computation_graph, passthrough_accumulator, polling_accumulator, reactor,
     stream_accumulator, task, trigger, workflow,
 };
 

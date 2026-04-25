@@ -2332,6 +2332,101 @@ async fn cloaci_t_0540_invoke_demo(
     Ok(())
 }
 
+async fn cloaci_t_0540_post_hook(
+    context: &mut ::cloacina_workflow::Context<serde_json::Value>,
+) -> Result<(), ::cloacina_workflow::TaskError> {
+    // Inspect the merged context after the graph fired and tag the
+    // post-hook ran.
+    assert!(
+        context.get("output").is_some(),
+        "graph terminal must be present"
+    );
+    let _ = context.insert("post_hook_ran", serde_json::json!(true));
+    Ok(())
+}
+
+#[cloacina_macros::task(
+    id = "cloaci_t_0540_invoke_with_post",
+    invokes = computation_graph(__CGHandle_cloaci_t_0538_triggerless_graph),
+    post_invocation = cloaci_t_0540_post_hook,
+)]
+async fn cloaci_t_0540_invoke_with_post(
+    context: &mut ::cloacina_workflow::Context<serde_json::Value>,
+) -> Result<(), ::cloacina_workflow::TaskError> {
+    let _ = context.insert("user_body_ran", serde_json::json!(true));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0540_task_post_invocation() {
+    // Pre-body → graph invocation → post-invocation hook all run in order;
+    // the post hook sees the merged context (graph terminal + pre-body
+    // additions) and can append further state.
+    use ::cloacina_workflow::{Context, Task};
+    use serde_json::Value;
+
+    let task = cloaci_t_0540_invoke_with_post_task();
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(2.0)).unwrap();
+
+    let out = task.execute(ctx).await.expect("task should succeed");
+
+    assert_eq!(out.get("user_body_ran"), Some(&serde_json::json!(true)));
+    assert_eq!(out.get("post_hook_ran"), Some(&serde_json::json!(true)));
+    assert_eq!(out.get("output").unwrap()["value"], 3.0);
+}
+
+// A trigger-less graph whose terminal node panics. With the macro's
+// `to_value(&result_var).unwrap_or_else(|_| panic!(...))` contract on
+// trigger-less terminals, a panicking node propagates as a panic from the
+// async task and surfaces as a TaskError::ExecutionFailed at the workflow
+// boundary (executor catches panic in real workflows; in this isolated test
+// we use catch_unwind on the Future).
+#[cloacina_macros::computation_graph(graph = { entry -> boom })]
+pub mod cloaci_t_0540_panicking_graph {
+    use super::*;
+    use cloacina::Context;
+    use serde_json::Value;
+
+    pub async fn entry(_ctx: &Context<Value>) -> ProcessedData {
+        ProcessedData { result: 0.0 }
+    }
+
+    pub async fn boom(_input: &ProcessedData) -> ProcessedData {
+        panic!("intentional graph node panic for T-0540 error-path test");
+    }
+}
+
+#[cloacina_macros::task(
+    id = "cloaci_t_0540_panicking_invoker",
+    invokes = computation_graph(__CGHandle_cloaci_t_0540_panicking_graph),
+)]
+async fn cloaci_t_0540_panicking_invoker(
+    _context: &mut ::cloacina_workflow::Context<serde_json::Value>,
+) -> Result<(), ::cloacina_workflow::TaskError> {
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0540_task_invokes_panicking_graph() {
+    // Catch the panic from the graph node so the test asserts the failure
+    // mode (panic propagation) without taking down the test harness. Real
+    // workflow executors wrap task execution in `AssertUnwindSafe::catch_unwind`
+    // and convert panics into TaskError::ExecutionFailed.
+    use ::cloacina_workflow::{Context, Task};
+    use futures::FutureExt;
+    use serde_json::Value;
+    use std::panic::AssertUnwindSafe;
+
+    let task = cloaci_t_0540_panicking_invoker_task();
+    let ctx: Context<Value> = Context::new();
+    let result = AssertUnwindSafe(task.execute(ctx)).catch_unwind().await;
+    assert!(
+        result.is_err(),
+        "task body that invokes a panicking graph should propagate the panic"
+    );
+}
+
 #[tokio::test]
 async fn test_cloaci_t_0540_task_invokes_trigger_less_graph() {
     // T-0540 M3: a workflow task whose `invokes = computation_graph(H)` clause

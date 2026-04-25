@@ -1,0 +1,53 @@
+warning: unexpected `cfg` condition value: `packaged`
+  --> tests/trybuild_t_0540/invokes_reactor_triggered.rs:37:1
+   |
+37 | / #[reactor(
+38 | |     name = "trybuild_reactor",
+39 | |     accumulators = [alpha],
+40 | |     criteria = when_any(alpha),
+41 | | )]
+   | |__^
+   |
+   = note: expected values for `feature` are: `auth`, `cloacina-macros`, `default`, `kafka`, `libsqlite3-sys`, `macros`, `postgres`, `rdkafka`, `sqlite`, and `tokio-postgres`
+   = note: using a cfg inside a attribute macro will use the cfgs from the destination crate and not the ones from the defining crate
+   = help: try referring to `reactor` crate for guidance on how handle this unexpected cfg
+   = help: the attribute macro `reactor` may come from an old version of the `cloacina_macros` crate, try updating your dependency with `cargo update -p cloacina_macros`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: `#[warn(unexpected_cfgs)]` on by default
+   = note: this warning originates in the attribute macro `reactor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `packaged`
+  --> tests/trybuild_t_0540/invokes_reactor_triggered.rs:44:1
+   |
+44 | / #[computation_graph(
+45 | |     trigger = reactor(TrybuildReactor),
+46 | |     graph = {
+47 | |         entry(alpha) -> output,
+48 | |     }
+49 | | )]
+   | |__^
+   |
+   = note: expected values for `feature` are: `auth`, `cloacina-macros`, `default`, `kafka`, `libsqlite3-sys`, `macros`, `postgres`, `rdkafka`, `sqlite`, and `tokio-postgres`
+   = note: using a cfg inside a attribute macro will use the cfgs from the destination crate and not the ones from the defining crate
+   = help: try referring to `computation_graph` crate for guidance on how handle this unexpected cfg
+   = help: the attribute macro `computation_graph` may come from an old version of the `cloacina_macros` crate, try updating your dependency with `cargo update -p cloacina_macros`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: this warning originates in the attribute macro `computation_graph` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `__CGHandle_trybuild_split_graph: TriggerlessGraph` is not satisfied
+  --> tests/trybuild_t_0540/invokes_reactor_triggered.rs:68:33
+   |
+68 |     invokes = computation_graph(__CGHandle_trybuild_split_graph),
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `TriggerlessGraph` is not implemented for `__CGHandle_trybuild_split_graph`
+  --> tests/trybuild_t_0540/invokes_reactor_triggered.rs:44:1
+   |
+44 | / #[computation_graph(
+45 | |     trigger = reactor(TrybuildReactor),
+46 | |     graph = {
+47 | |         entry(alpha) -> output,
+48 | |     }
+49 | | )]
+   | |__^
+   = note: this error originates in the attribute macro `computation_graph` (in Nightly builds, run with -Z macro-backtrace for more info)
