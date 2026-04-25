@@ -372,6 +372,20 @@ pub struct ReactorRegistration {
 
 pub type ReactorConstructor = Box<dyn Fn() -> ReactorRegistration + Send + Sync>;
 
+/// Compile-time handle for a computation graph declaration.
+///
+/// Implemented by the `__CGHandle_<modname>` unit struct emitted by
+/// `#[computation_graph]`. Lets other macros (notably `#[task(invokes =
+/// computation_graph(H))]`) reference a graph by type path and const-check
+/// invariants like trigger-less-ness at compile time.
+pub trait Graph {
+    /// Graph name (the macro's `mod` name).
+    const NAME: &'static str;
+    /// True if the graph was declared without `trigger = reactor(...)` and is
+    /// therefore invocable directly by a workflow task.
+    const IS_TRIGGERLESS: bool;
+}
+
 // Re-export types module for backward compat path: `cloacina_computation_graph::types::serialize`
 pub mod types {
     pub use crate::{deserialize, serialize, GraphError, GraphResult, InputCache, SourceName};

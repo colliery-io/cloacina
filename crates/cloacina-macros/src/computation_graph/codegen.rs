@@ -472,6 +472,23 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         (fn_body, ctor)
     };
 
+    // Compile-time graph handle: a unit struct that implements `Graph`.
+    // Other macros (notably `#[task(invokes = computation_graph(H))]`)
+    // reference graphs by type path through this handle so trigger-less-ness
+    // and the registered name can be const-checked at expansion time.
+    let handle_ident = format_ident!("__CGHandle_{}", mod_name);
+    let is_triggerless = matches!(&ir.trigger, TriggerSpec::None);
+    let graph_handle_decl = quote! {
+        #[doc(hidden)]
+        #[allow(non_camel_case_types)]
+        pub struct #handle_ident;
+
+        impl #cg_path::Graph for #handle_ident {
+            const NAME: &'static str = #mod_name_str;
+            const IS_TRIGGERLESS: bool = #is_triggerless;
+        }
+    };
+
     Ok(quote! {
         #(#mod_attrs)*
         #vis mod #mod_name {
@@ -485,6 +502,9 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         // subset of the referenced reactor's ACCUMULATORS. Empty for
         // trigger-less.
         #type_binding_check
+
+        // Compile-time handle struct + Graph trait impl
+        #graph_handle_decl
 
         // Embedded mode: inventory registration for global registry
         #ctor_body

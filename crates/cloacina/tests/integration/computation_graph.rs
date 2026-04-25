@@ -2048,6 +2048,23 @@ async fn test_cloaci_t_0538_reactor_trait_constants() {
 }
 
 #[tokio::test]
+async fn test_cloaci_t_0540_graph_handle_consts() {
+    // T-0540 M1: every #[computation_graph] emits a __CGHandle_<mod> unit
+    // struct that implements `Graph` with NAME + IS_TRIGGERLESS consts.
+    use cloacina::Graph;
+    assert_eq!(
+        <__CGHandle_cloaci_t_0538_split_graph as Graph>::NAME,
+        "cloaci_t_0538_split_graph"
+    );
+    assert!(!<__CGHandle_cloaci_t_0538_split_graph as Graph>::IS_TRIGGERLESS);
+    assert_eq!(
+        <__CGHandle_cloaci_t_0538_triggerless_graph as Graph>::NAME,
+        "cloaci_t_0538_triggerless_graph"
+    );
+    assert!(<__CGHandle_cloaci_t_0538_triggerless_graph as Graph>::IS_TRIGGERLESS);
+}
+
+#[tokio::test]
 async fn test_cloaci_t_0538_split_form_compiled_fn_runs() {
     // Split-form graph: compiled fn is present and runs against an
     // InputCache identically to a bundled-form graph with the same
