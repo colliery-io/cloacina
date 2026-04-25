@@ -110,14 +110,6 @@ impl Parse for ReactorArgs {
                             "reactor 'name' cannot be empty",
                         ));
                     }
-                    if lit.value().starts_with("__Reactor_") {
-                        return Err(syn::Error::new(
-                            lit.span(),
-                            "reactor 'name' cannot start with '__Reactor_' — that prefix is \
-                             reserved for the synthesized reactors emitted by the bundled \
-                             #[computation_graph] form",
-                        ));
-                    }
                     name = Some(lit);
                 }
                 "accumulators" => {
@@ -395,17 +387,6 @@ mod tests {
         };
         let err = syn::parse2::<ReactorArgs>(args).unwrap_err();
         assert!(err.to_string().contains("cannot be empty"));
-    }
-
-    #[test]
-    fn error_reserved_prefix() {
-        let args = quote! {
-            name = "__Reactor_cheat",
-            accumulators = [alpha],
-            criteria = when_any(alpha),
-        };
-        let err = syn::parse2::<ReactorArgs>(args).unwrap_err();
-        assert!(err.to_string().contains("__Reactor_"));
     }
 
     #[test]

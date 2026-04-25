@@ -27,7 +27,7 @@ use quote::{format_ident, quote};
 use syn::{Ident, ItemFn, ItemMod};
 
 use super::graph_ir::{GraphEdge, GraphIR, GraphNode};
-use super::parser::{ReactionMode, TriggerSpec};
+use super::parser::TriggerSpec;
 
 /// Convert a snake_case Ident to PascalCase string for struct naming.
 fn pascal_case_ident(ident: &Ident) -> Ident {
@@ -128,17 +128,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     } else {
         quote! { ::cloacina_computation_graph }
     };
-    let reactor_entry_path = if is_cloacina_crate_early {
-        quote! { crate::inventory_entries::ReactorEntry }
-    } else {
-        quote! { ::cloacina::ReactorEntry }
-    };
-    let inventory_path = if is_cloacina_crate_early {
-        quote! { crate::inventory }
-    } else {
-        quote! { ::cloacina::inventory }
-    };
-
     // Entry accumulators as both strings (for per-graph const block) and
     // compile-time-visible vec!.
     let entry_acc_strs: Vec<String> = ir.entry_accumulators();
@@ -158,15 +147,10 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     //   `AccumulatorDeclarationEntry` values for the packaged FFI metadata.
     // - `ffi_reaction_mode_expr`: expression producing the reaction-mode
     //   string used in packaged FFI metadata.
-    // - `synth_reactor_decl`: items emitted adjacent to the graph (only
-    //   non-empty for the bundled form — the synthesized reactor struct +
-    //   inventory entry).
     // - `type_binding_check`: const block emitted adjacent to the graph that
     //   const-evaluates a subset check between entry accumulators and the
     //   referenced reactor's `ACCUMULATORS` (only non-empty for the split
-    //   form; bundled form is checked at macro time below).
-    let synth_reactor_ident = format_ident!("__Reactor_{}", mod_name);
-    let synth_reactor_name_str = format!("__Reactor_{}", mod_name_str);
+    //   form).
 
     let (
         legacy_acc_names_expr,
@@ -174,99 +158,8 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         trigger_reactor_expr,
         ffi_accumulator_entries_expr,
         ffi_reaction_mode_expr,
-        synth_reactor_decl,
         type_binding_check,
     ) = match &ir.trigger {
-        TriggerSpec::Bundled(criteria) => {
-            let acc_strs: Vec<String> = criteria
-                .accumulators
-                .iter()
-                .map(|i| i.to_string())
-                .collect();
-            let mode_str = match criteria.mode {
-                ReactionMode::WhenAny => "when_any",
-                ReactionMode::WhenAll => "when_all",
-            };
-            let mode_variant = match criteria.mode {
-                ReactionMode::WhenAny => quote! { WhenAny },
-                ReactionMode::WhenAll => quote! { WhenAll },
-            };
-
-            // Macro-time sanity: every entry-accumulator must be declared in
-            // the bundled `react = ...` list. This is the bundled-form
-            // equivalent of the split-form const-eval subset check.
-            for entry in &entry_acc_strs {
-                if !acc_strs.contains(entry) {
-                    return Err(syn::Error::new(
-                        proc_macro2::Span::call_site(),
-                        format!(
-                            "computation graph entry node references accumulator '{}' which is \
-                             not in the bundled reactor's 'react = ...' accumulator list",
-                            entry
-                        ),
-                    ));
-                }
-            }
-
-            let legacy_accs = {
-                let s = acc_strs.clone();
-                quote! { vec![#(#s.to_string()),*] }
-            };
-            let legacy_mode = quote! { #mode_str.to_string() };
-            let trigger_reactor = quote! { Some(#synth_reactor_name_str.to_string()) };
-            let ffi_accs = {
-                let names = acc_strs.clone();
-                quote! {
-                    vec![
-                        #(
-                            cloacina_workflow_plugin::AccumulatorDeclarationEntry {
-                                name: #names.to_string(),
-                                accumulator_type: "passthrough".to_string(),
-                                config: std::collections::HashMap::new(),
-                            }
-                        ),*
-                    ]
-                }
-            };
-            let ffi_mode = quote! { #mode_str.to_string() };
-
-            let synth_accs = acc_strs.clone();
-            let synth = quote! {
-                #[allow(non_camel_case_types)]
-                #[doc(hidden)]
-                pub struct #synth_reactor_ident;
-
-                impl #cg_path::Reactor for #synth_reactor_ident {
-                    const NAME: &'static str = #synth_reactor_name_str;
-                    const ACCUMULATORS: &'static [&'static str] = &[#(#synth_accs),*];
-                    const REACTION_MODE: #cg_path::ReactionMode =
-                        #cg_path::ReactionMode::#mode_variant;
-                }
-
-                #[cfg(not(test))]
-                #[cfg(not(feature = "packaged"))]
-                #inventory_path::submit! {
-                    #reactor_entry_path {
-                        name: #synth_reactor_name_str,
-                        constructor: || #cg_path::ReactorRegistration {
-                            name: #synth_reactor_name_str.to_string(),
-                            accumulator_names: vec![#(#synth_accs.to_string()),*],
-                            reaction_mode: #cg_path::ReactionMode::#mode_variant,
-                        },
-                    }
-                }
-            };
-
-            (
-                legacy_accs,
-                legacy_mode,
-                trigger_reactor,
-                ffi_accs,
-                ffi_mode,
-                synth,
-                proc_macro2::TokenStream::new(),
-            )
-        }
         TriggerSpec::ByReactor(type_path) => {
             // Emit a private type alias at the outer scope so the bound
             // reactor type is reachable from inside the generated `_ffi`
@@ -370,7 +263,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                 trigger_reactor,
                 ffi_accs,
                 ffi_mode,
-                proc_macro2::TokenStream::new(),
                 check,
             )
         }
@@ -387,7 +279,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                 trigger_reactor,
                 ffi_accs,
                 ffi_mode,
-                proc_macro2::TokenStream::new(),
                 proc_macro2::TokenStream::new(),
             )
         }
@@ -589,13 +480,10 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
 
         #compiled_fn_body
 
-        // Bundled form: synthesized reactor struct + inventory entry.
-        // Empty for split and trigger-less forms.
-        #synth_reactor_decl
-
-        // Split form: const-eval check that the graph's entry accumulators
-        // are a subset of the referenced reactor's ACCUMULATORS.
-        // Empty for bundled (checked at macro time) and trigger-less.
+        // Split form: trigger-reactor type alias (for FFI scoping) +
+        // const-eval check that the graph's entry accumulators are a
+        // subset of the referenced reactor's ACCUMULATORS. Empty for
+        // trigger-less.
         #type_binding_check
 
         // Embedded mode: inventory registration for global registry

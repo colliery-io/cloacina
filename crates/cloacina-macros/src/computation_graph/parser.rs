@@ -16,10 +16,12 @@
 
 //! Topology parser for `#[computation_graph]`.
 //!
-//! Parses the macro attribute syntax:
+//! Parses the macro attribute syntax. Two top-level field shapes:
+//!
+//! Split form — graph subscribes to a standalone `#[reactor]`:
 //! ```text
 //! #[computation_graph(
-//!     react = when_any(alpha, beta, gamma),
+//!     trigger = reactor(MyReactor),
 //!     graph = {
 //!         decision_engine(alpha, beta, gamma) => {
 //!             Signal -> risk_check,
@@ -32,6 +34,15 @@
 //!     }
 //! )]
 //! ```
+//!
+//! Trigger-less form — graph is registered by name and invoked directly:
+//! ```text
+//! #[computation_graph(graph = { entry(alpha) -> output })]
+//! ```
+//!
+//! The bundled `react = when_any(...)` form was removed in CLOACI-I-0101.
+//! The parser still recognizes `react` as a key so it can emit a migration
+//! diagnostic; it does not parse a value.
 
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
@@ -39,9 +50,7 @@ use syn::{braced, Ident, Token, TypePath};
 
 /// The full parsed topology from the macro attribute.
 ///
-/// Supports three shapes:
-/// - `react = when_any(...)` + `graph = { ... }` — bundled form; desugars to a
-///   synthesized reactor named `__Reactor_<graphname>`.
+/// Supports two shapes:
 /// - `trigger = reactor(TypePath)` + `graph = { ... }` — split form; the graph
 ///   binds at runtime to the already-declared reactor whose struct is
 ///   `TypePath`, and the graph macro emits a compile-time subset check
@@ -64,19 +73,16 @@ impl std::fmt::Debug for ParsedTopology {
 
 /// Which form of trigger the user declared.
 pub enum TriggerSpec {
-    /// `react = when_any(a, b)` — bundled form.
-    Bundled(ReactionCriteria),
     /// `trigger = reactor(TypePath)` — split form referencing a standalone
     /// reactor declaration by type path.
     ByReactor(TypePath),
-    /// No `react` and no `trigger` — the graph is trigger-less.
+    /// No `trigger` — the graph is trigger-less.
     None,
 }
 
 impl std::fmt::Debug for TriggerSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TriggerSpec::Bundled(r) => f.debug_tuple("Bundled").field(r).finish(),
             TriggerSpec::ByReactor(tp) => {
                 let segs: Vec<String> = tp
                     .path
@@ -89,19 +95,6 @@ impl std::fmt::Debug for TriggerSpec {
             TriggerSpec::None => f.write_str("None"),
         }
     }
-}
-
-/// Reaction criteria: when_any or when_all with accumulator names.
-#[derive(Debug, Clone)]
-pub struct ReactionCriteria {
-    pub mode: ReactionMode,
-    pub accumulators: Vec<Ident>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ReactionMode {
-    WhenAny,
-    WhenAll,
 }
 
 /// A parsed edge in the topology.
@@ -148,29 +141,27 @@ impl ParsedEdge {
 
 impl Parse for ParsedTopology {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut react: Option<ReactionCriteria> = None;
         let mut trigger_reactor: Option<TypePath> = None;
         let mut edges: Option<Vec<ParsedEdge>> = None;
-        let mut react_key_span: Option<proc_macro2::Span> = None;
-        let mut trigger_key_span: Option<proc_macro2::Span> = None;
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
-            input.parse::<Token![=]>()?;
 
             match key.to_string().as_str() {
                 "react" => {
-                    if react.is_some() {
-                        return Err(syn::Error::new(key.span(), "duplicate 'react' field"));
-                    }
-                    react_key_span = Some(key.span());
-                    react = Some(input.parse()?);
+                    return Err(syn::Error::new(
+                        key.span(),
+                        "the bundled `#[computation_graph(react = ...)]` form has been \
+                         removed. Declare a standalone `#[reactor]` and reference it via \
+                         `#[computation_graph(trigger = reactor(MyReactor), ...)]` — see \
+                         initiative CLOACI-I-0101 for migration guidance.",
+                    ));
                 }
                 "trigger" => {
+                    input.parse::<Token![=]>()?;
                     if trigger_reactor.is_some() {
                         return Err(syn::Error::new(key.span(), "duplicate 'trigger' field"));
                     }
-                    trigger_key_span = Some(key.span());
                     // Expect: reactor(TypePath)
                     let kind: Ident = input.parse()?;
                     if kind != "reactor" {
@@ -195,6 +186,7 @@ impl Parse for ParsedTopology {
                     trigger_reactor = Some(type_path);
                 }
                 "graph" => {
+                    input.parse::<Token![=]>()?;
                     if edges.is_some() {
                         return Err(syn::Error::new(key.span(), "duplicate 'graph' field"));
                     }
@@ -203,10 +195,7 @@ impl Parse for ParsedTopology {
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
-                        format!(
-                            "unknown field '{}', expected 'react', 'trigger', or 'graph'",
-                            other
-                        ),
+                        format!("unknown field '{}', expected 'trigger' or 'graph'", other),
                     ));
                 }
             }
@@ -219,54 +208,12 @@ impl Parse for ParsedTopology {
             syn::Error::new(proc_macro2::Span::call_site(), "missing 'graph' field")
         })?;
 
-        let trigger = match (react, trigger_reactor) {
-            (Some(_), Some(_)) => {
-                let span = trigger_key_span
-                    .or(react_key_span)
-                    .unwrap_or_else(proc_macro2::Span::call_site);
-                return Err(syn::Error::new(
-                    span,
-                    "'react' and 'trigger' cannot both be set — pick one. \
-                     'react = when_any(...)' is the bundled form; \
-                     'trigger = reactor(T)' is the split form referencing a \
-                     standalone #[reactor] declaration",
-                ));
-            }
-            (Some(r), None) => TriggerSpec::Bundled(r),
-            (None, Some(t)) => TriggerSpec::ByReactor(t),
-            (None, None) => TriggerSpec::None,
+        let trigger = match trigger_reactor {
+            Some(t) => TriggerSpec::ByReactor(t),
+            None => TriggerSpec::None,
         };
 
         Ok(ParsedTopology { trigger, edges })
-    }
-}
-
-impl Parse for ReactionCriteria {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mode_ident: Ident = input.parse()?;
-        let mode = match mode_ident.to_string().as_str() {
-            "when_any" => ReactionMode::WhenAny,
-            "when_all" => ReactionMode::WhenAll,
-            other => {
-                return Err(syn::Error::new(
-                    mode_ident.span(),
-                    format!(
-                        "unknown reaction mode '{}', expected 'when_any' or 'when_all'",
-                        other
-                    ),
-                ));
-            }
-        };
-
-        let content;
-        syn::parenthesized!(content in input);
-        let accumulators: Punctuated<Ident, Token![,]> =
-            content.parse_terminated(Ident::parse, Token![,])?;
-
-        Ok(ReactionCriteria {
-            mode,
-            accumulators: accumulators.into_iter().collect(),
-        })
     }
 }
 
@@ -372,42 +319,22 @@ mod tests {
         syn::parse2::<ParsedTopology>(tokens)
     }
 
-    fn bundled(trigger: &TriggerSpec) -> &ReactionCriteria {
-        match trigger {
-            TriggerSpec::Bundled(r) => r,
-            other => panic!("expected TriggerSpec::Bundled, got {:?}", other),
-        }
-    }
-
     #[test]
-    fn test_parse_when_any() {
+    fn test_error_react_form_removed() {
         let tokens = quote! {
-            react = when_any(alpha, beta, gamma),
+            react = when_any(alpha),
             graph = {
-                entry(alpha, beta) -> output,
+                entry(alpha) -> output,
             }
         };
-        let topology = parse_topology(tokens).unwrap();
-        let react = bundled(&topology.trigger);
-        assert_eq!(react.mode, ReactionMode::WhenAny);
-        assert_eq!(react.accumulators.len(), 3);
-        assert_eq!(react.accumulators[0].to_string(), "alpha");
-        assert_eq!(react.accumulators[1].to_string(), "beta");
-        assert_eq!(react.accumulators[2].to_string(), "gamma");
-    }
-
-    #[test]
-    fn test_parse_when_all() {
-        let tokens = quote! {
-            react = when_all(a, b),
-            graph = {
-                entry(a, b) -> output,
-            }
-        };
-        let topology = parse_topology(tokens).unwrap();
-        let react = bundled(&topology.trigger);
-        assert_eq!(react.mode, ReactionMode::WhenAll);
-        assert_eq!(react.accumulators.len(), 2);
+        let result = parse_topology(tokens);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("bundled") && err.contains("CLOACI-I-0101"),
+            "expected migration diagnostic pointing at CLOACI-I-0101, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -441,19 +368,6 @@ mod tests {
     }
 
     #[test]
-    fn test_error_react_and_trigger_both_set() {
-        let tokens = quote! {
-            react = when_any(alpha),
-            trigger = reactor(SomeReactor),
-            graph = { a(alpha) -> b },
-        };
-        let result = parse_topology(tokens);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("cannot both be set"), "got: {}", err);
-    }
-
-    #[test]
     fn test_error_trigger_unknown_kind() {
         let tokens = quote! {
             trigger = schedule("0 * * * *"),
@@ -468,7 +382,7 @@ mod tests {
     #[test]
     fn test_parse_linear_edge() {
         let tokens = quote! {
-            react = when_any(alpha),
+            trigger = reactor(R),
             graph = {
                 entry(alpha) -> middle,
                 middle -> output,
@@ -508,7 +422,7 @@ mod tests {
     #[test]
     fn test_parse_routing_edge() {
         let tokens = quote! {
-            react = when_any(alpha),
+            trigger = reactor(R),
             graph = {
                 decision(alpha) => {
                     Signal -> handler_a,
@@ -540,7 +454,7 @@ mod tests {
     #[test]
     fn test_parse_mixed_edges() {
         let tokens = quote! {
-            react = when_any(alpha, beta, gamma),
+            trigger = reactor(R),
             graph = {
                 decision_engine(alpha, beta, gamma) => {
                     Signal -> risk_check,
@@ -585,7 +499,7 @@ mod tests {
     #[test]
     fn test_parse_fan_in() {
         let tokens = quote! {
-            react = when_any(a, b),
+            trigger = reactor(R),
             graph = {
                 validate_a(a) -> merge,
                 validate_b(b) -> merge,
@@ -608,7 +522,7 @@ mod tests {
     #[test]
     fn test_parse_fan_out() {
         let tokens = quote! {
-            react = when_any(a),
+            trigger = reactor(R),
             graph = {
                 compute(a) -> output_handler,
                 compute(a) -> audit_logger,
@@ -636,7 +550,7 @@ mod tests {
     #[test]
     fn test_error_missing_graph() {
         let tokens = quote! {
-            react = when_any(a)
+            trigger = reactor(R)
         };
         let result = parse_topology(tokens);
         assert!(result.is_err());
@@ -647,7 +561,7 @@ mod tests {
     #[test]
     fn test_error_unknown_field() {
         let tokens = quote! {
-            react = when_any(a),
+            trigger = reactor(R),
             graph = { a -> b },
             bogus = something,
         };
@@ -658,21 +572,9 @@ mod tests {
     }
 
     #[test]
-    fn test_error_unknown_reaction_mode() {
-        let tokens = quote! {
-            react = when_sometimes(a),
-            graph = { a -> b },
-        };
-        let result = parse_topology(tokens);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("unknown reaction mode"), "got: {}", err);
-    }
-
-    #[test]
     fn test_error_empty_routing() {
         let tokens = quote! {
-            react = when_any(a),
+            trigger = reactor(R),
             graph = {
                 a(a) => {},
             }
@@ -684,15 +586,15 @@ mod tests {
     }
 
     #[test]
-    fn test_error_duplicate_react() {
+    fn test_error_duplicate_trigger() {
         let tokens = quote! {
-            react = when_any(a),
-            react = when_all(b),
+            trigger = reactor(R1),
+            trigger = reactor(R2),
             graph = { a -> b },
         };
         let result = parse_topology(tokens);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("duplicate 'react'"), "got: {}", err);
+        assert!(err.contains("duplicate 'trigger'"), "got: {}", err);
     }
 }

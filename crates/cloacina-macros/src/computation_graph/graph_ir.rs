@@ -347,7 +347,7 @@ fn topological_sort(nodes: &HashMap<String, GraphNode>) -> Result<Vec<String>, G
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::computation_graph::parser::{ReactionCriteria, ReactionMode, RoutingVariant};
+    use crate::computation_graph::parser::RoutingVariant;
     use syn::Ident;
 
     fn ident(name: &str) -> Ident {
@@ -355,11 +355,10 @@ mod tests {
     }
 
     fn make_topology(edges: Vec<ParsedEdge>) -> ParsedTopology {
+        // The trigger field doesn't affect IR construction; use the
+        // trigger-less variant as a placeholder.
         ParsedTopology {
-            trigger: TriggerSpec::Bundled(ReactionCriteria {
-                mode: ReactionMode::WhenAny,
-                accumulators: vec![ident("alpha")],
-            }),
+            trigger: TriggerSpec::None,
             edges,
         }
     }

@@ -71,11 +71,7 @@ pub struct ComputationGraphEntry {
 }
 inventory::collect!(ComputationGraphEntry);
 
-/// Reactor entry emitted by `#[reactor]` (standalone form) and by the
-/// desugared bundled form of `#[computation_graph]`.
-///
-/// Synthesized reactors from the bundled form carry a `__Reactor_`-prefixed
-/// name so operational listings can filter them out.
+/// Reactor entry emitted by the `#[reactor]` attribute macro.
 pub struct ReactorEntry {
     pub name: &'static str,
     pub constructor: fn() -> ReactorRegistration,

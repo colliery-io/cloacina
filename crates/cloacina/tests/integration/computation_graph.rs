@@ -2238,12 +2238,10 @@ async fn test_cloaci_t_0538_split_missing_accumulator_fails() {
 #[tokio::test]
 async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
     // The `#[computation_graph]` and `#[reactor]` macros gate their
-    // `inventory::submit!` entries with `#[cfg(not(test))]` for the same
-    // test-isolation reasons the existing bundled form does — so we can't
-    // observe the emitted registrations here by seeding from inventory.
-    // Instead, simulate what the macros would emit and verify the Runtime
-    // surface accepts and surfaces them as expected, including the
-    // dunder-prefix filter on `user_reactor_names`.
+    // `inventory::submit!` entries with `#[cfg(not(test))]` for test
+    // isolation, so we can't observe the emitted registrations here by
+    // seeding from inventory. Instead, simulate what the macros would emit
+    // and verify the Runtime registry surface.
     let rt = cloacina::Runtime::empty();
 
     rt.register_reactor("cloaci_t_0538_reactor_split".to_string(), || {
@@ -2253,17 +2251,11 @@ async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
             reaction_mode: cloacina::ComputationReactionMode::WhenAny,
         }
     });
-    rt.register_reactor("__Reactor_linear_chain".to_string(), || {
-        cloacina::ReactorRegistration {
-            name: "__Reactor_linear_chain".to_string(),
-            accumulator_names: vec!["alpha".to_string()],
-            reaction_mode: cloacina::ComputationReactionMode::WhenAny,
-        }
-    });
 
-    assert_eq!(rt.reactor_names().len(), 2);
-    let user = rt.user_reactor_names();
-    assert_eq!(user, vec!["cloaci_t_0538_reactor_split".to_string()]);
+    assert_eq!(
+        rt.reactor_names(),
+        vec!["cloaci_t_0538_reactor_split".to_string()]
+    );
 
     let reactor = rt.get_reactor("cloaci_t_0538_reactor_split").unwrap();
     assert_eq!(reactor.accumulator_names, vec!["alpha".to_string()]);

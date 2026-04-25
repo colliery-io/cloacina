@@ -350,19 +350,6 @@ impl Runtime {
         self.inner.reactors.read().keys().cloned().collect()
     }
 
-    /// Get every registered reactor name that was declared by the user.
-    /// Filters out synthesized bundled-form reactors (whose names start with
-    /// the `__Reactor_` prefix).
-    pub fn user_reactor_names(&self) -> Vec<String> {
-        self.inner
-            .reactors
-            .read()
-            .keys()
-            .filter(|n| !n.starts_with("__Reactor_"))
-            .cloned()
-            .collect()
-    }
-
     // -----------------------------------------------------------------------
     // Stream backend registry
     // -----------------------------------------------------------------------

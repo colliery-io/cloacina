@@ -319,10 +319,6 @@ pub type ComputationGraphConstructor = Box<dyn Fn() -> ComputationGraphRegistrat
 // The struct is a compile-time handle: `#[computation_graph(trigger =
 // reactor(X))]` references it by type path so the graph macro can const-check
 // that its entry accumulators are a subset of `<X as Reactor>::ACCUMULATORS`.
-//
-// The synthesized bundled-form reactor struct is named `__Reactor_<graphname>`
-// (double-underscore prefix) so operational listings can filter it out by
-// default.
 
 /// How a reactor decides when to fire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -366,12 +362,9 @@ pub trait Reactor {
 
 /// Runtime-side description of a reactor.
 ///
-/// Populated by the `#[reactor]` macro's emitted inventory entry and by the
-/// bundled `#[computation_graph]` form's synthesized reactor.
+/// Populated by the `#[reactor]` macro's emitted inventory entry.
 #[derive(Debug, Clone)]
 pub struct ReactorRegistration {
-    /// Reactor name. User-declared reactors carry the name the user wrote.
-    /// Bundled-form synthesized reactors carry `__Reactor_<graphname>`.
     pub name: String,
     pub accumulator_names: Vec<String>,
     pub reaction_mode: ReactionMode,
