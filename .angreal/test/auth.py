@@ -18,7 +18,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from .cloacina_utils import print_section_header, print_final_success
+from ._utils import print_section_header, print_final_success
 
 
 def build_server():
@@ -85,14 +85,14 @@ def api_request(method, url, token=None, data=None):
         return e.code, body
 
 
-cloacina = angreal.command_group(
-    name="cloacina", about="commands for Cloacina core engine tests"
+test = angreal.command_group(
+    name="test", about="Cloacina test suites (unit, integration, e2e, soak)"
 )
 
 
-@cloacina()
+@test()
 @angreal.command(
-    name="auth-integration",
+    name="auth",
     about="run auth integration tests — tenant isolation, roles, god mode, deny scenarios",
     when_to_use=[
         "validating authorization enforcement",

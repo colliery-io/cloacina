@@ -74,7 +74,7 @@ jobs:
         run: cargo test -p cloacina --lib ${{ matrix.features.flags }}
 
       - name: Run integration tests (${{ matrix.features.name }})
-        run: angreal cloacina integration --backend ${{ matrix.features.backend }} --features ${{ matrix.features.backend }},macros
+        run: angreal test integration --backend ${{ matrix.features.backend }} --features ${{ matrix.features.backend }},macros
 
   # Unit tests - fast, fail-fast enabled, cross-platform
   unit-tests:
@@ -125,10 +125,10 @@ jobs:
           shared-key: "cloacina-${{ matrix.os }}"
 
       - name: Run unit tests (postgres)
-        run: angreal cloacina unit --backend postgres
+        run: angreal test unit --backend postgres
 
       - name: Run unit tests (sqlite)
-        run: angreal cloacina unit --backend sqlite
+        run: angreal test unit --backend sqlite
 
   # Integration tests - need database services, fail-fast disabled to catch multi-backend issues
   integration-tests:
@@ -211,18 +211,18 @@ jobs:
           RUST_BACKTRACE: full
         run: |
           if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
-            angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
+            angreal test integration --backend ${{ matrix.backend }} --skip-docker
           elif [ "${{ env.ACT }}" = "true" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
             # Running under act - use host's PostgreSQL, skip docker
             ulimit -c unlimited
-            setarch $(uname -m) -R angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
+            setarch $(uname -m) -R angreal test integration --backend ${{ matrix.backend }} --skip-docker
           elif [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
             # Disable ASLR to get consistent crash addresses for debugging
             # Enable core dumps in this shell
             ulimit -c unlimited
-            setarch $(uname -m) -R angreal cloacina integration --backend ${{ matrix.backend }}
+            setarch $(uname -m) -R angreal test integration --backend ${{ matrix.backend }}
           else
-            angreal cloacina integration --backend ${{ matrix.backend }}
+            angreal test integration --backend ${{ matrix.backend }}
           fi
 
       - name: Analyze core dump on failure (Ubuntu)
@@ -353,7 +353,7 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run macro tests (${{ matrix.backend }})
-        run: angreal cloacina macros --backend ${{ matrix.backend }}
+        run: angreal test macros --backend ${{ matrix.backend }}
 
   # promtool /metrics exposition-format check (T-0536)
   metrics-format:
@@ -405,4 +405,4 @@ jobs:
           promtool --version
 
       - name: Validate /metrics exposition format
-        run: angreal check metrics-format
+        run: angreal test metrics-format

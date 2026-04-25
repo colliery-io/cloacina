@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 import angreal  # type: ignore
 
-from .cloacina_utils import print_section_header, print_final_success
+from .._utils import print_section_header, print_final_success
 
 
 def build_server():
@@ -78,10 +78,10 @@ def api_request(method, url, token=None):
             body = {"error": str(e)}
         return e.code, body
 
-# Define command group
-cloacina = angreal.command_group(
-    name="cloacina", about="commands for Cloacina core engine tests"
+test = angreal.command_group(
+    name="test", about="Cloacina test suites (unit, integration, e2e, soak)"
 )
+e2e = angreal.command_group(name="e2e", about="end-to-end tests against a live server")
 
 
 def ws_connect(url, timeout=5):
@@ -122,10 +122,11 @@ def ws_connect(url, timeout=5):
         return False, None, str(e)
 
 
-@cloacina()
+@test()
+@e2e()
 @angreal.command(
-    name="ws-integration",
-    about="run WebSocket integration tests for computation graph endpoints",
+    name="ws",
+    about="WebSocket integration tests for computation graph endpoints",
     when_to_use=[
         "Testing WebSocket auth and endpoint behavior",
         "Verifying computation graph WS layer",

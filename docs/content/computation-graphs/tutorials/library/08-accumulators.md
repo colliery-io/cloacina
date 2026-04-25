@@ -27,7 +27,7 @@ The full source lives at [`examples/tutorials/computation-graphs/library/08-accu
 To run it:
 
 ```bash
-angreal demos tutorial-08
+angreal demos tutorials rust 08
 ```
 
 ---

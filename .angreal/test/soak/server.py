@@ -17,10 +17,10 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from .cloacina_utils import print_section_header, print_final_success
+from .._utils import print_section_header, print_final_success
 
-# Define command group
-cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
+test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")
+soak = angreal.command_group(name="soak", about="sustained-load soak tests")
 
 
 def build_server():
@@ -884,10 +884,11 @@ class PersistentWebSocket:
             pass
 
 
-@cloacina()
+@test()
+@soak()
 @angreal.command(
-    name="server-soak",
-    about="run server soak test — end-to-end HTTP API verification with Postgres",
+    name="server",
+    about="server soak — end-to-end HTTP API verification with Postgres",
     when_to_use=[
         "validating server API end-to-end",
         "testing auth, upload, execute workflow",
@@ -897,7 +898,7 @@ class PersistentWebSocket:
         "daemon testing (use soak instead)",
     ],
 )
-def server_soak():
+def server():
     """Run server soak test."""
     print_section_header("Server Soak Test")
 

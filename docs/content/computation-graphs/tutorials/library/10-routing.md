@@ -25,7 +25,7 @@ The full source lives at [`examples/tutorials/computation-graphs/library/10-rout
 To run it:
 
 ```bash
-angreal demos tutorial-10
+angreal demos tutorials rust 10
 ```
 
 ---

@@ -39,6 +39,8 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      harness: ${{ steps.filter.outputs.harness }}
+      examples: ${{ steps.filter.outputs.examples }}
     steps:
       - uses: actions/checkout@v4
 
@@ -59,14 +61,19 @@ jobs:
               - 'rust-toolchain.toml'
             workflows:
               - '.github/workflows/**'
+            harness:
+              - '.angreal/**'
+            examples:
+              - 'examples/**'
 
-  # Quick gate - only runs if code changed (not for doc-only changes)
+  # Quick gate - only runs if code, harness, or workflows changed
   quick-checks:
     name: Quick Checks
     needs: changes
     if: |
       needs.changes.outputs.rust == 'true' ||
-      needs.changes.outputs.workflows == 'true'
+      needs.changes.outputs.workflows == 'true' ||
+      needs.changes.outputs.harness == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,5 +116,19 @@ jobs:
   cloacina-tests:
     name: Cloacina Tests
     needs: [quick-checks, changes]
-    if: needs.changes.outputs.rust == 'true'
+    if: |
+      needs.changes.outputs.rust == 'true' ||
+      needs.changes.outputs.harness == 'true' ||
+      needs.changes.outputs.workflows == 'true'
     uses: ./.github/workflows/cloacina.yml
+
+  # Tutorial / feature demo matrix — verifies the `angreal demos …` surface
+  examples-docs:
+    name: Examples & Docs
+    needs: [quick-checks, changes]
+    if: |
+      needs.changes.outputs.rust == 'true' ||
+      needs.changes.outputs.harness == 'true' ||
+      needs.changes.outputs.workflows == 'true' ||
+      needs.changes.outputs.examples == 'true'
+    uses: ./.github/workflows/examples-docs.yml

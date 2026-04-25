@@ -55,7 +55,7 @@ Cloacina provides several tools and resources to help you get started and mainta
      - Tutorials for new users
    - **Adding a Prometheus metric?** Also update `docs/operations/metrics.md`
      — add a row describing the metric, its labels, and one example PromQL
-     query. The `angreal check metrics-format` CI job validates exposition
+     query. The `angreal test metrics-format` CI job validates exposition
      format but does not validate the docs are up to date.
    - We're happy to help guide you through the documentation process, but we won't merge PRs until documentation meets our standards
    - Keep documentation clear, concise, and up-to-date

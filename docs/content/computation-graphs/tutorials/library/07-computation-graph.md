@@ -27,7 +27,7 @@ To run it:
 
 ```bash
 # From the Cloacina repository root
-angreal demos tutorial-07
+angreal demos tutorials rust 07
 ```
 
 ---

@@ -112,7 +112,7 @@ jobs:
         with:
           timeout_minutes: 15
           max_attempts: 3
-          command: angreal demos tutorial-${{ matrix.tutorial }}
+          command: angreal demos tutorials rust ${{ matrix.tutorial }}
 
   # -----------------------------------------------------------------------
   # Rust examples
@@ -177,7 +177,7 @@ jobs:
         with:
           timeout_minutes: 15
           max_attempts: 3
-          command: angreal demos ${{ matrix.example }}
+          command: angreal demos features ${{ matrix.example }}
 
   # -----------------------------------------------------------------------
   # Python tutorials
@@ -289,7 +289,7 @@ jobs:
         with:
           timeout_minutes: 15
           max_attempts: 3
-          command: angreal demos python-tutorial-${{ matrix.tutorial }} --backend ${{ matrix.backend }}
+          command: angreal demos tutorials python ${{ matrix.tutorial }} --backend ${{ matrix.backend }}
 
   # -----------------------------------------------------------------------
   # Documentation

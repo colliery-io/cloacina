@@ -25,7 +25,7 @@ The full source lives at [`examples/tutorials/computation-graphs/library/09-full
 To run it:
 
 ```bash
-angreal demos tutorial-09
+angreal demos tutorials rust 09
 ```
 
 ---
