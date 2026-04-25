@@ -44,8 +44,15 @@ pub struct OutputConfirmation {
 // Test 1: Linear chain (A -> B -> C)
 // =============================================================================
 
+#[cloacina_macros::reactor(
+    name = "linear_chain_reactor",
+    accumulators = [alpha],
+    criteria = when_any(alpha),
+)]
+pub struct LinearChainReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(alpha),
+    trigger = reactor(LinearChainReactor),
     graph = {
         entry(alpha) -> process,
         process -> output,
@@ -96,8 +103,15 @@ pub struct BetaData {
     pub estimate: f64,
 }
 
+#[cloacina_macros::reactor(
+    name = "routing_decision_reactor",
+    accumulators = [alpha, beta],
+    criteria = when_any(alpha, beta),
+)]
+pub struct RoutingDecisionReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(alpha, beta),
+    trigger = reactor(RoutingDecisionReactor),
     graph = {
         decision(alpha, beta) => {
             Signal -> signal_handler,
@@ -684,8 +698,15 @@ async fn test_batch_accumulator_to_reactor() {
 // Test 8: WhenAll reaction criteria — waits until all sources emit
 // =============================================================================
 
+#[cloacina_macros::reactor(
+    name = "when_all_graph_reactor",
+    accumulators = [alpha, beta],
+    criteria = when_all(alpha, beta),
+)]
+pub struct WhenAllGraphReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_all(alpha, beta),
+    trigger = reactor(WhenAllGraphReactor),
     graph = {
         combine(alpha, beta) -> output,
     }

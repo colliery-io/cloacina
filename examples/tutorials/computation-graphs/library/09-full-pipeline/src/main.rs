@@ -74,8 +74,15 @@ pub struct TradingSignal {
 // Computation graph: takes both orderbook and pricing inputs
 // ---------------------------------------------------------------------------
 
+#[cloacina_macros::reactor(
+    name = "market_pipeline_reactor",
+    accumulators = [orderbook, pricing],
+    criteria = when_any(orderbook, pricing),
+)]
+pub struct MarketPipelineReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook, pricing),
+    trigger = reactor(MarketPipelineReactor),
     graph = {
         combine(orderbook, pricing) -> evaluate,
         evaluate -> signal,

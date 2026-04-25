@@ -55,8 +55,15 @@ pub struct BenchOutput {
 // Minimal computation graph — single node, no routing overhead
 // ---------------------------------------------------------------------------
 
+#[cloacina_macros::reactor(
+    name = "bench_graph_reactor",
+    accumulators = [source],
+    criteria = when_any(source),
+)]
+pub struct BenchGraphReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(source),
+    trigger = reactor(BenchGraphReactor),
     graph = {
         process(source) -> output,
     }

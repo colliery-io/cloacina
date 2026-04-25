@@ -72,8 +72,15 @@ pub struct FormattedOutput {
 //   - `format_output` is the terminal node: its output goes into GraphResult
 // ---------------------------------------------------------------------------
 
+#[cloacina_macros::reactor(
+    name = "pricing_pipeline_reactor",
+    accumulators = [orderbook],
+    criteria = when_any(orderbook),
+)]
+pub struct PricingPipelineReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook),
+    trigger = reactor(PricingPipelineReactor),
     graph = {
         ingest(orderbook) -> compute_spread,
         compute_spread -> format_output,

@@ -101,8 +101,15 @@ pub struct AuditRecord {
 // and routes the inner data to the corresponding downstream node.
 // ---------------------------------------------------------------------------
 
+#[cloacina_macros::reactor(
+    name = "market_maker_reactor",
+    accumulators = [orderbook, pricing],
+    criteria = when_any(orderbook, pricing),
+)]
+pub struct MarketMakerReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook, pricing),
+    trigger = reactor(MarketMakerReactor),
     graph = {
         decision(orderbook, pricing) => {
             Trade -> signal_handler,

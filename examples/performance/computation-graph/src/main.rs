@@ -115,8 +115,15 @@ pub struct AuditRecord {
 // Computation graph — market maker with routing (from Tutorial 10)
 // ---------------------------------------------------------------------------
 
+#[cloacina_macros::reactor(
+    name = "perf_market_maker_reactor",
+    accumulators = [orderbook, pricing],
+    criteria = when_any(orderbook, pricing),
+)]
+pub struct PerfMarketMakerReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook, pricing),
+    trigger = reactor(PerfMarketMakerReactor),
     graph = {
         decision(orderbook, pricing) => {
             Trade -> signal_handler,

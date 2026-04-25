@@ -68,8 +68,15 @@ pub struct SignalOutput {
 // Step 2: Define the computation graph (reuses Tutorial 07 pattern)
 // ---------------------------------------------------------------------------
 
+#[cloacina_macros::reactor(
+    name = "pricing_graph_reactor",
+    accumulators = [pricing],
+    criteria = when_any(pricing),
+)]
+pub struct PricingGraphReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(pricing),
+    trigger = reactor(PricingGraphReactor),
     graph = {
         ingest(pricing) -> analyze,
         analyze -> format_signal,
