@@ -268,6 +268,18 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             )
         }
         TriggerSpec::ByReactor(type_path) => {
+            // Emit a private type alias at the outer scope so the bound
+            // reactor type is reachable from inside the generated `_ffi`
+            // submodule (where a bare path like `MyReactor` would not
+            // resolve). All references to the trigger reactor go through
+            // this alias.
+            let alias_ident = format_ident!("__CGTriggerReactor_{}", mod_name);
+            let trigger_alias = quote! {
+                #[doc(hidden)]
+                #[allow(non_camel_case_types)]
+                type #alias_ident = #type_path;
+            };
+
             // Emit a const-eval subset check between the graph's entry
             // accumulators and the bound reactor's ACCUMULATORS.
             let check_fn_ident = format_ident!("__cloacina_check_reactor_binding_{}", mod_name);
@@ -279,6 +291,8 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             let entry_lits = entry_acc_strs.clone();
 
             let check = quote! {
+                #trigger_alias
+
                 #[doc(hidden)]
                 const fn #check_fn_ident() {
                     const ENTRY: &[&str] = &[#(#entry_lits),*];
@@ -331,8 +345,11 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             let trigger_reactor = quote! {
                 Some(<#type_path as #cg_path::Reactor>::NAME.to_string())
             };
+            // FFI fragments live inside `pub mod _ffi { ... }`, so reference
+            // the trigger reactor via `super::#alias_ident` rather than the
+            // bare user-supplied path.
             let ffi_accs = quote! {
-                <#type_path as #cg_path::Reactor>::ACCUMULATORS
+                <super::#alias_ident as #cg_path::Reactor>::ACCUMULATORS
                     .iter()
                     .map(|name| cloacina_workflow_plugin::AccumulatorDeclarationEntry {
                         name: (*name).to_string(),
@@ -342,7 +359,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                     .collect::<Vec<_>>()
             };
             let ffi_mode = quote! {
-                <#type_path as #cg_path::Reactor>::REACTION_MODE
+                <super::#alias_ident as #cg_path::Reactor>::REACTION_MODE
                     .as_str()
                     .to_string()
             };

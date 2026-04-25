@@ -74,6 +74,51 @@ Migrate every in-tree Rust user of the bundled `#[computation_graph]` form to th
 
 ## Status Updates
 
+### 2026-04-24 — post-migration example verification + macro FFI scoping fix
+
+Migration commit `689b688` landed earlier. Verified the migrated examples build and run end-to-end before doing the bundled-form removal.
+
+**Bug found:** `examples/features/computation-graphs/packaged-graph` (only crate that enables `feature = "packaged"`) failed to compile:
+
+```
+error[E0425]: cannot find type `PackagedMarketMakerReactor` in this scope
+  --> src/lib.rs:71:23
+   |
+71 |     trigger = reactor(PackagedMarketMakerReactor),
+```
+
+Root cause in `crates/cloacina-macros/src/computation_graph/codegen.rs`: the `ByReactor` codegen branch references the user-supplied `#type_path` directly inside the generated `pub mod _ffi { … }` block (for `ffi_accumulator_entries_expr` / `ffi_reaction_mode_expr`). From inside that nested module, a bare ident like `PackagedMarketMakerReactor` doesn't resolve. Tutorials 07–10 didn't catch this because they don't enable the `packaged` feature, so `_ffi` is `#[cfg]`-gated out.
+
+**Fix:** emit a private type alias at the outer scope where the user's path resolves correctly, and reference it via `super::Alias` from inside `_ffi`:
+
+```rust
+let alias_ident = format_ident!("__CGTriggerReactor_{}", mod_name);
+let trigger_alias = quote! {
+    #[doc(hidden)] #[allow(non_camel_case_types)]
+    type #alias_ident = #type_path;
+};
+// emitted alongside __cloacina_check_reactor_binding_<mod> via the
+// type_binding_check token tree (already at outer scope).
+
+let ffi_accs = quote! {
+    <super::#alias_ident as #cg_path::Reactor>::ACCUMULATORS …
+};
+let ffi_mode = quote! {
+    <super::#alias_ident as #cg_path::Reactor>::REACTION_MODE …
+};
+```
+
+**Verification after fix:**
+- `cargo check --workspace --all-features` — green (only pre-existing warnings).
+- `cargo build` on `examples/features/computation-graphs/packaged-graph` (with `feature = "packaged"`) — green.
+- `cargo build --bins` on `examples/performance/computation-graph` (main + cg-bench) — green.
+- `angreal demos tutorials rust 07` — graph fires, mid-price + spread output prints correctly.
+- `angreal demos tutorials rust 08` — accumulators + reactor pipeline, 3 fires across 3 events as expected.
+- `angreal demos tutorials rust 09` — full reactive pipeline, 4 fires, TRADE/WAIT signals as designed.
+- `angreal demos tutorials rust 10` — routing demo, 7 fires across enum-dispatch outputs.
+
+Bundled-form parser/codegen still in place (intentional). Macro fix is uncommitted on top of `689b688`. Next: commit the fix, then proceed to step 2 of the kickoff plan (delete bundled-form parse/IR/desugar + emit compile-error diagnostic on `react = ...`).
+
 ### 2026-04-24 — kickoff
 - T-0538 committed as `5f773dc` on branch `i-0101-cg-reactor-decouple`.
 - Migration surface enumerated via grep:
