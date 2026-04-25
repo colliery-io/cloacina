@@ -43,6 +43,7 @@ use parking_lot::RwLock;
 use crate::computation_graph::stream_backend::{
     StreamBackend, StreamBackendFactory, StreamConfig, StreamError,
 };
+use crate::computation_graph::triggerless::TriggerlessGraphRegistration;
 use crate::task::{Task, TaskNamespace};
 use crate::trigger::Trigger;
 use crate::workflow::Workflow;
@@ -50,6 +51,9 @@ use cloacina_computation_graph::{
     ComputationGraphConstructor, ComputationGraphRegistration, ReactorConstructor,
     ReactorRegistration,
 };
+
+/// Type alias for trigger-less graph constructor functions.
+pub type TriggerlessGraphConstructor = Box<dyn Fn() -> TriggerlessGraphRegistration + Send + Sync>;
 
 /// Type alias for task constructor functions.
 pub type TaskConstructorFn = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
@@ -75,6 +79,7 @@ struct RuntimeInner {
     workflows: RwLock<HashMap<String, WorkflowConstructorFn>>,
     triggers: RwLock<HashMap<String, TriggerConstructorFn>>,
     computation_graphs: RwLock<HashMap<String, ComputationGraphConstructor>>,
+    triggerless_graphs: RwLock<HashMap<String, TriggerlessGraphConstructor>>,
     reactors: RwLock<HashMap<String, ReactorConstructor>>,
     stream_backends: RwLock<HashMap<String, StreamBackendFactory>>,
 }
@@ -107,6 +112,7 @@ impl Runtime {
                 workflows: RwLock::new(HashMap::new()),
                 triggers: RwLock::new(HashMap::new()),
                 computation_graphs: RwLock::new(HashMap::new()),
+                triggerless_graphs: RwLock::new(HashMap::new()),
                 reactors: RwLock::new(HashMap::new()),
                 stream_backends: RwLock::new(HashMap::new()),
             }),
@@ -122,7 +128,7 @@ impl Runtime {
     pub fn seed_from_inventory(&self) {
         use crate::inventory_entries::{
             ComputationGraphEntry, ReactorEntry, StreamBackendEntry, TaskEntry, TriggerEntry,
-            WorkflowEntry,
+            TriggerlessGraphEntry, WorkflowEntry,
         };
 
         for entry in inventory::iter::<TaskEntry> {
@@ -144,6 +150,11 @@ impl Runtime {
         for entry in inventory::iter::<ComputationGraphEntry> {
             let ctor = entry.constructor;
             self.register_computation_graph(entry.name.to_string(), move || ctor());
+        }
+
+        for entry in inventory::iter::<TriggerlessGraphEntry> {
+            let ctor = entry.constructor;
+            self.register_triggerless_graph(entry.name.to_string(), move || ctor());
         }
 
         for entry in inventory::iter::<ReactorEntry> {
@@ -310,6 +321,50 @@ impl Runtime {
     pub fn computation_graph_names(&self) -> Vec<String> {
         self.inner
             .computation_graphs
+            .read()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    // -----------------------------------------------------------------------
+    // Trigger-less computation graph registry
+    // -----------------------------------------------------------------------
+
+    /// Register a trigger-less computation graph constructor by graph name.
+    ///
+    /// Trigger-less graphs are declared with `#[computation_graph(graph =
+    /// { ... })]` (no `trigger = reactor(...)` clause) and operate on a
+    /// `Context<Value>`. They are invoked directly by workflow tasks
+    /// (T-02) and Python decorators (T-03).
+    pub fn register_triggerless_graph<F>(&self, name: String, constructor: F)
+    where
+        F: Fn() -> TriggerlessGraphRegistration + Send + Sync + 'static,
+    {
+        self.inner
+            .triggerless_graphs
+            .write()
+            .insert(name, Box::new(constructor));
+    }
+
+    /// Remove a trigger-less graph constructor. Returns true if the entry existed.
+    pub fn unregister_triggerless_graph(&self, name: &str) -> bool {
+        self.inner.triggerless_graphs.write().remove(name).is_some()
+    }
+
+    /// Look up and instantiate a trigger-less graph registration by name.
+    pub fn get_triggerless_graph(&self, name: &str) -> Option<TriggerlessGraphRegistration> {
+        self.inner
+            .triggerless_graphs
+            .read()
+            .get(name)
+            .map(|ctor| ctor())
+    }
+
+    /// Get every registered trigger-less graph name.
+    pub fn triggerless_graph_names(&self) -> Vec<String> {
+        self.inner
+            .triggerless_graphs
             .read()
             .keys()
             .cloned()

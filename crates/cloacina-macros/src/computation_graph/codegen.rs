@@ -95,9 +95,39 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         .map(|n| n == "cloacina")
         .unwrap_or(false);
 
+    // Trigger-less graphs operate on a `Context<Value>` instead of an
+    // `InputCache`. They must not declare cache inputs anywhere in the
+    // topology — there is no cache for entry nodes to read from. Validate
+    // before generating any code so the diagnostic points at the macro
+    // invocation rather than a generated identifier.
+    let is_triggerless = matches!(&ir.trigger, TriggerSpec::None);
+    if is_triggerless {
+        for node in ir.nodes.values() {
+            if !node.cache_inputs.is_empty() {
+                return Err(syn::Error::new(
+                    proc_macro2::Span::call_site(),
+                    format!(
+                        "trigger-less computation graphs cannot declare cache inputs \
+                         (node '{}' lists `({})`). Trigger-less graphs receive a \
+                         `&Context<Value>` instead of an `InputCache` — entry nodes \
+                         should be declared as bare names like `entry -> next` and \
+                         their fn signatures should take `(ctx: &Context<Value>)`.",
+                        node.name,
+                        node.cache_inputs.join(", "),
+                    ),
+                ));
+            }
+        }
+    }
+
     // Generate the compiled function
-    let compiled_fn =
-        generate_compiled_function(ir, &functions, &blocking_nodes, is_cloacina_crate_early)?;
+    let compiled_fn = generate_compiled_function(
+        ir,
+        &functions,
+        &blocking_nodes,
+        is_cloacina_crate_early,
+        is_triggerless,
+    )?;
 
     // Get the module name and visibility
     let mod_name = &module.ident;
@@ -404,8 +434,67 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         }
     };
 
-    let (compiled_fn_body, ctor_body) = if is_cloacina_crate_early {
-        // Inside the cloacina crate — use `crate::` paths
+    // Path roots for emitted code differ between in-crate (cloacina) and
+    // external consumers; trigger-less code paths additionally need access
+    // to `cloacina::Context` and the `TriggerlessGraph*` types defined in
+    // cloacina (not in the leaf cg crate).
+    let cloacina_root = if is_cloacina_crate_early {
+        quote! { crate }
+    } else {
+        quote! { cloacina }
+    };
+    let cg_runtime_root = if is_cloacina_crate_early {
+        quote! { crate::computation_graph }
+    } else {
+        quote! { cloacina_computation_graph }
+    };
+    let inventory_path = if is_cloacina_crate_early {
+        quote! { crate::inventory }
+    } else {
+        quote! { cloacina::inventory }
+    };
+
+    let terminal_node_names: Vec<String> = ir
+        .nodes
+        .values()
+        .filter(|n| n.is_terminal)
+        .map(|n| n.name.clone())
+        .collect();
+
+    let (compiled_fn_body, ctor_body) = if is_triggerless {
+        // Trigger-less form: the compiled fn takes a workflow `Context<Value>`
+        // and the runtime registration goes into `TriggerlessGraphEntry`.
+        let fn_body = quote! {
+            #vis async fn #compiled_fn_name(
+                context: &#cloacina_root::Context<::serde_json::Value>,
+            ) -> #cg_runtime_root::GraphResult {
+                #[allow(unused_imports)]
+                use #mod_name::*;
+                #(#routing_use_stmts)*
+                #compiled_fn
+            }
+        };
+        let ctor = quote! {
+            #[cfg(not(test))]
+            #[cfg(not(feature = "packaged"))]
+            #inventory_path::submit! {
+                #cloacina_root::TriggerlessGraphEntry {
+                    name: #mod_name_str,
+                    constructor: || #cloacina_root::TriggerlessGraphRegistration {
+                        name: #mod_name_str.to_string(),
+                        graph_fn: ::std::sync::Arc::new(|context: #cloacina_root::Context<::serde_json::Value>| {
+                            Box::pin(async move {
+                                #compiled_fn_name(&context).await
+                            })
+                        }),
+                        terminal_node_names: vec![#(#terminal_node_names.to_string()),*],
+                    },
+                }
+            }
+        };
+        (fn_body, ctor)
+    } else if is_cloacina_crate_early {
+        // Triggered (split) form, inside cloacina crate.
         let fn_body = quote! {
             #vis async fn #compiled_fn_name(
                 cache: &crate::computation_graph::InputCache,
@@ -438,7 +527,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         };
         (fn_body, ctor)
     } else {
-        // External crate — use `cloacina_computation_graph::` paths
+        // Triggered (split) form, external crate.
         let fn_body = quote! {
             #vis async fn #compiled_fn_name(
                 cache: &cloacina_computation_graph::InputCache,
@@ -477,7 +566,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // reference graphs by type path through this handle so trigger-less-ness
     // and the registered name can be const-checked at expansion time.
     let handle_ident = format_ident!("__CGHandle_{}", mod_name);
-    let is_triggerless = matches!(&ir.trigger, TriggerSpec::None);
     let graph_handle_decl = quote! {
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
@@ -556,6 +644,7 @@ fn generate_compiled_function(
     functions: &HashMap<String, ItemFn>,
     blocking_nodes: &HashSet<String>,
     is_cloacina_crate: bool,
+    is_triggerless: bool,
 ) -> syn::Result<TokenStream> {
     let entry_nodes = ir.entry_nodes();
 
@@ -566,8 +655,13 @@ fn generate_compiled_function(
         ));
     }
 
-    // Generate cache reads for all accumulator inputs
-    let cache_reads = generate_cache_reads(ir);
+    // Generate cache reads for all accumulator inputs. Trigger-less graphs
+    // have no cache, so the block is empty.
+    let cache_reads = if is_triggerless {
+        TokenStream::new()
+    } else {
+        generate_cache_reads(ir)
+    };
 
     // Generate the execution code starting from entry nodes
     // Terminal nodes push into __terminal_results instead of being collected at the end.
@@ -587,6 +681,7 @@ fn generate_compiled_function(
             blocking_nodes,
             &mut generated_nodes,
             is_cloacina_crate,
+            is_triggerless,
         )?;
         exec_stmts.push(stmt);
     }
@@ -633,6 +728,7 @@ fn generate_node_execution(
     blocking_nodes: &HashSet<String>,
     generated: &mut HashSet<String>,
     is_cloacina_crate: bool,
+    is_triggerless: bool,
 ) -> syn::Result<TokenStream> {
     if generated.contains(&node.name) {
         return Ok(quote! {});
@@ -644,7 +740,7 @@ fn generate_node_execution(
     let is_blocking = blocking_nodes.contains(&node.name);
 
     // Build the argument list for the function call
-    let args = generate_call_args(ir, node);
+    let args = generate_call_args(ir, node, is_triggerless);
 
     // Generate the function call (with optional spawn_blocking)
     let call = if is_blocking {
@@ -691,6 +787,7 @@ fn generate_node_execution(
                     blocking_nodes,
                     generated,
                     is_cloacina_crate,
+                    is_triggerless,
                 )?;
                 Ok(quote! {
                     #call
@@ -706,8 +803,15 @@ fn generate_node_execution(
 }
 
 /// Generate the argument list for a node function call.
-fn generate_call_args(ir: &GraphIR, node: &GraphNode) -> TokenStream {
+fn generate_call_args(ir: &GraphIR, node: &GraphNode, is_triggerless: bool) -> TokenStream {
     let mut args = Vec::new();
+
+    // Trigger-less entry nodes receive the workflow context directly.
+    // Identified by having no incoming edges (and, by trigger-less invariant,
+    // no cache inputs either).
+    if is_triggerless && node.edges_in.is_empty() {
+        args.push(quote! { context });
+    }
 
     // Cache inputs first (accumulator data)
     for input in &node.cache_inputs {
@@ -744,6 +848,7 @@ fn generate_routing_match(
     blocking_nodes: &HashSet<String>,
     generated: &mut HashSet<String>,
     is_cloacina_crate: bool,
+    is_triggerless: bool,
 ) -> syn::Result<TokenStream> {
     let result_var = format_ident!("__result_{}", from_name);
 
@@ -770,6 +875,7 @@ fn generate_routing_match(
             blocking_nodes,
             generated,
             is_cloacina_crate,
+            is_triggerless,
         )?;
 
         arms.push(quote! {

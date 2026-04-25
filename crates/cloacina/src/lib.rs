@@ -542,6 +542,7 @@ pub use cloacina_computation_graph::{
     ReactorRegistration,
 };
 pub use computation_graph::ComputationGraphRegistration;
+pub use computation_graph::{TriggerlessGraphFn, TriggerlessGraphRegistration};
 pub use context::Context;
 pub use cron_evaluator::{CronError, CronEvaluator};
 pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};
@@ -568,7 +569,7 @@ pub use graph::{
 };
 pub use inventory_entries::{
     ComputationGraphEntry, ReactorEntry, StreamBackendEntry, StreamBackendFactoryFn, TaskEntry,
-    TriggerEntry, WorkflowEntry,
+    TriggerEntry, TriggerlessGraphEntry, WorkflowEntry,
 };
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use runner::DefaultRunnerBuilder;

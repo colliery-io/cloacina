@@ -35,6 +35,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::computation_graph::stream_backend::{StreamBackend, StreamConfig, StreamError};
+use crate::computation_graph::triggerless::TriggerlessGraphRegistration;
 use crate::task::{Task, TaskNamespace};
 use crate::trigger::Trigger;
 use crate::workflow::Workflow;
@@ -64,12 +65,24 @@ pub struct TriggerEntry {
 }
 inventory::collect!(TriggerEntry);
 
-/// Computation graph entry emitted by `#[computation_graph]`.
+/// Computation graph entry emitted by `#[computation_graph]` for the
+/// reactor-triggered (split) form.
 pub struct ComputationGraphEntry {
     pub name: &'static str,
     pub constructor: fn() -> ComputationGraphRegistration,
 }
 inventory::collect!(ComputationGraphEntry);
+
+/// Trigger-less computation graph entry emitted by `#[computation_graph]`
+/// for graphs declared without a `trigger = reactor(...)` clause.
+///
+/// These graphs operate on `Context<Value>` rather than `InputCache` and are
+/// invoked directly by workflow tasks (T-02) or Python decorators (T-03).
+pub struct TriggerlessGraphEntry {
+    pub name: &'static str,
+    pub constructor: fn() -> TriggerlessGraphRegistration,
+}
+inventory::collect!(TriggerlessGraphEntry);
 
 /// Reactor entry emitted by the `#[reactor]` attribute macro.
 pub struct ReactorEntry {

@@ -2011,14 +2011,22 @@ pub mod cloaci_t_0538_split_graph {
 }
 
 #[cloacina_macros::computation_graph(graph = {
-    entry(alpha) -> output,
+    entry -> output,
 })]
 pub mod cloaci_t_0538_triggerless_graph {
     use super::*;
+    use cloacina::Context;
+    use serde_json::Value;
 
-    pub async fn entry(alpha: Option<&AlphaData>) -> ProcessedData {
+    /// Entry node receives the workflow context directly. Pulls the
+    /// `alpha_value` key out and feeds the rest of the graph.
+    pub async fn entry(ctx: &Context<Value>) -> ProcessedData {
+        let value = ctx
+            .get("alpha_value")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         ProcessedData {
-            result: alpha.map(|a| a.value).unwrap_or(0.0) + 1.0,
+            result: value + 1.0,
         }
     }
 
@@ -2082,12 +2090,14 @@ async fn test_cloaci_t_0538_split_form_compiled_fn_runs() {
 
 #[tokio::test]
 async fn test_cloaci_t_0538_triggerless_form_compiled_fn_runs() {
-    let mut cache = InputCache::new();
-    cache.update(
-        SourceName::new("alpha"),
-        serialize(&AlphaData { value: 4.0 }).unwrap(),
-    );
-    let result = cloaci_t_0538_triggerless_graph_compiled(&cache).await;
+    // Trigger-less compiled fn now takes a `&Context<Value>` and pulls inputs
+    // out of it. The test seeds a context with the data the entry node
+    // expects, then invokes the compiled fn directly.
+    use cloacina::Context;
+    use serde_json::Value;
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(4.0)).unwrap();
+    let result = cloaci_t_0538_triggerless_graph_compiled(&ctx).await;
     assert!(result.is_completed(), "trigger-less graph should complete");
 }
 
@@ -2165,58 +2175,37 @@ async fn test_cloaci_t_0538_split_form_scheduler_end_to_end() {
 }
 
 #[tokio::test]
-async fn test_cloaci_t_0538_triggerless_scheduler_invocation() {
-    use cloacina::computation_graph::registry::EndpointRegistry;
-    use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
-    use cloacina_computation_graph::CompiledGraphFn;
+async fn test_cloaci_t_0540_triggerless_runtime_registry() {
+    // T-0540 M2: trigger-less graphs are registered into the Runtime
+    // `triggerless_graphs` registry (Context-shaped fn), not into the
+    // ComputationGraphScheduler (which only handles reactor-driven graphs).
+    use cloacina::{Context, Runtime, TriggerlessGraphRegistration};
+    use serde_json::Value;
 
-    let registry = EndpointRegistry::new();
-    let scheduler = ComputationGraphScheduler::new(registry);
-
-    let graph_fn: CompiledGraphFn = Arc::new(|cache: InputCache| {
-        Box::pin(async move { cloaci_t_0538_triggerless_graph_compiled(&cache).await })
+    let rt = Runtime::empty();
+    rt.register_triggerless_graph("cloaci_t_0540_demo".to_string(), || {
+        TriggerlessGraphRegistration {
+            name: "cloaci_t_0540_demo".to_string(),
+            graph_fn: std::sync::Arc::new(|ctx: Context<Value>| {
+                Box::pin(async move { cloaci_t_0538_triggerless_graph_compiled(&ctx).await })
+            }),
+            terminal_node_names: vec!["output".to_string()],
+        }
     });
 
-    scheduler
-        .register_triggerless_graph("cloaci_t_0538_triggerless".to_string(), graph_fn.clone())
-        .await
-        .expect("register should succeed");
+    let names = rt.triggerless_graph_names();
+    assert_eq!(names, vec!["cloaci_t_0540_demo".to_string()]);
 
-    assert!(scheduler
-        .triggerless_graph_names()
-        .await
-        .iter()
-        .any(|n| n == "cloaci_t_0538_triggerless"));
+    let reg = rt.get_triggerless_graph("cloaci_t_0540_demo").unwrap();
+    assert_eq!(reg.terminal_node_names, vec!["output".to_string()]);
 
-    // Duplicate registration is rejected.
-    assert!(scheduler
-        .register_triggerless_graph("cloaci_t_0538_triggerless".to_string(), graph_fn.clone(),)
-        .await
-        .is_err());
-
-    // Direct invocation runs the compiled function.
-    let mut cache = InputCache::new();
-    cache.update(
-        SourceName::new("alpha"),
-        serialize(&AlphaData { value: 11.0 }).unwrap(),
-    );
-    let result = scheduler
-        .invoke_triggerless_graph("cloaci_t_0538_triggerless", cache)
-        .await
-        .expect("invocation should return Some(result)");
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(11.0)).unwrap();
+    let result = (reg.graph_fn)(ctx).await;
     assert!(result.is_completed());
 
-    // Unregister and confirm it's gone.
-    assert!(
-        scheduler
-            .unregister_triggerless_graph("cloaci_t_0538_triggerless")
-            .await
-    );
-    assert!(scheduler.triggerless_graph_names().await.is_empty());
-    assert!(scheduler
-        .invoke_triggerless_graph("cloaci_t_0538_triggerless", InputCache::new())
-        .await
-        .is_none());
+    assert!(rt.unregister_triggerless_graph("cloaci_t_0540_demo"));
+    assert!(rt.get_triggerless_graph("cloaci_t_0540_demo").is_none());
 }
 
 #[tokio::test]

@@ -30,6 +30,7 @@ pub mod reactor;
 pub mod registry;
 pub mod scheduler;
 pub mod stream_backend;
+pub mod triggerless;
 pub mod types;
 
 pub use accumulator::{
@@ -39,4 +40,5 @@ pub use accumulator::{
     BoundarySender, EventSource, PollingAccumulator,
 };
 pub use global_registry::ComputationGraphRegistration;
+pub use triggerless::{TriggerlessGraphFn, TriggerlessGraphRegistration};
 pub use types::{GraphError, GraphResult, InputCache, SourceName};
