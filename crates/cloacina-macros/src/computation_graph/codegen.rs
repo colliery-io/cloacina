@@ -566,6 +566,27 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // reference graphs by type path through this handle so trigger-less-ness
     // and the registered name can be const-checked at expansion time.
     let handle_ident = format_ident!("__CGHandle_{}", mod_name);
+    // For trigger-less graphs, additionally implement `TriggerlessGraph` so
+    // `#[task(invokes = computation_graph(H))]` can reach the compiled fn +
+    // terminal-name routing through a single trait. Reactor-triggered graphs
+    // intentionally do not implement this trait — that's the compile-time
+    // gate keeping tasks from invoking them.
+    let triggerless_graph_impl = if is_triggerless {
+        quote! {
+            impl #cloacina_root::TriggerlessGraph for #handle_ident {
+                fn compiled_fn() -> #cloacina_root::TriggerlessGraphFn {
+                    ::std::sync::Arc::new(|context: #cloacina_root::Context<::serde_json::Value>| {
+                        Box::pin(async move { #compiled_fn_name(&context).await })
+                    })
+                }
+                fn terminal_node_names() -> &'static [&'static str] {
+                    &[#(#terminal_node_names),*]
+                }
+            }
+        }
+    } else {
+        proc_macro2::TokenStream::new()
+    };
     let graph_handle_decl = quote! {
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
@@ -575,6 +596,8 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             const NAME: &'static str = #mod_name_str;
             const IS_TRIGGERLESS: bool = #is_triggerless;
         }
+
+        #triggerless_graph_impl
     };
 
     Ok(quote! {
@@ -766,10 +789,34 @@ fn generate_node_execution(
 
     // Generate downstream handling based on edge type
     if node.edges_out.is_empty() {
-        // Terminal node — call and push result into __terminal_results
+        // Terminal node — call and push result into __terminal_results.
+        // For trigger-less graphs we serialize to `serde_json::Value` at the
+        // terminal site so workflow tasks can route outputs back into the
+        // context via a cheap downcast-to-Value (rather than relying on the
+        // executor knowing every concrete terminal type).
+        let terminal_push = if is_triggerless {
+            let node_name_str = node.name.to_string();
+            quote! {
+                let __serialized: ::serde_json::Value =
+                    ::serde_json::to_value(&#result_var).unwrap_or_else(|e| {
+                        panic!(
+                            "trigger-less graph terminal '{}' must produce a value \
+                             that implements Serialize: {}",
+                            #node_name_str, e
+                        )
+                    });
+                __terminal_results
+                    .push(Box::new(__serialized) as Box<dyn std::any::Any + Send>);
+            }
+        } else {
+            quote! {
+                __terminal_results
+                    .push(Box::new(#result_var) as Box<dyn std::any::Any + Send>);
+            }
+        };
         Ok(quote! {
             #call
-            __terminal_results.push(Box::new(#result_var) as Box<dyn std::any::Any + Send>);
+            #terminal_push
         })
     } else if node.edges_out.len() == 1 {
         match &node.edges_out[0] {

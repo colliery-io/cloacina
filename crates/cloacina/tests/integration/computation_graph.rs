@@ -2056,6 +2056,42 @@ async fn test_cloaci_t_0538_reactor_trait_constants() {
 }
 
 #[tokio::test]
+async fn test_cloaci_t_0540_triggerless_graph_trait() {
+    // T-0540 M2.5: trigger-less graphs implement `TriggerlessGraph`,
+    // exposing both the compiled fn and terminal node names through a single
+    // type-path-addressable surface. Reactor-triggered graphs do NOT
+    // implement this trait — that omission is the compile-time gate that
+    // keeps `#[task(invokes = computation_graph(H))]` from binding to a
+    // reactor-driven graph.
+    use cloacina::{Context, TriggerlessGraph};
+    use serde_json::Value;
+
+    type Handle = __CGHandle_cloaci_t_0538_triggerless_graph;
+
+    assert_eq!(Handle::terminal_node_names(), &["output"]);
+
+    let graph_fn = Handle::compiled_fn();
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(7.0)).unwrap();
+    let result = graph_fn(ctx).await;
+
+    match result {
+        cloacina::computation_graph::GraphResult::Completed { outputs } => {
+            assert_eq!(outputs.len(), 1, "single terminal node");
+            // Macro pre-serializes terminal outputs to Value for trigger-less.
+            let v: &Value = outputs[0]
+                .downcast_ref::<Value>()
+                .expect("trigger-less terminal output should be a serde_json::Value");
+            // entry: 7.0 + 1.0 = 8.0; output passes through as
+            // OutputConfirmation { published: true, value: 8.0 }.
+            assert_eq!(v["published"], true);
+            assert_eq!(v["value"], 8.0);
+        }
+        other => panic!("expected Completed, got {:?}", other),
+    }
+}
+
+#[tokio::test]
 async fn test_cloaci_t_0540_graph_handle_consts() {
     // T-0540 M1: every #[computation_graph] emits a __CGHandle_<mod> unit
     // struct that implements `Graph` with NAME + IS_TRIGGERLESS consts.
@@ -2269,4 +2305,62 @@ async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
         reactor.reaction_mode,
         cloacina::ComputationReactionMode::WhenAny
     );
+}
+
+// =============================================================================
+// T-0540 M3: #[task(invokes = computation_graph(H))] end-to-end
+// =============================================================================
+
+/// Workflow task that invokes the trigger-less CG defined above.
+/// User body is the pre-work (asserts the seeded input is present); the
+/// macro-generated invocation runs after, and terminal outputs are routed
+/// back into the task's output context under each terminal-node name.
+#[cloacina_macros::task(
+    id = "cloaci_t_0540_invoke_demo",
+    invokes = computation_graph(__CGHandle_cloaci_t_0538_triggerless_graph)
+)]
+async fn cloaci_t_0540_invoke_demo(
+    context: &mut ::cloacina_workflow::Context<serde_json::Value>,
+) -> Result<(), ::cloacina_workflow::TaskError> {
+    // Pre-work: assert the seeded input is what we expect, and record that
+    // the user body ran.
+    assert_eq!(
+        context.get("alpha_value").and_then(|v| v.as_f64()),
+        Some(5.0)
+    );
+    let _ = context.insert("user_body_ran", serde_json::json!(true));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0540_task_invokes_trigger_less_graph() {
+    // T-0540 M3: a workflow task whose `invokes = computation_graph(H)` clause
+    // points at a trigger-less graph. After execute():
+    //  - the user body ran (left a marker in the context),
+    //  - the graph fired against the same context and produced one terminal
+    //    output, which the macro-generated invocation routed back into the
+    //    output context under the terminal node's name (`output`).
+    use ::cloacina_workflow::{Context, Task};
+    use serde_json::Value;
+
+    let task = cloaci_t_0540_invoke_demo_task();
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(5.0)).unwrap();
+
+    let out = task
+        .execute(ctx)
+        .await
+        .expect("task with CG invocation should succeed");
+
+    // User body ran first.
+    assert_eq!(out.get("user_body_ran"), Some(&serde_json::json!(true)));
+
+    // Graph terminal output landed under its node name.
+    // entry: 5.0 + 1.0 = 6.0; output passes through as
+    // OutputConfirmation { published: true, value: 6.0 }.
+    let terminal = out
+        .get("output")
+        .expect("terminal node 'output' should be inserted into context");
+    assert_eq!(terminal["published"], true);
+    assert_eq!(terminal["value"], 6.0);
 }

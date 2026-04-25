@@ -542,7 +542,7 @@ pub use cloacina_computation_graph::{
     ReactorRegistration,
 };
 pub use computation_graph::ComputationGraphRegistration;
-pub use computation_graph::{TriggerlessGraphFn, TriggerlessGraphRegistration};
+pub use computation_graph::{TriggerlessGraph, TriggerlessGraphFn, TriggerlessGraphRegistration};
 pub use context::Context;
 pub use cron_evaluator::{CronError, CronEvaluator};
 pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};

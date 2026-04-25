@@ -21,7 +21,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use syn::{
     parse::{Parse, ParseStream},
-    Expr, FnArg, Ident, ItemFn, LitStr, Pat, Result as SynResult, Token,
+    Expr, FnArg, Ident, ItemFn, LitStr, Pat, Result as SynResult, Token, TypePath,
 };
 
 use crate::registry::{get_registry, TaskInfo};
@@ -53,6 +53,11 @@ pub struct TaskAttributes {
     pub trigger_rules: Option<Expr>,
     pub on_success: Option<Expr>,
     pub on_failure: Option<Expr>,
+    /// Optional `invokes = computation_graph(GraphHandle)` clause. Set when
+    /// the task wraps a trigger-less computation graph; the macro emits an
+    /// invocation body that calls `<H as TriggerlessGraph>::compiled_fn()`
+    /// and routes terminal outputs back into the task's context.
+    pub invokes_computation_graph: Option<TypePath>,
 }
 
 impl Parse for TaskAttributes {
@@ -68,6 +73,7 @@ impl Parse for TaskAttributes {
         let mut trigger_rules = None;
         let mut on_success = None;
         let mut on_failure = None;
+        let mut invokes_computation_graph: Option<TypePath> = None;
 
         while !input.is_empty() {
             let name: Ident = input.parse()?;
@@ -128,6 +134,32 @@ impl Parse for TaskAttributes {
                     let expr: Expr = input.parse()?;
                     on_failure = Some(expr);
                 }
+                "invokes" => {
+                    if invokes_computation_graph.is_some() {
+                        return Err(syn::Error::new(name.span(), "duplicate 'invokes' field"));
+                    }
+                    let kind: Ident = input.parse()?;
+                    if kind != "computation_graph" {
+                        return Err(syn::Error::new(
+                            kind.span(),
+                            format!(
+                                "unknown invokes kind '{}', expected 'computation_graph' \
+                                 (e.g. invokes = computation_graph(MyGraphHandle))",
+                                kind
+                            ),
+                        ));
+                    }
+                    let paren;
+                    syn::parenthesized!(paren in input);
+                    let type_path: TypePath = paren.parse()?;
+                    if !paren.is_empty() {
+                        return Err(syn::Error::new(
+                            paren.span(),
+                            "computation_graph(...) takes exactly one type-path argument",
+                        ));
+                    }
+                    invokes_computation_graph = Some(type_path);
+                }
                 _ => {
                     return Err(syn::Error::new(
                         name.span(),
@@ -157,6 +189,7 @@ impl Parse for TaskAttributes {
             trigger_rules,
             on_success,
             on_failure,
+            invokes_computation_graph,
         })
     }
 }
@@ -686,6 +719,63 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         None => quote! {},
     };
 
+    // When `invokes = computation_graph(H)` is set, the macro emits an extra
+    // step that runs after the user body (pre-work) and:
+    //
+    // 1. Pulls the compiled fn off the handle through `<H as
+    //    ::cloacina::TriggerlessGraph>::compiled_fn()`. Reactor-triggered
+    //    graphs do not implement `TriggerlessGraph`; binding to one fails to
+    //    compile with "trait not implemented" — the compile-time gate the
+    //    AC requires.
+    // 2. Invokes the graph with a clone of the task's context.
+    // 3. On Completed, zips terminal node names with the typed-erased
+    //    outputs (which the trigger-less codegen pre-serialized to
+    //    `serde_json::Value` at the terminal site) and routes each into the
+    //    output context under its terminal name.
+    // 4. On Error, surfaces the GraphError as a `TaskError::ExecutionFailed`.
+    let graph_invocation = match &attrs.invokes_computation_graph {
+        Some(handle_path) => quote! {
+            {
+                let __graph_fn = <#handle_path as ::cloacina::TriggerlessGraph>::compiled_fn();
+                let __terminal_names =
+                    <#handle_path as ::cloacina::TriggerlessGraph>::terminal_node_names();
+                let __ctx_for_graph = context.clone_data();
+                let __graph_result = __graph_fn(__ctx_for_graph).await;
+                match __graph_result {
+                    ::cloacina::computation_graph::GraphResult::Completed { outputs } => {
+                        for (idx, name) in __terminal_names.iter().enumerate() {
+                            if let Some(boxed) = outputs.get(idx) {
+                                if let Some(value) =
+                                    boxed.downcast_ref::<::serde_json::Value>()
+                                {
+                                    if context.get(*name).is_some() {
+                                        let _ = context.update(*name, value.clone());
+                                    } else {
+                                        let _ = context.insert(*name, value.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ::cloacina::computation_graph::GraphResult::Error(graph_err) => {
+                        let task_error = ::cloacina_workflow::TaskError::ExecutionFailed {
+                            message: format!(
+                                "computation_graph '{}' invocation failed: {}",
+                                <#handle_path as ::cloacina_computation_graph::Graph>::NAME,
+                                graph_err,
+                            ),
+                            task_id: #task_id.to_string(),
+                            timestamp: chrono::Utc::now(),
+                        };
+                        #on_failure_call
+                        return Err(task_error);
+                    }
+                }
+            }
+        },
+        None => quote! {},
+    };
+
     quote! {
         // Keep the original function for testing
         #fn_vis #fn_asyncness fn #fn_name(#fn_inputs) #fn_output #fn_block
@@ -737,6 +827,8 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                 // Convert the result to our expected format
                 match #execute_body {
                     Ok(()) => {
+                        // Optional CG invocation (no-op when `invokes` is unset).
+                        #graph_invocation
                         #on_success_call
                         Ok(context)
                     },

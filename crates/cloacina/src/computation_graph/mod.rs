@@ -40,5 +40,5 @@ pub use accumulator::{
     BoundarySender, EventSource, PollingAccumulator,
 };
 pub use global_registry::ComputationGraphRegistration;
-pub use triggerless::{TriggerlessGraphFn, TriggerlessGraphRegistration};
+pub use triggerless::{TriggerlessGraph, TriggerlessGraphFn, TriggerlessGraphRegistration};
 pub use types::{GraphError, GraphResult, InputCache, SourceName};
