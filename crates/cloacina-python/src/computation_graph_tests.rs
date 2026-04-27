@@ -25,7 +25,20 @@ mod tests {
     use pyo3::prelude::*;
     use serial_test::serial;
 
+    use std::sync::Arc;
+
     use crate::computation_graph;
+    use crate::reactor;
+    use crate::runtime_scope::ScopedRuntime;
+
+    /// Install a fresh ScopedRuntime + register the reactor decorator into
+    /// the locals dict. Tests that use `@reactor(...)` need both.
+    fn install_runtime_and_reactor(py: Python<'_>) -> (Arc<cloacina::Runtime>, ScopedRuntime) {
+        let rt = Arc::new(cloacina::Runtime::empty());
+        let scope = ScopedRuntime::new(rt.clone()).unwrap();
+        let _ = py;
+        (rt, scope)
+    }
 
     /// Helper: run a Python script that defines a computation graph using the
     /// builder + @node pattern, then return the registered executor.
@@ -34,11 +47,15 @@ mod tests {
         graph_name: &str,
         python_code: &std::ffi::CStr,
     ) {
-        // Make our node decorator and builder available to the Python code
+        let _ = graph_name;
         let globals = py.import("builtins").unwrap().dict();
-        let locals = pyo3::types::PyDict::new(py);
+        let locals = build_test_locals(py);
+        py.run(python_code, Some(&globals), Some(&locals)).unwrap();
+    }
 
-        // Register our functions in locals so Python can call them
+    /// Make node/builder/reactor decorators available to Python test code.
+    fn build_test_locals(py: Python<'_>) -> Bound<'_, pyo3::types::PyDict> {
+        let locals = pyo3::types::PyDict::new(py);
         locals
             .set_item(
                 "node",
@@ -51,8 +68,13 @@ mod tests {
                 py.get_type::<computation_graph::PyComputationGraphBuilder>(),
             )
             .unwrap();
-
-        py.run(python_code, Some(&globals), Some(&locals)).unwrap();
+        locals
+            .set_item(
+                "reactor",
+                pyo3::wrap_pyfunction!(reactor::reactor, py).unwrap(),
+            )
+            .unwrap();
+        locals
     }
 
     #[test]
@@ -60,13 +82,17 @@ mod tests {
     fn test_linear_graph_via_builder() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
             define_graph_and_get_executor(
                 py,
                 "linear_test",
                 c_str!(
                     r#"
+@reactor(name="linear_test_rx", accumulators=["alpha"], mode="when_any")
+class LinearRx: pass
+
 with ComputationGraphBuilder("linear_test",
-    react={"mode": "when_any", "accumulators": ["alpha"]},
+    reactor=LinearRx,
     graph={
         "entry": {"inputs": ["alpha"], "next": "output"},
         "output": {},
@@ -97,13 +123,17 @@ with ComputationGraphBuilder("linear_test",
     fn test_routing_graph_via_builder() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
             define_graph_and_get_executor(
                 py,
                 "routing_test",
                 c_str!(
                     r#"
+@reactor(name="routing_test_rx", accumulators=["alpha", "beta"], mode="when_any")
+class RoutingRx: pass
+
 with ComputationGraphBuilder("routing_test",
-    react={"mode": "when_any", "accumulators": ["alpha", "beta"]},
+    reactor=RoutingRx,
     graph={
         "decision": {"inputs": ["alpha", "beta"], "routes": {
             "Signal": "signal_handler",
@@ -143,27 +173,19 @@ with ComputationGraphBuilder("routing_test",
     fn test_missing_node_errors() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
-            let locals = pyo3::types::PyDict::new(py);
-            locals
-                .set_item(
-                    "node",
-                    pyo3::wrap_pyfunction!(computation_graph::node, py).unwrap(),
-                )
-                .unwrap();
-            locals
-                .set_item(
-                    "ComputationGraphBuilder",
-                    py.get_type::<computation_graph::PyComputationGraphBuilder>(),
-                )
-                .unwrap();
+            let locals = build_test_locals(py);
 
             // Define graph topology referencing "output" but don't define the function
             let result = py.run(
                 c_str!(
                     r#"
+@reactor(name="missing_test_rx", accumulators=["alpha"], mode="when_any")
+class MissingRx: pass
+
 with ComputationGraphBuilder("missing_test",
-    react={"mode": "when_any", "accumulators": ["alpha"]},
+    reactor=MissingRx,
     graph={
         "entry": {"inputs": ["alpha"], "next": "output"},
         "output": {},
@@ -189,27 +211,19 @@ with ComputationGraphBuilder("missing_test",
     fn test_orphan_node_errors() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
-            let locals = pyo3::types::PyDict::new(py);
-            locals
-                .set_item(
-                    "node",
-                    pyo3::wrap_pyfunction!(computation_graph::node, py).unwrap(),
-                )
-                .unwrap();
-            locals
-                .set_item(
-                    "ComputationGraphBuilder",
-                    py.get_type::<computation_graph::PyComputationGraphBuilder>(),
-                )
-                .unwrap();
+            let locals = build_test_locals(py);
 
             // Define a node function not referenced in topology
             let result = py.run(
                 c_str!(
                     r#"
+@reactor(name="orphan_test_rx", accumulators=["alpha"], mode="when_any")
+class OrphanRx: pass
+
 with ComputationGraphBuilder("orphan_test",
-    react={"mode": "when_any", "accumulators": ["alpha"]},
+    reactor=OrphanRx,
     graph={
         "entry": {"inputs": ["alpha"]},
     }
@@ -238,26 +252,18 @@ with ComputationGraphBuilder("orphan_test",
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
-            let locals = pyo3::types::PyDict::new(py);
-            locals
-                .set_item(
-                    "node",
-                    pyo3::wrap_pyfunction!(computation_graph::node, py).unwrap(),
-                )
-                .unwrap();
-            locals
-                .set_item(
-                    "ComputationGraphBuilder",
-                    py.get_type::<computation_graph::PyComputationGraphBuilder>(),
-                )
-                .unwrap();
+            let locals = build_test_locals(py);
 
             py.run(
                 c_str!(
                     r#"
+@reactor(name="exec_linear_rx", accumulators=["alpha"], mode="when_any")
+class ExecLinearRx: pass
+
 with ComputationGraphBuilder("exec_linear",
-    react={"mode": "when_any", "accumulators": ["alpha"]},
+    reactor=ExecLinearRx,
     graph={
         "entry": {"inputs": ["alpha"], "next": "output"},
         "output": {},
@@ -306,26 +312,18 @@ with ComputationGraphBuilder("exec_linear",
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
             let globals = py.import("builtins").unwrap().dict();
-            let locals = pyo3::types::PyDict::new(py);
-            locals
-                .set_item(
-                    "node",
-                    pyo3::wrap_pyfunction!(computation_graph::node, py).unwrap(),
-                )
-                .unwrap();
-            locals
-                .set_item(
-                    "ComputationGraphBuilder",
-                    py.get_type::<computation_graph::PyComputationGraphBuilder>(),
-                )
-                .unwrap();
+            let locals = build_test_locals(py);
 
             py.run(
                 c_str!(
                     r#"
+@reactor(name="exec_routing_rx", accumulators=["alpha", "beta"], mode="when_any")
+class ExecRoutingRx: pass
+
 with ComputationGraphBuilder("exec_routing",
-    react={"mode": "when_any", "accumulators": ["alpha", "beta"]},
+    reactor=ExecRoutingRx,
     graph={
         "decision": {"inputs": ["alpha", "beta"], "routes": {
             "Signal": "signal_handler",
@@ -382,6 +380,194 @@ with ComputationGraphBuilder("exec_routing",
             _ => {}
         }
         assert!(result.is_completed(), "routing graph should complete");
+    }
+
+    // =========================================================================
+    // M2 — split form, trigger-less form, bundled-form rejection
+    // =========================================================================
+
+    #[test]
+    #[serial]
+    fn test_trigger_less_graph_builds() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
+            define_graph_and_get_executor(
+                py,
+                "tless",
+                c_str!(
+                    r#"
+with ComputationGraphBuilder("tless",
+    graph={
+        "entry": {"next": "tail"},
+        "tail": {},
+    }
+) as builder:
+
+    @node
+    def entry(ctx):
+        return {"v": 1}
+
+    @node
+    def tail(prev):
+        return {"done": True}
+"#
+                ),
+            );
+
+            let executor = computation_graph::get_graph_executor("tless")
+                .expect("trigger-less executor should be registered");
+            assert!(!executor.has_reactor, "trigger-less graph has no reactor");
+
+            // The builder's NAME getter exposes the graph name as a handle.
+            let locals = build_test_locals(py);
+            let globals = py.import("builtins").unwrap().dict();
+            py.run(
+                c_str!(
+                    r#"
+b = ComputationGraphBuilder("name_check", graph={"x": {}})
+assert b.NAME == "name_check", b.NAME
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            )
+            .unwrap();
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_trigger_less_rejects_cache_inputs() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = build_test_locals(py);
+
+            let result = py.run(
+                c_str!(
+                    r#"
+with ComputationGraphBuilder("bad_tless",
+    graph={
+        "entry": {"inputs": ["alpha"]},
+    }
+) as builder:
+
+    @node
+    def entry(alpha):
+        return {}
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            );
+
+            assert!(result.is_err(), "trigger-less + cache inputs must error");
+            let msg = result.unwrap_err().to_string();
+            assert!(
+                msg.contains("trigger-less"),
+                "error should call out trigger-less mismatch, got: {msg}"
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_bundled_react_kwarg_rejected() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = build_test_locals(py);
+
+            let result = py.run(
+                c_str!(
+                    r#"
+ComputationGraphBuilder("bundled",
+    react={"mode": "when_any", "accumulators": ["a"]},
+    graph={"entry": {"inputs": ["a"]}})
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            );
+
+            assert!(result.is_err(), "bundled react=... must error");
+            let msg = result.unwrap_err().to_string();
+            assert!(
+                msg.contains("CLOACI-I-0101"),
+                "error should reference the migration initiative, got: {msg}"
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_split_form_unknown_accumulator_rejected() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = build_test_locals(py);
+
+            let result = py.run(
+                c_str!(
+                    r#"
+@reactor(name="rx_known", accumulators=["alpha"], mode="when_any")
+class RxKnown: pass
+
+with ComputationGraphBuilder("typo_graph",
+    reactor=RxKnown,
+    graph={"entry": {"inputs": ["alphaa"]}}
+) as builder:
+
+    @node
+    def entry(alphaa):
+        return {}
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            );
+
+            assert!(result.is_err(), "unknown accumulator must error");
+            let msg = result.unwrap_err().to_string();
+            assert!(
+                msg.contains("alphaa") && msg.contains("rx_known"),
+                "error should pinpoint the typo + reactor, got: {msg}"
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_reactor_kwarg_must_be_decorated_class() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let (_rt, _scope) = install_runtime_and_reactor(py);
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = build_test_locals(py);
+
+            let result = py.run(
+                c_str!(
+                    r#"
+class NotAReactor: pass
+
+ComputationGraphBuilder("g", reactor=NotAReactor, graph={"x": {}})
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            );
+
+            assert!(result.is_err(), "non-decorated class must error");
+            let msg = result.unwrap_err().to_string();
+            assert!(
+                msg.contains("@cloaca.reactor"),
+                "error should mention @cloaca.reactor, got: {msg}"
+            );
+        });
     }
 
     // =========================================================================

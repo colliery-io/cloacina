@@ -120,3 +120,23 @@ class RiskSignals: pass
 `mode` kwarg only (criteria_accumulators == accumulators) — that's what the existing bundled-form Python users encoded in `react={"mode": ..., "accumulators": [...]}`, so it's the parity surface. We can extend to a split criteria list later if a scenario needs it; today's two in-tree users (`server.py`, `market_maker/graph.py`) don't.
 
 Decorator: validates name non-empty + accumulators non-empty + unique + mode in {"when_any","when_all"}; sets `NAME`, `ACCUMULATORS`, `REACTION_MODE` class attrs; calls `current_runtime().register_reactor(name, || ReactorRegistration { ... })`. Returns class unchanged.
+
+### 2026-04-27 — M1 done, M2 done
+
+**M1 landed** (commit `8682538`): `crates/cloacina-python/src/reactor.rs` exposes `@cloaca.reactor`. Wired into both the maturin pymodule (`lib.rs`) and the synthetic `cloaca` module created by the loader (`loader.rs`). 6 unit tests, all green.
+
+**M2 landed** (this turn): `ComputationGraphBuilder` rebuilt around two flavors:
+
+- Drop the bundled `react={"mode":..., "accumulators":[...]}` kwarg. If passed, raises a clear migration error pointing at I-0101.
+- Add `reactor=ReactorClass` (split form). Class must be `@cloaca.reactor`-decorated — pulls `NAME`/`ACCUMULATORS`/`REACTION_MODE` off the class. Non-decorated classes get a precise `TypeError`.
+- Add trigger-less form (omit `reactor=` entirely). Validation in `__exit__`: every node's `inputs=[...]` must be empty. The builder's `NAME` getter exposes the graph name so the instance serves as the `@cloaca.task(invokes=...)` handle.
+- Added split-form sanity check: any cache input declared by a node must be in the reactor's accumulator set (catches typos at registration).
+- `PythonGraphExecutor` gained `has_reactor: bool`. `build_python_graph_declaration` returns `None` for trigger-less graphs (they aren't reactor-driven).
+- Migrated all six existing CG tests to the new API (split form via `@reactor` decorator).
+- Added 5 new tests: trigger-less builds + `NAME` exposed; trigger-less rejects cache inputs; bundled-form rejected with migration message; split-form unknown-accumulator rejected; non-decorated class rejected.
+
+All 118 cloacina-python lib tests green. Ready for M3 (`@cloaca.task(invokes=GraphHandle, post_invocation=fn)` body resolution + terminal routing).
+
+In-tree bundled-form Python users still on the old surface (M4 migrates these):
+- `.angreal/test/soak/server.py:407,498`
+- `examples/features/computation-graphs/python-packaged-graph/market_maker/graph.py:28`

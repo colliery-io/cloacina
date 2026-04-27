@@ -16,7 +16,32 @@
 
 //! Python computation graph bindings.
 //!
-//! Mirrors the WorkflowBuilder + @task pattern:
+//! Mirrors the WorkflowBuilder + @task pattern. Two flavors:
+//!
+//! 1. **Reactor-triggered** — the graph is bound to a `@cloaca.reactor` class.
+//!    Entry nodes consume the reactor's accumulator payloads.
+//!
+//!    ```python
+//!    @cloaca.reactor(name="market_maker",
+//!                    accumulators=["alpha", "beta"],
+//!                    mode="when_any")
+//!    class MarketMaker: pass
+//!
+//!    with cloaca.ComputationGraphBuilder("market_maker",
+//!        reactor=MarketMaker,
+//!        graph={...}) as builder: ...
+//!    ```
+//!
+//! 2. **Trigger-less** — the graph is invoked by a workflow task via
+//!    `@cloaca.task(invokes=...)`. Entry nodes take only the task context;
+//!    no accumulator/cache inputs are permitted.
+//!
+//!    ```python
+//!    with cloaca.ComputationGraphBuilder("score_transactions",
+//!        graph={"score": {}}) as score_graph: ...
+//!    ```
+//!
+//! Pre-split (bundled) form:
 //! ```python
 //! with cloaca.ComputationGraphBuilder("market_maker",
 //!     react={"mode": "when_any", "accumulators": ["alpha", "beta"]},
@@ -321,43 +346,61 @@ pub fn node(py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
 #[pyclass(name = "ComputationGraphBuilder")]
 pub struct PyComputationGraphBuilder {
     name: String,
-    react_mode: String,
-    accumulators: Vec<String>,
+    /// Reactor binding for the split form; `None` means trigger-less.
+    reactor_binding: Option<ReactorBinding>,
     nodes_decl: Vec<PyNodeDecl>,
+}
+
+#[derive(Debug, Clone)]
+struct ReactorBinding {
+    name: String,
+    accumulators: Vec<String>,
+    /// `"when_any"` | `"when_all"`.
+    mode: String,
 }
 
 #[pymethods]
 impl PyComputationGraphBuilder {
     #[new]
-    #[pyo3(signature = (name, *, react, graph))]
+    #[pyo3(signature = (name, *, graph, reactor = None, react = None))]
     pub fn new(
         _py: Python<'_>,
         name: &str,
-        react: &Bound<'_, PyDict>,
         graph: &Bound<'_, PyDict>,
+        reactor: Option<&Bound<'_, PyAny>>,
+        react: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let react_mode: String = react
-            .get_item("mode")?
-            .ok_or_else(|| PyKeyError::new_err("react dict missing 'mode'"))?
-            .extract()?;
+        // Hard-break migration: bundled `react={...}` form is gone — point users
+        // at I-0101 with a clear error.
+        if react.is_some() {
+            return Err(PyValueError::new_err(
+                "ComputationGraphBuilder no longer accepts the bundled `react={...}` kwarg. \
+                 Declare a `@cloaca.reactor` class and pass `reactor=YourReactor`, \
+                 or omit `reactor` entirely for a trigger-less graph invoked by \
+                 `@cloaca.task(invokes=...)`. See initiative CLOACI-I-0101.",
+            ));
+        }
 
-        let accumulators: Vec<String> = react
-            .get_item("accumulators")?
-            .ok_or_else(|| PyKeyError::new_err("react dict missing 'accumulators'"))?
-            .downcast::<PyList>()
-            .map_err(|_| PyTypeError::new_err("'accumulators' must be a list"))?
-            .iter()
-            .map(|item| item.extract::<String>())
-            .collect::<PyResult<_>>()?;
+        let reactor_binding = match reactor {
+            None => None,
+            Some(r) => Some(extract_reactor_binding(r)?),
+        };
 
         let nodes_decl = parse_graph_dict(graph)?;
 
         Ok(PyComputationGraphBuilder {
             name: name.to_string(),
-            react_mode,
-            accumulators,
+            reactor_binding,
             nodes_decl,
         })
+    }
+
+    /// The graph's declared name. Mirrors Rust's `Graph::NAME` so this
+    /// instance can serve as the handle referenced by `@cloaca.task(invokes=...)`.
+    #[getter]
+    #[allow(non_snake_case)]
+    pub fn NAME(&self) -> String {
+        self.name.clone()
     }
 
     /// Context manager entry — establish graph context for @node decorators
@@ -398,6 +441,39 @@ impl PyComputationGraphBuilder {
             }
         }
 
+        // Trigger-less entry contract: in trigger-less form, no node may
+        // declare cache `inputs=[...]` — those inputs only exist when a
+        // reactor is feeding the graph. Trigger-less graphs receive their
+        // input via the task `Context` passed by `@cloaca.task(invokes=...)`.
+        if self.reactor_binding.is_none() {
+            for decl in &self.nodes_decl {
+                if !decl.cache_inputs.is_empty() {
+                    return Err(PyValueError::new_err(format!(
+                        "trigger-less computation graph '{}': node '{}' declares cache \
+                         inputs={:?}, but trigger-less graphs have no accumulator inputs. \
+                         Either remove the inputs (graph receives data through the task \
+                         context) or bind a reactor with `reactor=YourReactor`.",
+                        self.name, decl.name, decl.cache_inputs
+                    )));
+                }
+            }
+        } else if let Some(ref binding) = self.reactor_binding {
+            // Split-form sanity: every cache input declared by a node must be
+            // one of the reactor's accumulators. Catches typos at registration
+            // time rather than producing silent `None`s at execution time.
+            for decl in &self.nodes_decl {
+                for input in &decl.cache_inputs {
+                    if !binding.accumulators.contains(input) {
+                        return Err(PyValueError::new_err(format!(
+                            "computation graph '{}': node '{}' references cache input \
+                             '{}' which is not in reactor '{}' accumulators {:?}",
+                            self.name, decl.name, input, binding.name, binding.accumulators
+                        )));
+                    }
+                }
+            }
+        }
+
         // Build the executor
         let node_map: HashMap<String, PyNodeDecl> = self
             .nodes_decl
@@ -407,13 +483,19 @@ impl PyComputationGraphBuilder {
             .collect();
         let execution_order = compute_execution_order(&self.nodes_decl);
 
+        let (react_mode, accumulators) = match &self.reactor_binding {
+            Some(b) => (b.mode.clone(), b.accumulators.clone()),
+            None => (String::new(), Vec::new()),
+        };
+
         let executor = PythonGraphExecutor {
             name: self.name.clone(),
             node_functions: registered_nodes,
             node_map,
             execution_order,
-            react_mode: self.react_mode.clone(),
-            accumulators: self.accumulators.clone(),
+            react_mode,
+            accumulators,
+            has_reactor: self.reactor_binding.is_some(),
         };
 
         // Register the executor globally (similar to workflow registration)
@@ -485,6 +567,9 @@ pub struct PythonGraphExecutor {
     execution_order: Vec<String>,
     react_mode: String,
     accumulators: Vec<String>,
+    /// `true` when the graph is bound to a reactor. Trigger-less graphs
+    /// (`false`) cannot be turned into a `ComputationGraphDeclaration`.
+    pub has_reactor: bool,
 }
 
 // SAFETY: All PyObject access goes through Python::with_gil() inside spawn_blocking.
@@ -504,6 +589,7 @@ impl Clone for PythonGraphExecutor {
             execution_order: self.execution_order.clone(),
             react_mode: self.react_mode.clone(),
             accumulators: self.accumulators.clone(),
+            has_reactor: self.has_reactor,
         })
     }
 }
@@ -614,6 +700,14 @@ pub fn build_python_graph_declaration(
     use std::sync::Arc;
 
     let executor = get_graph_executor(graph_name)?;
+
+    // Trigger-less graphs aren't reactor-driven and therefore have no
+    // ComputationGraphDeclaration to publish. Callers that need the graph
+    // (e.g. a `@cloaca.task(invokes=...)` body) look it up through
+    // `get_graph_executor` directly.
+    if !executor.has_reactor {
+        return None;
+    }
 
     let criteria = match executor.react_mode.as_str() {
         "when_all" => ReactionCriteria::WhenAll,
@@ -852,6 +946,30 @@ fn build_node_args<'py>(
 
     PyTuple::new(py, &args)
         .map_err(|e| GraphError::NodeExecution(format!("args tuple creation failed: {}", e)))
+}
+
+// ---------------------------------------------------------------------------
+// Reactor handle extraction
+// ---------------------------------------------------------------------------
+
+/// Pull `NAME`, `ACCUMULATORS`, and `REACTION_MODE` off a `@cloaca.reactor`-
+/// decorated class. Anything else (string, dict, instance) is rejected here so
+/// the user gets a precise error rather than a downstream `AttributeError`.
+fn extract_reactor_binding(obj: &Bound<'_, PyAny>) -> PyResult<ReactorBinding> {
+    if !obj.hasattr("NAME")? || !obj.hasattr("ACCUMULATORS")? || !obj.hasattr("REACTION_MODE")? {
+        return Err(PyTypeError::new_err(
+            "ComputationGraphBuilder(reactor=...) expects a class decorated with \
+             @cloaca.reactor (must expose NAME / ACCUMULATORS / REACTION_MODE)",
+        ));
+    }
+    let name: String = obj.getattr("NAME")?.extract()?;
+    let accumulators: Vec<String> = obj.getattr("ACCUMULATORS")?.extract()?;
+    let mode: String = obj.getattr("REACTION_MODE")?.extract()?;
+    Ok(ReactorBinding {
+        name,
+        accumulators,
+        mode,
+    })
 }
 
 // ---------------------------------------------------------------------------
