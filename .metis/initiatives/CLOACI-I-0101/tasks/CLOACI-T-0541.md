@@ -137,6 +137,24 @@ Decorator: validates name non-empty + accumulators non-empty + unique + mode in 
 
 All 118 cloacina-python lib tests green. Ready for M3 (`@cloaca.task(invokes=GraphHandle, post_invocation=fn)` body resolution + terminal routing).
 
+### 2026-04-27 — M3 done
+
+`@cloaca.task` now mirrors Rust T-0540 M3+M5:
+
+- Two new kwargs: `invokes=GraphHandle` (a `ComputationGraphBuilder` instance, identified by its `NAME`) and `post_invocation=fn`. Validation at decoration time rejects (a) `post_invocation` without `invokes`, (b) `invokes=` targets that aren't registered yet (the `with` block must precede the `@task`), and (c) reactor-triggered targets (`has_reactor == true`).
+- `PythonGraphExecutor` gained `terminal_names()` (terminal nodes in execution order) and an async `execute_trigger_less(ctx)` that runs the graph with a Python `Context` as the entry-node arg. Implementation: refactored `execute_graph_sync` into an `_inner` that threads `Option<&PyObject>` through `build_node_args`; for "root" nodes (no incoming edges, no cache inputs) the trigger-less ctx is prepended as the sole arg.
+- `PythonTaskWrapper` carries an `Option<CGInvocation>` (graph_name + terminal_names + post_invocation). Restructured `execute()` so the user body runs first under spawn_blocking+with_gil, then the CG invocation `.await`s outside the GIL, then post_invocation, then on_success — preserving the Rust ordering.
+- Terminal routing: each terminal's `serde_json::Value` lands in the task context under the terminal node's name (insert if absent, update if present).
+- New `fire_on_failure` helper rebuilds the on_failure callback context across both graph-error and post-invocation-error paths.
+
+Four new M3 tests (in `task.rs::m3_tests`):
+1. trigger-less graph invoked by task; verifies terminal lands in context.
+2. `post_invocation` runs after graph fires; mutates context which propagates.
+3. `post_invocation` without `invokes` rejected at decoration.
+4. `invokes=` target that's reactor-triggered rejected at decoration.
+
+All 122 cloacina-python lib tests green (was 118). Ready for M4 (in-tree migration of `.angreal/test/soak/server.py` and `examples/.../python-packaged-graph/market_maker/graph.py`).
+
 In-tree bundled-form Python users still on the old surface (M4 migrates these):
 - `.angreal/test/soak/server.py:407,498`
 - `examples/features/computation-graphs/python-packaged-graph/market_maker/graph.py:28`

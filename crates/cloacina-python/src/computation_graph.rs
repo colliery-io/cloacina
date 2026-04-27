@@ -678,6 +678,54 @@ impl PythonGraphExecutor {
             ))),
         }
     }
+
+    /// Terminal node names in `execution_order`, in the order their outputs
+    /// will be appended to the result vector. Used by `@cloaca.task(invokes=...)`
+    /// to route outputs back into the task context under their terminal name.
+    pub fn terminal_names(&self) -> Vec<String> {
+        self.execution_order
+            .iter()
+            .filter(|n| {
+                matches!(
+                    self.node_map.get(*n).map(|d| &d.edge),
+                    Some(PyEdgeDecl::Terminal)
+                )
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Execute a trigger-less graph with a Python `Context` object.
+    ///
+    /// Each "root" node — one with no upstream edges and no cache inputs —
+    /// receives the context as its single argument. Downstream nodes get
+    /// their predecessor's output as before. Terminal node return values
+    /// (`serde_json::Value`s) are returned in execution order, paired up
+    /// with `terminal_names()` by the caller.
+    pub async fn execute_trigger_less(&self, ctx: PyObject) -> GraphResult {
+        let executor = self.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            Python::with_gil(|py| {
+                execute_graph_sync_with_context(
+                    py,
+                    &executor.node_functions,
+                    &executor.execution_order,
+                    &executor.node_map,
+                    &ctx,
+                )
+            })
+        })
+        .await;
+
+        match result {
+            Ok(Ok(outputs)) => GraphResult::completed(outputs),
+            Ok(Err(e)) => GraphResult::error(e),
+            Err(join_err) => GraphResult::error(GraphError::NodeExecution(format!(
+                "trigger-less graph execution panicked: {}",
+                join_err
+            ))),
+        }
+    }
 }
 
 /// Build a [`ComputationGraphDeclaration`] from a registered Python graph executor.
@@ -761,12 +809,52 @@ pub fn build_python_graph_declaration(
 // Graph execution (synchronous, inside GIL)
 // ---------------------------------------------------------------------------
 
+/// Sync helper used by both reactor-triggered and trigger-less paths.
+/// `trigger_less_ctx`, when `Some`, is passed as the sole argument to every
+/// "root" node (one with no incoming edges and no cache inputs). The
+/// reactor-triggered path leaves this `None`.
 fn execute_graph_sync(
     py: Python<'_>,
     node_functions: &HashMap<String, PyObject>,
     execution_order: &[String],
     node_map: &HashMap<String, PyNodeDecl>,
     cache_values: &HashMap<String, serde_json::Value>,
+) -> Result<Vec<Box<dyn std::any::Any + Send>>, GraphError> {
+    execute_graph_sync_inner(
+        py,
+        node_functions,
+        execution_order,
+        node_map,
+        cache_values,
+        None,
+    )
+}
+
+fn execute_graph_sync_with_context(
+    py: Python<'_>,
+    node_functions: &HashMap<String, PyObject>,
+    execution_order: &[String],
+    node_map: &HashMap<String, PyNodeDecl>,
+    ctx: &PyObject,
+) -> Result<Vec<Box<dyn std::any::Any + Send>>, GraphError> {
+    let empty_cache: HashMap<String, serde_json::Value> = HashMap::new();
+    execute_graph_sync_inner(
+        py,
+        node_functions,
+        execution_order,
+        node_map,
+        &empty_cache,
+        Some(ctx),
+    )
+}
+
+fn execute_graph_sync_inner(
+    py: Python<'_>,
+    node_functions: &HashMap<String, PyObject>,
+    execution_order: &[String],
+    node_map: &HashMap<String, PyNodeDecl>,
+    cache_values: &HashMap<String, serde_json::Value>,
+    trigger_less_ctx: Option<&PyObject>,
 ) -> Result<Vec<Box<dyn std::any::Any + Send>>, GraphError> {
     let mut terminal_results: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     let mut node_results: HashMap<String, PyObject> = HashMap::new();
@@ -824,7 +912,8 @@ fn execute_graph_sync(
             }
         }
 
-        // Build arguments
+        // Build arguments. In trigger-less mode, root nodes (no incoming
+        // edges, no cache inputs) take the task `Context` as their sole arg.
         let args = build_node_args(
             py,
             node_name,
@@ -832,6 +921,7 @@ fn execute_graph_sync(
             cache_values,
             &node_results,
             &incoming,
+            trigger_less_ctx,
         )?;
 
         // Call the function
@@ -912,8 +1002,24 @@ fn build_node_args<'py>(
     cache_values: &HashMap<String, serde_json::Value>,
     node_results: &HashMap<String, PyObject>,
     incoming: &HashMap<String, Vec<(String, Option<String>)>>,
+    trigger_less_ctx: Option<&PyObject>,
 ) -> Result<Bound<'py, PyTuple>, GraphError> {
     let mut args: Vec<PyObject> = Vec::new();
+
+    // Trigger-less root: a node with no incoming edges and no cache inputs
+    // gets the task Context as its sole arg.
+    let has_incoming = incoming
+        .get(node_name)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    if let Some(ctx) = trigger_less_ctx {
+        if !has_incoming && node_decl.cache_inputs.is_empty() {
+            args.push(ctx.clone_ref(py));
+            return PyTuple::new(py, &args).map_err(|e| {
+                GraphError::NodeExecution(format!("args tuple creation failed: {}", e))
+            });
+        }
+    }
 
     // Cache inputs
     for input_name in &node_decl.cache_inputs {
