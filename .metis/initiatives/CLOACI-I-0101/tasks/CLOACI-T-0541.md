@@ -165,6 +165,27 @@ Migrated the two in-tree bundled-form Python users:
 
 Both files parse cleanly; the soak f-string templates expand to valid Python under both substitution paths. All 122 cloacina-python lib tests green. Ready for M5 (Python scenario tests + `angreal test integration` runs under both backends).
 
+### 2026-04-27 — M5 done
+
+Wrote `tests/python/test_scenario_32_task_invokes_computation_graph.py` covering:
+
+- single-terminal trigger-less CG invoked by task → terminal lands in `final_context`
+- multi-terminal routing CG → only the *selected* branch's terminal lands; the skipped branch contributes nothing
+- `post_invocation` hook runs after CG, can mutate context, mutation propagates to `final_context`
+- decoration-time validation: `post_invocation` without `invokes`, unregistered graph handle, reactor-triggered graph as `invokes` target
+- graph node exception → task fails (status != Completed)
+
+**Bug surfaced + fixed by the multi-terminal scenario**: the M3 design separately tracked `terminal_names` (static, all terminals) and graph outputs (only those that fired). When a routing branch was skipped, `outputs[i]` no longer aligned with `terminal_names[i]` — terminal values landed under the wrong key. Refactored the trigger-less executor path:
+
+- New `execute_graph_sync_named_terminals(...)` returns `Vec<(String, serde_json::Value)>` — terminal name paired with value, in the order each terminal fires. Skipped routing branches contribute no pair.
+- `PythonGraphExecutor::execute_trigger_less` now returns `Result<Vec<(String, Value)>, GraphError>` directly.
+- `CGInvocation` no longer carries a `terminal_names` snapshot; the task wrapper consumes the named pairs directly and routes them into the context.
+- Test scaffolding fix: pytest scenarios that exercise decoration-time errors must register at least one task in their workflow before the failing one, otherwise `WorkflowBuilder.__exit__` fails with "Workflow cannot be empty" before pytest sees the expected `ValueError`.
+
+`angreal test integration --backend sqlite --python-file test_scenario_32_task_invokes_computation_graph.py` — green (1 file passed). `angreal test integration --backend postgres --python-file test_scenario_32_task_invokes_computation_graph.py` — green (1 file passed; full Rust integration suite 281 passed alongside it). All 122 cloacina-python lib tests still green.
+
+**T-0541 complete.** All five milestones landed: M1 `@cloaca.reactor`, M2 builder split (`reactor=` vs trigger-less), M3 `@cloaca.task(invokes=, post_invocation=)`, M4 in-tree migration, M5 scenario tests + integration green on both backends. Ready for phase transition to `completed`.
+
 In-tree bundled-form Python users still on the old surface (M4 migrates these):
 - `.angreal/test/soak/server.py:407,498`
 - `examples/features/computation-graphs/python-packaged-graph/market_maker/graph.py:28`

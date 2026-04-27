@@ -699,14 +699,19 @@ impl PythonGraphExecutor {
     ///
     /// Each "root" node — one with no upstream edges and no cache inputs —
     /// receives the context as its single argument. Downstream nodes get
-    /// their predecessor's output as before. Terminal node return values
-    /// (`serde_json::Value`s) are returned in execution order, paired up
-    /// with `terminal_names()` by the caller.
-    pub async fn execute_trigger_less(&self, ctx: PyObject) -> GraphResult {
+    /// their predecessor's output as before. Returns `(terminal_name, value)`
+    /// pairs in the order each terminal *actually fired* — so routing
+    /// branches that were skipped do not appear in the output. The task
+    /// wrapper routes each pair into the task context under its terminal
+    /// node name.
+    pub async fn execute_trigger_less(
+        &self,
+        ctx: PyObject,
+    ) -> Result<Vec<(String, serde_json::Value)>, GraphError> {
         let executor = self.clone();
-        let result = tokio::task::spawn_blocking(move || {
+        match tokio::task::spawn_blocking(move || {
             Python::with_gil(|py| {
-                execute_graph_sync_with_context(
+                execute_graph_sync_named_terminals(
                     py,
                     &executor.node_functions,
                     &executor.execution_order,
@@ -715,12 +720,11 @@ impl PythonGraphExecutor {
                 )
             })
         })
-        .await;
-
-        match result {
-            Ok(Ok(outputs)) => GraphResult::completed(outputs),
-            Ok(Err(e)) => GraphResult::error(e),
-            Err(join_err) => GraphResult::error(GraphError::NodeExecution(format!(
+        .await
+        {
+            Ok(Ok(pairs)) => Ok(pairs),
+            Ok(Err(e)) => Err(e),
+            Err(join_err) => Err(GraphError::NodeExecution(format!(
                 "trigger-less graph execution panicked: {}",
                 join_err
             ))),
@@ -846,6 +850,153 @@ fn execute_graph_sync_with_context(
         &empty_cache,
         Some(ctx),
     )
+}
+
+/// Trigger-less variant that returns `(terminal_name, value)` pairs in the
+/// order each terminal fired. Routing branches that aren't selected emit no
+/// pair, so consumers (e.g. `@cloaca.task(invokes=...)`) can route outputs
+/// to context keys without misalignment.
+fn execute_graph_sync_named_terminals(
+    py: Python<'_>,
+    node_functions: &HashMap<String, PyObject>,
+    execution_order: &[String],
+    node_map: &HashMap<String, PyNodeDecl>,
+    ctx: &PyObject,
+) -> Result<Vec<(String, serde_json::Value)>, GraphError> {
+    let cache_values: HashMap<String, serde_json::Value> = HashMap::new();
+    let trigger_less_ctx = Some(ctx);
+
+    let mut pairs: Vec<(String, serde_json::Value)> = Vec::new();
+    let mut node_results: HashMap<String, PyObject> = HashMap::new();
+
+    let mut incoming: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
+    for node in node_map.values() {
+        match &node.edge {
+            PyEdgeDecl::Linear { target } => {
+                incoming
+                    .entry(target.clone())
+                    .or_default()
+                    .push((node.name.clone(), None));
+            }
+            PyEdgeDecl::Routing { variants } => {
+                for (variant_name, target) in variants {
+                    incoming
+                        .entry(target.clone())
+                        .or_default()
+                        .push((node.name.clone(), Some(variant_name.clone())));
+                }
+            }
+            PyEdgeDecl::Terminal => {}
+        }
+    }
+
+    let mut skipped_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for node_name in execution_order {
+        if skipped_nodes.contains(node_name) {
+            continue;
+        }
+
+        let node_decl = node_map.get(node_name).ok_or_else(|| {
+            GraphError::Execution(format!("node '{}' not found in topology", node_name))
+        })?;
+
+        if let Some(sources) = incoming.get(node_name) {
+            let mut should_skip = false;
+            for (from_node, variant) in sources {
+                if let Some(v) = variant {
+                    let selected_key = format!("{}:__selected_variant", from_node);
+                    if let Some(selected) = node_results.get(&selected_key) {
+                        let selected_str: String = selected.extract(py).unwrap_or_default();
+                        if selected_str != *v {
+                            should_skip = true;
+                        }
+                    }
+                }
+            }
+            if should_skip {
+                skipped_nodes.insert(node_name.clone());
+                continue;
+            }
+        }
+
+        let args = build_node_args(
+            py,
+            node_name,
+            node_decl,
+            &cache_values,
+            &node_results,
+            &incoming,
+            trigger_less_ctx,
+        )?;
+
+        let func = node_functions.get(node_name).ok_or_else(|| {
+            GraphError::NodeExecution(format!("function '{}' not registered", node_name))
+        })?;
+
+        let result = func.call1(py, args).map_err(|e| {
+            GraphError::NodeExecution(format!("node '{}' failed: {}", node_name, e))
+        })?;
+
+        match &node_decl.edge {
+            PyEdgeDecl::Terminal => {
+                let json_val: serde_json::Value =
+                    pythonize::depythonize(result.bind(py)).map_err(|e| {
+                        GraphError::Serialization(format!(
+                            "terminal '{}' result conversion failed: {}",
+                            node_name, e
+                        ))
+                    })?;
+                pairs.push((node_name.clone(), json_val));
+            }
+            PyEdgeDecl::Linear { .. } => {
+                node_results.insert(node_name.clone(), result);
+            }
+            PyEdgeDecl::Routing { .. } => {
+                let tuple = result.downcast_bound::<PyTuple>(py).map_err(|_| {
+                    GraphError::NodeExecution(format!(
+                        "routing node '{}' must return a (variant_name, value) tuple",
+                        node_name
+                    ))
+                })?;
+
+                if tuple.len() != 2 {
+                    return Err(GraphError::NodeExecution(format!(
+                        "routing node '{}' returned tuple of length {}, expected 2",
+                        node_name,
+                        tuple.len()
+                    )));
+                }
+
+                let variant_name = tuple
+                    .get_item(0)
+                    .map_err(|e| GraphError::NodeExecution(format!("tuple index error: {}", e)))?
+                    .downcast::<PyString>()
+                    .map_err(|_| {
+                        GraphError::NodeExecution(format!(
+                            "routing node '{}': first element must be a string",
+                            node_name
+                        ))
+                    })?
+                    .to_string();
+
+                let variant_value = tuple
+                    .get_item(1)
+                    .map_err(|e| GraphError::NodeExecution(format!("tuple index error: {}", e)))?
+                    .unbind();
+
+                node_results.insert(format!("{}:{}", node_name, variant_name), variant_value);
+
+                let variant_py = PyString::new(py, &variant_name);
+                node_results.insert(
+                    format!("{}:__selected_variant", node_name),
+                    variant_py.unbind().into(),
+                );
+            }
+        }
+    }
+
+    Ok(pairs)
 }
 
 fn execute_graph_sync_inner(

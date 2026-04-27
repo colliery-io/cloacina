@@ -118,7 +118,6 @@ pub fn current_workflow_context() -> PyResult<PyWorkflowContext> {
 /// Rust's `#[task(invokes = computation_graph(...))]` (T-0540 M3+M5).
 pub struct CGInvocation {
     pub graph_name: String,
-    pub terminal_names: Vec<String>,
     pub post_invocation: Option<PyObject>,
 }
 
@@ -312,22 +311,17 @@ impl cloacina::Task for PythonTaskWrapper {
                 }
             })?;
 
-            let graph_result = executor.execute_trigger_less(py_ctx_obj).await;
-            match graph_result {
-                cloacina::computation_graph::GraphResult::Completed { outputs } => {
-                    for (idx, name) in invocation.terminal_names.iter().enumerate() {
-                        if let Some(boxed) = outputs.get(idx) {
-                            if let Some(value) = boxed.downcast_ref::<serde_json::Value>() {
-                                if final_context.get(name).is_some() {
-                                    let _ = final_context.update(name, value.clone());
-                                } else {
-                                    let _ = final_context.insert(name.clone(), value.clone());
-                                }
-                            }
+            match executor.execute_trigger_less(py_ctx_obj).await {
+                Ok(pairs) => {
+                    for (name, value) in pairs {
+                        if final_context.get(&name).is_some() {
+                            let _ = final_context.update(&name, value);
+                        } else {
+                            let _ = final_context.insert(name, value);
                         }
                     }
                 }
-                cloacina::computation_graph::GraphResult::Error(graph_err) => {
+                Err(graph_err) => {
                     let msg = format!(
                         "computation graph '{}' invocation failed: {}",
                         invocation.graph_name, graph_err
@@ -570,10 +564,10 @@ impl TaskDecorator {
                         graph_name
                     )));
                 }
+                let _ = executor; // existence verified above; runtime lookup happens at exec
                 let post_invocation = self.post_invocation.as_ref().map(|f| f.clone_ref(py));
                 Some(CGInvocation {
                     graph_name,
-                    terminal_names: executor.terminal_names(),
                     post_invocation,
                 })
             }
@@ -611,7 +605,6 @@ impl TaskDecorator {
                     let cg_invocation_clone = cg_invocation_arc_inner.as_ref().map(|cg| {
                         Python::with_gil(|py| CGInvocation {
                             graph_name: cg.graph_name.clone(),
-                            terminal_names: cg.terminal_names.clone(),
                             post_invocation: cg.post_invocation.as_ref().map(|f| f.clone_ref(py)),
                         })
                     });
