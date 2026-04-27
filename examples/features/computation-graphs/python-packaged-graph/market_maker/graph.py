@@ -22,10 +22,20 @@ def pricing(event):
     return event
 
 
+# Declare the reactor that triggers the graph (CLOACI-I-0101 split).
+@cloaca.reactor(
+    name="market_maker",
+    accumulators=["orderbook", "pricing"],
+    mode="when_any",
+)
+class MarketMakerReactor:
+    pass
+
+
 # Define the computation graph
 with cloaca.ComputationGraphBuilder(
     "market_maker",
-    react={"mode": "when_any", "accumulators": ["orderbook", "pricing"]},
+    reactor=MarketMakerReactor,
     graph={
         "decision": {
             "inputs": ["orderbook", "pricing"],

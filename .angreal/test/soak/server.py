@@ -402,9 +402,13 @@ input_strategy = "latest"
 def py_alpha(event):
     return event
 
+@cloaca.reactor(name="{graph_name}_rx", accumulators=["py_alpha"], mode="when_any")
+class _SoakReactor:
+    pass
+
 with cloaca.ComputationGraphBuilder(
     "{graph_name}",
-    react={{"mode": "when_any", "accumulators": ["py_alpha"]}},
+    reactor=_SoakReactor,
     graph={{
         "decision": {{"inputs": ["py_alpha"], "routes": {{
             "Trade": "signal_handler",
@@ -493,12 +497,16 @@ group = "{pkg_name}-group"
 def {acc_name}(event):
     return event
 
+@cloaca.reactor(name="{graph_name}_rx", accumulators=["{acc_name}"], mode="when_any")
+class _SoakKafkaReactor:
+    pass
+
 with cloaca.ComputationGraphBuilder(
     "{graph_name}",
-    react={{"mode": "when_any", "accumulators": ["{acc_name}"]}},
+    reactor=_SoakKafkaReactor,
     graph={{
-        "process": {{"inputs": ["{acc_name}"]}},
-        "output": {{"inputs": ["process"]}},
+        "process": {{"inputs": ["{acc_name}"], "next": "output"}},
+        "output": {{}},
     }},
 ) as builder:
 

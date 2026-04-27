@@ -155,6 +155,16 @@ Four new M3 tests (in `task.rs::m3_tests`):
 
 All 122 cloacina-python lib tests green (was 118). Ready for M4 (in-tree migration of `.angreal/test/soak/server.py` and `examples/.../python-packaged-graph/market_maker/graph.py`).
 
+### 2026-04-27 — M4 done
+
+Migrated the two in-tree bundled-form Python users:
+
+- `examples/features/computation-graphs/python-packaged-graph/market_maker/graph.py`: added `@cloaca.reactor(name="market_maker", accumulators=["orderbook","pricing"], mode="when_any") class MarketMakerReactor`, switched the builder to `reactor=MarketMakerReactor`.
+- `.angreal/test/soak/server.py`: both Python CG fixtures (passthrough and Kafka source) now declare `@cloaca.reactor` classes (`_SoakReactor` / `_SoakKafkaReactor`) and use `reactor=...`. Reactor names are `<graph>_rx` so each fixture has a unique reactor in the runtime registry.
+- Bug-fix in passing: the Kafka soak fixture's `output: {"inputs": ["process"]}` was nominally referencing a node as if it were an accumulator (silently produced None under the bundled form); the new split-form validator would reject this. Topology corrected to `process: {"inputs": ["..."], "next": "output"}, output: {}` — same intent, semantically faithful, and passes the new validator.
+
+Both files parse cleanly; the soak f-string templates expand to valid Python under both substitution paths. All 122 cloacina-python lib tests green. Ready for M5 (Python scenario tests + `angreal test integration` runs under both backends).
+
 In-tree bundled-form Python users still on the old surface (M4 migrates these):
 - `.angreal/test/soak/server.py:407,498`
 - `examples/features/computation-graphs/python-packaged-graph/market_maker/graph.py:28`
