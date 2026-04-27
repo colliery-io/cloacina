@@ -4,14 +4,14 @@ level: task
 title: "T-03: Python decorator parity for split CG + CG-invoking task"
 short_code: "CLOACI-T-0541"
 created_at: 2026-04-24T15:08:19.954995+00:00
-updated_at: 2026-04-24T15:08:19.954995+00:00
+updated_at: 2026-04-25T17:42:39.823528+00:00
 parent: CLOACI-I-0101
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0101
 ## Objective
 
 Mirror the Rust declaration surface from T-01a and T-02 in the Python bindings. `@cloaca.computation_graph` accepts the `trigger = reactor("name")` kwarg; `@cloaca.task` accepts `invokes = computation_graph("name")`. Python is dynamic, so validation is runtime, not compile-time, but the authoring experience must match what Rust users see.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -71,4 +73,50 @@ Mirror the Rust declaration surface from T-01a and T-02 in the Python bindings. 
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-04-27 — Scope reset: minimum Python parity for Rust split-CG work
+
+**Initial drift caught.** First-pass design was creeping toward redesigning Python CG authoring (fluent topology builder, removing `@cloaca.node`, etc.). That's new scope, not parity. T-0541's actual job: **mirror in Python the Rust surface that landed in T-0538 (`#[reactor]`), T-0539 (bundled-form removal), and T-0540 (`#[task(invokes = ...)]`)** — nothing more.
+
+**Conceptual frame:** a computation graph is a unit-of-work primitive that runs in one of two modes — embedded in a workflow as a task-invoked function (trigger-less), or driven by a reactor as a fast event-driven path (reactor-triggered). T-0541 makes both modes available from Python with the same authoring shape Rust has.
+
+**Locked scope (the minimum, do not extend):**
+
+1. **`@cloaca.reactor` class decorator** — new, mirrors Rust's `#[reactor]`. Class gets `NAME` / `ACCUMULATORS` / `REACTION_MODE` attributes for handle use; registers a `ReactorRegistration` in the Rust runtime via FFI.
+2. **`ComputationGraphBuilder` kwarg change** — `react={"mode": ..., "accumulators": [...]}` → `reactor=ReactorClass` (split form) or omit entirely (trigger-less). Everything else about the existing builder stays: `name=`, `graph={...}` topology dict, `@cloaca.node` decorator inside the `with` block, the `__enter__`/`__exit__` thread-local plumbing, the validation pass at `__exit__`. Do NOT rename the class. Do NOT add a fluent topology API. Do NOT remove `@cloaca.node`.
+3. **Two-flavor entry contract** — trigger-less CG entry takes `ctx: cloaca.Context`; reactor-triggered CG entry keeps today's typed accumulator payloads. Validation at `__exit__`: in trigger-less form, every node's `(...)` cache-input list must be empty.
+4. **`@cloaca.task` extensions** — add `invokes=GraphHandle` (class reference, where the class is what the builder emits as its public handle) and `post_invocation=fn`. Mirrors Rust T-0540 M3+M5: invocation runs after the user body, calls compiled fn with task context, routes terminals back into the context. Registration-time error if `invokes` target is reactor-triggered.
+5. **Hard-break migration** — delete the `react={...}` kwarg parser path. Live in-tree Python users (`.angreal/test/soak/server.py`, `examples/features/computation-graphs/python-packaged-graph/`) migrate in this task. Tutorials 09/10/11 are explicitly T-0542's territory.
+
+**Deferred / out of scope:**
+- Fan-out (one reactor → many graphs): T-0544.
+- Tutorial rewrites + how-to + release notes: T-0542.
+- Type-compatibility runtime check between reactor payload shape and graph entry signature: skip — Python lives with runtime errors and the check would be fragile.
+- Fluent topology API inside `with` block: not parity work.
+- Removing `@cloaca.node`: not parity work.
+
+**Implementation milestones** (each commits separately on `i-0101-cg-reactor-decouple`):
+- **M1** — `@cloaca.reactor` class decorator + Rust-runtime registration via FFI. Class gains `NAME`/`ACCUMULATORS`/`REACTION_MODE` attributes.
+- **M2** — `ComputationGraphBuilder`: drop `react={...}` kwarg, add `reactor=ReactorClass` (split) and trigger-less form. Trigger-less entry contract enforced at `__exit__`. The class also becomes the handle (gets a `NAME` attribute) so `@cloaca.task(invokes=...)` can reference it.
+- **M3** — `@cloaca.task(invokes=GraphHandle, post_invocation=fn)`. Body resolves graph by name from runtime registry, calls compiled fn with task context, routes terminals back. Reject reactor-triggered targets at registration.
+- **M4** — Migrate `.angreal/test/soak/server.py` and `examples/features/computation-graphs/python-packaged-graph/` to the new surface. Delete the bundled-form parser path; emit a clear migration error pointing at I-0101 if the old kwarg is used.
+- **M5** — Python scenario tests covering trigger-less CG invoked by task + `@cloaca.reactor` registration. `angreal test integration --backend sqlite` and `--backend postgres` green before phase transition.
+
+**Context handoff (for the next session):**
+- Branch is `i-0101-cg-reactor-decouple`, pushed through commit `9b5bd31` (T-0540 M5).
+- Live Python users of bundled-form CG: `.angreal/test/soak/server.py`, `examples/features/computation-graphs/python-packaged-graph/market_maker/graph.py`. Tutorials in `examples/tutorials/python/computation-graphs/{09,10,11}*.py` are explicitly out of scope here — T-0542 owns them.
+- Key files: `crates/cloacina-python/src/computation_graph.rs` (existing builder, accumulator decorators, `@cloaca.node`), `crates/cloacina-python/src/task.rs` and `workflow.rs` (task decorator), `crates/cloacina-python/src/lib.rs` (pymodule registration).
+- Rust-side reference for the surface to mirror: `crates/cloacina-macros/src/reactor_attr.rs`, the trigger-less branch of `crates/cloacina-macros/src/computation_graph/codegen.rs`, the `invokes` + `post_invocation` paths in `crates/cloacina-macros/src/tasks.rs`.
+- No code edits landed for T-0541 yet. Start with M1.
+
+### 2026-04-27 — M1 in progress
+
+Starting `@cloaca.reactor` class decorator. Putting it in a new `crates/cloacina-python/src/reactor.rs` to keep it separate from `computation_graph.rs` (which already pushes 1k LOC). Decorator surface:
+
+```python
+@cloaca.reactor(name="risk_signals", accumulators=["alpha","beta"], mode="when_any")
+class RiskSignals: pass
+```
+
+`mode` kwarg only (criteria_accumulators == accumulators) — that's what the existing bundled-form Python users encoded in `react={"mode": ..., "accumulators": [...]}`, so it's the parity surface. We can extend to a split criteria list later if a scenario needs it; today's two in-tree users (`server.py`, `market_maker/graph.py`) don't.
+
+Decorator: validates name non-empty + accumulators non-empty + unique + mode in {"when_any","when_all"}; sets `NAME`, `ACCUMULATORS`, `REACTION_MODE` class attrs; calls `current_runtime().register_reactor(name, || ReactorRegistration { ... })`. Returns class unchanged.

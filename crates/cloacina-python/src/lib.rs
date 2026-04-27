@@ -37,6 +37,7 @@ pub mod executor;
 pub mod context;
 pub mod loader;
 pub mod namespace;
+pub mod reactor;
 pub mod task;
 pub mod trigger;
 pub mod workflow;
@@ -111,6 +112,8 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(trigger::trigger, m)?)?;
     m.add_class::<bindings::trigger::PyTriggerResult>()?;
+
+    m.add_function(wrap_pyfunction!(reactor::reactor, m)?)?;
 
     m.add_class::<workflow::PyWorkflowBuilder>()?;
     m.add_class::<workflow::PyWorkflow>()?;
@@ -230,6 +233,8 @@ mod tests {
             assert!(cloaca_mod.hasattr("TriggerResult").unwrap());
             assert!(cloaca_mod.hasattr("WorkflowBuilder").unwrap());
             assert!(cloaca_mod.hasattr("Context").unwrap());
+            // Reactor class decorator (mirrors Rust #[reactor])
+            assert!(cloaca_mod.hasattr("reactor").unwrap());
             // Computation graph decorators
             assert!(cloaca_mod.hasattr("passthrough_accumulator").unwrap());
             assert!(cloaca_mod.hasattr("stream_accumulator").unwrap());

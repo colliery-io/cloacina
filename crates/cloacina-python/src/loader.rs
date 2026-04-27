@@ -126,6 +126,9 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
     module.add_class::<super::trigger::PyTriggerResult>()?;
     module.add_class::<super::trigger::TriggerDecorator>()?;
 
+    // Reactor class decorator (mirrors Rust #[reactor])
+    module.add_function(wrap_pyfunction!(super::reactor::reactor, &module)?)?;
+
     // Value objects
     module.add_class::<super::workflow_context::PyWorkflowContext>()?;
     module.add_class::<super::namespace::PyTaskNamespace>()?;
