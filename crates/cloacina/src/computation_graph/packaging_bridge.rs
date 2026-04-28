@@ -477,6 +477,80 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
     }
 }
 
+// ---------------------------------------------------------------------------
+// T-0545 M3a: dispatch reactors registered in a Runtime into a scheduler
+// ---------------------------------------------------------------------------
+
+/// Dispatch every reactor registered in `runtime` into `scheduler` via
+/// `scheduler.load_reactor`. Idempotent on `(reactor_name, contract)` —
+/// callable repeatedly without spawning duplicate reactors.
+///
+/// This is the runtime-side glue that makes a reactor declaration in any
+/// package "just work" without a co-located CG subscriber. The reconciler
+/// drives this once per package load, after the language-specific loader
+/// has populated the runtime's reactor registry. Accumulator factories
+/// come from optional `package.toml`-style overrides (passthrough/stream)
+/// with passthrough as the default.
+///
+/// Returns the names of reactors that were dispatched (newly loaded plus
+/// idempotent re-loads). Errors short-circuit and surface to the caller —
+/// package loading is fail-fast under the I-0101 lifecycle model.
+pub async fn dispatch_runtime_reactors_into_scheduler(
+    runtime: &crate::Runtime,
+    scheduler: &super::scheduler::ComputationGraphScheduler,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    tenant_id: Option<String>,
+) -> Result<Vec<String>, String> {
+    let mut dispatched = Vec::new();
+    for name in runtime.reactor_names() {
+        let registration = match runtime.get_reactor(&name) {
+            Some(r) => r,
+            None => continue,
+        };
+
+        let accumulators: Vec<AccumulatorDeclaration> = registration
+            .accumulator_names
+            .iter()
+            .map(|acc_name| {
+                let factory: Arc<dyn AccumulatorFactory> = match accumulator_overrides
+                    .iter()
+                    .find(|cfg| &cfg.name == acc_name)
+                {
+                    Some(override_cfg) => match override_cfg.accumulator_type.as_str() {
+                        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
+                            override_cfg.config.clone(),
+                        )),
+                        _ => Arc::new(PassthroughAccumulatorFactory),
+                    },
+                    None => Arc::new(PassthroughAccumulatorFactory),
+                };
+                AccumulatorDeclaration {
+                    name: acc_name.clone(),
+                    factory,
+                }
+            })
+            .collect();
+
+        let criteria = registration.reaction_mode.into();
+        let strategy = InputStrategy::Latest;
+
+        scheduler
+            .load_reactor(
+                name.clone(),
+                accumulators,
+                criteria,
+                strategy,
+                tenant_id.clone(),
+                vec![],
+            )
+            .await?;
+
+        tracing::info!(reactor = %name, "package-declared reactor loaded into scheduler");
+        dispatched.push(name);
+    }
+    Ok(dispatched)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

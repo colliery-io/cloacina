@@ -187,3 +187,26 @@ This is the runtime-side proof that "a reactor declared anywhere just works" —
 All cloacina-python tests green: 122 (lib) + 1 (cross-language) + 8 (python_package) + 2 (new) + 10 (trigger_packaging).
 
 Next: M3 — Rust packaged path. New `ReactorPackageMetadata` FFI struct + `CloacinaPlugin::get_reactor_metadata()` method + macro codegen for `#[reactor]` under `feature = "packaged"`. Reconciler `loading.rs` walks the FFI metadata first (before CGs in the same package) and calls `scheduler.load_reactor`. Also wires the M2 Python helper into the actual loader.
+
+### 2026-04-28 — M3a done: Python reconciler wiring + reactor-library packages
+
+**Scope refinement.** M3 split into M3a (Python reconciler wiring; runtime-side completeness for Python) and M3b (Rust packaged path; FFI + macro codegen; defers cleanly to a follow-up). M3a is now done; M3b deferred — Rust users today can bundle reactor+CG (existing path) or use the in-process inventory model. Standalone Rust reactor packages are a packaging-distribution improvement, not architectural completeness.
+
+**Changes:**
+
+- Moved `dispatch_runtime_reactors_into_scheduler` from `cloacina-python::reactor` to `cloacina::computation_graph::packaging_bridge`. The helper has no pyo3 deps — it walks a `Runtime`'s reactor registry and dispatches each into a `ComputationGraphScheduler::load_reactor`. Living in `cloacina` lets the reconciler call it directly without the cross-crate dependency direction problem. cloacina-python re-exports it from the same path so M2's tests keep their import.
+- Reconciler `loading.rs` Python branches now call the helper:
+  - **Python workflow load** — after the import + trigger registration, dispatch any reactors the module declared via `@cloaca.reactor`. Failures are logged and don't abort the package load (matches today's `load_graph` warn-on-failure pattern).
+  - **Python CG load** — dispatches reactors *before* calling `scheduler.load_graph(decl)` so the M2 idempotent path finds the already-running reactor instead of synthesizing a per-graph one. This is the cross-package fan-out path: a Python CG package referencing a reactor from another (already-loaded) Python package binds to it.
+- `import_and_register_python_workflow_named` loosened: a Python module that registers reactors but no tasks no longer errors out. Workflow registration is skipped (no tasks to add); reactor registration in the runtime stands on its own. The reconciler then dispatches the reactors into the scheduler.
+- The "empty package" check is the union of tasks and reactors — at least one of the two must register something for the load to succeed.
+
+**Tests.** Existing CG integration suite (45) + cloacina-python (122 lib + 1 cross-language + 8 python_package + 2 reactor_library + 10 trigger_packaging) all green. The M2 reactor-library tests still exercise the helper directly (now via re-export); the reconciler integration is exercised by existing scenario tests that go through the actual loader paths — the new dispatch is a no-op when no Python reactors are registered (which is true for all today's tests).
+
+**What's left for I-0101 functional completeness:**
+
+- T-0542 (docs/release notes — last)
+- M4 of T-0545 (full three-package `angreal test integration` test) — defer until M3b lands or accept the M2/M3a coverage as sufficient for now
+- T-0546 (Rust packaged reactor-only) — the M3b work, as a separate follow-up
+
+Closing T-0545 here unless you want M3b or a fuller M4 integration test before transitioning.

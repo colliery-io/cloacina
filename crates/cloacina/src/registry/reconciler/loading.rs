@@ -211,6 +211,30 @@ impl RegistryReconciler {
             let trigger_names =
                 self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
 
+            // T-0545 M3a: dispatch any reactors the Python module declared
+            // via `@cloaca.reactor` into the ComputationGraphScheduler. Lets
+            // a Python workflow package that also declares reactors bring
+            // them up at load time, without a co-located CG subscriber.
+            {
+                let scheduler_guard = self.graph_scheduler.read().await;
+                if let Some(ref scheduler) = *scheduler_guard {
+                    if let Err(e) =
+                        crate::computation_graph::packaging_bridge::dispatch_runtime_reactors_into_scheduler(
+                            cloacina_runtime.as_ref(),
+                            scheduler,
+                            &cloacina_manifest.metadata.accumulators,
+                            Some(self.config.default_tenant_id.clone()),
+                        )
+                        .await
+                    {
+                        warn!(
+                            "Failed to dispatch Python reactors from package {} into scheduler: {}",
+                            metadata.package_name, e
+                        );
+                    }
+                }
+            }
+
             info!(
                 "Python package loaded: {} v{} — {} tasks, workflow '{}'",
                 metadata.package_name,
@@ -415,6 +439,32 @@ impl RegistryReconciler {
                             }
                         })??
                     };
+
+                    // T-0545 M3a: dispatch reactors the Python CG module
+                    // declared via `@cloaca.reactor` BEFORE loading the
+                    // graph itself. The reactor must be running first so
+                    // load_graph's idempotent path finds it (T-0544 M2);
+                    // otherwise it would synthesize a per-graph reactor
+                    // and miss cross-package fan-out.
+                    {
+                        let scheduler_guard = self.graph_scheduler.read().await;
+                        if let Some(ref scheduler) = *scheduler_guard {
+                            if let Err(e) =
+                                crate::computation_graph::packaging_bridge::dispatch_runtime_reactors_into_scheduler(
+                                    cloacina_runtime.as_ref(),
+                                    scheduler,
+                                    &cloacina_manifest.metadata.accumulators,
+                                    Some(self.config.default_tenant_id.clone()),
+                                )
+                                .await
+                            {
+                                warn!(
+                                    "Failed to dispatch Python reactors from CG package {} into scheduler: {}",
+                                    metadata.package_name, e
+                                );
+                            }
+                        }
+                    }
 
                     if let Some(decl) = maybe_decl {
                         let scheduler_guard = self.graph_scheduler.read().await;

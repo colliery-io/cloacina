@@ -350,29 +350,46 @@ pub fn import_and_register_python_workflow_named(
                 }
             }
 
-            if namespaces.is_empty() {
+            // T-0545 M3a: a "reactor library" module declares only
+            // `@cloaca.reactor` classes — no tasks. Allow that as long as
+            // *something* was registered (tasks OR reactors), since the
+            // reconciler will dispatch the reactors into the scheduler
+            // post-import.
+            if namespaces.is_empty() && rt.reactor_names().is_empty() {
                 return Err(PythonLoaderError::RegistrationError(format!(
-                    "No tasks registered after importing '{}'. Ensure the module uses @cloaca.task decorators.",
+                    "Empty package: importing '{}' registered no tasks and no reactors. \
+                     Ensure the module uses @cloaca.task or @cloaca.reactor decorators.",
                     entry_module
                 )));
             }
 
-            // 7. Validate and register workflow
-            workflow.validate().map_err(|e| {
-                PythonLoaderError::ValidationError(format!("Workflow validation failed: {}", e))
-            })?;
-            let final_workflow = workflow.finalize();
-
-            let workflow_name = final_workflow.name().to_string();
-            rt.register_workflow(workflow_name, move || final_workflow.clone());
-
-            tracing::info!(
-                "Python workflow imported: {} tasks registered for {}::{}::{}",
-                namespaces.len(),
-                t,
-                p,
-                w
-            );
+            // 7. Validate and register workflow — only if tasks were
+            //    registered. A reactor-only "library" package skips the
+            //    workflow registration entirely (workflow validation
+            //    rejects empty workflows).
+            if !namespaces.is_empty() {
+                workflow.validate().map_err(|e| {
+                    PythonLoaderError::ValidationError(format!("Workflow validation failed: {}", e))
+                })?;
+                let final_workflow = workflow.finalize();
+                let workflow_name = final_workflow.name().to_string();
+                rt.register_workflow(workflow_name, move || final_workflow.clone());
+                tracing::info!(
+                    "Python workflow imported: {} tasks registered for {}::{}::{}",
+                    namespaces.len(),
+                    t,
+                    p,
+                    w
+                );
+            } else {
+                tracing::info!(
+                    "Python reactor-library package imported: {} reactors, no workflow tasks ({}::{}::{})",
+                    rt.reactor_names().len(),
+                    t,
+                    p,
+                    w
+                );
+            }
 
             Ok(namespaces)
         })
