@@ -200,3 +200,83 @@ class CrossPkgRx: pass
     scheduler.unbind_graph_from_reactor("late_g").await.unwrap();
     scheduler.unload_reactor("cross_pkg_rx").await.unwrap();
 }
+
+/// T-0545 M3a end-to-end: a Python *workflow* package that registers only
+/// `@cloaca.reactor` declarations (no `@cloaca.task`) loads successfully
+/// through `import_and_register_python_workflow_named`, and the reactors
+/// dispatch into the scheduler via the reconciler-side helper. Proves the
+/// "empty workflow ok if reactors registered" loosening + the reconciler's
+/// dispatch path together.
+#[test]
+fn test_python_reactor_only_workflow_package_loads_and_dispatches() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
+    use cloacina_python::loader::import_and_register_python_workflow_named;
+    use tempfile::TempDir;
+
+    pyo3::prepare_freethreaded_python();
+
+    // Lay out a workflow_dir + vendor_dir on disk like the reconciler does
+    // post-extract.
+    // Layout matches what `extract_python_package` produces: workflow_dir
+    // contains the package's source files directly; the loader appends it
+    // to sys.path. We use a no-prefix entry_module to keep the test self-
+    // contained (no need to mimic the `workflow/` package hierarchy that
+    // the .cloacina extract path produces).
+    let dir = TempDir::new().unwrap();
+    let workflow_dir = dir.path().join("workflow_src");
+    let vendor_dir = dir.path().join("vendor");
+    std::fs::create_dir_all(&workflow_dir).unwrap();
+    std::fs::create_dir_all(&vendor_dir).unwrap();
+    std::fs::write(
+        workflow_dir.join("m3a_reactors_only.py"),
+        r#"
+import cloaca
+
+@cloaca.reactor(name="m3a_only_rx", accumulators=["alpha"], mode="when_any")
+class OnlyRx:
+    pass
+"#,
+    )
+    .unwrap();
+
+    let rt = std::sync::Arc::new(cloacina::Runtime::empty());
+
+    // Run the import. Empty-tasks-but-reactors-registered should NOT error.
+    let namespaces = import_and_register_python_workflow_named(
+        &workflow_dir,
+        &vendor_dir,
+        "m3a_reactors_only",
+        "m3a_only_pkg",
+        "m3a_only_wf",
+        "tenant_alpha",
+        rt.clone(),
+    )
+    .expect("reactor-only workflow package should load");
+    assert!(
+        namespaces.is_empty(),
+        "no tasks were declared, namespaces should be empty"
+    );
+    assert_eq!(rt.reactor_names(), vec!["m3a_only_rx".to_string()]);
+
+    // The reconciler would now call the dispatch helper. Mimic that.
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    // Driving an async helper from a sync test — block on a small runtime.
+    let dispatched = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            cloacina::computation_graph::packaging_bridge::dispatch_runtime_reactors_into_scheduler(
+                rt.as_ref(),
+                &scheduler,
+                &[],
+                Some("tenant_alpha".to_string()),
+            )
+            .await
+            .expect("dispatch should succeed")
+        });
+    assert_eq!(dispatched, vec!["m3a_only_rx".to_string()]);
+}

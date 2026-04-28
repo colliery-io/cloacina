@@ -210,3 +210,36 @@ Next: M3 — Rust packaged path. New `ReactorPackageMetadata` FFI struct + `Cloa
 - T-0546 (Rust packaged reactor-only) — the M3b work, as a separate follow-up
 
 Closing T-0545 here unless you want M3b or a fuller M4 integration test before transitioning.
+
+### 2026-04-28 — T-0545 closeout
+
+**Architectural finding:** Rust cross-package fan-out (the original M3b motivation) is *already covered* by the T-0544 M5 chain. Two Rust packages each declaring `#[reactor(name="R")]` + `#[computation_graph(trigger = reactor(R), ...)]` flow through:
+
+```
+macro inventory → ComputationGraphRegistration.trigger_reactor
+  → GraphPackageMetadata.trigger_reactor (T-0544 M5 wire format)
+  → ComputationGraphDeclaration.reactor_name (T-0544 M5 bridge)
+  → scheduler.load_graph(decl) → M2 idempotent path collapses both packages onto one reactor
+```
+
+No separate "Rust packaged path with `get_reactor_metadata` plugin method + macro shell" is needed for the bundled-reactor-with-CG case. That capability — Rust reactor-only cdylibs without any CG — is a packaging convenience deferred to **T-0546**.
+
+**Final test added:** `test_python_reactor_only_workflow_package_loads_and_dispatches` in `crates/cloacina-python/tests/python_reactor_library.rs`. Builds a Python module on disk that declares only `@cloaca.reactor`, drives `import_and_register_python_workflow_named` directly, asserts the loosened empty-tasks-but-reactors-OK behavior, then runs the reconciler-side dispatch helper and asserts the reactor lands in the scheduler. End-to-end proof of the M3a path through the actual loader.
+
+**AC coverage:**
+
+- [x] `ComputationGraphScheduler::load_reactor(...)` public API — M1.
+- [x] `ComputationGraphScheduler::unload_reactor(...)` reject-with-subscribers — T-0544 M4.
+- [x] Reconciler routes Rust packages — T-0544 M5 chain (cross-package fan-out via `scheduler.load_graph`'s idempotent path; reactors come up as part of the first CG that names them).
+- [x] Reconciler routes Python packages — M3a: dispatch helper called after Python load in both workflow and CG branches.
+- [x] Package-unload mirrors — `unload_reactor` rejects with subscribers; today's unload paths go through `unload_graph` which becomes a no-op for the reactor when other subscribers remain.
+- [x] Tenant-scoping — flows through declarations (T-0544 M2 contract check + M5 wire format).
+- [x] `cargo check --workspace --all-features` green.
+- [x] `angreal test unit` green.
+- [x] `angreal test integration --backend sqlite` green.
+- [x] `angreal test integration --backend postgres` green (28 Python scenarios + Rust integration suite).
+- [ ] Three-package integration test through angreal harness — partially covered by `cross_language_fan_out` + `python_reactor_library` tests, which exercise the runtime + reconciler-side helpers directly. Heavy three-cdylib/`.cloacina` end-to-end via the angreal soak harness can be added as part of T-0542 (release notes) or T-0546.
+
+**Status: T-0545 functionally complete.** Remaining I-0101 work:
+- **T-0546** (Rust packaged reactor-only cdylib) — packaging convenience, not blocking.
+- **T-0542** (tutorials, how-to, release notes) — last.
