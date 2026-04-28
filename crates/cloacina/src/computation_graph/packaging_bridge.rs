@@ -174,11 +174,15 @@ pub fn build_declaration_from_ffi(
             graph_fn,
         },
         tenant_id: None, // Set by the reconciler based on package ownership
-        // Bundled-form Rust packages don't yet carry an explicit reactor
-        // name through the FFI metadata (M5 wire-format change). Leaving
-        // None synthesizes a per-graph reactor name and preserves today's
-        // 1:1 reactor-per-graph behavior.
-        reactor_name: None,
+        // Propagate the explicit reactor name from the FFI metadata
+        // (T-0544 M5). `Some(name)` opts the graph into shared-reactor
+        // binding — packages built from `#[computation_graph(trigger =
+        // reactor(R))]` now plumb R's name all the way to the scheduler,
+        // so two packages naming the same reactor share one runtime
+        // instance via M2's idempotent path. `None` (today's bundled-form
+        // default and pre-M5 packages via `#[serde(default)]`) keeps the
+        // synthesized per-graph reactor name and 1:1 lifecycle.
+        reactor_name: graph_meta.trigger_reactor.clone(),
     }
 }
 
@@ -499,6 +503,7 @@ mod tests {
                         .collect(),
                 },
             ],
+            trigger_reactor: None,
         };
 
         let decl = build_declaration_from_ffi(&meta, vec![0u8; 100]);
@@ -517,6 +522,7 @@ mod tests {
             reaction_mode: "when_any".to_string(),
             input_strategy: "latest".to_string(),
             accumulators: vec![],
+            trigger_reactor: None,
         };
         let decl_any = build_declaration_from_ffi(&meta_any, vec![]);
         assert!(matches!(
@@ -530,6 +536,7 @@ mod tests {
             reaction_mode: "when_all".to_string(),
             input_strategy: "sequential".to_string(),
             accumulators: vec![],
+            trigger_reactor: None,
         };
         let decl_all = build_declaration_from_ffi(&meta_all, vec![]);
         assert!(matches!(

@@ -354,6 +354,10 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                         reaction_mode: #ffi_reaction_mode_expr,
                         input_strategy: "latest".to_string(),
                         accumulators: #ffi_accumulator_entries_expr,
+                        // T-0544 M5: split-form `trigger = reactor(R)` packages
+                        // emit Some(R.NAME) so cross-package fan-out collapses
+                        // them to one runtime instance.
+                        trigger_reactor: #trigger_reactor_expr,
                     })
                 }
 

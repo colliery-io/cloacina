@@ -483,9 +483,9 @@ impl PyComputationGraphBuilder {
             .collect();
         let execution_order = compute_execution_order(&self.nodes_decl);
 
-        let (react_mode, accumulators) = match &self.reactor_binding {
-            Some(b) => (b.mode.clone(), b.accumulators.clone()),
-            None => (String::new(), Vec::new()),
+        let (react_mode, accumulators, reactor_name) = match &self.reactor_binding {
+            Some(b) => (b.mode.clone(), b.accumulators.clone(), Some(b.name.clone())),
+            None => (String::new(), Vec::new(), None),
         };
 
         let executor = PythonGraphExecutor {
@@ -496,6 +496,7 @@ impl PyComputationGraphBuilder {
             react_mode,
             accumulators,
             has_reactor: self.reactor_binding.is_some(),
+            reactor_name,
         };
 
         // Register the executor globally (similar to workflow registration)
@@ -570,6 +571,11 @@ pub struct PythonGraphExecutor {
     /// `true` when the graph is bound to a reactor. Trigger-less graphs
     /// (`false`) cannot be turned into a `ComputationGraphDeclaration`.
     pub has_reactor: bool,
+    /// Reactor name from the `@cloaca.reactor`-decorated class. Threaded
+    /// into the resulting `ComputationGraphDeclaration.reactor_name` so
+    /// two packages declaring the same reactor share a single runtime
+    /// instance (T-0544 M5 cross-package fan-out).
+    pub reactor_name: Option<String>,
 }
 
 // SAFETY: All PyObject access goes through Python::with_gil() inside spawn_blocking.
@@ -590,6 +596,7 @@ impl Clone for PythonGraphExecutor {
             react_mode: self.react_mode.clone(),
             accumulators: self.accumulators.clone(),
             has_reactor: self.has_reactor,
+            reactor_name: self.reactor_name.clone(),
         })
     }
 }
@@ -767,6 +774,7 @@ pub fn build_python_graph_declaration(
     };
 
     let accumulator_names = executor.accumulators.clone();
+    let reactor_name = executor.reactor_name.clone();
 
     // Build CompiledGraphFn from the Python executor
     let graph_fn: cloacina_computation_graph::CompiledGraphFn =
@@ -806,10 +814,11 @@ pub fn build_python_graph_declaration(
             graph_fn,
         },
         tenant_id,
-        // Python CG packages don't yet plumb an explicit reactor name
-        // through to the scheduler (M5 wire-format change). Per-graph
-        // synthesized reactor name preserves today's 1:1 behavior.
-        reactor_name: None,
+        // T-0544 M5: thread the reactor name from the `@cloaca.reactor`
+        // class through to the scheduler so Python packages naming the
+        // same reactor as a Rust (or Python) package share a runtime
+        // instance via M2's idempotent registration path.
+        reactor_name,
     })
 }
 

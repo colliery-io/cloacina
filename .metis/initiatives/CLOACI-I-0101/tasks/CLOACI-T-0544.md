@@ -177,3 +177,37 @@ Next: M4 — explicit `unbind_graph_from_reactor` / `unload_reactor` API + rejec
 44 CG integration tests green: 39 existing + 5 T-0544 tests.
 
 Next: M5 — cross-language cross-package integration test. Forces the FFI wire-format change (`GraphPackageMetadata.trigger_reactor: Option<String>` with `#[serde(default)]`) and the Python `build_python_graph_declaration` propagation deferred from M2.
+
+### 2026-04-28 — M5 done: reactor-name plumbing + cross-language fan-out test
+
+The reactor name now flows from each package's authoring surface (Rust macro / Python decorator) all the way to the scheduler, so two packages naming the same reactor share a runtime instance via M2's idempotent path. **No special "reactor package" type is needed** — a reactor declared in any package "just works."
+
+**Wire-format changes:**
+
+- `GraphPackageMetadata.trigger_reactor: Option<String>` with `#[serde(default)]`. Backward compatible: packages built before M5 deserialize to `None`; new packages populate it.
+- Rust `#[computation_graph(trigger = reactor(R))]` macro codegen now emits `trigger_reactor: Some(<R as Reactor>::NAME.to_string())` in the FFI metadata. Bundled-form (no `trigger` clause) emits `None`.
+- `build_declaration_from_ffi` reads `graph_meta.trigger_reactor` and sets it on the declaration.
+- Python `PythonGraphExecutor` gained a `reactor_name: Option<String>` field, populated from the `@cloaca.reactor` class binding via `ComputationGraphBuilder.__exit__`. `build_python_graph_declaration` propagates it onto the declaration.
+- All three pre-existing `GraphPackageMetadata` literal sites (one bridge test, one types test, one reaction-mode test) updated with `trigger_reactor: None`.
+
+**Test** — `crates/cloacina-python/tests/cross_language_fan_out.rs::test_cross_language_fan_out_via_shared_reactor_name`:
+
+- Builds a Rust-shaped `GraphPackageMetadata { trigger_reactor: Some("shared_rx"), ... }` and runs it through `build_declaration_from_ffi` → declaration with `reactor_name = Some("shared_rx")`.
+- Drives the Python `@cloaca.reactor(name="shared_rx") class SharedRx` + `ComputationGraphBuilder("py_g", reactor=SharedRx, ...)` block, then calls `build_python_graph_declaration("py_g", ...)` → declaration with `reactor_name = Some("shared_rx")`.
+- Loads both into one `ComputationGraphScheduler`. M2's idempotent path collapses them onto a single reactor.
+- Pushes one event into the `alpha` accumulator. Asserts both Rust and Python subscribers fire exactly once.
+- Cleanup via M4 primitives: explicit `unbind_graph_from_reactor` for each, then `unload_reactor("shared_rx")`.
+
+**T-0544 complete.** All five milestones landed:
+
+- M1 — subscriber-list scaffolding (`8dd99d2`)
+- M2 — explicit reactor identity + idempotent contract-matched registration (`8e57cf3`)
+- M3 — concurrent dispatch via `futures::future::join_all` (`6ea0a8a`)
+- M4 — explicit `unbind_graph_from_reactor` / `unload_reactor` + lifecycle guard (`a271ea8`)
+- M5 — wire-format propagation + cross-language fan-out test (this commit)
+
+Tests:
+- `cargo test -p cloacina --no-default-features --features sqlite,macros --test integration computation_graph` — 44 passed.
+- `cargo test -p cloacina-python --no-default-features --features sqlite` — 122 + 1 (new cross-language test) + others, all green.
+
+**Architectural callout (user steer 2026-04-28):** the original T-0546 plan to introduce `package_type = "reactor"` was scrapped. A reactor declaration in any package is now the canonical shape — the user authors `#[reactor(...)]` (or `@cloaca.reactor(...)`) and the reconciler routes it. T-0546's remaining scope is whatever's needed to make a reactor declared in a package without any subscribing CG actually start a runtime instance (i.e. expose `scheduler.load_reactor` to the reconciler so reactor inventory entries get instantiated independent of `load_graph`).

@@ -99,6 +99,14 @@ pub struct GraphPackageMetadata {
     pub input_strategy: String,
     /// Accumulator declarations
     pub accumulators: Vec<AccumulatorDeclarationEntry>,
+    /// Name of the reactor this graph is bound to. `Some(name)` opts into
+    /// shared-reactor binding — multiple graph packages naming the same
+    /// reactor share a single reactor instance in the runtime (T-0544
+    /// fan-out). `None` (today's bundled-form default) gets a per-graph
+    /// synthesized reactor name with 1:1 lifecycle. `#[serde(default)]`
+    /// keeps this backward compatible with packages built before T-0544 M5.
+    #[serde(default)]
+    pub trigger_reactor: Option<String>,
 }
 
 fn default_input_strategy() -> String {
@@ -469,6 +477,7 @@ mod tests {
                     config: std::collections::HashMap::new(),
                 },
             ],
+            trigger_reactor: None,
         };
 
         let json = serde_json::to_string(&metadata).unwrap();
