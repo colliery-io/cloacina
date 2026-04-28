@@ -151,6 +151,13 @@ fn check_reactor_contract_matches(
     Ok(())
 }
 
+/// Placeholder `CompiledGraphFn` used inside the synthetic anchoring
+/// declaration that backs a reactor in `RunningGraph.declaration`. Never
+/// invoked — the reactor's dispatcher walks the subscribers map instead.
+fn dummy_graph_fn() -> CompiledGraphFn {
+    Arc::new(|_cache: InputCache| Box::pin(async move { GraphResult::completed(vec![]) }))
+}
+
 /// Subscribers bound to a single reactor instance.
 ///
 /// Today every reactor has exactly one subscriber (the bundled-form graph
@@ -228,9 +235,20 @@ struct RunningGraph {
     reactor_health_rx: Option<watch::Receiver<super::reactor::ReactorHealth>>,
     /// Declaration (for restarts).
     declaration: ComputationGraphDeclaration,
-    /// Subscribers bound to this reactor. Today populated with one entry
-    /// per loaded graph; M2 will bind cross-package subscribers here.
+    /// Subscribers bound to this reactor. May contain one or many graphs
+    /// after T-0544 fan-out.
     subscribers: ReactorSubscribers,
+    /// Endpoint-registry keys this reactor is registered under. Always
+    /// includes the reactor's name; bundled/split callers via `load_graph`
+    /// also register the first graph's name as an alias for back-compat
+    /// with `cloacinactl reactor force-fire <graph>` (T-0544 M2 surface).
+    /// All keys are deregistered when the reactor is unloaded and
+    /// re-registered after a restart.
+    endpoint_registry_keys: Vec<String>,
+    /// Manual command sender, kept here so the supervisor's restart path
+    /// can re-register the same channel under the same keys without going
+    /// back through `register_reactor` from scratch.
+    manual_tx: mpsc::Sender<super::reactor::ManualCommand>,
     /// Per-component consecutive failure count.
     failure_counts: HashMap<String, u32>,
     /// Timestamp of last successful operation per component (for failure count reset).
@@ -284,55 +302,51 @@ impl ComputationGraphScheduler {
         }
     }
 
-    /// Load and start a computation graph.
-    pub async fn load_graph(&self, decl: ComputationGraphDeclaration) -> Result<(), String> {
-        let name = decl.name.clone();
-        // Resolve the reactor identity. `Some(...)` from a split-form caller
-        // (T-0544 M2: cross-package fan-out) lets multiple graphs name a
-        // shared reactor. `None` (today's bundled-form path) synthesizes a
-        // per-graph reactor name so behavior is unchanged for callers who
-        // don't opt in.
-        let reactor_name = decl
-            .reactor_name
-            .clone()
-            .unwrap_or_else(|| format!("__Reactor_{}", name));
-
-        // Reject re-loading the same graph regardless of which reactor it
-        // was bound to.
+    /// Load and start a reactor with no subscribers.
+    ///
+    /// Idempotent on `(reactor_name, contract)`: if a reactor with this name
+    /// is already running and the contract matches (accumulators, criteria,
+    /// strategy, tenant_id), this returns `Ok(())` without spawning anything.
+    /// A mismatched contract returns a precise error.
+    ///
+    /// `register_aliases` lets the caller register additional endpoint-registry
+    /// keys pointing at this reactor's manual command channel — used by
+    /// [`load_graph`] to alias the first graph's name for back-compat with
+    /// today's `cloacinactl reactor force-fire <graph>` operator surface.
+    /// Direct callers (e.g. T-0545's reconciler routing for reactor-only
+    /// packages) typically pass `&[]` and address the reactor by its name.
+    ///
+    /// Subscribers are bound separately via [`bind_graph_to_reactor`].
+    pub async fn load_reactor(
+        &self,
+        reactor_name: String,
+        accumulators: Vec<AccumulatorDeclaration>,
+        criteria: ReactionCriteria,
+        strategy: InputStrategy,
+        tenant_id: Option<String>,
+        register_aliases: Vec<String>,
+    ) -> Result<(), String> {
+        // Idempotent path: matching contract → no-op.
         {
-            let g2r = self.graph_to_reactor.read().await;
-            if g2r.contains_key(&name) {
-                return Err(format!("graph '{}' already loaded", name));
-            }
-        }
-
-        // Idempotent reactor reg: if a reactor with this name is already
-        // running, validate that the contract matches and bind the new
-        // graph as a subscriber. Skip the spawn entirely.
-        {
-            let mut reactors = self.reactors.write().await;
-            if let Some(existing) = reactors.get_mut(&reactor_name) {
-                if let Err(e) = check_reactor_contract_matches(&existing.declaration, &decl) {
+            let reactors = self.reactors.read().await;
+            if let Some(existing) = reactors.get(&reactor_name) {
+                let probe = ComputationGraphDeclaration {
+                    name: reactor_name.clone(),
+                    accumulators: accumulators.clone(),
+                    reactor: ReactorDeclaration {
+                        criteria: criteria.clone(),
+                        strategy: strategy.clone(),
+                        graph_fn: dummy_graph_fn(),
+                    },
+                    tenant_id: tenant_id.clone(),
+                    reactor_name: Some(reactor_name.clone()),
+                };
+                if let Err(e) = check_reactor_contract_matches(&existing.declaration, &probe) {
                     return Err(format!(
-                        "graph '{}' references reactor '{}' but the contract differs from the \
-                         already-running reactor: {}",
-                        name, reactor_name, e
+                        "reactor '{}' is already loaded with a different contract: {}",
+                        reactor_name, e
                     ));
                 }
-                existing
-                    .subscribers
-                    .write()
-                    .await
-                    .insert(name.clone(), decl.reactor.graph_fn.clone());
-                self.graph_to_reactor
-                    .write()
-                    .await
-                    .insert(name.clone(), reactor_name.clone());
-                info!(
-                    graph = %name,
-                    reactor = %reactor_name,
-                    "graph bound to existing reactor (fan-out)"
-                );
                 return Ok(());
             }
         }
@@ -345,8 +359,7 @@ impl ComputationGraphScheduler {
         let stored_boundary_tx = boundary_tx.clone();
 
         // Collect expected source names for WhenAll seeding
-        let expected_sources: Vec<SourceName> = decl
-            .accumulators
+        let expected_sources: Vec<SourceName> = accumulators
             .iter()
             .map(|a| SourceName::new(&a.name))
             .collect();
@@ -357,15 +370,14 @@ impl ComputationGraphScheduler {
             String,
             watch::Receiver<super::accumulator::AccumulatorHealth>,
         )> = Vec::new();
-        for acc_decl in &decl.accumulators {
-            // Create health channel for this accumulator
+        for acc_decl in &accumulators {
             let (health_tx, health_rx) = health_channel();
             acc_health_rxs.push((acc_decl.name.clone(), health_rx.clone()));
 
             let spawn_config = AccumulatorSpawnConfig {
                 dal: self.dal.clone(),
                 health_tx: Some(health_tx),
-                graph_name: name.clone(),
+                graph_name: reactor_name.clone(),
             };
 
             let (socket_tx, handle) = acc_decl.factory.spawn(
@@ -375,7 +387,6 @@ impl ComputationGraphScheduler {
                 spawn_config,
             );
 
-            // Register socket and health in endpoint registry
             self.registry
                 .register_accumulator(acc_decl.name.clone(), socket_tx)
                 .await;
@@ -386,26 +397,21 @@ impl ComputationGraphScheduler {
             accumulator_handles.push((acc_decl.name.clone(), handle));
         }
 
-        // Create manual command channel
+        // Manual command channel + reactor health channel
         let (manual_tx, manual_rx) = mpsc::channel(64);
-
-        // Create reactor health channel
         let (reactor_health_tx, reactor_health_rx) = reactor_health_channel();
 
-        // Build subscriber map seeded with the first graph_fn. The reactor
-        // sees a *dispatcher* fn that walks subscribers on every firing, so
-        // adding subscribers later doesn't require touching the running
-        // reactor task.
-        let mut initial_subscribers: HashMap<String, CompiledGraphFn> = HashMap::new();
-        initial_subscribers.insert(name.clone(), decl.reactor.graph_fn.clone());
-        let subscribers: ReactorSubscribers = Arc::new(RwLock::new(initial_subscribers));
+        // Empty subscribers map; subscribers bind via `bind_graph_to_reactor`
+        // after load_reactor returns. The dispatcher walks the (currently
+        // empty) map and returns Completed — the reactor still fires-and-
+        // counts even with zero subscribers.
+        let subscribers: ReactorSubscribers = Arc::new(RwLock::new(HashMap::new()));
         let dispatcher = make_subscriber_dispatcher(reactor_name.clone(), subscribers.clone());
 
-        // Create and spawn reactor with full wiring
         let mut reactor = Reactor::new(
             dispatcher,
-            decl.reactor.criteria.clone(),
-            decl.reactor.strategy.clone(),
+            criteria.clone(),
+            strategy.clone(),
             boundary_rx,
             manual_rx,
             shutdown_rx,
@@ -421,38 +427,64 @@ impl ComputationGraphScheduler {
 
         let reactor_shared = reactor.handle();
 
-        // Register reactor in the endpoint registry under the *first*
-        // graph's name — this preserves today's operator surface where
-        // `cloacinactl reactor force-fire <graph>` addresses the reactor
-        // bound to that graph. Subsequent subscribers (fan-out) take the
-        // idempotent early-return above and do not re-register. Split-form
-        // callers can still address the reactor through whichever
-        // graph_name happens to be the first registrant.
+        // Register reactor under its name + any aliases. Both keys point at
+        // the same manual channel + handle.
+        let mut endpoint_registry_keys = vec![reactor_name.clone()];
         self.registry
-            .register_reactor(name.clone(), manual_tx, reactor_shared.clone())
+            .register_reactor(
+                reactor_name.clone(),
+                manual_tx.clone(),
+                reactor_shared.clone(),
+            )
             .await;
+        for alias in &register_aliases {
+            if alias != &reactor_name {
+                self.registry
+                    .register_reactor(alias.clone(), manual_tx.clone(), reactor_shared.clone())
+                    .await;
+                endpoint_registry_keys.push(alias.clone());
+            }
+        }
 
         // Set auth policies based on package tenant ownership.
-        let acc_policy = match &decl.tenant_id {
+        let acc_policy = match &tenant_id {
             Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
             None => AccumulatorAuthPolicy::allow_all(),
         };
-        let reactor_policy = match &decl.tenant_id {
+        let reactor_policy = match &tenant_id {
             Some(tid) => ReactorAuthPolicy::for_tenant(tid),
             None => ReactorAuthPolicy::allow_all(),
         };
-        for acc_decl in &decl.accumulators {
+        for acc_decl in &accumulators {
             self.registry
                 .set_accumulator_policy(acc_decl.name.clone(), acc_policy.clone())
                 .await;
         }
-        self.registry
-            .set_reactor_policy(name.clone(), reactor_policy)
-            .await;
+        for key in &endpoint_registry_keys {
+            self.registry
+                .set_reactor_policy(key.clone(), reactor_policy.clone())
+                .await;
+        }
 
         let reactor_handle = tokio::spawn(reactor.run());
 
-        info!(graph = %name, reactor = %reactor_name, "computation graph loaded and running");
+        info!(reactor = %reactor_name, "reactor loaded and running");
+
+        // Synthetic anchoring declaration. Contract fields (accumulators,
+        // criteria, strategy, tenant_id) are read on the idempotent path and
+        // by the supervisor's restart logic. `name` carries the reactor's
+        // name for logging/restart purposes.
+        let anchor = ComputationGraphDeclaration {
+            name: reactor_name.clone(),
+            accumulators,
+            reactor: ReactorDeclaration {
+                criteria,
+                strategy,
+                graph_fn: dummy_graph_fn(),
+            },
+            tenant_id,
+            reactor_name: Some(reactor_name.clone()),
+        };
 
         let running = RunningGraph {
             shutdown_tx,
@@ -462,21 +494,108 @@ impl ComputationGraphScheduler {
             reactor_handle,
             reactor_shared,
             reactor_health_rx: Some(reactor_health_rx),
-            declaration: decl,
+            declaration: anchor,
             subscribers,
+            endpoint_registry_keys,
+            manual_tx,
             failure_counts: HashMap::new(),
             last_success: HashMap::new(),
         };
 
-        self.reactors
-            .write()
-            .await
-            .insert(reactor_name.clone(), running);
+        self.reactors.write().await.insert(reactor_name, running);
+        Ok(())
+    }
+
+    /// Bind a graph as an additional subscriber on an already-loaded reactor.
+    ///
+    /// The reactor must have been loaded first (via [`load_reactor`] or
+    /// transitively via [`load_graph`]); this entry point doesn't spawn
+    /// reactors. Returns an error if the reactor isn't loaded or if a graph
+    /// with the same name is already bound somewhere.
+    pub async fn bind_graph_to_reactor(
+        &self,
+        graph_name: String,
+        reactor_name: String,
+        graph_fn: CompiledGraphFn,
+    ) -> Result<(), String> {
+        {
+            let g2r = self.graph_to_reactor.read().await;
+            if g2r.contains_key(&graph_name) {
+                return Err(format!("graph '{}' already loaded", graph_name));
+            }
+        }
+
+        {
+            let reactors = self.reactors.read().await;
+            let existing = reactors
+                .get(&reactor_name)
+                .ok_or_else(|| format!("reactor '{}' is not loaded", reactor_name))?;
+            existing
+                .subscribers
+                .write()
+                .await
+                .insert(graph_name.clone(), graph_fn);
+        }
         self.graph_to_reactor
             .write()
             .await
-            .insert(name, reactor_name);
+            .insert(graph_name.clone(), reactor_name.clone());
+
+        info!(
+            graph = %graph_name,
+            reactor = %reactor_name,
+            "graph bound to reactor"
+        );
         Ok(())
+    }
+
+    /// Load and start a computation graph.
+    ///
+    /// After T-0545 M1 this is a thin wrapper over [`load_reactor`] +
+    /// [`bind_graph_to_reactor`]. It exists so today's bundled-form callers
+    /// (every existing test, every package built before reactor-only
+    /// packages) keep their contract: one call resolves both the reactor's
+    /// lifecycle and the graph's subscription. Independent-reactor consumers
+    /// (the reconciler post-T-0545) call the explicit pair directly.
+    pub async fn load_graph(&self, decl: ComputationGraphDeclaration) -> Result<(), String> {
+        let name = decl.name.clone();
+        // Resolve the reactor identity. `Some(...)` from a split-form caller
+        // (T-0544 M2: cross-package fan-out) lets multiple graphs share a
+        // reactor by name. `None` (today's bundled-form path) synthesizes a
+        // per-graph reactor name preserving the 1:1 reactor-per-graph
+        // behavior.
+        let reactor_name = decl
+            .reactor_name
+            .clone()
+            .unwrap_or_else(|| format!("__Reactor_{}", name));
+
+        // Pre-check: reject re-loading the same graph regardless of which
+        // reactor it was bound to. (load_reactor + bind_graph_to_reactor
+        // would catch this too, but doing it here keeps the error message
+        // precise.)
+        {
+            let g2r = self.graph_to_reactor.read().await;
+            if g2r.contains_key(&name) {
+                return Err(format!("graph '{}' already loaded", name));
+            }
+        }
+
+        // Load (or join) the reactor. We register the graph's name as an
+        // alias so `cloacinactl reactor force-fire <graph>` keeps working
+        // for bundled-form callers and for the first graph that names a
+        // shared reactor (T-0544 M2 surface promise).
+        self.load_reactor(
+            reactor_name.clone(),
+            decl.accumulators.clone(),
+            decl.reactor.criteria.clone(),
+            decl.reactor.strategy.clone(),
+            decl.tenant_id.clone(),
+            vec![name.clone()],
+        )
+        .await?;
+
+        self.bind_graph_to_reactor(name, reactor_name, decl.reactor.graph_fn)
+            .await
     }
 
     /// Load a computation graph that references a reactor declaration by
@@ -602,10 +721,6 @@ impl ComputationGraphScheduler {
                 .ok_or_else(|| format!("reactor '{}' not loaded", reactor_name))?
         };
 
-        // Endpoint registry key is the first graph_name that owned the
-        // reactor (see registration in `load_graph`); recover it from the
-        // anchoring declaration so deregistration matches.
-        let registry_key = running.declaration.name.clone();
         let _ = running.shutdown_tx.send(true);
         let _ =
             tokio::time::timeout(std::time::Duration::from_secs(5), running.reactor_handle).await;
@@ -615,7 +730,12 @@ impl ComputationGraphScheduler {
             self.registry.deregister_accumulator(&acc_name).await;
         }
 
-        self.registry.deregister_reactor(&registry_key).await;
+        // Deregister every endpoint-registry key the reactor was registered
+        // under (its own name + any back-compat aliases for bundled-form
+        // callers).
+        for key in &running.endpoint_registry_keys {
+            self.registry.deregister_reactor(key).await;
+        }
 
         info!(reactor = %reactor_name, "reactor unloaded");
         Ok(())
@@ -794,14 +914,17 @@ impl ComputationGraphScheduler {
                 let reactor_shared = reactor.handle();
                 let reactor_handle = tokio::spawn(reactor.run());
 
-                // Endpoint-registry key is the first graph's name (matching
-                // load_graph). Use the anchoring declaration's name, not the
-                // outer loop variable (which is the reactor_name after the
-                // M2 storage re-keying).
-                let registry_key = running.declaration.name.clone();
-                self.registry
-                    .register_reactor(registry_key.clone(), manual_tx, reactor_shared.clone())
-                    .await;
+                // Re-register every endpoint-registry key the reactor was
+                // originally registered under (its own name + any back-compat
+                // aliases for bundled-form callers; T-0545 M1 stores these
+                // explicitly on RunningGraph instead of recovering from
+                // declaration.name).
+                running.manual_tx = manual_tx.clone();
+                for key in &running.endpoint_registry_keys {
+                    self.registry
+                        .register_reactor(key.clone(), manual_tx.clone(), reactor_shared.clone())
+                        .await;
+                }
 
                 // Re-set auth policies after restart
                 let restart_acc_policy = match &running.declaration.tenant_id {
@@ -817,9 +940,11 @@ impl ComputationGraphScheduler {
                         .set_accumulator_policy(acc_decl.name.clone(), restart_acc_policy.clone())
                         .await;
                 }
-                self.registry
-                    .set_reactor_policy(registry_key.clone(), restart_reactor_policy)
-                    .await;
+                for key in &running.endpoint_registry_keys {
+                    self.registry
+                        .set_reactor_policy(key.clone(), restart_reactor_policy.clone())
+                        .await;
+                }
 
                 running.shutdown_tx = shutdown_tx;
                 running.shutdown_rx = stored_shutdown_rx;

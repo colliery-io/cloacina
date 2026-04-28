@@ -2585,6 +2585,138 @@ async fn test_cloaci_t_0544_dispatch_is_concurrent() {
     scheduler.unload_graph("slow").await.unwrap();
 }
 
+/// T-0545 M1: the new public `load_reactor` + `bind_graph_to_reactor` API
+/// can spawn a reactor with no subscribers and then attach a graph to it.
+/// Proves the explicit pair the reconciler will call (T-0545 M2/M3) works
+/// independently of `load_graph`.
+#[tokio::test]
+async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    // Step 1: load the reactor with no subscribers.
+    scheduler
+        .load_reactor(
+            "cloaci_t_0545_standalone_reactor".to_string(),
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            cloacina::computation_graph::reactor::ReactionCriteria::WhenAny,
+            cloacina::computation_graph::reactor::InputStrategy::Latest,
+            None,
+            vec![],
+        )
+        .await
+        .expect("load_reactor should spawn the reactor with empty subscribers");
+
+    // The reactor is addressable in the registry under its own name (no
+    // aliasing because we passed `register_aliases: vec![]`).
+    assert!(
+        registry
+            .get_reactor_handle("cloaci_t_0545_standalone_reactor")
+            .await
+            .is_some(),
+        "reactor should be in the endpoint registry under its name"
+    );
+
+    // No subscribers yet → list_graphs is empty.
+    assert!(scheduler.list_graphs().await.is_empty());
+
+    // Step 2: idempotent re-load with the same contract is a no-op.
+    scheduler
+        .load_reactor(
+            "cloaci_t_0545_standalone_reactor".to_string(),
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            cloacina::computation_graph::reactor::ReactionCriteria::WhenAny,
+            cloacina::computation_graph::reactor::InputStrategy::Latest,
+            None,
+            vec![],
+        )
+        .await
+        .expect("idempotent load_reactor should succeed when contract matches");
+
+    // Step 3: idempotent re-load with a different contract is rejected.
+    let err = scheduler
+        .load_reactor(
+            "cloaci_t_0545_standalone_reactor".to_string(),
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            cloacina::computation_graph::reactor::ReactionCriteria::WhenAll,
+            cloacina::computation_graph::reactor::InputStrategy::Latest,
+            None,
+            vec![],
+        )
+        .await
+        .expect_err("contract mismatch should reject");
+    assert!(
+        err.contains("reaction criteria differ"),
+        "error should pinpoint criteria mismatch: {err}"
+    );
+
+    // Step 4: bind a graph to the existing reactor.
+    let fires = Arc::new(AtomicU32::new(0));
+    let fires_inner = fires.clone();
+    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = fires_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+    scheduler
+        .bind_graph_to_reactor(
+            "g1".to_string(),
+            "cloaci_t_0545_standalone_reactor".to_string(),
+            graph_fn,
+        )
+        .await
+        .expect("bind should succeed against the loaded reactor");
+
+    // Push event → graph fires.
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 1.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && fires.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(fires.load(Ordering::SeqCst), 1);
+
+    // Step 5: bind_graph_to_reactor against an unloaded reactor errors.
+    let dummy: CompiledGraphFn = Arc::new(|_cache: InputCache| {
+        Box::pin(async { cloacina::computation_graph::GraphResult::completed(vec![]) })
+    });
+    let err = scheduler
+        .bind_graph_to_reactor("g2".to_string(), "no_such_reactor".to_string(), dummy)
+        .await
+        .expect_err("bind to missing reactor should error");
+    assert!(err.contains("not loaded"));
+
+    // Cleanup via M4 primitives.
+    scheduler.unbind_graph_from_reactor("g1").await.unwrap();
+    scheduler
+        .unload_reactor("cloaci_t_0545_standalone_reactor")
+        .await
+        .unwrap();
+}
+
 /// `unbind_graph_from_reactor` removes a subscriber but leaves the reactor
 /// running, so a new subscriber can attach later and start receiving
 /// firings from the same reactor instance.
