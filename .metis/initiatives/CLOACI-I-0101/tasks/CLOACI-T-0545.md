@@ -4,14 +4,14 @@ level: task
 title: "T-05: Reconciler routes reactor inventory through scheduler.load_reactor"
 short_code: "CLOACI-T-0545"
 created_at: 2026-04-28T17:36:52.979771+00:00
-updated_at: 2026-04-28T17:42:18.845611+00:00
+updated_at: 2026-04-28T20:05:53.413347+00:00
 parent: CLOACI-I-0101
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -31,6 +31,8 @@ Make a reactor declared in any package â€” without a co-located CG subscriber â€
 This is the runtime-side piece that makes the user's "the syntax should just work if a reactor is described" call concrete: write `#[reactor(...)]` (or `@cloaca.reactor(...)`) anywhere in any package, and the runtime instantiates it the same way it instantiates a workflow task or a CG.
 
 **No new package type, no wire-format change.** A reactor declaration travels through the existing inventory / Python decorator side-effect channels that T-0543 M1 already wired into `Runtime::register_reactor`. T-0545's job is to walk those registrations at package-load time and call `scheduler.load_reactor`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
