@@ -533,19 +533,19 @@ impl ComputationGraphScheduler {
         self.load_graph(decl).await
     }
 
-    /// Unload a computation graph. If the graph is the last subscriber on
-    /// its reactor, the reactor (and its accumulators) are torn down too —
-    /// preserving today's 1:1 unload semantics for bundled callers. If
-    /// other subscribers remain, only this graph is unbound and the reactor
-    /// keeps running.
-    pub async fn unload_graph(&self, name: &str) -> Result<(), String> {
+    /// Unbind a graph from its reactor without affecting the reactor itself.
+    ///
+    /// The graph stops being a subscriber but the reactor (and its
+    /// accumulators) keeps running, ready for new subscribers. This is the
+    /// honest lifecycle primitive — reactors are independent units; binding
+    /// and unbinding subscribers is decoupled from reactor teardown.
+    pub async fn unbind_graph_from_reactor(&self, name: &str) -> Result<String, String> {
         let reactor_name = {
             let mut g2r = self.graph_to_reactor.write().await;
             g2r.remove(name)
                 .ok_or_else(|| format!("graph '{}' not loaded", name))?
         };
 
-        // Remove the subscriber. If others remain, reactor stays up.
         let remaining = {
             let reactors = self.reactors.read().await;
             if let Some(running) = reactors.get(&reactor_name) {
@@ -553,28 +553,56 @@ impl ComputationGraphScheduler {
                 subs.remove(name);
                 subs.len()
             } else {
-                0
+                // graph_to_reactor pointed at a missing reactor — surface as
+                // an error rather than silently no-oping.
+                return Err(format!(
+                    "graph '{}' was bound to reactor '{}' but the reactor is not loaded",
+                    name, reactor_name
+                ));
             }
         };
-        if remaining > 0 {
-            info!(
-                graph = %name,
-                reactor = %reactor_name,
-                remaining_subscribers = remaining,
-                "graph unbound from shared reactor; reactor stays running"
-            );
-            return Ok(());
+
+        info!(
+            graph = %name,
+            reactor = %reactor_name,
+            remaining_subscribers = remaining,
+            "graph unbound from reactor"
+        );
+        Ok(reactor_name)
+    }
+
+    /// Tear down a reactor and its accumulators. Rejects if the reactor has
+    /// any bound subscribers — operators must unbind subscribers first. This
+    /// is the lifecycle guard that makes "reactors as independent units"
+    /// safe: a reactor never disappears out from under a graph that's still
+    /// declaring it as an upstream.
+    pub async fn unload_reactor(&self, reactor_name: &str) -> Result<(), String> {
+        // Snapshot subscribers under read lock so we can build a precise
+        // error message if any remain.
+        let subscriber_names: Vec<String> = {
+            let reactors = self.reactors.read().await;
+            match reactors.get(reactor_name) {
+                Some(running) => running.subscribers.read().await.keys().cloned().collect(),
+                None => return Err(format!("reactor '{}' not loaded", reactor_name)),
+            }
+        };
+        if !subscriber_names.is_empty() {
+            return Err(format!(
+                "reactor '{}' has {} bound subscriber(s): {:?}; unbind them first",
+                reactor_name,
+                subscriber_names.len(),
+                subscriber_names
+            ));
         }
 
-        // Last subscriber gone — tear down the reactor.
         let running = {
             let mut reactors = self.reactors.write().await;
             reactors
-                .remove(&reactor_name)
+                .remove(reactor_name)
                 .ok_or_else(|| format!("reactor '{}' not loaded", reactor_name))?
         };
 
-        // The endpoint registry key is the first graph_name that owned the
+        // Endpoint registry key is the first graph_name that owned the
         // reactor (see registration in `load_graph`); recover it from the
         // anchoring declaration so deregistration matches.
         let registry_key = running.declaration.name.clone();
@@ -589,6 +617,31 @@ impl ComputationGraphScheduler {
 
         self.registry.deregister_reactor(&registry_key).await;
 
+        info!(reactor = %reactor_name, "reactor unloaded");
+        Ok(())
+    }
+
+    /// Backward-compat convenience: unbind the graph from its reactor and,
+    /// if it was the last subscriber, also tear down the reactor. This
+    /// preserves today's 1:1 reactor-per-graph callers (a single
+    /// `unload_graph(name)` removes everything the matching `load_graph`
+    /// brought in). For independent reactor lifecycles, prefer
+    /// [`unbind_graph_from_reactor`] + explicit [`unload_reactor`].
+    pub async fn unload_graph(&self, name: &str) -> Result<(), String> {
+        let reactor_name = self.unbind_graph_from_reactor(name).await?;
+
+        // If subscribers are now empty, tear down the reactor for back-compat
+        // with bundled-form callers.
+        let now_empty = {
+            let reactors = self.reactors.read().await;
+            match reactors.get(&reactor_name) {
+                Some(running) => running.subscribers.read().await.is_empty(),
+                None => false,
+            }
+        };
+        if now_empty {
+            self.unload_reactor(&reactor_name).await?;
+        }
         info!(graph = %name, reactor = %reactor_name, "computation graph unloaded");
         Ok(())
     }

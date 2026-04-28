@@ -2585,6 +2585,169 @@ async fn test_cloaci_t_0544_dispatch_is_concurrent() {
     scheduler.unload_graph("slow").await.unwrap();
 }
 
+/// `unbind_graph_from_reactor` removes a subscriber but leaves the reactor
+/// running, so a new subscriber can attach later and start receiving
+/// firings from the same reactor instance.
+#[tokio::test]
+async fn test_cloaci_t_0544_unbind_keeps_reactor_running() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    let g_fires = Arc::new(AtomicU32::new(0));
+    let later_fires = Arc::new(AtomicU32::new(0));
+    let g_inner = g_fires.clone();
+    let g_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = g_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+    let later_inner = later_fires.clone();
+    let later_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = later_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0544_unbind_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+    let accs = || {
+        vec![AccumulatorDeclaration {
+            name: "alpha".to_string(),
+            factory: Arc::new(TestAccumulatorFactory),
+        }]
+    };
+    scheduler
+        .load_graph_split("g".to_string(), g_fn, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+
+    // Unbind: subscriber removed, reactor still alive.
+    let reactor = scheduler.unbind_graph_from_reactor("g").await.unwrap();
+    assert_eq!(reactor, "cloaci_t_0544_unbind_reactor");
+    assert!(scheduler.list_graphs().await.is_empty());
+
+    // Attach a new subscriber to the same reactor — should bind to the
+    // already-running instance via the M2 idempotent path.
+    scheduler
+        .load_graph_split("later".to_string(), later_fn, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+
+    // Push an event; only `later` should fire (g was unbound).
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 9.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && later_fires.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(later_fires.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        g_fires.load(Ordering::SeqCst),
+        0,
+        "unbound g should not fire"
+    );
+
+    // Cleanup: explicit reactor teardown after unbinding the last subscriber.
+    scheduler.unbind_graph_from_reactor("later").await.unwrap();
+    scheduler
+        .unload_reactor("cloaci_t_0544_unbind_reactor")
+        .await
+        .expect("unload_reactor with no subscribers should succeed");
+}
+
+/// `unload_reactor` rejects when subscribers are still bound — operators
+/// must unbind first. The error message lists the offending subscribers so
+/// the operator can act on it.
+#[tokio::test]
+async fn test_cloaci_t_0544_unload_reactor_rejects_with_subscribers() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry);
+
+    let nop: CompiledGraphFn = Arc::new(|_cache: InputCache| {
+        Box::pin(async { cloacina::computation_graph::GraphResult::completed(vec![]) })
+    });
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0544_busy_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+    let accs = || {
+        vec![AccumulatorDeclaration {
+            name: "alpha".to_string(),
+            factory: Arc::new(TestAccumulatorFactory),
+        }]
+    };
+    scheduler
+        .load_graph_split(
+            "subscriber_a".to_string(),
+            nop.clone(),
+            &reactor_reg,
+            accs(),
+            None,
+        )
+        .await
+        .unwrap();
+    scheduler
+        .load_graph_split("subscriber_b".to_string(), nop, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+
+    let err = scheduler
+        .unload_reactor("cloaci_t_0544_busy_reactor")
+        .await
+        .expect_err("unload_reactor with bound subscribers should reject");
+    assert!(
+        err.contains("subscriber_a") && err.contains("subscriber_b"),
+        "error should list bound subscribers, got: {err}"
+    );
+    assert!(
+        err.contains("unbind them first"),
+        "error should hint at the recovery action, got: {err}"
+    );
+
+    // Reactor still running — unbind both subscribers explicitly, then
+    // unload_reactor succeeds.
+    scheduler
+        .unbind_graph_from_reactor("subscriber_a")
+        .await
+        .unwrap();
+    scheduler
+        .unbind_graph_from_reactor("subscriber_b")
+        .await
+        .unwrap();
+    scheduler
+        .unload_reactor("cloaci_t_0544_busy_reactor")
+        .await
+        .expect("unload_reactor should succeed once subscribers are unbound");
+}
+
 #[tokio::test]
 async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
     // The `#[computation_graph]` and `#[reactor]` macros gate their

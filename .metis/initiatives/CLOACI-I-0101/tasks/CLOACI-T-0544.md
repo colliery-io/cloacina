@@ -159,3 +159,21 @@ Next: M3 — switch `make_subscriber_dispatcher` from sequential to `tokio::join
 42 CG integration tests green: 39 existing + 3 T-0544 tests.
 
 Next: M4 — explicit `unbind_graph_from_reactor` / `unload_reactor` API + reject `unload_reactor` while subscribers exist. The unload-with-subscribers rejection is the lifecycle guard for the standalone-reactor-package shape (T-0546+); landing it now means the API surface is honest about ownership.
+
+### 2026-04-28 — M4 done: explicit unbind / unload_reactor + lifecycle guard
+
+`ComputationGraphScheduler` gained two new public methods that expose the honest reactor lifecycle:
+
+- **`unbind_graph_from_reactor(graph_name) -> Result<String, String>`** — pure subscriber removal. Reactor (and its accumulators) keeps running, ready for new subscribers. Returns the reactor name on success so callers can chain to `unload_reactor` if they want the bundled-form behavior. Errors if the graph isn't bound, or if the index points to a non-existent reactor (consistency guard).
+- **`unload_reactor(reactor_name) -> Result<(), String>`** — explicit teardown. Snapshots subscribers under read lock and rejects with a precise error listing the bound graphs if any remain (`"reactor 'X' has 2 bound subscriber(s): [\"a\", \"b\"]; unbind them first"`). With zero subscribers, tears down: shutdown signal, await reactor handle, await accumulator handles, deregister endpoint registry.
+
+`unload_graph(graph_name)` is now a backward-compat convenience: it calls `unbind_graph_from_reactor` + (if subscribers became empty) `unload_reactor`. Today's 1:1 callers (every existing test, every bundled-form package) keep their behavior unchanged. Independent-reactor consumers (T-0546+) will use the explicit pair.
+
+**Two new tests:**
+
+1. `test_cloaci_t_0544_unbind_keeps_reactor_running` — load `g`, unbind it, list_graphs returns empty. Load `later` naming the same reactor — M2's idempotent path binds to the still-running reactor. Push event; only `later` fires (g is gone). Cleanup via explicit `unbind` + `unload_reactor`.
+2. `test_cloaci_t_0544_unload_reactor_rejects_with_subscribers` — two subscribers bound; `unload_reactor` rejects with an error naming both subscribers and hinting "unbind them first". After explicit unbinds, `unload_reactor` succeeds.
+
+44 CG integration tests green: 39 existing + 5 T-0544 tests.
+
+Next: M5 — cross-language cross-package integration test. Forces the FFI wire-format change (`GraphPackageMetadata.trigger_reactor: Option<String>` with `#[serde(default)]`) and the Python `build_python_graph_declaration` propagation deferred from M2.
