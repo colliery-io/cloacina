@@ -174,6 +174,11 @@ pub fn build_declaration_from_ffi(
             graph_fn,
         },
         tenant_id: None, // Set by the reconciler based on package ownership
+        // Bundled-form Rust packages don't yet carry an explicit reactor
+        // name through the FFI metadata (M5 wire-format change). Leaving
+        // None synthesizes a per-graph reactor name and preserves today's
+        // 1:1 reactor-per-graph behavior.
+        reactor_name: None,
     }
 }
 

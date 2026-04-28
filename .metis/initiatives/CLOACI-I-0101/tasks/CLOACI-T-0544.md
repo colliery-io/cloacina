@@ -114,3 +114,33 @@ Branch is `i-0101-cg-reactor-decouple`, currently at commit `6763c2c` (T-0541 M5
 Behavior is byte-identical to before this commit (still one subscriber per reactor in every code path that exists today). All 39 CG integration tests green: `cargo test -p cloacina --no-default-features --features sqlite,macros --test integration computation_graph` — 39 passed.
 
 Next: M2 — thread `reactor_name` through `ComputationGraphDeclaration` and `GraphPackageMetadata` so cross-package fan-out can light up.
+
+### 2026-04-28 — M2 done: explicit reactor identity + idempotent registration
+
+**Scope refinement.** M2 lands the declaration field, the storage re-keying, and the idempotent contract-matched binding — all driven by a Rust direct-scheduler-API integration test. The FFI wire-format change to `GraphPackageMetadata` and the Python `build_python_graph_declaration` propagation have been deferred to M5 (where the cross-package cross-language test forces them).
+
+**Changes:**
+
+- `ComputationGraphDeclaration` gained `reactor_name: Option<String>`. `None` (today's bundled-form default) synthesizes `format!("__Reactor_{}", graph_name)` so existing callers keep their 1:1 reactor-per-graph behavior. `Some(name)` opts into shared-reactor binding.
+- `load_graph_split` sets `reactor_name = Some(reactor.name.clone())` on the declaration it builds — split-form callers now opt in by construction.
+- Scheduler storage re-keyed: `self.graphs` (keyed by graph_name) → `self.reactors` (keyed by reactor_name) + new `self.graph_to_reactor: HashMap<graph_name, reactor_name>` index. External operations (`unload_graph`, `list_graphs`, `shutdown_all`) take graph names and route through the index.
+- `load_graph` resolution flow:
+  - Reject re-loading the same graph_name (graph_to_reactor contains check).
+  - If reactor_name already running with matching contract (`check_reactor_contract_matches` validates accumulators / criteria / strategy / tenant_id) → bind as additional subscriber, skip spawn entirely. Mismatch → reject with precise error.
+  - Otherwise spawn a fresh reactor and seed subscribers with the first graph_fn.
+- Endpoint-registry key stays the *first graph's name* (preserves today's `cloacinactl reactor force-fire <graph>` operator surface). Subsequent fan-out subscribers don't re-register.
+- `unload_graph` now removes the graph from subscribers; only when subscribers becomes empty does it tear down the reactor (and accumulators / endpoint-registry / channels). For today's 1:1 callers this is byte-identical to before.
+- Restart path uses the anchoring declaration's `name` for endpoint-registry re-registration, since the loop variable in `check_and_restart_failed` is now the reactor_name.
+- `ReactionCriteria` and `InputStrategy` gained `PartialEq` / `Eq` (needed for the contract-matching helper).
+- `ComputationGraphDeclaration` literal sites updated with `reactor_name: None` defaults: `packaging_bridge::build_declaration_from_ffi`, Python `build_python_graph_declaration`, two scheduler unit tests, two integration-test sites.
+
+**Tests.**
+
+Two new T-0544 tests in `tests/integration/computation_graph.rs`:
+
+1. `test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form` — two graphs both naming reactor `cloaci_t_0544_shared_reactor` via `load_graph_split`. Single event → both subscribers fire. `list_graphs` reports both bindings. Unloading g1 leaves the reactor up for g2; another event fires only g2. Unloading g2 (last subscriber) tears down the reactor.
+2. `test_cloaci_t_0544_contract_mismatch_rejected` — second `load_graph_split` naming the same reactor with a different `reaction_mode` is rejected with a precise error pointing at the criteria mismatch.
+
+All 41 CG integration tests green: `cargo test -p cloacina --no-default-features --features sqlite,macros --test integration computation_graph` — 39 existing + 2 new M2 tests, no regressions.
+
+Next: M3 — switch `make_subscriber_dispatcher` from sequential to `tokio::join_all` so slow subscribers don't block fast ones.

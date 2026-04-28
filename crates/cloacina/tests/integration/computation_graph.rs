@@ -420,6 +420,7 @@ async fn test_computation_graph_scheduler_end_to_end() {
             graph_fn,
         },
         tenant_id: None,
+        reactor_name: None,
     };
 
     scheduler.load_graph(decl).await.unwrap();
@@ -1883,6 +1884,7 @@ mod resilience_tests {
                 graph_fn,
             },
             tenant_id: None,
+            reactor_name: None,
         };
 
         scheduler.load_graph(decl).await.unwrap();
@@ -2275,6 +2277,194 @@ async fn test_cloaci_t_0538_split_missing_accumulator_fails() {
         .await;
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("accumulator 'alpha'"));
+}
+
+// =============================================================================
+// T-0544 M2: cross-graph fan-out via shared reactor (single scheduler API)
+// =============================================================================
+
+/// Two graphs declaring `trigger = reactor(R)` share a single reactor
+/// instance: one event into R's accumulator fires both graphs. This is the
+/// runtime fan-out promise locked in T-0544 — same scheduler, two
+/// `load_graph_split` calls naming the same reactor, both subscribers
+/// receive the same firing.
+#[tokio::test]
+async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    // Two independent fire counters — one per subscribed graph.
+    let g1_fires = Arc::new(AtomicU32::new(0));
+    let g2_fires = Arc::new(AtomicU32::new(0));
+
+    let g1_inner = g1_fires.clone();
+    let g1_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = g1_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+    let g2_inner = g2_fires.clone();
+    let g2_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = g2_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0544_shared_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+
+    let accs = || {
+        vec![AccumulatorDeclaration {
+            name: "alpha".to_string(),
+            factory: Arc::new(TestAccumulatorFactory),
+        }]
+    };
+
+    scheduler
+        .load_graph_split("g1".to_string(), g1_fn, &reactor_reg, accs(), None)
+        .await
+        .expect("g1 load");
+    scheduler
+        .load_graph_split("g2".to_string(), g2_fn, &reactor_reg, accs(), None)
+        .await
+        .expect("g2 binds to existing reactor");
+
+    // One event into alpha — both subscribers should fire on the same firing.
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 4.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline
+        && (g1_fires.load(Ordering::SeqCst) == 0 || g2_fires.load(Ordering::SeqCst) == 0)
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(g1_fires.load(Ordering::SeqCst), 1, "g1 should have fired");
+    assert_eq!(g2_fires.load(Ordering::SeqCst), 1, "g2 should have fired");
+
+    // list_graphs reports both bindings.
+    let mut listed: Vec<String> = scheduler
+        .list_graphs()
+        .await
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    listed.sort();
+    assert_eq!(listed, vec!["g1".to_string(), "g2".to_string()]);
+
+    // Unloading g1 leaves the reactor running for g2; another event still
+    // fires g2.
+    scheduler.unload_graph("g1").await.unwrap();
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 5.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && g2_fires.load(Ordering::SeqCst) < 2 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        g1_fires.load(Ordering::SeqCst),
+        1,
+        "g1 should not fire after unbind"
+    );
+    assert_eq!(
+        g2_fires.load(Ordering::SeqCst),
+        2,
+        "g2 should fire again after g1 unbinds"
+    );
+
+    // Unloading g2 (the last subscriber) tears down the reactor.
+    scheduler.unload_graph("g2").await.unwrap();
+    assert!(scheduler.list_graphs().await.is_empty());
+}
+
+/// A second graph naming the same reactor with a different contract is
+/// rejected — silently binding would drop the second package's
+/// accumulator/criteria expectations.
+#[tokio::test]
+async fn test_cloaci_t_0544_contract_mismatch_rejected() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry);
+
+    let nop: CompiledGraphFn = Arc::new(|_cache: InputCache| {
+        Box::pin(async { cloacina::computation_graph::GraphResult::completed(vec![]) })
+    });
+
+    let reactor_v1 = ReactorRegistration {
+        name: "cloaci_t_0544_clash".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+    scheduler
+        .load_graph_split(
+            "first".to_string(),
+            nop.clone(),
+            &reactor_v1,
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            None,
+        )
+        .await
+        .expect("first load");
+
+    // Second declaration names the same reactor but with a different mode.
+    let reactor_v2 = ReactorRegistration {
+        name: "cloaci_t_0544_clash".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAll,
+    };
+    let err = scheduler
+        .load_graph_split(
+            "second".to_string(),
+            nop,
+            &reactor_v2,
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            None,
+        )
+        .await
+        .expect_err("contract mismatch should reject");
+    assert!(
+        err.contains("reaction criteria differ"),
+        "error should pinpoint the criteria mismatch: {err}"
+    );
+
+    scheduler.unload_graph("first").await.unwrap();
 }
 
 #[tokio::test]

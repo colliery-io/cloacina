@@ -806,6 +806,10 @@ pub fn build_python_graph_declaration(
             graph_fn,
         },
         tenant_id,
+        // Python CG packages don't yet plumb an explicit reactor name
+        // through to the scheduler (M5 wire-format change). Per-graph
+        // synthesized reactor name preserves today's 1:1 behavior.
+        reactor_name: None,
     })
 }
 

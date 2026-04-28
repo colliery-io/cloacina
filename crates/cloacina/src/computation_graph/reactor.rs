@@ -71,7 +71,7 @@ pub fn reactor_health_channel() -> (watch::Sender<ReactorHealth>, watch::Receive
 }
 
 /// Reaction criteria — when to fire the graph.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReactionCriteria {
     /// Fire if any dirty flag is set.
     WhenAny,
@@ -89,7 +89,7 @@ impl From<cloacina_computation_graph::ReactionMode> for ReactionCriteria {
 }
 
 /// Input strategy — how the reactor handles data between executions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputStrategy {
     /// One slot per source, overwritten on each update. Always fires with freshest.
     Latest,
