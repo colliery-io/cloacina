@@ -164,3 +164,26 @@ pub async fn bind_graph_to_reactor(
 45 CG integration tests green (44 existing + 1 new M1 test). Cross-language M5 fan-out test also still green.
 
 Next: M2 — Python loader routing. After import, walk newly registered reactors in the scoped Runtime and call `scheduler.load_reactor` for each.
+
+### 2026-04-28 — M2 done: Python reactor → scheduler dispatch helper
+
+Scope refinement: M2 lands the dispatch helper + a direct unit-test proof. Loader integration (calling the helper from inside `import_and_register_python_workflow_named` / `import_python_computation_graph` / the reconciler) is deferred to M3 alongside the Rust packaged path — that's where the reconciler actually picks up the graph_scheduler today.
+
+**Helper** — `cloacina_python::reactor::dispatch_runtime_reactors_into_scheduler(runtime, scheduler, accumulator_overrides, tenant_id)`:
+- Walks every reactor name in `runtime.reactor_names()`.
+- For each reactor, fetches its `ReactorRegistration` and builds `AccumulatorDeclaration`s — using `package.toml`-style accumulator overrides (passthrough/stream factories from `cloacina::computation_graph::packaging_bridge`) with passthrough as the default fallback.
+- Calls `scheduler.load_reactor(name, accumulators, criteria, strategy, tenant, vec![])` for each. Idempotent on `(name, contract)`, so re-dispatch is safe.
+- Returns the dispatched names.
+
+`accumulator_overrides` takes the same `Vec<AccumulatorConfig>` shape the reconciler already uses for CG packages — same FFI-friendly metadata path.
+
+**Tests** (`crates/cloacina-python/tests/python_reactor_library.rs`):
+
+1. `test_python_reactor_library_dispatches_into_scheduler` — runs a Python module that *only* declares two `@cloaca.reactor` classes (`lib_rx_a` with `when_any`, `lib_rx_b` with `when_all`). Confirms the runtime registry has both; dispatches; both are addressable in the endpoint registry under their own names; `list_graphs` is empty (no subscribers); idempotent re-dispatch succeeds.
+2. `test_python_reactor_library_then_bind_graph` — Python "reactor library" pattern (reactor declared in one place, graph bound later by the reconciler). Dispatch the reactor, then call M1's `bind_graph_to_reactor` to attach a graph by name. Push event; the late-bound graph fires. Cleanup via `unbind_graph_from_reactor` + `unload_reactor`.
+
+This is the runtime-side proof that "a reactor declared anywhere just works" — a Python module can ship only `@cloaca.reactor(...)` and still bring up runtime instances that other packages bind subscribers to.
+
+All cloacina-python tests green: 122 (lib) + 1 (cross-language) + 8 (python_package) + 2 (new) + 10 (trigger_packaging).
+
+Next: M3 — Rust packaged path. New `ReactorPackageMetadata` FFI struct + `CloacinaPlugin::get_reactor_metadata()` method + macro codegen for `#[reactor]` under `feature = "packaged"`. Reconciler `loading.rs` walks the FFI metadata first (before CGs in the same package) and calls `scheduler.load_reactor`. Also wires the M2 Python helper into the actual loader.
