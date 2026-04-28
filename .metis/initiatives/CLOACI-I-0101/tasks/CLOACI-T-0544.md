@@ -144,3 +144,18 @@ Two new T-0544 tests in `tests/integration/computation_graph.rs`:
 All 41 CG integration tests green: `cargo test -p cloacina --no-default-features --features sqlite,macros --test integration computation_graph` — 39 existing + 2 new M2 tests, no regressions.
 
 Next: M3 — switch `make_subscriber_dispatcher` from sequential to `tokio::join_all` so slow subscribers don't block fast ones.
+
+### 2026-04-28 — M3 done: concurrent dispatch via futures::future::join_all
+
+`make_subscriber_dispatcher` flipped from a serial `for` loop to a two-pass concurrent dispatch:
+
+- **Pass 1**: snapshot the subscribers, build one async block per subscriber returning `(graph_name, GraphResult)`, hand the iterator to `futures::future::join_all`. All subscribers' futures are polled concurrently.
+- **Pass 2**: walk the resulting `Vec<(String, GraphResult)>` and log per-subscriber errors. No short-circuit; the reactor sees one `GraphResult::Completed` per firing regardless of any subscriber's error.
+
+`futures` is already a workspace dep (no Cargo.toml change). Failure isolation is automatic — each future is independent and a panic/error in one doesn't poison sibling futures.
+
+**New test**: `test_cloaci_t_0544_dispatch_is_concurrent` — two subscribers on one reactor, one sleeps 200ms, one is instant. Asserts fast subscriber completes within 100ms (would be 200ms+ under sequential dispatch since `join_all` polls in iterator order) AND slow subscriber takes ≥180ms (so we're not silently skipping the sleep). Confirms subscribers genuinely run in parallel.
+
+42 CG integration tests green: 39 existing + 3 T-0544 tests.
+
+Next: M4 — explicit `unbind_graph_from_reactor` / `unload_reactor` API + reject `unload_reactor` while subscribers exist. The unload-with-subscribers rejection is the lifecycle guard for the standalone-reactor-package shape (T-0546+); landing it now means the API surface is honest about ownership.

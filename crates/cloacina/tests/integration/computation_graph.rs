@@ -2467,6 +2467,124 @@ async fn test_cloaci_t_0544_contract_mismatch_rejected() {
     scheduler.unload_graph("first").await.unwrap();
 }
 
+/// Dispatch is concurrent: a slow subscriber doesn't push out the fast one's
+/// completion. With sequential dispatch, the fast subscriber would have to
+/// wait for the slow one's `.await` to return before its own future was even
+/// polled. With `join_all`, both run at once and the fast one finishes well
+/// before the slow one.
+#[tokio::test]
+async fn test_cloaci_t_0544_dispatch_is_concurrent() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    // Capture each subscriber's completion timestamp (millis since the first
+    // subscriber started). The slow one sleeps 200ms; the fast one finishes
+    // immediately. Under concurrent dispatch the fast subscriber's
+    // completion timestamp is well below 200ms; under sequential dispatch
+    // it would be 200ms+ since join_all polls in order.
+    let fast_completed_ms = Arc::new(AtomicI64::new(-1));
+    let slow_completed_ms = Arc::new(AtomicI64::new(-1));
+    let started = Arc::new(std::sync::Mutex::new(None::<std::time::Instant>));
+
+    let started_fast = started.clone();
+    let fast_done = fast_completed_ms.clone();
+    let fast_fn: CompiledGraphFn = Arc::new(move |_cache: InputCache| {
+        let started = started_fast.clone();
+        let done = fast_done.clone();
+        Box::pin(async move {
+            {
+                let mut g = started.lock().unwrap();
+                if g.is_none() {
+                    *g = Some(std::time::Instant::now());
+                }
+            }
+            let start = started.lock().unwrap().unwrap();
+            done.store(start.elapsed().as_millis() as i64, Ordering::SeqCst);
+            cloacina::computation_graph::GraphResult::completed(vec![])
+        })
+    });
+
+    let started_slow = started.clone();
+    let slow_done = slow_completed_ms.clone();
+    let slow_fn: CompiledGraphFn = Arc::new(move |_cache: InputCache| {
+        let started = started_slow.clone();
+        let done = slow_done.clone();
+        Box::pin(async move {
+            {
+                let mut g = started.lock().unwrap();
+                if g.is_none() {
+                    *g = Some(std::time::Instant::now());
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let start = started.lock().unwrap().unwrap();
+            done.store(start.elapsed().as_millis() as i64, Ordering::SeqCst);
+            cloacina::computation_graph::GraphResult::completed(vec![])
+        })
+    });
+
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0544_concurrent_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+    let accs = || {
+        vec![AccumulatorDeclaration {
+            name: "alpha".to_string(),
+            factory: Arc::new(TestAccumulatorFactory),
+        }]
+    };
+    scheduler
+        .load_graph_split("fast".to_string(), fast_fn, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+    scheduler
+        .load_graph_split("slow".to_string(), slow_fn, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 1.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline
+        && (fast_completed_ms.load(Ordering::SeqCst) < 0
+            || slow_completed_ms.load(Ordering::SeqCst) < 0)
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let fast_ms = fast_completed_ms.load(Ordering::SeqCst);
+    let slow_ms = slow_completed_ms.load(Ordering::SeqCst);
+    assert!(
+        fast_ms >= 0 && slow_ms >= 0,
+        "both subscribers should complete (fast={fast_ms}ms, slow={slow_ms}ms)"
+    );
+    assert!(
+        fast_ms < 100,
+        "fast subscriber should not be blocked by slow subscriber (fast={fast_ms}ms, slow={slow_ms}ms)"
+    );
+    assert!(
+        slow_ms >= 180,
+        "slow subscriber should still take ~200ms (slow={slow_ms}ms)"
+    );
+
+    scheduler.unload_graph("fast").await.unwrap();
+    scheduler.unload_graph("slow").await.unwrap();
+}
+
 #[tokio::test]
 async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
     // The `#[computation_graph]` and `#[reactor]` macros gate their

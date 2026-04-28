@@ -161,12 +161,12 @@ type ReactorSubscribers = Arc<RwLock<HashMap<String, CompiledGraphFn>>>;
 
 /// Build the dispatcher [`CompiledGraphFn`] handed to [`Reactor::new`].
 ///
-/// On firing, walks the current subscriber map and runs each subscriber's
-/// graph fn. M1 keeps the dispatch *sequential* so behavior is byte-identical
-/// to today's single-subscriber path; M3 swaps in `tokio::join_all` for true
-/// concurrent fan-out. Errors from individual subscribers are logged but do
-/// not short-circuit siblings — the reactor's fire-counter still advances on
-/// each pass through the dispatcher, matching today's per-reactor accounting.
+/// On firing, walks the current subscriber map and runs every subscriber
+/// concurrently via `futures::future::join_all`. Slow subscribers don't
+/// block fast ones; per-subscriber errors are logged but do not short-
+/// circuit siblings — the reactor sees one `GraphResult::Completed` per
+/// firing regardless of subscriber count, matching today's per-reactor
+/// fire-counter accounting.
 fn make_subscriber_dispatcher(
     reactor_name: String,
     subscribers: ReactorSubscribers,
@@ -181,21 +181,30 @@ fn make_subscriber_dispatcher(
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            for (graph_name, graph_fn) in snapshot {
-                match graph_fn(cache.clone()).await {
-                    GraphResult::Completed { .. } => {}
-                    GraphResult::Error(e) => {
-                        tracing::error!(
-                            reactor = %reactor_name,
-                            graph = %graph_name,
-                            "subscriber graph failed: {}",
-                            e
-                        );
-                    }
+
+            // Pass 1: kick off all subscriber invocations concurrently.
+            let futures = snapshot.into_iter().map(|(graph_name, graph_fn)| {
+                let cache = cache.clone();
+                async move {
+                    let result = graph_fn(cache).await;
+                    (graph_name, result)
+                }
+            });
+            let results = futures::future::join_all(futures).await;
+
+            // Pass 2: log per-subscriber errors. No short-circuit; the reactor
+            // treats this as one firing regardless of how many subscribers
+            // succeeded.
+            for (graph_name, result) in results {
+                if let GraphResult::Error(e) = result {
+                    tracing::error!(
+                        reactor = %reactor_name,
+                        graph = %graph_name,
+                        "subscriber graph failed: {}",
+                        e
+                    );
                 }
             }
-            // Reactor's fire-counter / persistence path treats this as one
-            // firing of the reactor, regardless of subscriber count.
             GraphResult::completed(vec![])
         })
     })
