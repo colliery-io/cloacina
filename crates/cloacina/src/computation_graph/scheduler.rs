@@ -33,7 +33,7 @@ use super::reactor::{
     ReactorHandle,
 };
 use super::registry::{AccumulatorAuthPolicy, EndpointRegistry, ReactorAuthPolicy};
-use super::types::SourceName;
+use super::types::{GraphResult, InputCache, SourceName};
 
 /// Declaration of a computation graph to be loaded by the Reactive Scheduler.
 #[derive(Clone)]
@@ -107,6 +107,56 @@ pub struct GraphStatus {
     pub health: Option<super::reactor::ReactorHealth>,
 }
 
+/// Subscribers bound to a single reactor instance.
+///
+/// Today every reactor has exactly one subscriber (the bundled-form graph
+/// whose declaration brought the reactor into existence). T-0544 adds the
+/// scaffolding for N subscribers; M2 wires the cross-package binding path so
+/// multiple graph declarations naming the same reactor share a single instance.
+type ReactorSubscribers = Arc<RwLock<HashMap<String, CompiledGraphFn>>>;
+
+/// Build the dispatcher [`CompiledGraphFn`] handed to [`Reactor::new`].
+///
+/// On firing, walks the current subscriber map and runs each subscriber's
+/// graph fn. M1 keeps the dispatch *sequential* so behavior is byte-identical
+/// to today's single-subscriber path; M3 swaps in `tokio::join_all` for true
+/// concurrent fan-out. Errors from individual subscribers are logged but do
+/// not short-circuit siblings — the reactor's fire-counter still advances on
+/// each pass through the dispatcher, matching today's per-reactor accounting.
+fn make_subscriber_dispatcher(
+    reactor_name: String,
+    subscribers: ReactorSubscribers,
+) -> CompiledGraphFn {
+    Arc::new(move |cache: InputCache| {
+        let reactor_name = reactor_name.clone();
+        let subscribers = subscribers.clone();
+        Box::pin(async move {
+            let snapshot: Vec<(String, CompiledGraphFn)> = subscribers
+                .read()
+                .await
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            for (graph_name, graph_fn) in snapshot {
+                match graph_fn(cache.clone()).await {
+                    GraphResult::Completed { .. } => {}
+                    GraphResult::Error(e) => {
+                        tracing::error!(
+                            reactor = %reactor_name,
+                            graph = %graph_name,
+                            "subscriber graph failed: {}",
+                            e
+                        );
+                    }
+                }
+            }
+            // Reactor's fire-counter / persistence path treats this as one
+            // firing of the reactor, regardless of subscriber count.
+            GraphResult::completed(vec![])
+        })
+    })
+}
+
 /// State for a running computation graph.
 struct RunningGraph {
     /// Shutdown signal sender.
@@ -125,6 +175,9 @@ struct RunningGraph {
     reactor_health_rx: Option<watch::Receiver<super::reactor::ReactorHealth>>,
     /// Declaration (for restarts).
     declaration: ComputationGraphDeclaration,
+    /// Subscribers bound to this reactor. Today populated with one entry
+    /// per loaded graph; M2 will bind cross-package subscribers here.
+    subscribers: ReactorSubscribers,
     /// Per-component consecutive failure count.
     failure_counts: HashMap<String, u32>,
     /// Timestamp of last successful operation per component (for failure count reset).
@@ -238,9 +291,18 @@ impl ComputationGraphScheduler {
         // Create reactor health channel
         let (reactor_health_tx, reactor_health_rx) = reactor_health_channel();
 
+        // Build subscriber map seeded with the bundled graph_fn. The reactor
+        // sees a *dispatcher* fn that walks subscribers on every firing, so
+        // adding more subscribers later (M2) doesn't require touching the
+        // running reactor task.
+        let mut initial_subscribers: HashMap<String, CompiledGraphFn> = HashMap::new();
+        initial_subscribers.insert(name.clone(), decl.reactor.graph_fn.clone());
+        let subscribers: ReactorSubscribers = Arc::new(RwLock::new(initial_subscribers));
+        let dispatcher = make_subscriber_dispatcher(name.clone(), subscribers.clone());
+
         // Create and spawn reactor with full wiring
         let mut reactor = Reactor::new(
-            decl.reactor.graph_fn.clone(),
+            dispatcher,
             decl.reactor.criteria.clone(),
             decl.reactor.strategy.clone(),
             boundary_rx,
@@ -296,6 +358,7 @@ impl ComputationGraphScheduler {
             reactor_shared,
             reactor_health_rx: Some(reactor_health_rx),
             declaration: decl,
+            subscribers,
             failure_counts: HashMap::new(),
             last_success: HashMap::new(),
         };
@@ -505,8 +568,12 @@ impl ComputationGraphScheduler {
 
                 let (manual_tx, manual_rx) = mpsc::channel(64);
                 let (reactor_health_tx, reactor_health_rx) = reactor_health_channel();
+                // Reuse the same subscriber map across restart so subscribers
+                // bound mid-life don't get dropped when the reactor restarts.
+                let restart_dispatcher =
+                    make_subscriber_dispatcher(graph_name.clone(), running.subscribers.clone());
                 let mut reactor = Reactor::new(
-                    running.declaration.reactor.graph_fn.clone(),
+                    restart_dispatcher,
                     running.declaration.reactor.criteria.clone(),
                     running.declaration.reactor.strategy.clone(),
                     boundary_rx,

@@ -4,14 +4,14 @@ level: task
 title: "T-02b: Multi-graph-per-reactor fan-out"
 short_code: "CLOACI-T-0544"
 created_at: 2026-04-25T15:08:05.348610+00:00
-updated_at: 2026-04-25T15:08:05.348610+00:00
+updated_at: 2026-04-28T12:24:34.785069+00:00
 parent: CLOACI-I-0101
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0101
 Lift the current "one reactor instance per graph" constraint in `ComputationGraphScheduler` so a single `#[reactor]` declaration can fan out to multiple `#[computation_graph(trigger = reactor(R))]` subscribers. Today's `load_graph_split` builds a fresh reactor instance per graph load (carried over from the bundled-form era — see T-0543 M5 status note); this task adds a shared-reactor binding path so one firing of R invokes every graph subscribed to R, rather than just one.
 
 This was originally folded into T-0540's acceptance criteria (the fan-out integration test), but the runtime change is independent of the workflow-task `invokes = computation_graph(...)` macro work, so it lives on its own.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -66,4 +68,49 @@ This was originally folded into T-0540's acceptance criteria (the fan-out integr
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-04-28 — Locked decisions before any code changes
+
+T-0544's scope stays as-written: scheduler refactor only. Reactor-only package shape, cross-package CG resolution, lifecycle policy beyond unload-rejection, tenant-scoping enforcement, CLI changes — all deferred to follow-on tasks (T-0546+).
+
+**Locked decisions:**
+
+1. **Subscriber storage location** — in the scheduler, not the runtime registry. Runtime keeps reactor *constructors* (inventory seeding); scheduler owns running state and dispatch. No change to `Runtime::register_reactor`'s public surface.
+
+2. **Subscriber storage shape** — `HashMap<graph_name, BoundGraph>` keyed by graph name. Needed for `unbind_graph_from_reactor` lookup anyway; no order promise. Cross-package load order is non-deterministic by construction, so we don't pretend otherwise.
+
+3. **Concurrency model on firing** — two-pass via `tokio::join_all`: pass 1 fires all subscribers concurrently, pass 2 iterates the `Vec<Result<...>>`. Slow subscribers don't block fast ones; errors logged per-subscriber, no short-circuit. Failure isolation is automatic (each future is independent).
+
+4. **Idle reactor policy** — reactor stays running with zero subscribers. Idle accumulators consume nothing; preserves the "reactors are independent units" framing.
+
+5. **Unload semantics** — `unbind_graph_from_reactor(graph)` removes a subscriber, reactor keeps running. `unload_reactor(name)` rejects if `subscribers.len() > 0` with a clear error pointing at the bound graphs. Tenant-scoping enforcement at the package boundary deferred.
+
+6. **Idempotent `load_reactor` with contract validation** (implicit but critical). Second `load_reactor(name, contract)` call:
+   - Same `(name, tenant)` + same contract (accumulators, criteria, mode) → no-op, return existing handle.
+   - Same name, mismatched contract → reject with a precise error.
+
+   This is the mechanism that makes cross-package fan-out work without yet introducing reactor-only packages: two bundled-form packages each declaring reactor `R` end up sharing a single `R` instance in the runtime.
+
+7. **Test fixture** — cross-language cross-package: one Rust package declaring reactor `R` + graph `G1`, one Python package declaring reactor `R` (same contract) + graph `G2`. Upload both; push one event to `R`'s accumulator; both `G1` and `G2` fire. Plus negative tests: contract-mismatch on second `load_reactor` rejects; `unload_reactor` with bound subscribers rejects.
+
+**Implementation milestones (each a committable step):**
+
+- **M1** — Internal storage shape change in `ComputationGraphScheduler`. Keep `load_graph_split` external API stable (it becomes a thin wrapper over `load_reactor` + `bind_graph_to_reactor`). Existing tests stay green.
+- **M2** — Idempotent `load_reactor` with contract validation; mismatched contract surfaces a precise error.
+- **M3** — Two-pass concurrent dispatch via `tokio::join_all`. Failure isolation per subscriber.
+- **M4** — `unbind_graph_from_reactor` + `unload_reactor` with subscriber-rejection guard.
+- **M5** — Integration test: two packages (Rust + Python), same reactor name, fan-out fires both graphs. Plus the two negative tests above.
+
+Branch is `i-0101-cg-reactor-decouple`, currently at commit `6763c2c` (T-0541 M5).
+
+### 2026-04-28 — M1 done: scheduler subscriber-list scaffolding
+
+`crates/cloacina/src/computation_graph/scheduler.rs`:
+
+- New `ReactorSubscribers = Arc<RwLock<HashMap<String /* graph_name */, CompiledGraphFn>>>` type alias.
+- New `make_subscriber_dispatcher(reactor_name, subscribers) -> CompiledGraphFn` helper. The closure walks the subscriber map on each firing and runs every entry. M1 keeps dispatch sequential (single-subscriber today; M3 swaps to `tokio::join_all`). Per-subscriber errors are logged but don't short-circuit; the reactor sees one `GraphResult::Completed` per firing regardless of subscriber count, matching today's per-reactor fire-counter semantics.
+- `RunningGraph` gained a `subscribers: ReactorSubscribers` field. Initialized at `load_graph` time with one entry (the bundled graph_fn under the graph's own name). The `Reactor` actor receives the dispatcher closure instead of the bundled `decl.reactor.graph_fn` — the running reactor task no longer holds the graph_fn directly, so adding subscribers later doesn't require restarting it.
+- Restart path (`check_and_restart_failed`) reuses the same `Arc`'d subscriber map across restarts, so subscribers bound mid-life survive reactor crashes.
+
+Behavior is byte-identical to before this commit (still one subscriber per reactor in every code path that exists today). All 39 CG integration tests green: `cargo test -p cloacina --no-default-features --features sqlite,macros --test integration computation_graph` — 39 passed.
+
+Next: M2 — thread `reactor_name` through `ComputationGraphDeclaration` and `GraphPackageMetadata` so cross-package fan-out can light up.
