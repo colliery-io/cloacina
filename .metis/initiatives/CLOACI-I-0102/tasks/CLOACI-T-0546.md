@@ -4,14 +4,14 @@ level: task
 title: "T-00: Upgrade fidius 0.0.5 → 0.2.0 across the workspace"
 short_code: "CLOACI-T-0546"
 created_at: 2026-04-28T22:26:21.924411+00:00
-updated_at: 2026-04-28T22:27:49.599688+00:00
+updated_at: 2026-04-30T03:31:57.819676+00:00
 parent: CLOACI-I-0102
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ This unblocks I-0102's wire-format decision: the spike of "what does fidius do w
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -202,3 +204,59 @@ fidius 0.2.1 was published with a fix for the build.rs `resolve-config` feature 
 - `angreal test integration --backend postgres` — green (28 Python scenarios + Rust integration suite).
 
 The fidius upgrade portion of T-0546 is complete. Missing-method behavior probe still pending — that work is the one remaining AC item before transitioning to completed.
+
+### 2026-04-29 — Probe done; option (a) locked for I-0102
+
+Read fidius 0.2.1 source directly — the answer is in the host crate's API, no test needed.
+
+**fidius 0.2 has first-class support for optional plugin methods.** From `fidius-macro/src/lib.rs`:
+
+```rust
+#[plugin_interface(version = 1, buffer = PluginAllocated)]
+pub trait Greeter: Send + Sync {
+    fn greet(&self, name: String) -> String;
+
+    #[optional(since = 2)]
+    fn greet_fancy(&self, name: String) -> String;
+}
+```
+
+And the host returns clean typed errors (`fidius-host/src/error.rs`):
+
+```rust
+/// Optional method is not implemented by this plugin — its capability bit is unset.
+#[error("method not implemented (capability bit {bit} not set)")]
+NotImplemented { bit: u32 },
+
+#[error("invalid method index {index} (plugin has {count} method(s))")]
+InvalidMethodIndex { index: usize, count: u32 },
+```
+
+Two distinct mechanisms:
+- `InvalidMethodIndex` — bounds-checked at the host before dispatch. Out-of-range index never even reaches the plugin.
+- `NotImplemented { bit }` — for `#[optional]` methods, plugins that didn't implement get this clean error with the capability bit. New plugins set the bit and implement; old plugins leave it unset.
+
+**I-0102 wire-format decision: option (a) — add a fifth trait method.** The trait gains:
+
+```rust
+#[plugin_interface(version = 2, buffer = PluginAllocated)]
+pub trait CloacinaPlugin: Send + Sync {
+    fn get_task_metadata(&self) -> ...;
+    fn execute_task(&self, ...) -> ...;
+    fn get_graph_metadata(&self) -> ...;
+    fn execute_graph(&self, ...) -> ...;
+
+    #[optional(since = 2)]
+    fn get_reactor_metadata(&self) -> Result<Vec<ReactorPackageMetadata>, PluginError>;
+}
+```
+
+Old plugins → `CallError::NotImplemented` → reconciler treats as "no reactors." New plugins implement via the unified `cloacina::package!()` shell walking `inventory::iter::<ReactorEntry>`. Fully backward-compatible without the synthetic-empty-graph awkwardness of option (b).
+
+**T-0546 complete.** All ACs satisfied:
+- Workspace bumped 0.0.5 → 0.2.1.
+- `Cargo.lock` regenerated.
+- No call-site changes (0.2.x is source-compatible for our usage).
+- Macro codegen unchanged for now — will be touched in I-0102 T-A when the unified shell macro lands.
+- Missing-method behavior captured: `CallError::NotImplemented` / `CallError::InvalidMethodIndex`. Option (a) locked.
+- All four test sweeps green (`cargo check --all-features`, `angreal test unit`, integration sqlite, integration postgres).
