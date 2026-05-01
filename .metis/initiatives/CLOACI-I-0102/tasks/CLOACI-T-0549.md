@@ -143,4 +143,30 @@ Option A — **Ship I-0102 incrementally, defer T-C/D/E to follow-up.** T-A and 
 
 Option B — **Push through the relocations now.** Substantial crate surgery (TaskEntry + ComputationGraphEntry + TriggerlessGraphEntry move; possibly `Trigger` trait too), then careful migration of fixtures.
 
-T-0549 stays active. Awaiting direction.
+### 2026-05-01 — Phase 1: relocate TaskEntry + ComputationGraphEntry
+
+Mechanical relocation of two more inventory entry types from `cloacina/src/inventory_entries.rs` to `cloacina-workflow-plugin/src/inventory_entries.rs`. All four test gates green.
+
+**Changes shipped:**
+
+- `crates/cloacina-workflow-plugin/Cargo.toml`: added `cloacina-workflow = { path = ..., default-features = false }` dep so the leaf crate can reference `Task` and `TaskNamespace`.
+- `crates/cloacina-workflow-plugin/src/inventory_entries.rs`:
+  - Added `pub struct TaskEntry { namespace: fn() -> TaskNamespace, constructor: fn() -> Arc<dyn Task> }` with `inventory::collect!`.
+  - Added `pub struct ComputationGraphEntry { name: &'static str, constructor: fn() -> ComputationGraphRegistration }` with `inventory::collect!`.
+- `crates/cloacina-workflow-plugin/src/lib.rs`: re-exports both at the crate root.
+- `crates/cloacina/src/inventory_entries.rs`: local definitions of `TaskEntry` and `ComputationGraphEntry` deleted. Re-exports from `cloacina_workflow_plugin::{TaskEntry, ComputationGraphEntry}` so existing engine paths (`crate::TaskEntry`, `cloacina::TaskEntry`, etc.) keep resolving.
+
+The relocation is invisible to existing macro emissions (`cloacina::TaskEntry` and `crate::TaskEntry` paths resolve through the re-export). Test gates (workspace check + unit + integration sqlite) verify nothing regressed.
+
+### Phase 2 — still pending
+
+To complete T-C's main goal (strip per-macro emission and migrate fixtures), the next iteration needs to:
+
+1. **Update macro emission paths to be cdylib-friendly.** `workflow_attr.rs`'s `task_inventory_entries` emits `cloacina::TaskEntry`, `cloacina::Task`, `cloacina::Context`, `cloacina::TaskError`, `cloacina::TaskNamespace`, `cloacina::retry::RetryPolicy`. In packaged mode (cdylibs that don't depend on `cloacina`), these don't resolve. Switch the emission to `cloacina_workflow_plugin::TaskEntry` (after this Phase 1 relocation) and `cloacina_workflow::{Task, Context, TaskError, TaskNamespace, retry::RetryPolicy}` (already cdylib-reachable).
+2. **Un-gate `task_inventory_entries` from `cfg(not(feature = "packaged"))`** so packaged cdylibs collect their tasks too. Same for the workflow macro's similar gates.
+3. **Complete `cloacina::package!()` shell macro** with real bodies for `get_task_metadata` (walk TaskEntry, derive workflow_name from namespace template), `execute_task` (look up task by id, dispatch to constructor), `get_graph_metadata` + `execute_graph` (walk ComputationGraphEntry — single entry per cdylib invariant).
+4. **Strip per-macro `_ffi` emission** in `workflow_attr.rs` and `computation_graph/codegen.rs`. Compile workspace to surface dependents.
+5. **Migrate in-tree fixtures**: add `cloacina::package!();` to each, drop `[[triggers]]` / `package_type` from package.toml. List in AC.
+6. **TriggerEntry + TriggerlessGraphEntry relocation** can wait until a fixture exercises them.
+
+Phase 1 is committable on its own (mechanical move with no behavior change, all tests green). Phase 2 is the substantive cut.

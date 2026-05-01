@@ -36,28 +36,16 @@ use std::sync::Arc;
 
 use crate::computation_graph::stream_backend::{StreamBackend, StreamConfig, StreamError};
 use crate::computation_graph::triggerless::TriggerlessGraphRegistration;
-use crate::task::{Task, TaskNamespace};
 use crate::trigger::Trigger;
 use crate::workflow::Workflow;
-use cloacina_computation_graph::ComputationGraphRegistration;
 
-// I-0102 / T-A: ReactorEntry now lives in `cloacina-workflow-plugin` so
-// packaged cdylibs (which depend on cloacina-workflow-plugin but not on
-// cloacina) can collect their reactor entries at link time and the unified
-// `cloacina::package!()` shell can walk them. Re-exported here so existing
-// engine paths (`crate::ReactorEntry`, `cloacina::ReactorEntry`) keep
-// resolving.
-pub use cloacina_workflow_plugin::ReactorEntry;
-
-/// Task entry emitted by `#[task]`.
-pub struct TaskEntry {
-    /// Deferred construction of the task namespace (cannot be const because
-    /// `TaskNamespace` contains `String`).
-    pub namespace: fn() -> TaskNamespace,
-    /// Task constructor — instantiates a fresh task object on each call.
-    pub constructor: fn() -> Arc<dyn Task>,
-}
-inventory::collect!(TaskEntry);
+// I-0102 / T-A + T-C: ReactorEntry, TaskEntry, ComputationGraphEntry now
+// live in `cloacina-workflow-plugin` so packaged cdylibs (which depend on
+// cloacina-workflow-plugin but not on cloacina) can collect entries at
+// link time and the unified `cloacina::package!()` shell can walk them.
+// Re-exported here so existing engine paths
+// (`crate::ReactorEntry`, `cloacina::TaskEntry`, …) keep resolving.
+pub use cloacina_workflow_plugin::{ComputationGraphEntry, ReactorEntry, TaskEntry};
 
 /// Workflow entry emitted by `#[workflow]`.
 pub struct WorkflowEntry {
@@ -72,14 +60,6 @@ pub struct TriggerEntry {
     pub constructor: fn() -> Arc<dyn Trigger>,
 }
 inventory::collect!(TriggerEntry);
-
-/// Computation graph entry emitted by `#[computation_graph]` for the
-/// reactor-triggered (split) form.
-pub struct ComputationGraphEntry {
-    pub name: &'static str,
-    pub constructor: fn() -> ComputationGraphRegistration,
-}
-inventory::collect!(ComputationGraphEntry);
 
 /// Trigger-less computation graph entry emitted by `#[computation_graph]`
 /// for graphs declared without a `trigger = reactor(...)` clause.

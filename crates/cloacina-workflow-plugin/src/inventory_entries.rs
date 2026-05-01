@@ -25,13 +25,17 @@
 //! `cloacina_workflow_plugin::inventory` so existing engine code paths
 //! continue to compile unchanged.
 //!
-//! Currently only `ReactorEntry` is hosted here (T-A scope). Other entry
-//! types (`TaskEntry`, `TriggerEntry`, `ComputationGraphEntry`,
-//! `TriggerlessGraphEntry`, `WorkflowEntry`, `StreamBackendEntry`) remain
-//! in `cloacina/src/inventory_entries.rs` until their constructor return
-//! types are likewise relocated.
+//! T-C (CLOACI-T-0549) relocated `TaskEntry` and `ComputationGraphEntry`
+//! here so the shell's `get_task_metadata` / `execute_task` /
+//! `get_graph_metadata` / `execute_graph` bodies can walk these inventories
+//! from packaged cdylibs. `TriggerEntry` / `TriggerlessGraphEntry` /
+//! `WorkflowEntry` / `StreamBackendEntry` remain in
+//! `cloacina/src/inventory_entries.rs` until their constructor return
+//! types likewise relocate.
 
-use cloacina_computation_graph::ReactorRegistration;
+use cloacina_computation_graph::{ComputationGraphRegistration, ReactorRegistration};
+use cloacina_workflow::{Task, TaskNamespace};
+use std::sync::Arc;
 
 /// Reactor entry emitted by the `#[reactor]` attribute macro. The `package!()`
 /// shell walks `inventory::iter::<ReactorEntry>` at FFI call time to produce
@@ -41,3 +45,28 @@ pub struct ReactorEntry {
     pub constructor: fn() -> ReactorRegistration,
 }
 inventory::collect!(ReactorEntry);
+
+/// Task entry emitted by `#[task]`. The `package!()` shell walks
+/// `inventory::iter::<TaskEntry>` to build the per-task metadata in
+/// `get_task_metadata` and to dispatch task execution by name in
+/// `execute_task`.
+pub struct TaskEntry {
+    /// Deferred construction of the task namespace (cannot be const because
+    /// `TaskNamespace` contains `String`).
+    pub namespace: fn() -> TaskNamespace,
+    /// Task constructor — instantiates a fresh task object on each call.
+    pub constructor: fn() -> Arc<dyn Task>,
+}
+inventory::collect!(TaskEntry);
+
+/// Computation graph entry emitted by `#[computation_graph]` for the
+/// reactor-triggered (split) form. The `package!()` shell walks
+/// `inventory::iter::<ComputationGraphEntry>` to build the metadata
+/// returned by `get_graph_metadata` and to dispatch
+/// execution in `execute_graph`. At most one entry is expected per cdylib;
+/// the shell's body errors if it finds more than one.
+pub struct ComputationGraphEntry {
+    pub name: &'static str,
+    pub constructor: fn() -> ComputationGraphRegistration,
+}
+inventory::collect!(ComputationGraphEntry);

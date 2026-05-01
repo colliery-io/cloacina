@@ -35,7 +35,7 @@
 pub mod inventory_entries;
 pub mod types;
 
-pub use inventory_entries::ReactorEntry;
+pub use inventory_entries::{ComputationGraphEntry, ReactorEntry, TaskEntry};
 
 // Re-export the interface types for convenience
 pub use types::{
