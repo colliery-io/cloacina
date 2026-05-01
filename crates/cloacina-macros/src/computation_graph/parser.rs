@@ -46,7 +46,7 @@
 
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{braced, Ident, Token, TypePath};
+use syn::{braced, Ident, LitStr, Token};
 
 /// The full parsed topology from the macro attribute.
 ///
@@ -72,29 +72,15 @@ impl std::fmt::Debug for ParsedTopology {
 }
 
 /// Which form of trigger the user declared.
+#[derive(Debug)]
 pub enum TriggerSpec {
-    /// `trigger = reactor(TypePath)` — split form referencing a standalone
-    /// reactor declaration by type path.
-    ByReactor(TypePath),
+    /// `trigger = reactor("name")` — split form referencing a standalone
+    /// reactor declaration by name. The compile-time accumulator-subset
+    /// check that the type-path form enabled is gone — runtime contract
+    /// validation at load time (T-B) is the replacement.
+    ByReactor(String),
     /// No `trigger` — the graph is trigger-less.
     None,
-}
-
-impl std::fmt::Debug for TriggerSpec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TriggerSpec::ByReactor(tp) => {
-                let segs: Vec<String> = tp
-                    .path
-                    .segments
-                    .iter()
-                    .map(|s| s.ident.to_string())
-                    .collect();
-                f.debug_tuple("ByReactor").field(&segs.join("::")).finish()
-            }
-            TriggerSpec::None => f.write_str("None"),
-        }
-    }
 }
 
 /// A parsed edge in the topology.
@@ -141,7 +127,7 @@ impl ParsedEdge {
 
 impl Parse for ParsedTopology {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut trigger_reactor: Option<TypePath> = None;
+        let mut trigger_reactor: Option<String> = None;
         let mut edges: Option<Vec<ParsedEdge>> = None;
 
         while !input.is_empty() {
@@ -153,7 +139,7 @@ impl Parse for ParsedTopology {
                         key.span(),
                         "the bundled `#[computation_graph(react = ...)]` form has been \
                          removed. Declare a standalone `#[reactor]` and reference it via \
-                         `#[computation_graph(trigger = reactor(MyReactor), ...)]` — see \
+                         `#[computation_graph(trigger = reactor(\"name\"), ...)]` — see \
                          initiative CLOACI-I-0101 for migration guidance.",
                     ));
                 }
@@ -162,28 +148,36 @@ impl Parse for ParsedTopology {
                     if trigger_reactor.is_some() {
                         return Err(syn::Error::new(key.span(), "duplicate 'trigger' field"));
                     }
-                    // Expect: reactor(TypePath)
+                    // Expect: reactor("name")
                     let kind: Ident = input.parse()?;
                     if kind != "reactor" {
                         return Err(syn::Error::new(
                             kind.span(),
                             format!(
                                 "unknown trigger kind '{}', expected 'reactor' \
-                                 (e.g. trigger = reactor(RiskSignals))",
+                                 (e.g. trigger = reactor(\"risk_signals\"))",
                                 kind
                             ),
                         ));
                     }
                     let paren;
                     syn::parenthesized!(paren in input);
-                    let type_path: TypePath = paren.parse()?;
+                    let name: LitStr = paren.parse().map_err(|_| {
+                        syn::Error::new(
+                            paren.span(),
+                            "reactor(...) expects a string literal name \
+                             (e.g. reactor(\"risk_signals\")). The type-path form was \
+                             removed in CLOACI-I-0102 — cross-reference is now by name \
+                             with runtime contract validation.",
+                        )
+                    })?;
                     if !paren.is_empty() {
                         return Err(syn::Error::new(
                             paren.span(),
-                            "reactor(...) takes exactly one type path argument",
+                            "reactor(...) takes exactly one string-literal argument",
                         ));
                     }
-                    trigger_reactor = Some(type_path);
+                    trigger_reactor = Some(name.value());
                 }
                 "graph" => {
                     input.parse::<Token![=]>()?;
@@ -209,7 +203,7 @@ impl Parse for ParsedTopology {
         })?;
 
         let trigger = match trigger_reactor {
-            Some(t) => TriggerSpec::ByReactor(t),
+            Some(name) => TriggerSpec::ByReactor(name),
             None => TriggerSpec::None,
         };
 
@@ -340,20 +334,36 @@ mod tests {
     #[test]
     fn test_parse_split_form_trigger_reactor() {
         let tokens = quote! {
-            trigger = reactor(my_crate::RiskSignals),
+            trigger = reactor("risk_signals"),
             graph = {
                 entry(alpha) -> output,
             }
         };
         let topology = parse_topology(tokens).unwrap();
         match topology.trigger {
-            TriggerSpec::ByReactor(tp) => {
-                // Reconstruct the path string for assertion
-                let path = tp.path.segments.last().unwrap().ident.to_string();
-                assert_eq!(path, "RiskSignals");
+            TriggerSpec::ByReactor(name) => {
+                assert_eq!(name, "risk_signals");
             }
             other => panic!("expected ByReactor, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_error_trigger_reactor_type_path_rejected() {
+        // The type-path form was removed in CLOACI-I-0102. A bare ident
+        // inside reactor(...) should now produce a friendly migration error.
+        let tokens = quote! {
+            trigger = reactor(MyReactor),
+            graph = { a -> b },
+        };
+        let result = parse_topology(tokens);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("string literal"),
+            "expected migration diagnostic, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -382,7 +392,7 @@ mod tests {
     #[test]
     fn test_parse_linear_edge() {
         let tokens = quote! {
-            trigger = reactor(R),
+            trigger = reactor("r"),
             graph = {
                 entry(alpha) -> middle,
                 middle -> output,
@@ -422,7 +432,7 @@ mod tests {
     #[test]
     fn test_parse_routing_edge() {
         let tokens = quote! {
-            trigger = reactor(R),
+            trigger = reactor("r"),
             graph = {
                 decision(alpha) => {
                     Signal -> handler_a,
@@ -454,7 +464,7 @@ mod tests {
     #[test]
     fn test_parse_mixed_edges() {
         let tokens = quote! {
-            trigger = reactor(R),
+            trigger = reactor("r"),
             graph = {
                 decision_engine(alpha, beta, gamma) => {
                     Signal -> risk_check,
@@ -499,7 +509,7 @@ mod tests {
     #[test]
     fn test_parse_fan_in() {
         let tokens = quote! {
-            trigger = reactor(R),
+            trigger = reactor("r"),
             graph = {
                 validate_a(a) -> merge,
                 validate_b(b) -> merge,
@@ -522,7 +532,7 @@ mod tests {
     #[test]
     fn test_parse_fan_out() {
         let tokens = quote! {
-            trigger = reactor(R),
+            trigger = reactor("r"),
             graph = {
                 compute(a) -> output_handler,
                 compute(a) -> audit_logger,
@@ -550,7 +560,7 @@ mod tests {
     #[test]
     fn test_error_missing_graph() {
         let tokens = quote! {
-            trigger = reactor(R)
+            trigger = reactor("r")
         };
         let result = parse_topology(tokens);
         assert!(result.is_err());
@@ -561,7 +571,7 @@ mod tests {
     #[test]
     fn test_error_unknown_field() {
         let tokens = quote! {
-            trigger = reactor(R),
+            trigger = reactor("r"),
             graph = { a -> b },
             bogus = something,
         };
@@ -574,7 +584,7 @@ mod tests {
     #[test]
     fn test_error_empty_routing() {
         let tokens = quote! {
-            trigger = reactor(R),
+            trigger = reactor("r"),
             graph = {
                 a(a) => {},
             }
@@ -588,8 +598,8 @@ mod tests {
     #[test]
     fn test_error_duplicate_trigger() {
         let tokens = quote! {
-            trigger = reactor(R1),
-            trigger = reactor(R2),
+            trigger = reactor("r1"),
+            trigger = reactor("r2"),
             graph = { a -> b },
         };
         let result = parse_topology(tokens);

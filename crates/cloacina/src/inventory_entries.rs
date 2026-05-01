@@ -39,7 +39,15 @@ use crate::computation_graph::triggerless::TriggerlessGraphRegistration;
 use crate::task::{Task, TaskNamespace};
 use crate::trigger::Trigger;
 use crate::workflow::Workflow;
-use cloacina_computation_graph::{ComputationGraphRegistration, ReactorRegistration};
+use cloacina_computation_graph::ComputationGraphRegistration;
+
+// I-0102 / T-A: ReactorEntry now lives in `cloacina-workflow-plugin` so
+// packaged cdylibs (which depend on cloacina-workflow-plugin but not on
+// cloacina) can collect their reactor entries at link time and the unified
+// `cloacina::package!()` shell can walk them. Re-exported here so existing
+// engine paths (`crate::ReactorEntry`, `cloacina::ReactorEntry`) keep
+// resolving.
+pub use cloacina_workflow_plugin::ReactorEntry;
 
 /// Task entry emitted by `#[task]`.
 pub struct TaskEntry {
@@ -83,13 +91,6 @@ pub struct TriggerlessGraphEntry {
     pub constructor: fn() -> TriggerlessGraphRegistration,
 }
 inventory::collect!(TriggerlessGraphEntry);
-
-/// Reactor entry emitted by the `#[reactor]` attribute macro.
-pub struct ReactorEntry {
-    pub name: &'static str,
-    pub constructor: fn() -> ReactorRegistration,
-}
-inventory::collect!(ReactorEntry);
 
 /// Stream-backend entry emitted by the stream-backend registration helper.
 ///

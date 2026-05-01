@@ -294,17 +294,11 @@ fn reactor_impl(
         quote! { ::cloacina_computation_graph }
     };
 
-    let inventory_path = if is_cloacina_crate {
-        quote! { crate::inventory }
-    } else {
-        quote! { ::cloacina::inventory }
-    };
-
-    let reactor_entry_path = if is_cloacina_crate {
-        quote! { crate::inventory_entries::ReactorEntry }
-    } else {
-        quote! { ::cloacina::ReactorEntry }
-    };
+    // I-0102 / T-A: ReactorEntry lives in cloacina-workflow-plugin so
+    // packaged cdylibs can collect entries at link time. The submission
+    // path is now uniform across embedded + packaged builds.
+    let inventory_path = quote! { ::cloacina_workflow_plugin::inventory };
+    let reactor_entry_path = quote! { ::cloacina_workflow_plugin::ReactorEntry };
 
     // Sanity: suppress an unused warning on `criteria_span` — it's kept for
     // future diagnostics use.
@@ -329,8 +323,10 @@ fn reactor_impl(
             const REACTION_MODE: #cg_path::ReactionMode = #cg_path::ReactionMode::#mode_variant;
         }
 
-        #[cfg(not(test))]
-        #[cfg(not(feature = "packaged"))]
+        // I-0102 / T-A: submission is unconditional — packaged cdylibs
+        // need ReactorEntry in their inventory so the unified
+        // `cloacina::package!()` shell can walk it for `get_reactor_metadata`.
+        // Embedded mode also needs it (Runtime::new() seeds from inventory).
         #inventory_path::submit! {
             #reactor_entry_path {
                 name: #reactor_name_lit,

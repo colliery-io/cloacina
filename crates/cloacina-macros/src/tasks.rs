@@ -21,7 +21,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use syn::{
     parse::{Parse, ParseStream},
-    Expr, FnArg, Ident, ItemFn, LitStr, Pat, Result as SynResult, Token, TypePath,
+    Expr, FnArg, Ident, ItemFn, LitStr, Pat, Result as SynResult, Token,
 };
 
 use crate::registry::{get_registry, TaskInfo};
@@ -53,11 +53,14 @@ pub struct TaskAttributes {
     pub trigger_rules: Option<Expr>,
     pub on_success: Option<Expr>,
     pub on_failure: Option<Expr>,
-    /// Optional `invokes = computation_graph(GraphHandle)` clause. Set when
-    /// the task wraps a trigger-less computation graph; the macro emits an
-    /// invocation body that calls `<H as TriggerlessGraph>::compiled_fn()`
-    /// and routes terminal outputs back into the task's context.
-    pub invokes_computation_graph: Option<TypePath>,
+    /// Optional `invokes = computation_graph("name")` clause. Set when the
+    /// task wraps a trigger-less computation graph; the macro emits an
+    /// invocation body that resolves the graph at runtime by walking
+    /// `inventory::iter::<TriggerlessGraphEntry>` for `name`, then routes
+    /// terminal outputs back into the task's context. The compile-time
+    /// `<H as TriggerlessGraph>` trait-bound check from T-0540 M3 is gone —
+    /// runtime contract validation at load time (T-B) is the replacement.
+    pub invokes_computation_graph: Option<String>,
     /// Optional `post_invocation = fn_name` callback. Only meaningful with
     /// `invokes`: the named async fn runs after the graph has fired and its
     /// terminal outputs have been routed into the context, but before
@@ -80,7 +83,7 @@ impl Parse for TaskAttributes {
         let mut trigger_rules = None;
         let mut on_success = None;
         let mut on_failure = None;
-        let mut invokes_computation_graph: Option<TypePath> = None;
+        let mut invokes_computation_graph: Option<String> = None;
         let mut post_invocation: Option<Expr> = None;
 
         while !input.is_empty() {
@@ -152,21 +155,29 @@ impl Parse for TaskAttributes {
                             kind.span(),
                             format!(
                                 "unknown invokes kind '{}', expected 'computation_graph' \
-                                 (e.g. invokes = computation_graph(MyGraphHandle))",
+                                 (e.g. invokes = computation_graph(\"my_graph\"))",
                                 kind
                             ),
                         ));
                     }
                     let paren;
                     syn::parenthesized!(paren in input);
-                    let type_path: TypePath = paren.parse()?;
+                    let lit: LitStr = paren.parse().map_err(|_| {
+                        syn::Error::new(
+                            paren.span(),
+                            "computation_graph(...) expects a string-literal name \
+                             (e.g. computation_graph(\"my_graph\")). The type-path form \
+                             was removed in CLOACI-I-0102 — graphs are referenced by \
+                             name with runtime contract validation.",
+                        )
+                    })?;
                     if !paren.is_empty() {
                         return Err(syn::Error::new(
                             paren.span(),
-                            "computation_graph(...) takes exactly one type-path argument",
+                            "computation_graph(...) takes exactly one string-literal argument",
                         ));
                     }
-                    invokes_computation_graph = Some(type_path);
+                    invokes_computation_graph = Some(lit.value());
                 }
                 "post_invocation" => {
                     if post_invocation.is_some() {
@@ -777,45 +788,76 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
     };
 
     let graph_invocation = match &attrs.invokes_computation_graph {
-        Some(handle_path) => quote! {
-            {
-                let __graph_fn = <#handle_path as ::cloacina::TriggerlessGraph>::compiled_fn();
-                let __terminal_names =
-                    <#handle_path as ::cloacina::TriggerlessGraph>::terminal_node_names();
-                let __ctx_for_graph = context.clone_data();
-                let __graph_result = __graph_fn(__ctx_for_graph).await;
-                match __graph_result {
-                    ::cloacina::computation_graph::GraphResult::Completed { outputs } => {
-                        for (idx, name) in __terminal_names.iter().enumerate() {
-                            if let Some(boxed) = outputs.get(idx) {
-                                if let Some(value) =
-                                    boxed.downcast_ref::<::serde_json::Value>()
-                                {
-                                    if context.get(*name).is_some() {
-                                        let _ = context.update(*name, value.clone());
-                                    } else {
-                                        let _ = context.insert(*name, value.clone());
+        Some(graph_name) => {
+            let graph_name_lit = graph_name.clone();
+            quote! {
+                {
+                    // I-0102 / T-A: graphs are referenced by string name. Walk
+                    // the runtime-collected `TriggerlessGraphEntry` inventory
+                    // to resolve the named graph. Reactor-triggered graphs
+                    // submit a `ComputationGraphEntry` instead, so a name
+                    // collision would still surface as "no triggerless graph
+                    // named X" — the runtime equivalent of T-0540 M3's
+                    // compile-time trait-bound check.
+                    let __reg_opt = ::cloacina::inventory::iter::<::cloacina::TriggerlessGraphEntry>
+                        .into_iter()
+                        .find(|e| e.name == #graph_name_lit)
+                        .map(|e| (e.constructor)());
+                    let __reg = match __reg_opt {
+                        Some(r) => r,
+                        None => {
+                            let task_error = ::cloacina_workflow::TaskError::ExecutionFailed {
+                                message: format!(
+                                    "computation_graph '{}' is not registered as a \
+                                     trigger-less graph in this runtime; ensure the \
+                                     package declaring it is loaded and that the graph \
+                                     is declared without `trigger = reactor(...)`",
+                                    #graph_name_lit,
+                                ),
+                                task_id: #task_id.to_string(),
+                                timestamp: chrono::Utc::now(),
+                            };
+                            #on_failure_call
+                            return Err(task_error);
+                        }
+                    };
+                    let __graph_fn = __reg.graph_fn.clone();
+                    let __terminal_names: Vec<String> = __reg.terminal_node_names.clone();
+                    let __ctx_for_graph = context.clone_data();
+                    let __graph_result = __graph_fn(__ctx_for_graph).await;
+                    match __graph_result {
+                        ::cloacina::computation_graph::GraphResult::Completed { outputs } => {
+                            for (idx, name) in __terminal_names.iter().enumerate() {
+                                if let Some(boxed) = outputs.get(idx) {
+                                    if let Some(value) =
+                                        boxed.downcast_ref::<::serde_json::Value>()
+                                    {
+                                        if context.get(name.as_str()).is_some() {
+                                            let _ = context.update(name.as_str(), value.clone());
+                                        } else {
+                                            let _ = context.insert(name.as_str(), value.clone());
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    ::cloacina::computation_graph::GraphResult::Error(graph_err) => {
-                        let task_error = ::cloacina_workflow::TaskError::ExecutionFailed {
-                            message: format!(
-                                "computation_graph '{}' invocation failed: {}",
-                                <#handle_path as ::cloacina_computation_graph::Graph>::NAME,
-                                graph_err,
-                            ),
-                            task_id: #task_id.to_string(),
-                            timestamp: chrono::Utc::now(),
-                        };
-                        #on_failure_call
-                        return Err(task_error);
+                        ::cloacina::computation_graph::GraphResult::Error(graph_err) => {
+                            let task_error = ::cloacina_workflow::TaskError::ExecutionFailed {
+                                message: format!(
+                                    "computation_graph '{}' invocation failed: {}",
+                                    #graph_name_lit,
+                                    graph_err,
+                                ),
+                                task_id: #task_id.to_string(),
+                                timestamp: chrono::Utc::now(),
+                            };
+                            #on_failure_call
+                            return Err(task_error);
+                        }
                     }
                 }
             }
-        },
+        }
         None => quote! {},
     };
 

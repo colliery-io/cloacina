@@ -52,7 +52,7 @@ pub struct OutputConfirmation {
 pub struct LinearChainReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(LinearChainReactor),
+    trigger = reactor("linear_chain_reactor"),
     graph = {
         entry(alpha) -> process,
         process -> output,
@@ -111,7 +111,7 @@ pub struct BetaData {
 pub struct RoutingDecisionReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(RoutingDecisionReactor),
+    trigger = reactor("routing_decision_reactor"),
     graph = {
         decision(alpha, beta) => {
             Signal -> signal_handler,
@@ -707,7 +707,7 @@ async fn test_batch_accumulator_to_reactor() {
 pub struct WhenAllGraphReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(WhenAllGraphReactor),
+    trigger = reactor("when_all_graph_reactor"),
     graph = {
         combine(alpha, beta) -> output,
     }
@@ -1990,7 +1990,7 @@ mod resilience_tests {
 pub struct CloaciT0538SplitReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(CloaciT0538SplitReactor),
+    trigger = reactor("cloaci_t_0538_reactor_split"),
     graph = {
         entry(alpha) -> output,
     }
@@ -2920,7 +2920,7 @@ async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
 /// back into the task's output context under each terminal-node name.
 #[cloacina_macros::task(
     id = "cloaci_t_0540_invoke_demo",
-    invokes = computation_graph(__CGHandle_cloaci_t_0538_triggerless_graph)
+    invokes = computation_graph("cloaci_t_0538_triggerless_graph")
 )]
 async fn cloaci_t_0540_invoke_demo(
     context: &mut ::cloacina_workflow::Context<serde_json::Value>,
@@ -2950,7 +2950,7 @@ async fn cloaci_t_0540_post_hook(
 
 #[cloacina_macros::task(
     id = "cloaci_t_0540_invoke_with_post",
-    invokes = computation_graph(__CGHandle_cloaci_t_0538_triggerless_graph),
+    invokes = computation_graph("cloaci_t_0538_triggerless_graph"),
     post_invocation = cloaci_t_0540_post_hook,
 )]
 async fn cloaci_t_0540_invoke_with_post(
@@ -3002,7 +3002,7 @@ pub mod cloaci_t_0540_panicking_graph {
 
 #[cloacina_macros::task(
     id = "cloaci_t_0540_panicking_invoker",
-    invokes = computation_graph(__CGHandle_cloaci_t_0540_panicking_graph),
+    invokes = computation_graph("cloaci_t_0540_panicking_graph"),
 )]
 async fn cloaci_t_0540_panicking_invoker(
     _context: &mut ::cloacina_workflow::Context<serde_json::Value>,

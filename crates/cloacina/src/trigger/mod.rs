@@ -293,6 +293,15 @@ pub trait Trigger: Send + Sync + fmt::Debug {
     ///
     /// Errors are logged and polling continues on the next interval.
     async fn poll(&self) -> Result<TriggerResult, TriggerError>;
+
+    /// Returns this trigger's cron expression, if any. Cron-shaped triggers
+    /// override this to return `Some(expr)`; their `poll_interval` is ignored
+    /// and the reconciler routes them to the cron scheduler instead of the
+    /// runtime trigger registry. Default `None` covers all custom-poll
+    /// triggers.
+    fn cron_expression(&self) -> Option<String> {
+        None
+    }
 }
 
 pub use registry::TriggerConstructor;

@@ -334,6 +334,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             graph_data: None,
             architecture: std::env::consts::ARCH.to_string(),
             symbols: vec![],
+            workflow_triggers: vec![],
         };
 
         let registry_id = self.storage.store_binary(package_data).await?;

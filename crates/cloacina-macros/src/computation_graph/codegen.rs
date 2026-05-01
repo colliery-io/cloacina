@@ -190,102 +190,25 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         ffi_reaction_mode_expr,
         type_binding_check,
     ) = match &ir.trigger {
-        TriggerSpec::ByReactor(type_path) => {
-            // Emit a private type alias at the outer scope so the bound
-            // reactor type is reachable from inside the generated `_ffi`
-            // submodule (where a bare path like `MyReactor` would not
-            // resolve). All references to the trigger reactor go through
-            // this alias.
-            let alias_ident = format_ident!("__CGTriggerReactor_{}", mod_name);
-            let trigger_alias = quote! {
-                #[doc(hidden)]
-                #[allow(non_camel_case_types)]
-                type #alias_ident = #type_path;
-            };
+        TriggerSpec::ByReactor(reactor_name) => {
+            // I-0102 / T-A: The reactor reference is now a string name.
+            // Compile-time accumulator-subset / reaction-mode lookups via
+            // `<TypePath as Reactor>::ACCUMULATORS` are gone — the binding
+            // is resolved at load time by the reconciler's runtime contract
+            // validator (T-B). Per-macro `_ffi` accumulator metadata is
+            // therefore emitted empty here; the reconciler reads accumulator
+            // declarations from the bound reactor's `get_reactor_metadata`
+            // wire-format payload instead. T-0543 M4's const-eval subset
+            // check is removed.
+            let _ = reactor_name; // silence unused if both branches degenerate
+            let reactor_name_lit = reactor_name.clone();
 
-            // Emit a const-eval subset check between the graph's entry
-            // accumulators and the bound reactor's ACCUMULATORS.
-            let check_fn_ident = format_ident!("__cloacina_check_reactor_binding_{}", mod_name);
-            let panic_msg = format!(
-                "computation_graph '{}' has an entry accumulator that is not \
-                 in the referenced reactor's ACCUMULATORS set",
-                mod_name_str
-            );
-            let entry_lits = entry_acc_strs.clone();
-
-            let check = quote! {
-                #trigger_alias
-
-                #[doc(hidden)]
-                const fn #check_fn_ident() {
-                    const ENTRY: &[&str] = &[#(#entry_lits),*];
-                    let reactor: &[&str] =
-                        <#type_path as #cg_path::Reactor>::ACCUMULATORS;
-                    let mut i = 0usize;
-                    while i < ENTRY.len() {
-                        let e = ENTRY[i].as_bytes();
-                        let mut j = 0usize;
-                        let mut found = false;
-                        while j < reactor.len() {
-                            let r = reactor[j].as_bytes();
-                            if e.len() == r.len() {
-                                let mut k = 0usize;
-                                let mut eq = true;
-                                while k < e.len() {
-                                    if e[k] != r[k] {
-                                        eq = false;
-                                        break;
-                                    }
-                                    k += 1;
-                                }
-                                if eq {
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            j += 1;
-                        }
-                        if !found {
-                            panic!(#panic_msg);
-                        }
-                        i += 1;
-                    }
-                }
-                const _: () = #check_fn_ident();
-            };
-
-            let legacy_accs = quote! {
-                <#type_path as #cg_path::Reactor>::ACCUMULATORS
-                    .iter()
-                    .map(|s| (*s).to_string())
-                    .collect::<Vec<String>>()
-            };
-            let legacy_mode = quote! {
-                <#type_path as #cg_path::Reactor>::REACTION_MODE
-                    .as_str()
-                    .to_string()
-            };
-            let trigger_reactor = quote! {
-                Some(<#type_path as #cg_path::Reactor>::NAME.to_string())
-            };
-            // FFI fragments live inside `pub mod _ffi { ... }`, so reference
-            // the trigger reactor via `super::#alias_ident` rather than the
-            // bare user-supplied path.
-            let ffi_accs = quote! {
-                <super::#alias_ident as #cg_path::Reactor>::ACCUMULATORS
-                    .iter()
-                    .map(|name| cloacina_workflow_plugin::AccumulatorDeclarationEntry {
-                        name: (*name).to_string(),
-                        accumulator_type: "passthrough".to_string(),
-                        config: std::collections::HashMap::new(),
-                    })
-                    .collect::<Vec<_>>()
-            };
-            let ffi_mode = quote! {
-                <super::#alias_ident as #cg_path::Reactor>::REACTION_MODE
-                    .as_str()
-                    .to_string()
-            };
+            let legacy_accs = quote! { Vec::<String>::new() };
+            let legacy_mode = quote! { "when_any".to_string() };
+            let trigger_reactor = quote! { Some(#reactor_name_lit.to_string()) };
+            let ffi_accs =
+                quote! { Vec::<cloacina_workflow_plugin::AccumulatorDeclarationEntry>::new() };
+            let ffi_mode = quote! { "when_any".to_string() };
 
             (
                 legacy_accs,
@@ -293,7 +216,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                 trigger_reactor,
                 ffi_accs,
                 ffi_mode,
-                check,
+                proc_macro2::TokenStream::new(),
             )
         }
         TriggerSpec::None => {
@@ -432,6 +355,20 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                         }
                     }
                 }
+
+                // T-A / I-0102: per-macro `_ffi` blocks predate the unified
+                // `cloacina::package!()` shell. They report "no reactors" /
+                // "no triggers" — the reconciler picks up reactor + trigger
+                // metadata from packages built against the new shell instead.
+                // Method order in the impl block must match trait declaration
+                // order (fidius's vtable is positional).
+                fn get_reactor_metadata(&self) -> Result<Vec<cloacina_workflow_plugin::ReactorPackageMetadata>, cloacina_workflow_plugin::PluginError> {
+                    Ok(Vec::new())
+                }
+
+                fn get_trigger_metadata(&self) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, cloacina_workflow_plugin::PluginError> {
+                    Ok(Vec::new())
+                }
             }
 
             cloacina_workflow_plugin::fidius_plugin_registry!();
@@ -479,7 +416,13 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             }
         };
         let ctor = quote! {
-            #[cfg(not(test))]
+            // I-0102 / T-A: triggerless graph inventory entries must be
+            // submitted in test builds too — `#[task(invokes =
+            // computation_graph("name"))]` resolves the graph by walking
+            // `inventory::iter::<TriggerlessGraphEntry>`. The previous
+            // `cfg(not(test))` gate worked when invocation went through the
+            // compile-time `<H as TriggerlessGraph>` trait; the runtime
+            // lookup needs the inventory entry present.
             #[cfg(not(feature = "packaged"))]
             #inventory_path::submit! {
                 #cloacina_root::TriggerlessGraphEntry {

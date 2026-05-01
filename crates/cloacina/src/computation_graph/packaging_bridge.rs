@@ -107,6 +107,56 @@ impl LoadedGraphPlugin {
     }
 }
 
+/// Method index constants for the version-2 `CloacinaPlugin` trait. Used by
+/// the reconciler dispatch (T-B) so call sites don't sprinkle bare numeric
+/// literals across the codebase. Order must match the trait's method
+/// declaration order in `cloacina-workflow-plugin/src/lib.rs`.
+pub const METHOD_GET_TASK_METADATA: usize = 0;
+pub const METHOD_EXECUTE_TASK: usize = 1;
+pub const METHOD_GET_GRAPH_METADATA: usize = 2;
+pub const METHOD_EXECUTE_GRAPH: usize = 3;
+pub const METHOD_GET_REACTOR_METADATA: usize = 4;
+pub const METHOD_GET_TRIGGER_METADATA: usize = 5;
+
+/// Call `get_reactor_metadata` (method index 4) on a loaded fidius plugin.
+///
+/// I-0102 / T-B: this is the host-side bridge that consumes the unified
+/// `cloacina::package!()` shell's reactor metadata. Plugins built before
+/// trait v2 (or per-macro `_ffi` blocks emitting empty stubs) return either
+/// `CallError::NotImplemented { bit }` or `Ok(vec![])` — both translate to
+/// "package declares no reactors" and the reconciler skips the reactor
+/// dispatch step for that package.
+pub fn call_get_reactor_metadata(
+    handle: &fidius_host::PluginHandle,
+) -> Result<Vec<cloacina_workflow_plugin::ReactorPackageMetadata>, String> {
+    match handle.call_method::<(), Vec<cloacina_workflow_plugin::ReactorPackageMetadata>>(
+        METHOD_GET_REACTOR_METADATA,
+        &(),
+    ) {
+        Ok(metadata) => Ok(metadata),
+        Err(fidius_host::CallError::NotImplemented { .. }) => Ok(Vec::new()),
+        Err(e) => Err(format!("get_reactor_metadata FFI call failed: {}", e)),
+    }
+}
+
+/// Call `get_trigger_metadata` (method index 5) on a loaded fidius plugin.
+///
+/// I-0102 / T-B: same NotImplemented fallback as `call_get_reactor_metadata`.
+/// The reconciler routes cron-shaped entries (cron_expression present) to the
+/// cron scheduler and the rest to the runtime trigger registry.
+pub fn call_get_trigger_metadata(
+    handle: &fidius_host::PluginHandle,
+) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, String> {
+    match handle.call_method::<(), Vec<cloacina_workflow_plugin::TriggerPackageMetadata>>(
+        METHOD_GET_TRIGGER_METADATA,
+        &(),
+    ) {
+        Ok(metadata) => Ok(metadata),
+        Err(fidius_host::CallError::NotImplemented { .. }) => Ok(Vec::new()),
+        Err(e) => Err(format!("get_trigger_metadata FFI call failed: {}", e)),
+    }
+}
+
 /// Convert FFI graph metadata + library data into a `ComputationGraphDeclaration`
 /// that the `ComputationGraphScheduler` can load.
 ///
@@ -547,6 +597,84 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
 
         tracing::info!(reactor = %name, "package-declared reactor loaded into scheduler");
         dispatched.push(name);
+    }
+    Ok(dispatched)
+}
+
+/// Dispatch reactors declared by a packaged Rust cdylib (T-B / I-0102).
+///
+/// Consumes `Vec<ReactorPackageMetadata>` produced by the unified
+/// `cloacina::package!()` shell's `get_reactor_metadata` and registers each
+/// reactor with the `ComputationGraphScheduler`. Mirrors the shape of
+/// `dispatch_runtime_reactors_into_scheduler` (which serves the Python
+/// path) so the reconciler's reactor step looks identical between
+/// languages.
+///
+/// `accumulator_overrides` is the manifest's `[metadata].accumulators`
+/// table — kept as input until T-E removes manifest-side accumulator
+/// overrides entirely. Today it shadows FFI-default `passthrough` with
+/// `stream` configurations.
+pub async fn dispatch_package_reactors_into_scheduler(
+    reactor_metadata: &[cloacina_workflow_plugin::ReactorPackageMetadata],
+    scheduler: &super::scheduler::ComputationGraphScheduler,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    tenant_id: Option<String>,
+) -> Result<Vec<String>, String> {
+    use cloacina_computation_graph::ReactionMode;
+
+    let mut dispatched = Vec::new();
+    for meta in reactor_metadata {
+        let accumulators: Vec<AccumulatorDeclaration> = meta
+            .accumulators
+            .iter()
+            .map(|acc| {
+                let factory: Arc<dyn AccumulatorFactory> = match accumulator_overrides
+                    .iter()
+                    .find(|cfg| cfg.name == acc.name)
+                {
+                    Some(override_cfg) => match override_cfg.accumulator_type.as_str() {
+                        "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
+                            override_cfg.config.clone(),
+                        )),
+                        _ => Arc::new(PassthroughAccumulatorFactory),
+                    },
+                    None => match acc.accumulator_type.as_str() {
+                        "stream" => {
+                            Arc::new(StreamBackendAccumulatorFactory::new(acc.config.clone()))
+                        }
+                        _ => Arc::new(PassthroughAccumulatorFactory),
+                    },
+                };
+                AccumulatorDeclaration {
+                    name: acc.name.clone(),
+                    factory,
+                }
+            })
+            .collect();
+
+        let criteria = match meta.reaction_mode.as_str() {
+            "when_all" => ReactionMode::WhenAll.into(),
+            _ => ReactionMode::WhenAny.into(),
+        };
+        let strategy = InputStrategy::Latest;
+
+        scheduler
+            .load_reactor(
+                meta.name.clone(),
+                accumulators,
+                criteria,
+                strategy,
+                tenant_id.clone(),
+                vec![],
+            )
+            .await?;
+
+        tracing::info!(
+            reactor = %meta.name,
+            package = %meta.package_name,
+            "package-declared reactor loaded into scheduler (via get_reactor_metadata)"
+        );
+        dispatched.push(meta.name.clone());
     }
     Ok(dispatched)
 }

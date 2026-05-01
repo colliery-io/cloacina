@@ -56,6 +56,11 @@ pub struct PackageMetadata {
     pub architecture: String,
     /// Required symbols present in the library
     pub symbols: Vec<String>,
+    /// I-0102 / T-A: Trigger names this package's workflow subscribes to,
+    /// sourced from `#[workflow(triggers = […])]`. The reconciler binds
+    /// each named trigger to the workflow at load time.
+    #[serde(default)]
+    pub workflow_triggers: Vec<String>,
 }
 
 /// Individual task metadata.
@@ -302,6 +307,7 @@ impl PackageLoader {
             graph_data,
             architecture,
             symbols: vec!["fidius_get_registry".to_string()],
+            workflow_triggers: meta.triggers,
         })
     }
 
@@ -357,6 +363,108 @@ impl PackageLoader {
         };
 
         // Keep handle alive to prevent dlclose
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
+
+        result
+    }
+
+    /// Extract reactor metadata from compiled library bytes (T-B / I-0102).
+    ///
+    /// Calls `get_reactor_metadata()` (method index 4) on the fidius plugin.
+    /// Plugins that predate trait v2 — and per-macro `_ffi` blocks emitting
+    /// the empty stub — both return `Ok(vec![])` here. Real reactor entries
+    /// come from packages built against the unified `cloacina::package!()`
+    /// shell.
+    pub async fn extract_reactor_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Vec<cloacina_workflow_plugin::ReactorPackageMetadata>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self.temp_dir.path().join(format!(
+            "reactor_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        let result = crate::computation_graph::packaging_bridge::call_get_reactor_metadata(&handle)
+            .map_err(|e| LoaderError::MetadataExtraction { reason: e });
+
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
+
+        result
+    }
+
+    /// Extract trigger metadata from compiled library bytes (T-B / I-0102).
+    ///
+    /// Calls `get_trigger_metadata()` (method index 5) on the fidius plugin.
+    /// Cron-vs-custom routing happens at the reconciler based on the
+    /// returned `cron_expression` field.
+    pub async fn extract_trigger_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self.temp_dir.path().join(format!(
+            "trigger_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        let result = crate::computation_graph::packaging_bridge::call_get_trigger_metadata(&handle)
+            .map_err(|e| LoaderError::MetadataExtraction { reason: e });
+
         if let Ok(mut cache) = self.handle_cache.lock() {
             cache.push(handle);
         }

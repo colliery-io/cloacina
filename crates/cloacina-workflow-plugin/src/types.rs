@@ -59,6 +59,11 @@ pub struct PackageTasksMetadata {
     pub graph_data_json: Option<String>,
     /// All tasks in this workflow
     pub tasks: Vec<TaskMetadataEntry>,
+    /// Names of triggers this workflow subscribes to. Sourced from the
+    /// `#[workflow(triggers = [...])]` macro arg. The reconciler binds
+    /// each named trigger → this workflow at load time. (T-A)
+    #[serde(default)]
+    pub triggers: Vec<String>,
 }
 
 /// Request to execute a task within a workflow package.
@@ -130,6 +135,46 @@ pub struct AccumulatorDeclarationEntry {
 pub struct GraphExecutionRequest {
     /// Cache entries: source name → JSON-serialized boundary value
     pub cache: std::collections::HashMap<String, String>,
+}
+
+/// Metadata for a single reactor declared by this package, returned by
+/// `get_reactor_metadata()`. Mirrors `GraphPackageMetadata` shape: the
+/// reactor publishes accumulators and a reaction mode that downstream
+/// computation graphs (in this or other packages) can subscribe to by name.
+/// (T-A — I-0102)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReactorPackageMetadata {
+    /// Reactor name (used as the reactor's identity in the runtime registry
+    /// and as the binding target for `trigger = reactor("name")` graph refs).
+    pub name: String,
+    /// Cargo package name (sourcing context for diagnostics).
+    pub package_name: String,
+    /// Reaction mode: "when_any" or "when_all".
+    pub reaction_mode: String,
+    /// Accumulator declarations.
+    pub accumulators: Vec<AccumulatorDeclarationEntry>,
+}
+
+/// Metadata for a single trigger declared by this package, returned by
+/// `get_trigger_metadata()`. The reconciler routes cron-shaped triggers
+/// (`cron_expression.is_some()`) to the cron scheduler and custom-poll
+/// triggers to the runtime trigger registry. (T-A — I-0102)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerPackageMetadata {
+    /// Trigger name.
+    pub name: String,
+    /// Cargo package name (sourcing context for diagnostics).
+    pub package_name: String,
+    /// Polling interval as a humantime-parseable string (e.g., "5s", "1m").
+    /// Ignored when `cron_expression.is_some()`.
+    pub poll_interval: String,
+    /// Cron expression (e.g., "*/10 * * * *"). When present, the reconciler
+    /// routes this trigger to the cron scheduler.
+    #[serde(default)]
+    pub cron_expression: Option<String>,
+    /// Whether concurrent executions are allowed.
+    #[serde(default)]
+    pub allow_concurrent: bool,
 }
 
 /// Result of a computation graph execution.

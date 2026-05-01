@@ -51,6 +51,10 @@ pub struct UnifiedWorkflowAttributes {
     pub tenant: String,
     pub description: Option<String>,
     pub author: Option<String>,
+    /// I-0102 / T-A: trigger names this workflow subscribes to. The
+    /// reconciler binds each named trigger → this workflow at load time
+    /// (replaces the manifest-side `[[triggers]]` table that T-E removes).
+    pub triggers: Vec<String>,
 }
 
 impl Parse for UnifiedWorkflowAttributes {
@@ -59,6 +63,7 @@ impl Parse for UnifiedWorkflowAttributes {
         let mut tenant = None;
         let mut description = None;
         let mut author = None;
+        let mut triggers: Vec<String> = Vec::new();
 
         while !input.is_empty() {
             let field_name: Ident = input.parse()?;
@@ -81,11 +86,23 @@ impl Parse for UnifiedWorkflowAttributes {
                     let lit: LitStr = input.parse()?;
                     author = Some(lit.value());
                 }
+                "triggers" => {
+                    // Array of string literals: triggers = ["t1", "t2"]
+                    let content;
+                    syn::bracketed!(content in input);
+                    while !content.is_empty() {
+                        let lit: LitStr = content.parse()?;
+                        triggers.push(lit.value());
+                        if !content.is_empty() {
+                            content.parse::<Token![,]>()?;
+                        }
+                    }
+                }
                 _ => {
                     return Err(syn::Error::new(
                         field_name.span(),
                         format!(
-                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author",
+                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author, triggers",
                             field_name
                         ),
                     ));
@@ -106,6 +123,7 @@ impl Parse for UnifiedWorkflowAttributes {
             tenant: tenant.unwrap_or_else(|| "public".to_string()),
             description,
             author,
+            triggers,
         })
     }
 }
@@ -239,6 +257,7 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         &graph_data_json,
         &detected_tasks,
         &task_dependencies,
+        &attrs.triggers,
     );
 
     let _packaged_mod_name = syn::Ident::new(
@@ -614,6 +633,7 @@ fn generate_packaged_registration(
     graph_data_json: &str,
     detected_tasks: &HashMap<String, syn::Ident>,
     task_dependencies: &HashMap<String, Vec<String>>,
+    triggers: &[String],
 ) -> TokenStream2 {
     let package_description = if description.is_empty() {
         format!("Workflow: {}", workflow_name)
@@ -625,6 +645,11 @@ fn generate_packaged_registration(
     } else {
         author.to_string()
     };
+
+    // I-0102 / T-A: Workflow's trigger subscriptions (string names) flow
+    // through to PackageTasksMetadata.triggers; the reconciler binds each
+    // named trigger to this workflow at load time.
+    let triggers_lits: Vec<String> = triggers.to_vec();
 
     // Generate task execution match arms
     let mut task_execution_cases = Vec::new();
@@ -684,6 +709,7 @@ fn generate_packaged_registration(
                     tasks: vec![
                         #(#metadata_entries),*
                     ],
+                    triggers: vec![#(#triggers_lits.to_string()),*],
                 })
             }
 
@@ -748,6 +774,20 @@ fn generate_packaged_registration(
                     message: "This is a workflow package, not a computation graph package".to_string(),
                     details: None,
                 })
+            }
+
+            // T-A / I-0102: per-macro `_ffi` blocks predate the unified
+            // `cloacina::package!()` shell. They report "no reactors" /
+            // "no triggers" — packages built against the new shell expose
+            // reactor + trigger metadata directly via the shell instead.
+            // Method order in the impl block must match trait declaration
+            // order (fidius's vtable is positional).
+            fn get_reactor_metadata(&self) -> Result<Vec<cloacina_workflow_plugin::ReactorPackageMetadata>, cloacina_workflow_plugin::PluginError> {
+                Ok(Vec::new())
+            }
+
+            fn get_trigger_metadata(&self) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, cloacina_workflow_plugin::PluginError> {
+                Ok(Vec::new())
             }
         }
 

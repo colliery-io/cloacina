@@ -115,6 +115,40 @@ impl RegistryReconciler {
             cloacina_manifest.metadata.language
         );
 
+        // T-B / I-0102: deprecation warnings for manifest keys that the
+        // macro layer now owns. Both are still parsed and routed today,
+        // but T-E (T-0551) will hard-error on either. The warnings give
+        // out-of-tree packages a single release window to migrate.
+        if !cloacina_manifest.metadata.triggers.is_empty() {
+            warn!(
+                "Package {} v{}: `[[triggers]]` in package.toml is deprecated and will be \
+                 removed in a future release. Declare workflow → trigger subscriptions via \
+                 `#[workflow(triggers = [...])]` on the workflow module instead. Found {} \
+                 trigger entr{}",
+                metadata.package_name,
+                metadata.version,
+                cloacina_manifest.metadata.triggers.len(),
+                if cloacina_manifest.metadata.triggers.len() == 1 {
+                    "y"
+                } else {
+                    "ies"
+                },
+            );
+        }
+        // `package_type` defaults to `["workflow"]` when omitted; only warn
+        // if the manifest explicitly set it to a non-default value, since
+        // the default is what every legacy package will produce on
+        // deserialization.
+        if cloacina_manifest.metadata.package_type != vec!["workflow".to_string()] {
+            warn!(
+                "Package {} v{}: `package_type = {:?}` in package.toml is deprecated and will \
+                 be removed in a future release. Primitives are now self-declared via the \
+                 unified `cloacina::package!()` shell macro and per-primitive macros \
+                 (`#[workflow]`, `#[reactor]`, `#[trigger]`, `#[computation_graph]`).",
+                metadata.package_name, metadata.version, cloacina_manifest.metadata.package_type,
+            );
+        }
+
         // --- Step 4, 5, 6: language-specific loading ---
         //
         // `compiled_data` is populated by the compiler service for Rust / mixed
@@ -156,6 +190,57 @@ impl RegistryReconciler {
                 .await?;
             let trigger_names =
                 self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
+
+            // T-B / I-0102: validate `#[workflow(triggers = [...])]`
+            // subscriptions. The macro arg surfaces in
+            // `PackageTasksMetadata.triggers`; the reconciler asserts each
+            // named trigger is registered in the runtime so a typo'd name
+            // fails the load instead of silently never firing.
+            self.validate_workflow_trigger_subscriptions(&metadata, &library_data)
+                .await?;
+
+            // T-B / I-0102: dispatch reactors declared by the cdylib via
+            // the unified `cloacina::package!()` shell. Plugins built
+            // against trait v1 (or per-macro `_ffi` stubs) return
+            // `Ok(Vec::new())` here and this step is a no-op.
+            match self
+                .package_loader
+                .extract_reactor_metadata(&library_data)
+                .await
+            {
+                Ok(reactor_metas) if !reactor_metas.is_empty() => {
+                    let scheduler_guard = self.graph_scheduler.read().await;
+                    if let Some(ref scheduler) = *scheduler_guard {
+                        if let Err(e) =
+                            crate::computation_graph::packaging_bridge::dispatch_package_reactors_into_scheduler(
+                                &reactor_metas,
+                                scheduler,
+                                &cloacina_manifest.metadata.accumulators,
+                                Some(self.config.default_tenant_id.clone()),
+                            )
+                            .await
+                        {
+                            warn!(
+                                "Failed to dispatch package-declared reactors from {}: {}",
+                                metadata.package_name, e
+                            );
+                        }
+                    } else {
+                        warn!(
+                            "Package {} declares {} reactor(s) but no ComputationGraphScheduler is configured",
+                            metadata.package_name,
+                            reactor_metas.len()
+                        );
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    debug!(
+                        "extract_reactor_metadata returned no entries for {}: {}",
+                        metadata.package_name, e
+                    );
+                }
+            }
 
             (task_namespaces, workflow_name, trigger_names)
         } else if cloacina_manifest.metadata.language == "python"
@@ -885,6 +970,61 @@ impl RegistryReconciler {
     /// is dlopened. This method checks that each declared trigger actually
     /// appeared in the Runtime and tracks its name so it can be removed when
     /// the package is unloaded.
+    /// Validate that every trigger named in `#[workflow(triggers = [...])]`
+    /// is registered in the runtime. Hard-errors if any name is missing —
+    /// the package's workflow won't fire from those triggers and the user
+    /// almost certainly typo'd a name.
+    pub(super) async fn validate_workflow_trigger_subscriptions(
+        &self,
+        metadata: &WorkflowMetadata,
+        package_data: &[u8],
+    ) -> Result<(), RegistryError> {
+        let package_metadata = self
+            .package_loader
+            .extract_metadata(package_data)
+            .await
+            .map_err(RegistryError::Loader)?;
+
+        if package_metadata.workflow_triggers.is_empty() {
+            return Ok(());
+        }
+
+        let Some(runtime) = self.runtime.as_ref() else {
+            warn!(
+                "Package {} v{} declares workflow trigger subscriptions but the reconciler has no \
+                 Runtime attached",
+                metadata.package_name, metadata.version
+            );
+            return Ok(());
+        };
+
+        let mut missing: Vec<String> = Vec::new();
+        for trigger_name in &package_metadata.workflow_triggers {
+            if runtime.get_trigger(trigger_name).is_none() {
+                missing.push(trigger_name.clone());
+            }
+        }
+
+        if !missing.is_empty() {
+            return Err(RegistryError::RegistrationFailed {
+                message: format!(
+                    "Package {} v{} declares `#[workflow(triggers = [...])]` referencing \
+                     trigger(s) not registered in this runtime: {:?}. Ensure the package \
+                     declaring those triggers is loaded first, or remove the typo.",
+                    metadata.package_name, metadata.version, missing
+                ),
+            });
+        }
+
+        info!(
+            "Package {} v{}: validated {} workflow trigger subscription(s)",
+            metadata.package_name,
+            metadata.version,
+            package_metadata.workflow_triggers.len()
+        );
+        Ok(())
+    }
+
     pub(super) fn register_package_triggers(
         &self,
         metadata: &WorkflowMetadata,
