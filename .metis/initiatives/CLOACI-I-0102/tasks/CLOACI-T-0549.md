@@ -4,14 +4,14 @@ level: task
 title: "T-C: Strip per-macro plugin emission + migrate in-tree packaged crates"
 short_code: "CLOACI-T-0549"
 created_at: 2026-04-30T04:08:45.830718+00:00
-updated_at: 2026-05-01T20:56:12.638108+00:00
+updated_at: 2026-05-02T14:04:09.296077+00:00
 parent: CLOACI-I-0102
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -33,6 +33,8 @@ Cut over to the unified surface in a single PR. Three converging migrations:
 3. **Stop reading `[[triggers]]` and `package_type` from `package.toml` for the migrated crates.** The macro layer is now authoritative. Manifest cleanup itself (warnings, removal, hard error) is T-E; this task just stops the in-tree fixtures from depending on those keys.
 
 Atomic migration is honest: there is no useful intermediate state where some packages emit via the old path and some via the new. Pre-1.0 breakage is the policy.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -170,3 +172,28 @@ To complete T-C's main goal (strip per-macro emission and migrate fixtures), the
 6. **TriggerEntry + TriggerlessGraphEntry relocation** can wait until a fixture exercises them.
 
 Phase 1 is committable on its own (mechanical move with no behavior change, all tests green). Phase 2 is the substantive cut.
+
+### 2026-05-02 — Phase 2 done: full T-C cutover
+
+Phase 2 landed across four sequential commits, each test-gate green:
+
+- **Phase 2a** (`9cce941`): Migrated workflow_attr macro emission paths from `cloacina::Task/Context/TaskError/TaskNamespace/RetryPolicy/TaskEntry/inventory` to their cloacina-workflow / cloacina-workflow-plugin equivalents. Non-functional rename — both old and new paths resolve to the same physical types in embedded builds.
+- **Phase 2b** (`c65a660`): Completed the `cloacina::package!()` shell macro bodies: `get_task_metadata` walks `inventory::iter::<TaskEntry>` and derives workflow_name from each entry's TaskNamespace; `execute_task` resolves by name and dispatches via `Task::execute` on a package-shell tokio runtime; `get_graph_metadata` + `execute_graph` walk `inventory::iter::<ComputationGraphEntry>` (single-CG invariant); `get_trigger_metadata` still stubs Ok(vec![]) (TriggerEntry relocation deferred). Workflow macro's `task_inventory_entries` extracted to a helper, emitted unconditionally so packaged cdylibs collect tasks too. Reactor-only fixture also gained cloacina-workflow dep.
+- **Phase 2c** (`29d91ea`): Stripped per-macro `_ffi` emission from both `#[workflow]` (workflow_attr.rs) and `#[computation_graph]` (computation_graph/codegen.rs). The shell macro is now the sole CloacinaPlugin export path. Added `WorkflowDescriptorEntry` (in cloacina-workflow-plugin) so the shell can populate description/author/fingerprint/graph_data/triggers without per-macro emission. ComputationGraphEntry inventory submission un-gated for both modes and retargeted at cloacina-workflow-plugin paths. Migrated 7 in-tree packaged crates: `simple-packaged`, `packaged-workflows`, `packaged-triggers`, `complex-dag`, `packaged-graph`, `compiler-broken-rust`, `compiler-happy-rust`. Each gained a `cloacina_workflow_plugin::package!();` invocation at the crate root + cloacina-computation-graph and cloacina-workflow deps where missing. complex-dag's tasks made `pub` (were private; per-macro emission also couldn't have built it). packaged-graph's `trigger = reactor(PackagedMarketMakerReactor)` switched to string-name `trigger = reactor("packaged_market_maker_reactor")`.
+- **Phase 2d** (`ae7e0eb`): Dropped `package_type` from packaged-graph and python-packaged-graph package.toml; dropped `[[metadata.triggers]]` from simple-packaged.
+
+**Test gates (all green across Phase 2):**
+
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` — 701 passed
+- [x] `angreal test integration --backend sqlite` — 6 Rust + 28 Python
+- [x] `angreal test integration --backend postgres` — 287 Rust + 28 Python
+
+### State
+
+T-0549 (T-C) is **complete**. Per-macro `_ffi` emission is gone; the unified shell is the sole plugin export path; all in-tree packaged crates are migrated; legacy `package_type` and `[[triggers]]` keys are dropped from migrated manifests.
+
+Open follow-ups (none blocking I-0102's directional goal):
+
+- TriggerEntry + TriggerlessGraphEntry relocation to cloacina-workflow-plugin so the shell's `get_trigger_metadata` can do real work. T-D fixtures (T-0550) will likely surface the pressure to do this.
+- A second commit history note: `examples/features/computation-graphs/python-packaged-graph` Cargo.toml wasn't audited for cloacina-computation-graph dep. Python CG packages don't use the Rust shell macro so this may not matter, but worth verifying when T-D runs end-to-end.

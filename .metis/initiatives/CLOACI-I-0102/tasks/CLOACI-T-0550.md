@@ -1,17 +1,17 @@
 ---
-id: t-d-reactor-only-rust-cdylib-end
+id: t-d-primitive-only-rust-cdylib-end
 level: task
 title: "T-D: Primitive-only Rust cdylib end-to-end integration tests"
 short_code: "CLOACI-T-0550"
 created_at: 2026-04-30T04:09:50.469748+00:00
-updated_at: 2026-04-30T04:09:50.469748+00:00
+updated_at: 2026-05-02T14:04:17.316930+00:00
 parent: CLOACI-I-0102
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -34,6 +34,8 @@ End-to-end integration coverage for the primitive-only and cross-package authori
 4. **Cross-package binding** — separate cdylib whose CG references the reactor declared in fixture (1) by string name. Validates fan-out across packages and the runtime contract validator.
 
 This is the "primitive-only Rust just works" + "string-named cross-package refs just work" proof point.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -93,4 +95,42 @@ This is the "primitive-only Rust just works" + "string-named cross-package refs 
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-05-02 — Reactor-only + cross-package subscriber fixtures + 3 integration tests
+
+Landed the two T-D fixtures that don't depend on TriggerEntry relocation. Trigger-only and mixed-rust deferred (see below).
+
+**Fixtures shipped:**
+
+- `examples/fixtures/reactor-only-rust/` — already existed from T-A; just one `#[reactor(name = "shared_rx", accumulators = [alpha, beta], criteria = when_any(...))]` + `cloacina_workflow_plugin::package!()`. Builds clean as cdylib; the shell's `get_reactor_metadata` walks `inventory::iter::<ReactorEntry>` and projects to `ReactorPackageMetadata`.
+- `examples/fixtures/reactor-subscriber-rust/` — new. Declares a CG with `trigger = reactor("shared_rx")` (string-name binding to the reactor in `reactor-only-rust`). No reactor declaration of its own. Demonstrates cross-package binding via the macro-layer string-name surface.
+
+**Integration tests** (`crates/cloacina/tests/integration/primitive_only_packaging.rs`):
+
+- `reactor_only_fixture_emits_reactor_metadata` — loads the reactor-only dylib, calls `call_method(4, &())` (`get_reactor_metadata`), asserts the single reactor entry shape (name, package_name, accumulators, reaction_mode).
+- `reactor_only_fixture_emits_no_tasks` — same dylib, calls `call_method(0, &())` (`get_task_metadata`), asserts tasks vec is empty.
+- `reactor_subscriber_fixture_carries_string_name_binding` — loads the subscriber dylib, calls `call_method(2, &())` (`get_graph_metadata`), asserts `graph.trigger_reactor == Some("shared_rx")`. Locks down the cross-package binding wire format.
+
+**Pre-build wiring**: `.angreal/test/integration.py` now builds `reactor-only-rust` and `reactor-subscriber-rust` alongside the existing `packaged-workflow-example` and `simple-packaged-demo`.
+
+**Test gates (all green):**
+
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (701)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python — my tests filtered out by sqlite name pattern, same as fidius_validation)
+- [x] `angreal test integration --backend postgres` (290 + 28 Python — was 287 before; my 3 new tests all pass)
+
+### Deferred (out of T-D scope as it stands)
+
+The remaining T-D ACs all depend on `TriggerEntry` relocating to `cloacina-workflow-plugin` so the shell's `get_trigger_metadata` can walk inventory:
+
+- **`trigger-only-rust` fixture** — `#[trigger(cron = ...)]` + `#[trigger(custom)]` + `cloacina::package!();`. The shell currently stubs `get_trigger_metadata` returning `Ok(vec![])`, so a trigger-only crate would build but the shell would report no triggers — test would assert empty Vec, which isn't a useful invariant.
+- **`mixed-rust` fixture** — reactor + custom trigger + reactor-bound CG + workflow with `triggers = ["..."]`. Same blocker (`get_trigger_metadata` stubbed).
+- **Reconciler-driven full e2e tests** — assertions like "one event into the trigger fires the workflow". Requires the trigger metadata flow + reconciler binding to work end-to-end.
+- **Cross-package contract mismatch test** (subscriber declares incompatible accumulator names → load fails) — needs T-B's runtime contract validator to surface the binding rejection through the load path. Today's `dispatch_package_reactors_into_scheduler` doesn't validate the subscriber's entry accumulators against the bound reactor's published set; that's a follow-up.
+- **Lifecycle ordering test** (unload reactor while subscriber bound → reject; unload subscriber first → succeed) — depends on the reconciler load_package pipeline restructure (deferred from T-B's Phase 3).
+
+### State
+
+T-0550 (T-D) **partial**: reactor-only + cross-package subscriber fixtures shipped; 3 wire-format integration tests pass on postgres. Trigger-related fixtures + reconciler-driven assertions await TriggerEntry relocation and the load_package pipeline restructure.
+
+The T-D contribution is meaningful: it locks down the cross-package binding wire format end-to-end through real cdylib loads, which is the key invariant that I-0102 was opened to enable.
