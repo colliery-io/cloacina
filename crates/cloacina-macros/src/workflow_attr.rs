@@ -235,6 +235,13 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         quote! {}
     };
 
+    // I-0102 / T-C: TaskEntry inventory submissions emitted unconditionally
+    // so the unified `cloacina::package!()` shell can walk them in packaged
+    // cdylib builds. Embedded mode also needs them (Runtime::new() seeds
+    // tasks from inventory).
+    let task_inventory_entries =
+        build_task_inventory_entries(tenant, workflow_name, mod_name, &detected_tasks);
+
     // Generate embedded registration (when `packaged` feature is NOT active)
     let embedded_registration = generate_embedded_registration(
         mod_name,
@@ -278,6 +285,11 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
                 #packaged_registration
             }
         }
+
+        // I-0102 / T-C: TaskEntry inventory submissions fire in BOTH
+        // packaged and embedded modes. The unified `cloacina::package!()`
+        // shell walks these from packaged cdylibs.
+        #(#task_inventory_entries)*
 
         #[cfg(not(feature = "packaged"))]
         const _: () = {
@@ -448,12 +460,47 @@ fn generate_embedded_registration(
         quote! {}
     };
 
-    // Inventory entries for the workflow itself and each contained task.
-    // The TaskEntry constructor wraps each task with trigger-rule rewriting,
-    // dep-namespace resolution, and the TaskWithNamespacedTriggers wrapper so
-    // `Runtime::new()` can seed tasks directly from inventory.
+    quote! {
+        fn #workflow_constructor_name() -> cloacina::Workflow {
+            let pkg_name = env!("CARGO_PKG_NAME");
+
+            let mut workflow = cloacina::Workflow::new(#workflow_name);
+            workflow.set_tenant(#tenant);
+            workflow.set_package(pkg_name);
+            #description_field
+            #author_field
+
+            // Add tasks
+            #(#task_addition_code)*
+
+            workflow.validate().expect("Workflow validation failed");
+            workflow.finalize()
+        }
+
+        cloacina::inventory::submit! {
+            cloacina::WorkflowEntry {
+                name: #workflow_name,
+                constructor: #workflow_constructor_name,
+            }
+        }
+    }
+}
+
+/// Build `inventory::submit!` blocks for each task in the workflow.
+///
+/// Emitted unconditionally (both `feature = "packaged"` and not) so the
+/// unified `cloacina::package!()` shell can walk
+/// `inventory::iter::<TaskEntry>` from packaged cdylib builds. (T-C / I-0102)
+fn build_task_inventory_entries(
+    tenant: &str,
+    workflow_name: &str,
+    mod_name: &syn::Ident,
+    detected_tasks: &HashMap<String, syn::Ident>,
+) -> Vec<TokenStream2> {
+    let mod_path_prefix = quote! { #mod_name };
     let rewrite_trigger_rules_for_inventory = generate_trigger_rules_rewrite(tenant, workflow_name);
-    let task_inventory_entries: Vec<TokenStream2> = detected_tasks
+
+    detected_tasks
         .iter()
         .map(|(task_id, fn_name)| {
             let constructor_name = syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
@@ -543,34 +590,7 @@ fn generate_embedded_registration(
                 }
             }
         })
-        .collect();
-
-    quote! {
-        fn #workflow_constructor_name() -> cloacina::Workflow {
-            let pkg_name = env!("CARGO_PKG_NAME");
-
-            let mut workflow = cloacina::Workflow::new(#workflow_name);
-            workflow.set_tenant(#tenant);
-            workflow.set_package(pkg_name);
-            #description_field
-            #author_field
-
-            // Add tasks
-            #(#task_addition_code)*
-
-            workflow.validate().expect("Workflow validation failed");
-            workflow.finalize()
-        }
-
-        cloacina::inventory::submit! {
-            cloacina::WorkflowEntry {
-                name: #workflow_name,
-                constructor: #workflow_constructor_name,
-            }
-        }
-
-        #(#task_inventory_entries)*
-    }
+        .collect()
 }
 
 /// Generate trigger rules rewrite code (namespace task names in trigger conditions).

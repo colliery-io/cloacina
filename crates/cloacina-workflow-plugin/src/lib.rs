@@ -99,8 +99,8 @@ macro_rules! package {
     () => {
         #[cfg(feature = "packaged")]
         pub mod _ffi {
-            use $crate::__fidius_CloacinaPlugin;
             use $crate::CloacinaPlugin as _;
+            use $crate::__fidius_CloacinaPlugin;
 
             // Single-emission guard: a duplicate `cloacina::package!()` in
             // the same crate produces "the name `__cloacina_package_marker`
@@ -115,21 +115,45 @@ macro_rules! package {
             impl $crate::CloacinaPlugin for CloacinaPackagePlugin {
                 fn get_task_metadata(
                     &self,
-                ) -> ::core::result::Result<
-                    $crate::PackageTasksMetadata,
-                    $crate::PluginError,
-                > {
-                    // Stub at this iteration of T-A. Will walk
-                    // inventory::iter::<TaskEntry> once TaskEntry
-                    // relocates to a cdylib-reachable crate.
+                ) -> ::core::result::Result<$crate::PackageTasksMetadata, $crate::PluginError>
+                {
+                    let mut tasks: ::std::vec::Vec<$crate::TaskMetadataEntry> =
+                        ::std::vec::Vec::new();
+                    let mut workflow_name: ::std::string::String = ::std::string::String::new();
+                    for (idx, entry) in $crate::inventory::iter::<$crate::TaskEntry>
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let ns = (entry.namespace)();
+                        if workflow_name.is_empty() {
+                            workflow_name = ns.workflow_id.clone();
+                        }
+                        let task = (entry.constructor)();
+                        let dependencies: ::std::vec::Vec<::std::string::String> =
+                            cloacina_workflow::Task::dependencies(&*task)
+                                .iter()
+                                .map(|n| n.task_id.clone())
+                                .collect();
+                        tasks.push($crate::TaskMetadataEntry {
+                            index: idx as u32,
+                            id: cloacina_workflow::Task::id(&*task).to_string(),
+                            namespaced_id_template: format!(
+                                "{}::{}::{}::{}",
+                                ns.tenant_id, ns.package_name, ns.workflow_id, ns.task_id,
+                            ),
+                            dependencies,
+                            description: ::std::string::String::new(),
+                            source_location: ::std::string::String::new(),
+                        });
+                    }
                     Ok($crate::PackageTasksMetadata {
-                        workflow_name: ::std::string::String::new(),
+                        workflow_name,
                         package_name: env!("CARGO_PKG_NAME").to_string(),
                         package_description: None,
                         package_author: None,
                         workflow_fingerprint: None,
                         graph_data_json: None,
-                        tasks: ::std::vec::Vec::new(),
+                        tasks,
                         triggers: ::std::vec::Vec::new(),
                     })
                 }
@@ -137,50 +161,209 @@ macro_rules! package {
                 fn execute_task(
                     &self,
                     request: $crate::TaskExecutionRequest,
-                ) -> ::core::result::Result<
-                    $crate::TaskExecutionResult,
-                    $crate::PluginError,
-                > {
-                    Ok($crate::TaskExecutionResult {
-                        success: false,
-                        context_json: None,
-                        error: Some(format!(
-                            "task '{}' is not registered: cloacina::package!() shell does not yet \
-                             walk TaskEntry inventory (T-A pending follow-up)",
-                            request.task_name,
-                        )),
-                    })
+                ) -> ::core::result::Result<$crate::TaskExecutionResult, $crate::PluginError>
+                {
+                    use $crate::CloacinaPlugin as _;
+                    static CDYLIB_RUNTIME: ::std::sync::OnceLock<
+                        cloacina_workflow::__private::tokio::runtime::Runtime,
+                    > = ::std::sync::OnceLock::new();
+                    let rt = CDYLIB_RUNTIME.get_or_init(|| {
+                        cloacina_workflow::__private::tokio::runtime::Builder::new_multi_thread()
+                            .enable_all()
+                            .worker_threads(2)
+                            .thread_name("package-shell-cdylib-worker")
+                            .build()
+                            .expect("Failed to create cdylib tokio runtime")
+                    });
+
+                    // Resolve the named task by walking inventory.
+                    let task_arc_opt = $crate::inventory::iter::<$crate::TaskEntry>
+                        .into_iter()
+                        .map(|entry| (entry.constructor)())
+                        .find(|t| cloacina_workflow::Task::id(&**t) == request.task_name);
+
+                    let task = match task_arc_opt {
+                        Some(t) => t,
+                        None => {
+                            return Ok($crate::TaskExecutionResult {
+                                success: false,
+                                context_json: None,
+                                error: Some(format!("Unknown task: {}", request.task_name)),
+                            });
+                        }
+                    };
+
+                    let context: cloacina_workflow::Context<::serde_json::Value> =
+                        match cloacina_workflow::Context::from_json(request.context_json) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                return Err($crate::PluginError {
+                                    code: "CONTEXT_ERROR".to_string(),
+                                    message: format!("Failed to parse context: {}", e),
+                                    details: None,
+                                });
+                            }
+                        };
+
+                    let result = rt.block_on(async move {
+                        cloacina_workflow::Task::execute(&*task, context).await
+                    });
+
+                    match result {
+                        Ok(updated) => {
+                            let ctx_json = updated.to_json().map_err(|e| $crate::PluginError {
+                                code: "SERIALIZATION_ERROR".to_string(),
+                                message: format!("Failed to serialize context: {}", e),
+                                details: None,
+                            })?;
+                            Ok($crate::TaskExecutionResult {
+                                success: true,
+                                context_json: Some(ctx_json),
+                                error: None,
+                            })
+                        }
+                        Err(e) => Ok($crate::TaskExecutionResult {
+                            success: false,
+                            context_json: None,
+                            error: Some(format!("Task '{}' failed: {:?}", request.task_name, e)),
+                        }),
+                    }
                 }
 
                 fn get_graph_metadata(
                     &self,
-                ) -> ::core::result::Result<
-                    $crate::GraphPackageMetadata,
-                    $crate::PluginError,
-                > {
-                    Err($crate::PluginError {
-                        code: "NOT_SUPPORTED".to_string(),
-                        message: "cloacina::package!() shell does not yet walk \
-                                  ComputationGraphEntry inventory (T-A pending follow-up)"
-                            .to_string(),
-                        details: None,
+                ) -> ::core::result::Result<$crate::GraphPackageMetadata, $crate::PluginError>
+                {
+                    let entries: ::std::vec::Vec<&$crate::ComputationGraphEntry> =
+                        $crate::inventory::iter::<$crate::ComputationGraphEntry>
+                            .into_iter()
+                            .collect();
+                    if entries.is_empty() {
+                        return Err($crate::PluginError {
+                            code: "NOT_SUPPORTED".to_string(),
+                            message: "Package declares no computation graph".to_string(),
+                            details: None,
+                        });
+                    }
+                    if entries.len() > 1 {
+                        return Err($crate::PluginError {
+                            code: "MULTIPLE_GRAPHS".to_string(),
+                            message: format!(
+                                "Package declares {} computation graphs; the unified shell \
+                                 supports at most one CG per cdylib",
+                                entries.len()
+                            ),
+                            details: None,
+                        });
+                    }
+                    let reg = (entries[0].constructor)();
+                    let accumulators: ::std::vec::Vec<$crate::AccumulatorDeclarationEntry> = reg
+                        .accumulator_names
+                        .iter()
+                        .map(|name| $crate::AccumulatorDeclarationEntry {
+                            name: name.clone(),
+                            accumulator_type: "passthrough".to_string(),
+                            config: ::std::collections::HashMap::new(),
+                        })
+                        .collect();
+                    Ok($crate::GraphPackageMetadata {
+                        graph_name: entries[0].name.to_string(),
+                        package_name: env!("CARGO_PKG_NAME").to_string(),
+                        reaction_mode: reg.reaction_mode.clone(),
+                        input_strategy: "latest".to_string(),
+                        accumulators,
+                        trigger_reactor: reg.trigger_reactor.clone(),
                     })
                 }
 
                 fn execute_graph(
                     &self,
-                    _request: $crate::GraphExecutionRequest,
-                ) -> ::core::result::Result<
-                    $crate::GraphExecutionResult,
-                    $crate::PluginError,
-                > {
-                    Err($crate::PluginError {
-                        code: "NOT_SUPPORTED".to_string(),
-                        message: "cloacina::package!() shell does not yet dispatch \
-                                  to ComputationGraphEntry inventory (T-A pending follow-up)"
-                            .to_string(),
-                        details: None,
-                    })
+                    request: $crate::GraphExecutionRequest,
+                ) -> ::core::result::Result<$crate::GraphExecutionResult, $crate::PluginError>
+                {
+                    static CDYLIB_RUNTIME: ::std::sync::OnceLock<
+                        cloacina_workflow::__private::tokio::runtime::Runtime,
+                    > = ::std::sync::OnceLock::new();
+                    let rt = CDYLIB_RUNTIME.get_or_init(|| {
+                        cloacina_workflow::__private::tokio::runtime::Builder::new_multi_thread()
+                            .enable_all()
+                            .worker_threads(2)
+                            .thread_name("package-shell-cg-worker")
+                            .build()
+                            .expect("Failed to create cdylib tokio runtime for computation graph")
+                    });
+
+                    let entry_opt = $crate::inventory::iter::<$crate::ComputationGraphEntry>
+                        .into_iter()
+                        .next();
+                    let entry = match entry_opt {
+                        Some(e) => e,
+                        None => {
+                            return Err($crate::PluginError {
+                                code: "NOT_SUPPORTED".to_string(),
+                                message: "Package declares no computation graph".to_string(),
+                                details: None,
+                            });
+                        }
+                    };
+                    let reg = (entry.constructor)();
+
+                    let mut cache = cloacina_computation_graph::InputCache::new();
+                    for (source_name, json_str) in &request.cache {
+                        let value: ::serde_json::Value =
+                            ::serde_json::from_str(json_str).map_err(|e| $crate::PluginError {
+                                code: "DESERIALIZATION_ERROR".to_string(),
+                                message: format!(
+                                    "Failed to parse cache entry '{}': {}",
+                                    source_name, e
+                                ),
+                                details: None,
+                            })?;
+                        let bytes = cloacina_computation_graph::serialize(&value).map_err(|e| {
+                            $crate::PluginError {
+                                code: "SERIALIZATION_ERROR".to_string(),
+                                message: format!(
+                                    "Failed to serialize cache entry '{}': {}",
+                                    source_name, e
+                                ),
+                                details: None,
+                            }
+                        })?;
+                        cache.update(
+                            cloacina_computation_graph::SourceName::new(source_name),
+                            bytes,
+                        );
+                    }
+
+                    let result = rt.block_on(async { (reg.graph_fn)(cache).await });
+
+                    match result {
+                        cloacina_computation_graph::GraphResult::Completed { outputs } => {
+                            let terminal_json: ::std::vec::Vec<::std::string::String> = outputs
+                                .iter()
+                                .filter_map(|o| {
+                                    o.downcast_ref::<::serde_json::Value>()
+                                        .map(|v| ::serde_json::to_string(v).unwrap_or_default())
+                                })
+                                .collect();
+                            Ok($crate::GraphExecutionResult {
+                                success: true,
+                                terminal_outputs_json: if terminal_json.is_empty() {
+                                    None
+                                } else {
+                                    Some(terminal_json)
+                                },
+                                error: None,
+                            })
+                        }
+                        cloacina_computation_graph::GraphResult::Error(e) => {
+                            Ok($crate::GraphExecutionResult {
+                                success: false,
+                                terminal_outputs_json: None,
+                                error: Some(format!("{}", e)),
+                            })
+                        }
+                    }
                 }
 
                 fn get_reactor_metadata(
@@ -193,17 +376,15 @@ macro_rules! package {
                         ::std::vec::Vec::new();
                     for entry in $crate::inventory::iter::<$crate::ReactorEntry> {
                         let reg = (entry.constructor)();
-                        let accumulators: ::std::vec::Vec<
-                            $crate::AccumulatorDeclarationEntry,
-                        > = reg
-                            .accumulator_names
-                            .iter()
-                            .map(|name| $crate::AccumulatorDeclarationEntry {
-                                name: name.clone(),
-                                accumulator_type: "passthrough".to_string(),
-                                config: ::std::collections::HashMap::new(),
-                            })
-                            .collect();
+                        let accumulators: ::std::vec::Vec<$crate::AccumulatorDeclarationEntry> =
+                            reg.accumulator_names
+                                .iter()
+                                .map(|name| $crate::AccumulatorDeclarationEntry {
+                                    name: name.clone(),
+                                    accumulator_type: "passthrough".to_string(),
+                                    config: ::std::collections::HashMap::new(),
+                                })
+                                .collect();
                         out.push($crate::ReactorPackageMetadata {
                             name: reg.name,
                             package_name: env!("CARGO_PKG_NAME").to_string(),
