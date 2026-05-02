@@ -75,6 +75,9 @@ cargo build --release
 
 use cloacina_workflow::{task, workflow, Context, TaskError};
 
+// I-0102 / T-C: unified plugin shell.
+cloacina_workflow_plugin::package!();
+
 /// File Processing Pipeline — triggered when new files arrive.
 ///
 /// This package demonstrates a workflow that is designed to be fired

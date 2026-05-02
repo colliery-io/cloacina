@@ -453,13 +453,14 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             }
         };
         let ctor = quote! {
-            #[cfg(not(test))]
-            #[cfg(not(feature = "packaged"))]
-            crate::inventory::submit! {
-                crate::ComputationGraphEntry {
+            // I-0102 / T-C: ComputationGraphEntry submission emits in both
+            // packaged and embedded modes so the unified
+            // `cloacina::package!()` shell can walk it.
+            cloacina_workflow_plugin::inventory::submit! {
+                cloacina_workflow_plugin::ComputationGraphEntry {
                     name: #mod_name_str,
-                    constructor: || crate::ComputationGraphRegistration {
-                        graph_fn: std::sync::Arc::new(|cache: crate::computation_graph::InputCache| {
+                    constructor: || cloacina_computation_graph::ComputationGraphRegistration {
+                        graph_fn: std::sync::Arc::new(|cache: cloacina_computation_graph::InputCache| {
                             Box::pin(async move {
                                 #compiled_fn_name(&cache).await
                             })
@@ -486,10 +487,10 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             }
         };
         let ctor = quote! {
-            #[cfg(not(test))]
-            #[cfg(not(feature = "packaged"))]
-            cloacina::inventory::submit! {
-                cloacina::ComputationGraphEntry {
+            // I-0102 / T-C: ComputationGraphEntry submission emits in both
+            // packaged and embedded modes (external crate path).
+            cloacina_workflow_plugin::inventory::submit! {
+                cloacina_workflow_plugin::ComputationGraphEntry {
                     name: #mod_name_str,
                     constructor: || cloacina_computation_graph::ComputationGraphRegistration {
                         graph_fn: std::sync::Arc::new(|cache: cloacina_computation_graph::InputCache| {
@@ -564,13 +565,16 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         // Compile-time handle struct + Graph trait impl
         #graph_handle_decl
 
-        // Embedded mode: inventory registration for global registry
+        // Inventory registration. I-0102 / T-C: gated only on
+        // `cfg(not(feature = "packaged"))` for now — the
+        // ComputationGraphEntry inventory submission needs to happen in
+        // packaged mode too once paths are migrated; see follow-up.
         #ctor_body
-
-        // Packaged mode: FFI plugin exports for fidius
-        #packaged_ffi
     })
 }
+
+#[allow(dead_code)]
+fn _packaged_ffi_was_stripped_in_t_c() {}
 
 /// Extract named async functions from a module.
 fn extract_functions(module: &ItemMod) -> syn::Result<HashMap<String, ItemFn>> {

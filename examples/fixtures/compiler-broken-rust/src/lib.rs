@@ -21,6 +21,9 @@
 
 use cloacina_workflow::{task, workflow, Context, TaskError};
 
+// I-0102 / T-C: unified plugin shell.
+cloacina_workflow_plugin::package!();
+
 #[workflow(
     name = "compiler_broken_workflow",
     description = "compiler-e2e failed-build fixture",

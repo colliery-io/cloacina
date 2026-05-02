@@ -41,6 +41,9 @@ cargo build --release
 
 use cloacina_workflow::{task, workflow, Context, TaskError};
 
+// I-0102 / T-C: unified plugin shell.
+cloacina_workflow_plugin::package!();
+
 /// Analytics Pipeline - A complete data processing workflow package
 ///
 /// This package demonstrates a real-world analytics pipeline with data extraction,

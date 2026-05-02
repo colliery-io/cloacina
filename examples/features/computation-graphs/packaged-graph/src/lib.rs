@@ -21,6 +21,9 @@
 
 use serde::{Deserialize, Serialize};
 
+// I-0102 / T-C: unified plugin shell.
+cloacina_workflow_plugin::package!();
+
 // --- Boundary types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +71,7 @@ pub struct AuditRecord {
 pub struct PackagedMarketMakerReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(PackagedMarketMakerReactor),
+    trigger = reactor("packaged_market_maker_reactor"),
     graph = {
         decision(orderbook, pricing) => {
             Trade -> signal_handler,

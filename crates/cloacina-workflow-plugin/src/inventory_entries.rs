@@ -59,6 +59,23 @@ pub struct TaskEntry {
 }
 inventory::collect!(TaskEntry);
 
+/// Workflow descriptor entry emitted by `#[workflow]`. Provides the
+/// metadata fields the unified `cloacina::package!()` shell can't infer
+/// from `TaskEntry` alone (description, author, fingerprint, graph_data,
+/// triggers). Walked by the shell's `get_task_metadata` body to populate
+/// `PackageTasksMetadata`. (T-C / I-0102)
+pub struct WorkflowDescriptorEntry {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub author: &'static str,
+    pub fingerprint: &'static str,
+    pub graph_data_json: &'static str,
+    /// Trigger names this workflow subscribes to (from
+    /// `#[workflow(triggers = ["..."])]`).
+    pub triggers: fn() -> ::std::vec::Vec<::std::string::String>,
+}
+inventory::collect!(WorkflowDescriptorEntry);
+
 /// Computation graph entry emitted by `#[computation_graph]` for the
 /// reactor-triggered (split) form. The `package!()` shell walks
 /// `inventory::iter::<ComputationGraphEntry>` to build the metadata

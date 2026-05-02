@@ -20,6 +20,9 @@
 
 use cloacina_workflow::{task, workflow, Context, TaskError};
 
+// I-0102 / T-C: unified plugin shell.
+cloacina_workflow_plugin::package!();
+
 #[workflow(
     name = "compiler_happy_workflow",
     description = "compiler-e2e happy-path fixture",

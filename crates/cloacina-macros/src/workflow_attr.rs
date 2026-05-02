@@ -242,6 +242,23 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
     let task_inventory_entries =
         build_task_inventory_entries(tenant, workflow_name, mod_name, &detected_tasks);
 
+    // I-0102 / T-C: WorkflowDescriptorEntry carries metadata the shell
+    // can't derive from TaskEntry alone (description, author, fingerprint,
+    // graph_data, triggers).
+    let triggers_vec: Vec<String> = attrs.triggers.clone();
+    let workflow_descriptor_entry = quote! {
+        cloacina_workflow_plugin::inventory::submit! {
+            cloacina_workflow_plugin::WorkflowDescriptorEntry {
+                name: #workflow_name,
+                description: #description,
+                author: #author,
+                fingerprint: #fingerprint,
+                graph_data_json: #graph_data_json,
+                triggers: || vec![#(#triggers_vec.to_string()),*],
+            }
+        }
+    };
+
     // Generate embedded registration (when `packaged` feature is NOT active)
     let embedded_registration = generate_embedded_registration(
         mod_name,
@@ -267,29 +284,24 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         &attrs.triggers,
     );
 
-    let _packaged_mod_name = syn::Ident::new(
-        &format!("_packaged_ffi_{}", workflow_name.replace(['-', ' '], "_")),
-        Span::call_site(),
-    );
+    // I-0102 / T-C: per-macro `_ffi` plugin emission stripped. The unified
+    // `cloacina::package!()` shell at the crate root is now the sole path
+    // that produces a CloacinaPlugin export. Packaged cdylibs MUST declare
+    // `cloacina::package!();` at the crate root for fidius to find them.
+    let _ = packaged_registration;
 
     quote! {
         #(#mod_attrs)*
         #mod_vis mod #mod_name {
             #module_items
-
-            // Packaged FFI code lives inside the module (same scope as task functions)
-            // Wrapped in cfg-gated sub-module to exclude all items when not packaged
-            #[cfg(feature = "packaged")]
-            pub mod _ffi {
-                use super::*;
-                #packaged_registration
-            }
         }
 
-        // I-0102 / T-C: TaskEntry inventory submissions fire in BOTH
-        // packaged and embedded modes. The unified `cloacina::package!()`
-        // shell walks these from packaged cdylibs.
+        // I-0102 / T-C: TaskEntry + WorkflowDescriptorEntry inventory
+        // submissions fire in BOTH packaged and embedded modes. The unified
+        // `cloacina::package!()` shell walks these from packaged cdylibs.
         #(#task_inventory_entries)*
+
+        #workflow_descriptor_entry
 
         #[cfg(not(feature = "packaged"))]
         const _: () = {

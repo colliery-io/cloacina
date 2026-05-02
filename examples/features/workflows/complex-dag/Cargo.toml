@@ -23,6 +23,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cloacina = { path = "../../../../crates/cloacina" }
+cloacina-computation-graph = { path = "../../../../crates/cloacina-computation-graph" }
 cloacina-workflow = { path = "../../../../crates/cloacina-workflow", features = ["packaged"] }
 cloacina-workflow-plugin = { path = "../../../../crates/cloacina-workflow-plugin" }
 cloacina-macros = { path = "../../../../crates/cloacina-macros" }

@@ -35,7 +35,9 @@
 pub mod inventory_entries;
 pub mod types;
 
-pub use inventory_entries::{ComputationGraphEntry, ReactorEntry, TaskEntry};
+pub use inventory_entries::{
+    ComputationGraphEntry, ReactorEntry, TaskEntry, WorkflowDescriptorEntry,
+};
 
 // Re-export the interface types for convenience
 pub use types::{
@@ -142,19 +144,54 @@ macro_rules! package {
                                 ns.tenant_id, ns.package_name, ns.workflow_id, ns.task_id,
                             ),
                             dependencies,
-                            description: ::std::string::String::new(),
-                            source_location: ::std::string::String::new(),
+                            description: format!("Task: {}", cloacina_workflow::Task::id(&*task)),
+                            source_location: format!("{}/lib.rs", env!("CARGO_PKG_NAME")),
                         });
                     }
+                    // Look up WorkflowDescriptorEntry for description / author /
+                    // fingerprint / graph_data / triggers. Multiple workflows in
+                    // the same cdylib aren't supported by the shell — the first
+                    // descriptor wins; T-D fixtures verify single-workflow
+                    // assumption.
+                    let descriptor = $crate::inventory::iter::<$crate::WorkflowDescriptorEntry>
+                        .into_iter()
+                        .next();
+                    let (description, author, fingerprint, graph_data_json, triggers) =
+                        match descriptor {
+                            Some(d) => (
+                                if d.description.is_empty() {
+                                    None
+                                } else {
+                                    Some(d.description.to_string())
+                                },
+                                if d.author.is_empty() {
+                                    None
+                                } else {
+                                    Some(d.author.to_string())
+                                },
+                                if d.fingerprint.is_empty() {
+                                    None
+                                } else {
+                                    Some(d.fingerprint.to_string())
+                                },
+                                if d.graph_data_json.is_empty() {
+                                    None
+                                } else {
+                                    Some(d.graph_data_json.to_string())
+                                },
+                                (d.triggers)(),
+                            ),
+                            None => (None, None, None, None, ::std::vec::Vec::new()),
+                        };
                     Ok($crate::PackageTasksMetadata {
                         workflow_name,
                         package_name: env!("CARGO_PKG_NAME").to_string(),
-                        package_description: None,
-                        package_author: None,
-                        workflow_fingerprint: None,
-                        graph_data_json: None,
+                        package_description: description,
+                        package_author: author,
+                        workflow_fingerprint: fingerprint,
+                        graph_data_json,
                         tasks,
-                        triggers: ::std::vec::Vec::new(),
+                        triggers,
                     })
                 }
 
