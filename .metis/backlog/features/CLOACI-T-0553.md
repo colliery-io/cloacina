@@ -147,11 +147,32 @@ T-0554 Phase 2 unblocked two of the four originally-deferred reconciler-driven t
 - `unload_package_rejects_when_subscribers_remain_bound` — publisher owns reactor with a cross-package subscriber bound; `unload_package` returns `RegistrationFailed` naming the publisher + reactor + "unload subscribers first" remediation. Reactor is still loaded after the rejection.
 - `unload_package_succeeds_after_subscribers_unbound` — companion test: unload with no subscribers succeeds and the reactor is torn down.
 
-**Still deferred (out of scope for in-crate unit tests):**
-- "Event into trigger fires workflow" and "event into accumulator fires CG" — these need full reconciler boot with archive-form fixtures, DB scaffolding, and live-event injection. Best fit for the Python pytest scenario layer or a dedicated e2e harness.
-
 **Test gates (all green):**
 - [x] `cargo check --workspace --all-features`
 - [x] `angreal test unit` (695 cloacina + 45 cloacina-workflow)
 - [x] `angreal test integration --backend sqlite` (6 + 28 Python)
 - [x] `angreal test integration --backend postgres` (293 + 28 Python)
+
+### 2026-05-03 — Full reconciler-boot e2e landed
+
+`crates/cloacina/tests/integration/dal/reconciler_e2e_load.rs::reconciler_loads_cross_package_publisher_subscriber_end_to_end` drives `RegistryReconciler::reconcile` end-to-end against the DAL-backed `WorkflowRegistry` + a live `ComputationGraphScheduler` + scoped `Runtime`. The test packs `reactor-only-rust` + `reactor-subscriber-rust` source archives via `fidius_core::package::pack_package`, registers them through the DAL, fakes the compiler step by writing the prebuilt cdylib bytes via `mark_build_success`, then drives `reconcile()` and asserts:
+
+1. Both packages load through the registration-order pipeline.
+2. The publisher's reactor (`shared_rx`) lands in the scheduler with `[alpha, beta]`.
+3. The subscriber's CG (`subscriber_graph`) binds to `shared_rx` via cross-package fan-out.
+4. An event sent into the publisher's `alpha` accumulator endpoint reaches the dispatcher without crashing the reactor.
+5. Reverse-order unload: deleting the publisher first while the subscriber is bound triggers `RegistrationFailed` with an "unload subscribers first" message; deleting the subscriber first then re-reconciling tears `shared_rx` down cleanly.
+
+**Two production fixes uncovered + landed alongside the test:**
+
+- **Cross-package subscriber binding skipped reactor-load idempotency check** — the subscriber's FFI `graph_meta.accumulators` is empty (it doesn't bring its own factories), but `scheduler.load_graph` was unconditionally calling `load_reactor` first, which failed the idempotent contract check (existing reactor's accumulators vs. empty). Added a fast path in `load_graph`: when `decl.reactor_name = Some(X)`, X is already loaded, AND `decl.accumulators.is_empty()`, bind directly via `bind_graph_to_reactor` and skip `load_reactor`.
+- **`PackageState::reactor_names` was unreliable for cross-cdylib loads** — the pre/post `Runtime::reactor_names()` diff approach didn't work because independently-compiled fixture crates have their own `cloacina-workflow-plugin` compilation with distinct linker symbols, so `Runtime::seed_from_inventory` never sees their entries. Switched the Rust path to populate `reactor_names` from `view.reactors` (FFI metadata, cross-cdylib safe). Python path keeps the diff (the scoped Runtime IS the authoritative registry there).
+
+**Still out of scope: workflow-trigger subscription with packaged cdylibs.**
+"Event into trigger fires workflow" needs `runtime.get_trigger(name)` to succeed, which currently requires inventory crossing the cdylib boundary. The mixed-rust fixture (every primitive in one cdylib, including a workflow with `triggers = ["mixed_trigger"]`) cannot load through the reconciler today — `validate_workflow_trigger_subscriptions` rejects because `seed_from_inventory` doesn't see entries from independently-compiled cdylibs. The same limitation applies to T-0553's daemon trigger registration. Proper fix: design a Trigger FFI bridge that constructs host-side Trigger impls from cdylib metadata + dispatches `poll()` via FFI. Substantial new mechanism, deferred as a follow-up.
+
+**Test gates (all green):**
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (695 + 45)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python)
+- [x] `angreal test integration --backend postgres` (294 Rust + 28 Python — was 293; 1 new e2e test passes)

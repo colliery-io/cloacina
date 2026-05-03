@@ -580,6 +580,26 @@ impl ComputationGraphScheduler {
             }
         }
 
+        // Cross-package subscriber path: when the named reactor is
+        // already loaded by an earlier package and this declaration's
+        // accumulators is empty, the package is binding to an upstream
+        // reactor it does not own. Skip `load_reactor` (its idempotent
+        // contract check would reject the empty-vs-populated mismatch)
+        // and bind directly. The publisher's accumulator factories
+        // remain authoritative; the subscriber just adds itself to the
+        // subscribers map.
+        if decl.reactor_name.is_some() && decl.accumulators.is_empty() {
+            let already_loaded = {
+                let reactors = self.reactors.read().await;
+                reactors.contains_key(&reactor_name)
+            };
+            if already_loaded {
+                return self
+                    .bind_graph_to_reactor(name, reactor_name, decl.reactor.graph_fn)
+                    .await;
+            }
+        }
+
         // Load (or join) the reactor. We register the graph's name as an
         // alias so `cloacinactl reactor force-fire <graph>` keeps working
         // for bundled-form callers and for the first graph that names a

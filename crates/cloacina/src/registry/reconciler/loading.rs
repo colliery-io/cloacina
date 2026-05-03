@@ -152,10 +152,16 @@ impl RegistryReconciler {
         // reuse the same bytes without another DB round-trip.
         let rust_cdylib_bytes = loaded_workflow.compiled_data.clone();
 
-        // T-0554 Phase 2: snapshot runtime reactor names BEFORE this
-        // package loads anything so we can compute, after all load steps
-        // (including the Python step 7 below), which reactors this
-        // package introduced. Used for the reverse-order unload pipeline.
+        // T-0554 Phase 2: per-language reactor_names tracking. The
+        // earlier pre/post inventory-diff approach didn't work for
+        // independently-compiled cdylibs (each fixture/example crate
+        // has its own `[workspace]`, so `cloacina-workflow-plugin` is
+        // a separate compilation with distinct linker symbols and
+        // `inventory::iter` doesn't see entries submitted by the
+        // dlopen'd cdylib). For Rust packages we use the FFI metadata
+        // directly; for Python we keep the diff path since the scoped
+        // Runtime is the authoritative source for that language.
+        let mut rust_reactor_names: Vec<String> = Vec::new();
         let pre_load_reactor_names: std::collections::HashSet<String> = self
             .runtime
             .as_ref()
@@ -187,6 +193,7 @@ impl RegistryReconciler {
             );
 
             let view = self.build_view_rust(&library_data).await?;
+            rust_reactor_names = view.reactors.iter().map(|r| r.name.clone()).collect();
 
             // Step 1: cron triggers (no-op pending T-0553).
             self.step_load_cron_triggers(&metadata, &view)?;
@@ -694,20 +701,23 @@ impl RegistryReconciler {
             }
         }
 
-        // T-0554 Phase 2: compute the reactors this package introduced by
-        // diffing the runtime's reactor list against the pre-load
-        // snapshot. Tracks ownership for the reverse-order unload
-        // pipeline; cross-package subscribers (graphs that bind to a
-        // reactor owned by an earlier package) do not appear here.
-        let post_load_reactor_names: std::collections::HashSet<String> = self
-            .runtime
-            .as_ref()
-            .map(|rt| rt.reactor_names().into_iter().collect())
-            .unwrap_or_default();
-        let reactor_names: Vec<String> = post_load_reactor_names
-            .difference(&pre_load_reactor_names)
-            .cloned()
-            .collect();
+        // T-0554 Phase 2: track reactors this package owns. Rust path
+        // uses FFI metadata (cross-cdylib safe). Python path uses the
+        // pre/post `Runtime::reactor_names()` diff (works because the
+        // scoped Runtime is the authoritative registry for Python).
+        let reactor_names: Vec<String> = if cloacina_manifest.metadata.language == "rust" {
+            rust_reactor_names
+        } else {
+            let post_load_reactor_names: std::collections::HashSet<String> = self
+                .runtime
+                .as_ref()
+                .map(|rt| rt.reactor_names().into_iter().collect())
+                .unwrap_or_default();
+            post_load_reactor_names
+                .difference(&pre_load_reactor_names)
+                .cloned()
+                .collect()
+        };
 
         // Track the loaded package state
         let package_state = PackageState {
@@ -1695,6 +1705,19 @@ impl RegistryReconciler {
         let workflow_name = self
             .register_package_workflows(metadata, library_data)
             .await?;
+        // T-0554 Phase 2 e2e fix: seed inventory BEFORE the trigger
+        // subscription validator runs. `register_package_tasks` above
+        // dlopened the cdylib, which triggered the package's
+        // `inventory::submit!` blocks. Without this seed call, the
+        // submitted entries sit in inventory but aren't reflected in
+        // the runtime's trigger registry yet, so a workflow that
+        // declares `triggers = [...]` against a trigger from the same
+        // cdylib would always fail validation. The end-of-load seed
+        // call elsewhere covers re-seeds for late lookups; this one
+        // makes the in-package case work.
+        if let Some(runtime) = &self.runtime {
+            runtime.seed_from_inventory();
+        }
         self.validate_workflow_trigger_subscriptions(metadata, library_data)
             .await?;
         Ok((task_namespaces, workflow_name))

@@ -1,0 +1,12 @@
+[package]
+name = "reactor-subscriber-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "subscriber_graph"
+language = "rust"
+description = "Subscriber CG referencing the reactor declared in reactor-only-rust by string name"
+author = "Cloacina Test Fixtures"
