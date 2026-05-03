@@ -4,7 +4,7 @@ level: task
 title: "Restore daemon auto-trigger registration via FFI metadata + finish T-D fixtures"
 short_code: "CLOACI-T-0553"
 created_at: 2026-05-03T13:26:00+00:00
-updated_at: 2026-05-03T14:47:40.944040+00:00
+updated_at: 2026-05-03T18:00:41.689009+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -40,6 +40,8 @@ I-0102 follow-up. Two related deferred items:
 ### Business Justification
 - **User Value**: Packaged workflows that declare `#[trigger]` macros currently won't auto-register on daemon startup; users have to register triggers manually. Restoring the loop closes that gap.
 - **Effort Estimate**: M — most of the wiring is straightforward once T-0552's FFI stub is replaced; the new fixtures are mechanical.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -132,6 +134,24 @@ All four test gates green.
 - [x] `angreal test integration --backend sqlite` (6 + 28 Python)
 - [x] `angreal test integration --backend postgres` (293 + 28 Python — was 290; 3 new tests pass)
 
-### Deferred
+### 2026-05-03 — Deferred AC closed (post-T-0554 Phase 2)
 
-Reconciler-driven full e2e tests from T-D's original AC (event into trigger fires workflow; event into accumulator fires CG; cross-package contract mismatch; unload lifecycle ordering) still require T-0554 Phase 2 (Python adapter, contract validation, reverse unload). The wire-format coverage shipped here locks down the end-to-end shape of every primitive's metadata flow through the unified shell macro.
+T-0554 Phase 2 unblocked two of the four originally-deferred reconciler-driven tests; both now ship as in-crate unit tests on `RegistryReconciler` against a real `ComputationGraphScheduler` (no archive scaffolding required).
+
+**Cross-package contract mismatch:**
+- `cross_package_contract_mismatch_rejects_with_named_accumulators` — load reactor R(α, β); attempt to load a subscriber declaring (α, γ); assert the rejection names the package, the upstream reactor, and the missing accumulator γ.
+- `cross_package_subscriber_before_publisher_rejects_with_clear_error` — load subscriber referencing a reactor that's never been loaded; assert a fail-fast rejection naming the missing reactor + load-order remediation.
+- `cross_package_subscriber_in_same_package_skips_validation` — same-package publisher/subscriber bypasses the cross-package check (the bundled-form path stays clean).
+
+**Lifecycle ordering:**
+- `unload_package_rejects_when_subscribers_remain_bound` — publisher owns reactor with a cross-package subscriber bound; `unload_package` returns `RegistrationFailed` naming the publisher + reactor + "unload subscribers first" remediation. Reactor is still loaded after the rejection.
+- `unload_package_succeeds_after_subscribers_unbound` — companion test: unload with no subscribers succeeds and the reactor is torn down.
+
+**Still deferred (out of scope for in-crate unit tests):**
+- "Event into trigger fires workflow" and "event into accumulator fires CG" — these need full reconciler boot with archive-form fixtures, DB scaffolding, and live-event injection. Best fit for the Python pytest scenario layer or a dedicated e2e harness.
+
+**Test gates (all green):**
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (695 cloacina + 45 cloacina-workflow)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python)
+- [x] `angreal test integration --backend postgres` (293 + 28 Python)

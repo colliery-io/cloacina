@@ -1957,4 +1957,377 @@ mod tests {
             Ok(cloacina_workflow::TriggerResult::Skip)
         }
     }
+
+    // -----------------------------------------------------------------------
+    // T-0554 Phase 2 + T-0553 deferred AC: cross-package contract validation
+    // and reverse-order unload pipeline e2e (in-crate scaffolding).
+    // -----------------------------------------------------------------------
+
+    use crate::computation_graph::reactor::{InputStrategy, ReactionCriteria};
+    use crate::computation_graph::registry::EndpointRegistry;
+    use crate::computation_graph::scheduler::{AccumulatorDeclaration, ComputationGraphScheduler};
+
+    fn make_test_view_with_subscriber_graph(
+        package_name: &str,
+        upstream_reactor: &str,
+        subscriber_accumulators: Vec<&str>,
+    ) -> PackageLoadView {
+        use cloacina_workflow_plugin::{types::AccumulatorDeclarationEntry, GraphPackageMetadata};
+        let accumulators: Vec<AccumulatorDeclarationEntry> = subscriber_accumulators
+            .into_iter()
+            .map(|n| AccumulatorDeclarationEntry {
+                name: n.to_string(),
+                accumulator_type: "passthrough".to_string(),
+                config: Default::default(),
+            })
+            .collect();
+        PackageLoadView {
+            tasks: crate::registry::loader::package_loader::PackageMetadata {
+                package_name: package_name.to_string(),
+                version: "1.0.0".to_string(),
+                description: None,
+                author: None,
+                tasks: vec![],
+                graph_data: None,
+                architecture: String::new(),
+                symbols: vec![],
+                workflow_triggers: vec![],
+            },
+            triggers: vec![],
+            reactors: vec![],
+            graph: Some(GraphPackageMetadata {
+                graph_name: format!("{}_graph", package_name),
+                package_name: package_name.to_string(),
+                reaction_mode: "when_any".to_string(),
+                input_strategy: "latest".to_string(),
+                accumulators,
+                trigger_reactor: Some(upstream_reactor.to_string()),
+            }),
+        }
+    }
+
+    async fn load_publishing_reactor_into_scheduler(
+        scheduler: &Arc<ComputationGraphScheduler>,
+        reactor_name: &str,
+        accumulators: &[&str],
+    ) {
+        use crate::computation_graph::packaging_bridge::PassthroughAccumulatorFactory;
+        let acc_decls: Vec<AccumulatorDeclaration> = accumulators
+            .iter()
+            .map(|n| AccumulatorDeclaration {
+                name: n.to_string(),
+                factory: Arc::new(PassthroughAccumulatorFactory),
+            })
+            .collect();
+        scheduler
+            .load_reactor(
+                reactor_name.to_string(),
+                acc_decls,
+                ReactionCriteria::WhenAny,
+                InputStrategy::Latest,
+                Some("public".to_string()),
+                vec![],
+            )
+            .await
+            .expect("publishing reactor should load");
+    }
+
+    fn make_reconciler_with_scheduler(
+        scheduler: Arc<ComputationGraphScheduler>,
+    ) -> RegistryReconciler {
+        let registry = Arc::new(FilesystemWorkflowRegistry::new(vec![]));
+        let config = ReconcilerConfig::default();
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        let reconciler = RegistryReconciler::new(registry, config, rx)
+            .expect("Failed to create test reconciler")
+            .with_runtime(Arc::new(Runtime::empty()));
+        reconciler.with_graph_scheduler(scheduler)
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn cross_package_contract_mismatch_rejects_with_named_accumulators() {
+        let endpoint_registry = EndpointRegistry::new();
+        let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
+        load_publishing_reactor_into_scheduler(&scheduler, "shared_rx", &["alpha", "beta"]).await;
+
+        let reconciler = make_reconciler_with_scheduler(scheduler.clone());
+        let metadata = WorkflowMetadata {
+            package_name: "subscriber-mismatched".to_string(),
+            ..make_test_metadata()
+        };
+        let view = make_test_view_with_subscriber_graph(
+            "subscriber-mismatched",
+            "shared_rx",
+            vec!["alpha", "gamma"],
+        );
+        let manifest = make_cloacina_metadata_with_triggers(vec![]);
+
+        let err = reconciler
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
+            .await
+            .expect_err("subscriber declaring accumulator outside upstream contract must error");
+        let msg = format!("{:?}", err);
+        assert!(
+            msg.contains("subscriber-mismatched"),
+            "error must name the offending package: {}",
+            msg
+        );
+        assert!(
+            msg.contains("shared_rx"),
+            "error must name the upstream reactor: {}",
+            msg
+        );
+        assert!(
+            msg.contains("gamma"),
+            "error must name the missing accumulator: {}",
+            msg
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn cross_package_subscriber_before_publisher_rejects_with_clear_error() {
+        let endpoint_registry = EndpointRegistry::new();
+        let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
+        // No publisher loaded; subscriber arrives first.
+
+        let reconciler = make_reconciler_with_scheduler(scheduler.clone());
+        let metadata = WorkflowMetadata {
+            package_name: "subscriber-orphan".to_string(),
+            ..make_test_metadata()
+        };
+        let view =
+            make_test_view_with_subscriber_graph("subscriber-orphan", "missing_rx", vec!["alpha"]);
+        let manifest = make_cloacina_metadata_with_triggers(vec![]);
+
+        let err = reconciler
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
+            .await
+            .expect_err("subscriber-before-publisher must error fast, no pending bindings");
+        let msg = format!("{:?}", err);
+        assert!(
+            msg.contains("subscriber-orphan"),
+            "error names package: {}",
+            msg
+        );
+        assert!(
+            msg.contains("missing_rx"),
+            "error names the missing reactor: {}",
+            msg
+        );
+        assert!(
+            msg.contains("publishing package must load before"),
+            "error suggests load-order remediation: {}",
+            msg
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn cross_package_subscriber_in_same_package_skips_validation() {
+        // When the subscriber declares its own reactor (publisher is in the
+        // same package), the cross-package pre-validation must NOT fire —
+        // the reactor has not been loaded yet at the moment step_load_
+        // reactor_bound_cgs runs (step 3 ran earlier in the pipeline, but
+        // the test path here does not include step 3). The validation must
+        // detect "publisher_in_same_package" via view.reactors and skip.
+        use cloacina_workflow_plugin::{
+            types::AccumulatorDeclarationEntry, GraphPackageMetadata, ReactorPackageMetadata,
+        };
+        let endpoint_registry = EndpointRegistry::new();
+        let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
+        let reconciler = make_reconciler_with_scheduler(scheduler.clone());
+
+        let metadata = WorkflowMetadata {
+            package_name: "self-publisher".to_string(),
+            ..make_test_metadata()
+        };
+        let view = PackageLoadView {
+            tasks: crate::registry::loader::package_loader::PackageMetadata {
+                package_name: "self-publisher".to_string(),
+                version: "1.0.0".to_string(),
+                description: None,
+                author: None,
+                tasks: vec![],
+                graph_data: None,
+                architecture: String::new(),
+                symbols: vec![],
+                workflow_triggers: vec![],
+            },
+            triggers: vec![],
+            reactors: vec![ReactorPackageMetadata {
+                name: "self_rx".to_string(),
+                package_name: "self-publisher".to_string(),
+                reaction_mode: "when_any".to_string(),
+                accumulators: vec![],
+            }],
+            graph: Some(GraphPackageMetadata {
+                graph_name: "self_graph".to_string(),
+                package_name: "self-publisher".to_string(),
+                reaction_mode: "when_any".to_string(),
+                input_strategy: "latest".to_string(),
+                accumulators: vec![AccumulatorDeclarationEntry {
+                    name: "any_acc".to_string(),
+                    accumulator_type: "passthrough".to_string(),
+                    config: Default::default(),
+                }],
+                trigger_reactor: Some("self_rx".to_string()),
+            }),
+        };
+        let manifest = make_cloacina_metadata_with_triggers(vec![]);
+
+        // Even though the upstream "self_rx" has not been loaded into
+        // the scheduler, the validation must skip because the publisher
+        // appears in view.reactors. The downstream `load_graph` call
+        // will spin its own reactor instance via the bundled-form path.
+        let result = reconciler
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
+            .await;
+        assert!(
+            result.is_ok(),
+            "self-publishing graph must skip cross-package validation; got {:?}",
+            result
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn unload_package_rejects_when_subscribers_remain_bound() {
+        // Reverse-order unload pipeline with T-0544 M4 reject-with-bound-
+        // subscribers guard: a publisher package owns reactor R; a
+        // subscriber from a different package binds to R. Attempting to
+        // unload the publisher first must surface a clean
+        // RegistrationFailed naming the publisher + R.
+        use crate::registry::reconciler::PackageState;
+        use crate::registry::types::WorkflowPackageId;
+
+        let endpoint_registry = EndpointRegistry::new();
+        let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
+        load_publishing_reactor_into_scheduler(&scheduler, "owned_rx", &["alpha"]).await;
+
+        // Bind a subscriber graph from another package to the reactor
+        // (simulating the cross-package fan-out path).
+        let graph_fn: crate::computation_graph::reactor::CompiledGraphFn = Arc::new(|_cache| {
+            Box::pin(async { cloacina_computation_graph::GraphResult::completed(vec![]) })
+        });
+        scheduler
+            .bind_graph_to_reactor(
+                "subscriber_graph".to_string(),
+                "owned_rx".to_string(),
+                graph_fn,
+            )
+            .await
+            .expect("subscriber should bind to publisher's reactor");
+
+        let reconciler = make_reconciler_with_scheduler(scheduler.clone());
+
+        // Manually insert publisher PackageState (the package owns
+        // owned_rx via reactor_names).
+        let publisher_id: WorkflowPackageId = uuid::Uuid::new_v4();
+        let publisher_state = PackageState {
+            metadata: WorkflowMetadata {
+                package_name: "publisher-pkg".to_string(),
+                ..make_test_metadata()
+            },
+            task_namespaces: vec![],
+            workflow_name: None,
+            trigger_names: vec![],
+            graph_name: None,
+            reactor_names: vec!["owned_rx".to_string()],
+        };
+        reconciler
+            .loaded_packages
+            .write()
+            .await
+            .insert(publisher_id, publisher_state);
+
+        let err = reconciler
+            .unload_package(publisher_id)
+            .await
+            .expect_err("unload must reject while subscribers remain bound");
+        let msg = format!("{:?}", err);
+        assert!(
+            msg.contains("publisher-pkg"),
+            "error must name the publisher package: {}",
+            msg
+        );
+        assert!(
+            msg.contains("owned_rx"),
+            "error must name the reactor with bound subscribers: {}",
+            msg
+        );
+        assert!(
+            msg.contains("unload subscribers first"),
+            "error must instruct operator on unload order: {}",
+            msg
+        );
+
+        // Publisher PackageState was already removed even though the
+        // unload errored — the registrar drop is a separate concern and
+        // running the rest of the unload steps is fine. Sanity-check
+        // that the reactor is still loaded.
+        assert!(
+            scheduler
+                .reactor_accumulator_names("owned_rx")
+                .await
+                .is_some(),
+            "reactor must still exist after rejected unload"
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn unload_package_succeeds_after_subscribers_unbound() {
+        // Companion to the rejection test: once subscribers are unbound,
+        // the publisher's unload completes cleanly and the reactor is
+        // torn down.
+        use crate::registry::reconciler::PackageState;
+        use crate::registry::types::WorkflowPackageId;
+
+        let endpoint_registry = EndpointRegistry::new();
+        let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
+        load_publishing_reactor_into_scheduler(&scheduler, "lone_rx", &["alpha"]).await;
+
+        let reconciler = make_reconciler_with_scheduler(scheduler.clone());
+
+        let publisher_id: WorkflowPackageId = uuid::Uuid::new_v4();
+        reconciler.loaded_packages.write().await.insert(
+            publisher_id,
+            PackageState {
+                metadata: WorkflowMetadata {
+                    package_name: "publisher-lone".to_string(),
+                    ..make_test_metadata()
+                },
+                task_namespaces: vec![],
+                workflow_name: None,
+                trigger_names: vec![],
+                graph_name: None,
+                reactor_names: vec!["lone_rx".to_string()],
+            },
+        );
+
+        reconciler
+            .unload_package(publisher_id)
+            .await
+            .expect("unload with no subscribers must succeed");
+
+        assert!(
+            scheduler
+                .reactor_accumulator_names("lone_rx")
+                .await
+                .is_none(),
+            "reactor must be torn down after publisher unload"
+        );
+
+        scheduler.shutdown_all().await;
+    }
 }
