@@ -29,7 +29,9 @@ use std::fmt;
 use std::time::Duration;
 
 use cloacina::packaging::manifest_schema::parse_duration_str;
-use cloacina::trigger::{Trigger, TriggerError, TriggerResult as RustTriggerResult};
+// T-0552: Trigger trait + TriggerError relocated to cloacina-workflow.
+use cloacina::Trigger;
+use cloacina_workflow::{TriggerError, TriggerResult as RustTriggerResult};
 
 /// Global registry of Python trigger definitions collected during module import.
 /// These are picked up by the reconciler when loading Python packages with

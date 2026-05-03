@@ -33,9 +33,52 @@
 //! `cloacina/src/inventory_entries.rs` until their constructor return
 //! types likewise relocate.
 
-use cloacina_computation_graph::{ComputationGraphRegistration, ReactorRegistration};
-use cloacina_workflow::{Task, TaskNamespace};
+use cloacina_computation_graph::{ComputationGraphRegistration, GraphResult, ReactorRegistration};
+use cloacina_workflow::{Context, Task, TaskNamespace, Trigger};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+
+// ----------------------------------------------------------------------------
+// Trigger-less computation graph types (T-0552 — relocated from
+// cloacina/src/computation_graph/triggerless.rs so packaged cdylibs can
+// reach them).
+// ----------------------------------------------------------------------------
+
+/// The compiled function emitted for a trigger-less computation graph.
+///
+/// Takes the workflow context the graph was invoked with; returns a
+/// `GraphResult` whose terminal outputs are pre-serialized to
+/// `serde_json::Value`.
+pub type TriggerlessGraphFn = Arc<
+    dyn Fn(Context<::serde_json::Value>) -> Pin<Box<dyn Future<Output = GraphResult> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// Runtime-side description of a trigger-less computation graph.
+pub struct TriggerlessGraphRegistration {
+    /// Graph name (the macro's `mod` name).
+    pub name: String,
+    /// Compiled graph function.
+    pub graph_fn: TriggerlessGraphFn,
+    /// Names of every terminal node in declaration order. Workflow-task
+    /// invocation writes each terminal output into the post-invocation
+    /// context under the matching name.
+    pub terminal_node_names: Vec<String>,
+}
+
+/// Compile-time link from a `Graph` handle to its trigger-less invocation
+/// surface.
+///
+/// The `#[computation_graph]` macro emits an `impl TriggerlessGraph for
+/// __CGHandle_<mod>` only when the graph is trigger-less.
+pub trait TriggerlessGraph: cloacina_computation_graph::Graph {
+    /// Construct a fresh `TriggerlessGraphFn` wrapping the compiled fn.
+    fn compiled_fn() -> TriggerlessGraphFn;
+    /// Names of every terminal node in declaration order.
+    fn terminal_node_names() -> &'static [&'static str];
+}
 
 /// Reactor entry emitted by the `#[reactor]` attribute macro. The `package!()`
 /// shell walks `inventory::iter::<ReactorEntry>` at FFI call time to produce
@@ -87,3 +130,24 @@ pub struct ComputationGraphEntry {
     pub constructor: fn() -> ComputationGraphRegistration,
 }
 inventory::collect!(ComputationGraphEntry);
+
+/// Trigger entry emitted by `#[trigger]`. The `package!()` shell walks
+/// `inventory::iter::<TriggerEntry>` to populate `get_trigger_metadata`,
+/// calling each entry's constructor and querying the resulting trigger's
+/// `name` / `poll_interval` / `cron_expression` / `allow_concurrent`.
+/// (T-0552 — relocated from `cloacina` so packaged cdylibs can reach it.)
+pub struct TriggerEntry {
+    pub name: &'static str,
+    pub constructor: fn() -> Arc<dyn Trigger>,
+}
+inventory::collect!(TriggerEntry);
+
+/// Trigger-less computation graph entry emitted by `#[computation_graph]`
+/// for graphs declared without a `trigger = reactor(...)` clause. These
+/// graphs operate on `Context<Value>` rather than `InputCache` and are
+/// invoked directly by workflow tasks. (T-0552 — relocated from `cloacina`.)
+pub struct TriggerlessGraphEntry {
+    pub name: &'static str,
+    pub constructor: fn() -> TriggerlessGraphRegistration,
+}
+inventory::collect!(TriggerlessGraphEntry);

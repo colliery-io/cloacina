@@ -21,8 +21,10 @@
 
 use crate::context::PyContext;
 use async_trait::async_trait;
-use cloacina::trigger::{Trigger, TriggerError, TriggerResult};
+// T-0552: Trigger trait + TriggerError relocated to cloacina-workflow.
 use cloacina::Context;
+use cloacina::Trigger;
+use cloacina_workflow::{TriggerError, TriggerResult};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde_json::Value;

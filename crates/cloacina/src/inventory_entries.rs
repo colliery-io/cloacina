@@ -32,45 +32,25 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 
 use crate::computation_graph::stream_backend::{StreamBackend, StreamConfig, StreamError};
-use crate::computation_graph::triggerless::TriggerlessGraphRegistration;
-use crate::trigger::Trigger;
 use crate::workflow::Workflow;
 
-// I-0102 / T-A + T-C: ReactorEntry, TaskEntry, ComputationGraphEntry now
-// live in `cloacina-workflow-plugin` so packaged cdylibs (which depend on
-// cloacina-workflow-plugin but not on cloacina) can collect entries at
-// link time and the unified `cloacina::package!()` shell can walk them.
-// Re-exported here so existing engine paths
-// (`crate::ReactorEntry`, `cloacina::TaskEntry`, …) keep resolving.
-pub use cloacina_workflow_plugin::{ComputationGraphEntry, ReactorEntry, TaskEntry};
+// I-0102 + T-0552: inventory entries reachable from packaged cdylibs all
+// live in `cloacina-workflow-plugin` (a leaf crate). Re-exported here so
+// existing engine paths (`crate::ReactorEntry`, `cloacina::TaskEntry`, …)
+// keep resolving.
+pub use cloacina_workflow_plugin::{
+    ComputationGraphEntry, ReactorEntry, TaskEntry, TriggerEntry, TriggerlessGraphEntry,
+};
 
-/// Workflow entry emitted by `#[workflow]`.
+/// Workflow entry emitted by `#[workflow]`. Stays in cloacina because
+/// `Workflow` is an engine-only runtime type.
 pub struct WorkflowEntry {
     pub name: &'static str,
     pub constructor: fn() -> Workflow,
 }
 inventory::collect!(WorkflowEntry);
-
-/// Trigger entry emitted by `#[trigger]`.
-pub struct TriggerEntry {
-    pub name: &'static str,
-    pub constructor: fn() -> Arc<dyn Trigger>,
-}
-inventory::collect!(TriggerEntry);
-
-/// Trigger-less computation graph entry emitted by `#[computation_graph]`
-/// for graphs declared without a `trigger = reactor(...)` clause.
-///
-/// These graphs operate on `Context<Value>` rather than `InputCache` and are
-/// invoked directly by workflow tasks (T-02) or Python decorators (T-03).
-pub struct TriggerlessGraphEntry {
-    pub name: &'static str,
-    pub constructor: fn() -> TriggerlessGraphRegistration,
-}
-inventory::collect!(TriggerlessGraphEntry);
 
 /// Stream-backend entry emitted by the stream-backend registration helper.
 ///

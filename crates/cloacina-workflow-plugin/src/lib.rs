@@ -36,7 +36,9 @@ pub mod inventory_entries;
 pub mod types;
 
 pub use inventory_entries::{
-    ComputationGraphEntry, ReactorEntry, TaskEntry, WorkflowDescriptorEntry,
+    ComputationGraphEntry, ReactorEntry, TaskEntry, TriggerEntry, TriggerlessGraph,
+    TriggerlessGraphEntry, TriggerlessGraphFn, TriggerlessGraphRegistration,
+    WorkflowDescriptorEntry,
 };
 
 // Re-export the interface types for convenience
@@ -438,10 +440,25 @@ macro_rules! package {
                     ::std::vec::Vec<$crate::TriggerPackageMetadata>,
                     $crate::PluginError,
                 > {
-                    // Stub at this iteration of T-A. Will walk
-                    // inventory::iter::<TriggerEntry> once TriggerEntry
-                    // relocates to a cdylib-reachable crate.
-                    Ok(::std::vec::Vec::new())
+                    let mut out: ::std::vec::Vec<$crate::TriggerPackageMetadata> =
+                        ::std::vec::Vec::new();
+                    for entry in $crate::inventory::iter::<$crate::TriggerEntry> {
+                        let trigger = (entry.constructor)();
+                        let poll_interval = format!(
+                            "{}ms",
+                            cloacina_workflow::Trigger::poll_interval(&*trigger).as_millis()
+                        );
+                        out.push($crate::TriggerPackageMetadata {
+                            name: entry.name.to_string(),
+                            package_name: env!("CARGO_PKG_NAME").to_string(),
+                            poll_interval,
+                            cron_expression: cloacina_workflow::Trigger::cron_expression(&*trigger),
+                            allow_concurrent: cloacina_workflow::Trigger::allow_concurrent(
+                                &*trigger,
+                            ),
+                        });
+                    }
+                    Ok(out)
                 }
             }
 

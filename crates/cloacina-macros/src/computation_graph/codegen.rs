@@ -416,20 +416,15 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             }
         };
         let ctor = quote! {
-            // I-0102 / T-A: triggerless graph inventory entries must be
-            // submitted in test builds too — `#[task(invokes =
-            // computation_graph("name"))]` resolves the graph by walking
-            // `inventory::iter::<TriggerlessGraphEntry>`. The previous
-            // `cfg(not(test))` gate worked when invocation went through the
-            // compile-time `<H as TriggerlessGraph>` trait; the runtime
-            // lookup needs the inventory entry present.
-            #[cfg(not(feature = "packaged"))]
-            #inventory_path::submit! {
-                #cloacina_root::TriggerlessGraphEntry {
+            // T-0552: TriggerlessGraphEntry submission un-gated for both
+            // packaged and embedded modes (was previously embedded-only).
+            // Targets cdylib-reachable types in cloacina-workflow-plugin.
+            cloacina_workflow_plugin::inventory::submit! {
+                cloacina_workflow_plugin::TriggerlessGraphEntry {
                     name: #mod_name_str,
-                    constructor: || #cloacina_root::TriggerlessGraphRegistration {
+                    constructor: || cloacina_workflow_plugin::TriggerlessGraphRegistration {
                         name: #mod_name_str.to_string(),
-                        graph_fn: ::std::sync::Arc::new(|context: #cloacina_root::Context<::serde_json::Value>| {
+                        graph_fn: ::std::sync::Arc::new(|context: cloacina_workflow::Context<::serde_json::Value>| {
                             Box::pin(async move {
                                 #compiled_fn_name(&context).await
                             })
@@ -520,10 +515,12 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // intentionally do not implement this trait — that's the compile-time
     // gate keeping tasks from invoking them.
     let triggerless_graph_impl = if is_triggerless {
+        // T-0552: TriggerlessGraph trait + types relocated to
+        // cloacina-workflow-plugin. Use cdylib-reachable paths.
         quote! {
-            impl #cloacina_root::TriggerlessGraph for #handle_ident {
-                fn compiled_fn() -> #cloacina_root::TriggerlessGraphFn {
-                    ::std::sync::Arc::new(|context: #cloacina_root::Context<::serde_json::Value>| {
+            impl cloacina_workflow_plugin::TriggerlessGraph for #handle_ident {
+                fn compiled_fn() -> cloacina_workflow_plugin::TriggerlessGraphFn {
+                    ::std::sync::Arc::new(|context: cloacina_workflow::Context<::serde_json::Value>| {
                         Box::pin(async move { #compiled_fn_name(&context).await })
                     })
                 }

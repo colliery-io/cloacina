@@ -97,8 +97,8 @@ impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for TriggerError
 impl From<cloacina_workflow::TriggerError> for TriggerError {
     fn from(err: cloacina_workflow::TriggerError) -> Self {
         match err {
-            cloacina_workflow::TriggerError::PollError(msg) => {
-                TriggerError::PollError { message: msg }
+            cloacina_workflow::TriggerError::PollError { message } => {
+                TriggerError::PollError { message }
             }
             cloacina_workflow::TriggerError::ContextError(e) => TriggerError::PollError {
                 message: format!("Context error: {}", e),
@@ -107,64 +107,11 @@ impl From<cloacina_workflow::TriggerError> for TriggerError {
     }
 }
 
-/// Result of a trigger poll operation.
-///
-/// When a trigger's `poll()` function is called, it returns this enum
-/// to indicate whether the associated workflow should be fired.
-#[derive(Debug)]
-pub enum TriggerResult {
-    /// Do not fire the workflow, continue polling on the next interval.
-    Skip,
-
-    /// Fire the workflow with an optional context.
-    ///
-    /// If context is provided, it will be used to initialize the workflow execution.
-    /// The context is also used for deduplication when `allow_concurrent = false`.
-    Fire(Option<Context<serde_json::Value>>),
-}
-
-impl From<cloacina_workflow::TriggerResult> for TriggerResult {
-    fn from(r: cloacina_workflow::TriggerResult) -> Self {
-        match r {
-            cloacina_workflow::TriggerResult::Skip => TriggerResult::Skip,
-            cloacina_workflow::TriggerResult::Fire(ctx) => TriggerResult::Fire(ctx),
-        }
-    }
-}
-
-impl TriggerResult {
-    /// Returns true if this result indicates the workflow should fire.
-    pub fn should_fire(&self) -> bool {
-        matches!(self, TriggerResult::Fire(_))
-    }
-
-    /// Extracts the context if this is a Fire result.
-    pub fn into_context(self) -> Option<Context<serde_json::Value>> {
-        match self {
-            TriggerResult::Fire(ctx) => ctx,
-            TriggerResult::Skip => None,
-        }
-    }
-
-    /// Computes a hash of the context for deduplication purposes.
-    ///
-    /// If no context is provided, returns a constant hash.
-    /// This allows deduplication based on the specific trigger conditions.
-    pub fn context_hash(&self) -> String {
-        match self {
-            TriggerResult::Skip => "skip".to_string(),
-            TriggerResult::Fire(None) => "fire_no_context".to_string(),
-            TriggerResult::Fire(Some(ctx)) => {
-                // Hash the serialized context for deduplication
-                let mut hasher = DefaultHasher::new();
-                if let Ok(serialized) = serde_json::to_string(ctx.data()) {
-                    serialized.hash(&mut hasher);
-                }
-                format!("{:016x}", hasher.finish())
-            }
-        }
-    }
-}
+// T-0552 / I-0102 follow-up: TriggerResult relocated to cloacina-workflow
+// so the leaf-crate `Trigger` trait can use it directly. Re-exported here
+// so existing engine paths (`cloacina::trigger::TriggerResult`) keep
+// resolving.
+pub use cloacina_workflow::TriggerResult;
 
 /// Configuration for a trigger.
 ///
@@ -213,96 +160,10 @@ impl TriggerConfig {
     }
 }
 
-/// Core trait for user-defined triggers.
-///
-/// Triggers are polling functions that determine when a workflow should execute.
-/// Each trigger has a name, poll interval, and a `poll()` method that returns
-/// whether the workflow should fire.
-///
-/// ## Implementation
-///
-/// The easiest way to implement a trigger is using the `#[trigger]` macro:
-///
-/// ```rust,ignore
-/// #[trigger(
-///     name = "my_trigger",
-///     poll_interval = "10s",
-///     allow_concurrent = false,
-/// )]
-/// async fn my_trigger() -> TriggerResult {
-///     if some_condition() {
-///         TriggerResult::Fire(None)
-///     } else {
-///         TriggerResult::Skip
-///     }
-/// }
-/// ```
-///
-/// ## Manual Implementation
-///
-/// For advanced use cases, implement the trait directly:
-///
-/// ```rust,ignore
-/// use cloacina::trigger::{Trigger, TriggerResult, TriggerError};
-/// use async_trait::async_trait;
-/// use std::time::Duration;
-///
-/// struct MyTrigger {
-///     name: String,
-/// }
-///
-/// #[async_trait]
-/// impl Trigger for MyTrigger {
-///     fn name(&self) -> &str {
-///         &self.name
-///     }
-///
-///     fn poll_interval(&self) -> Duration {
-///         Duration::from_secs(10)
-///     }
-///
-///     fn allow_concurrent(&self) -> bool {
-///         false
-///     }
-///
-///     async fn poll(&self) -> Result<TriggerResult, TriggerError> {
-///         // Your polling logic here
-///         Ok(TriggerResult::Skip)
-///     }
-/// }
-/// ```
-#[async_trait]
-pub trait Trigger: Send + Sync + fmt::Debug {
-    /// Returns the unique name of this trigger.
-    fn name(&self) -> &str;
-
-    /// Returns how often this trigger should be polled.
-    fn poll_interval(&self) -> Duration;
-
-    /// Returns whether concurrent executions with the same context are allowed.
-    ///
-    /// When `false`, if a workflow execution with the same context hash is
-    /// already running, the trigger will not fire again until it completes.
-    fn allow_concurrent(&self) -> bool;
-
-    /// Polls the trigger condition and returns whether to fire the workflow.
-    ///
-    /// This method is called at the configured `poll_interval`. It should:
-    /// - Return `TriggerResult::Skip` to continue polling
-    /// - Return `TriggerResult::Fire(ctx)` to fire the workflow
-    ///
-    /// Errors are logged and polling continues on the next interval.
-    async fn poll(&self) -> Result<TriggerResult, TriggerError>;
-
-    /// Returns this trigger's cron expression, if any. Cron-shaped triggers
-    /// override this to return `Some(expr)`; their `poll_interval` is ignored
-    /// and the reconciler routes them to the cron scheduler instead of the
-    /// runtime trigger registry. Default `None` covers all custom-poll
-    /// triggers.
-    fn cron_expression(&self) -> Option<String> {
-        None
-    }
-}
+// T-0552 / I-0102 follow-up: Trigger trait relocated to cloacina-workflow
+// so packaged cdylibs can collect TriggerEntry inventory entries. Engine
+// paths re-export.
+pub use cloacina_workflow::Trigger;
 
 pub use registry::TriggerConstructor;
 
@@ -330,7 +191,7 @@ mod tests {
             false
         }
 
-        async fn poll(&self) -> Result<TriggerResult, TriggerError> {
+        async fn poll(&self) -> Result<TriggerResult, cloacina_workflow::TriggerError> {
             if self.should_fire {
                 Ok(TriggerResult::Fire(None))
             } else {

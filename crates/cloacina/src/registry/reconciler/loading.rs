@@ -1169,8 +1169,8 @@ mod tests {
 
         async fn poll(
             &self,
-        ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError> {
-            Ok(crate::trigger::TriggerResult::Skip)
+        ) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
+            Ok(cloacina_workflow::TriggerResult::Skip)
         }
     }
 }
