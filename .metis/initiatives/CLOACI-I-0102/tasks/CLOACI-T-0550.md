@@ -4,14 +4,14 @@ level: task
 title: "T-D: Primitive-only Rust cdylib end-to-end integration tests"
 short_code: "CLOACI-T-0550"
 created_at: 2026-04-30T04:09:50.469748+00:00
-updated_at: 2026-05-02T14:04:17.316930+00:00
+updated_at: 2026-05-02T19:02:39.515501+00:00
 parent: CLOACI-I-0102
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -34,6 +34,8 @@ End-to-end integration coverage for the primitive-only and cross-package authori
 4. **Cross-package binding** — separate cdylib whose CG references the reactor declared in fixture (1) by string name. Validates fan-out across packages and the runtime contract validator.
 
 This is the "primitive-only Rust just works" + "string-named cross-package refs just work" proof point.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

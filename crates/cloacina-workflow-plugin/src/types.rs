@@ -198,15 +198,15 @@ pub struct GraphExecutionResult {
 /// section of a package's `package.toml`. Validated at load time
 /// via `PackageManifest<CloacinaMetadata>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CloacinaMetadata {
-    /// What this package contains: ["workflow"], ["computation_graph"], or both.
-    /// Defaults to ["workflow"] for backward compatibility with existing packages.
-    #[serde(default = "default_package_type")]
-    pub package_type: Vec<String>,
-    /// Name of the workflow (required if package_type includes "workflow")
+    /// Name of the workflow. Optional — Rust packages source this from
+    /// `#[workflow(name = "...")]`; Python packages still set it here.
     #[serde(default)]
     pub workflow_name: Option<String>,
-    /// Name of the computation graph (required if package_type includes "computation_graph")
+    /// Name of the computation graph. Used by Python CG packages and as
+    /// the signal that distinguishes CG from workflow packages on the
+    /// Python load path. (T-E: replaces the old `package_type` field.)
     #[serde(default)]
     pub graph_name: Option<String>,
     /// Package language: "rust" or "python"
@@ -223,9 +223,6 @@ pub struct CloacinaMetadata {
     /// Python entry module (Python packages only, e.g., "workflow.tasks")
     #[serde(default)]
     pub entry_module: Option<String>,
-    /// Trigger definitions for this package
-    #[serde(default)]
-    pub triggers: Vec<TriggerDefinition>,
     /// Reaction mode for computation graphs: "when_any" or "when_all"
     #[serde(default)]
     pub reaction_mode: Option<String>,
@@ -254,24 +251,22 @@ fn default_accumulator_type() -> String {
     "passthrough".to_string()
 }
 
-fn default_package_type() -> Vec<String> {
-    vec!["workflow".to_string()]
-}
-
 impl CloacinaMetadata {
     /// Check if this package contains a workflow.
+    /// (T-E: post-removal of `package_type`, "is workflow" is "not CG-only".)
     pub fn has_workflow(&self) -> bool {
-        self.package_type.iter().any(|t| t == "workflow")
+        self.graph_name.is_none() || self.workflow_name.is_some()
     }
 
     /// Check if this package contains a computation graph.
+    /// (T-E: post-removal of `package_type`, presence of `graph_name`
+    /// signals a CG package on the Python load path. Rust packages get
+    /// the actual signal from FFI metadata extraction.)
     pub fn has_computation_graph(&self) -> bool {
-        self.package_type.iter().any(|t| t == "computation_graph")
+        self.graph_name.is_some()
     }
 
     /// Get the workflow name, falling back for backward compatibility.
-    /// Old packages had `workflow_name` as required — now it's optional
-    /// but we still need it for workflow packages.
     pub fn effective_workflow_name(&self) -> Option<&str> {
         self.workflow_name.as_deref()
     }
@@ -332,6 +327,7 @@ mod tests {
                 description: "First step".to_string(),
                 source_location: "src/lib.rs".to_string(),
             }],
+            triggers: Vec::new(),
         };
 
         let json = serde_json::to_string(&metadata).unwrap();
@@ -388,12 +384,6 @@ mod tests {
             language = "rust"
             description = "Data analytics workflow"
             author = "Analytics Team"
-
-            [[triggers]]
-            name = "file_watcher"
-            workflow = "analytics_pipeline"
-            poll_interval = "5s"
-            allow_concurrent = false
         "#;
 
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
@@ -408,9 +398,6 @@ mod tests {
         );
         assert!(metadata.requires_python.is_none());
         assert!(metadata.entry_module.is_none());
-        assert_eq!(metadata.triggers.len(), 1);
-        assert_eq!(metadata.triggers[0].name, "file_watcher");
-        assert!(!metadata.triggers[0].allow_concurrent);
     }
 
     #[test]
@@ -428,7 +415,6 @@ mod tests {
         assert_eq!(metadata.language, "python");
         assert_eq!(metadata.requires_python.as_deref(), Some(">=3.11"));
         assert_eq!(metadata.entry_module.as_deref(), Some("workflow.tasks"));
-        assert!(metadata.triggers.is_empty());
     }
 
     #[test]
@@ -442,7 +428,6 @@ mod tests {
         assert_eq!(metadata.workflow_name.as_deref(), Some("simple_workflow"));
         assert_eq!(metadata.language, "rust");
         assert!(metadata.description.is_none());
-        assert!(metadata.triggers.is_empty());
     }
 
     #[test]
@@ -456,14 +441,17 @@ mod tests {
     }
 
     #[test]
-    fn test_cloacina_metadata_defaults_to_workflow_package_type() {
+    fn test_cloacina_metadata_workflow_classification() {
+        // T-E / I-0102: post-removal of `package_type`, has_workflow() /
+        // has_computation_graph() are derived from the presence of
+        // workflow_name / graph_name. A package with only workflow_name is
+        // a workflow; one with only graph_name is a CG; one with both is
+        // both.
         let toml_str = r#"
             workflow_name = "legacy_workflow"
             language = "rust"
         "#;
-
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
-        assert_eq!(metadata.package_type, vec!["workflow"]);
         assert!(metadata.has_workflow());
         assert!(!metadata.has_computation_graph());
     }
@@ -471,7 +459,6 @@ mod tests {
     #[test]
     fn test_cloacina_metadata_computation_graph_from_toml() {
         let toml_str = r#"
-            package_type = ["computation_graph"]
             graph_name = "market_maker"
             language = "rust"
             reaction_mode = "when_any"
@@ -479,8 +466,6 @@ mod tests {
         "#;
 
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
-        assert_eq!(metadata.package_type, vec!["computation_graph"]);
-        assert!(!metadata.has_workflow());
         assert!(metadata.has_computation_graph());
         assert_eq!(metadata.graph_name.as_deref(), Some("market_maker"));
         assert_eq!(metadata.reaction_mode.as_deref(), Some("when_any"));
@@ -488,17 +473,41 @@ mod tests {
     }
 
     #[test]
-    fn test_cloacina_metadata_both_types() {
+    fn test_cloacina_metadata_legacy_package_type_rejected() {
+        // T-E / I-0102: deny_unknown_fields makes legacy `package_type` a
+        // hard error at the deserializer; the reconciler rewraps with a
+        // friendly migration message.
         let toml_str = r#"
-            package_type = ["workflow", "computation_graph"]
-            workflow_name = "analytics"
-            graph_name = "market_maker"
+            package_type = ["computation_graph"]
+            workflow_name = "x"
             language = "rust"
         "#;
+        let err = toml::from_str::<CloacinaMetadata>(toml_str).unwrap_err();
+        assert!(
+            err.to_string().contains("package_type"),
+            "expected error to name `package_type`, got: {}",
+            err
+        );
+    }
 
-        let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
-        assert!(metadata.has_workflow());
-        assert!(metadata.has_computation_graph());
+    #[test]
+    fn test_cloacina_metadata_legacy_triggers_rejected() {
+        let toml_str = r#"
+            workflow_name = "x"
+            language = "rust"
+
+            [[triggers]]
+            name = "t"
+            workflow = "x"
+            poll_interval = "5s"
+            allow_concurrent = false
+        "#;
+        let err = toml::from_str::<CloacinaMetadata>(toml_str).unwrap_err();
+        assert!(
+            err.to_string().contains("triggers"),
+            "expected error to name `triggers`, got: {}",
+            err
+        );
     }
 
     #[test]

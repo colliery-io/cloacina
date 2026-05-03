@@ -568,6 +568,8 @@ description = "Test package"
         let pkg_dir = dir.path().join("trigger-pkg-src");
         std::fs::create_dir_all(pkg_dir.join("src")).unwrap();
 
+        // T-E / I-0102: legacy `[[metadata.triggers]]` removed; trigger
+        // metadata flows through FFI now, not the manifest.
         let toml_content = r#"[package]
 name = "trigger-pkg"
 version = "1.0.0"
@@ -578,12 +580,6 @@ extension = "cloacina"
 [metadata]
 workflow_name = "trigger-pkg"
 language = "rust"
-
-[[metadata.triggers]]
-name = "my_trigger"
-workflow = "trigger-pkg"
-poll_interval = "5s"
-allow_concurrent = false
 "#;
 
         std::fs::write(pkg_dir.join("package.toml"), toml_content).unwrap();

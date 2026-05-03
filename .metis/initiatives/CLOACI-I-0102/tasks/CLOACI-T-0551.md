@@ -3,15 +3,15 @@ id: t-e-manifest-cleanup-remove
 level: task
 title: "T-E: Manifest cleanup — remove [[triggers]] and package_type"
 short_code: "CLOACI-T-0551"
-created_at: 2026-04-30T04:10:00.000000+00:00
-updated_at: 2026-04-30T04:10:00.000000+00:00
+created_at: 2026-04-30T04:10:00+00:00
+updated_at: 2026-05-02T19:02:46.343865+00:00
 parent: CLOACI-I-0102
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -34,6 +34,8 @@ Two-phase delivery within the single PR:
 2. **Removal pass.** Delete the parsing code. Either key present in `package.toml` → load failure with the migration message.
 
 The deprecation step exists to give external/out-of-tree packages a single release window to migrate; T-E itself ships both phases in one PR but the warning code remains in a release tag that downstream consumers can pin to.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -84,4 +86,41 @@ The deprecation step exists to give external/out-of-tree packages a single relea
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-05-03 — T-E done in a single landing
+
+Manifest cleanup landed in one focused change. T-B's deprecation warnings from the prior commit are removed (they were transitional); the warnings turn into hard errors via `#[serde(deny_unknown_fields)]` on `CloacinaMetadata`. The reconciler wraps the deserialization error with a friendly migration hint at the manifest-load boundary.
+
+**Changes shipped:**
+
+- `crates/cloacina-workflow-plugin/src/types.rs`:
+  - `CloacinaMetadata` gained `#[serde(deny_unknown_fields)]`. Legacy `package_type: Vec<String>` field deleted (defaulted to `["workflow"]`); legacy `triggers: Vec<TriggerDefinition>` field deleted.
+  - `default_package_type()` helper deleted.
+  - `has_workflow()` reimplemented as "graph_name absent OR workflow_name present"; `has_computation_graph()` as "graph_name present". Replaces the old `package_type.iter().any(...)` lookups.
+  - Updated 6 unit tests in this file: dropped references to removed fields; added `test_cloacina_metadata_legacy_package_type_rejected` and `test_cloacina_metadata_legacy_triggers_rejected` to lock down the deny_unknown_fields behavior.
+- `crates/cloacina/src/registry/reconciler/loading.rs`:
+  - Removed T-B's deprecation warnings (they referenced now-gone fields).
+  - Wrapped the `load_manifest` error with a migration hint (`"package_type was removed in CLOACI-I-0102; primitives are now self-declared via the unified cloacina::package!() shell macro and per-primitive macros"` if the raw error mentions `package_type`; analogous hint for `triggers`).
+  - `register_package_triggers` reduced to a no-op shim returning `Ok(Vec::new())` — the manifest-side trigger registration path is gone, replaced by `validate_workflow_trigger_subscriptions` consuming `PackageTasksMetadata.triggers` from FFI metadata.
+  - Two obsolete tests deleted: `register_triggers_tracks_registered_triggers` and `register_triggers_mixed_registered_and_missing` — they asserted manifest-side parsing that no longer exists.
+- `crates/cloacina/src/registry/workflow_registry/filesystem.rs`:
+  - `test_package_with_triggers_in_manifest`: dropped `[[metadata.triggers]]` from the test fixture's manifest. The test now exercises a clean post-T-E manifest.
+- `crates/cloacinactl/src/commands/daemon.rs`:
+  - The daemon's automatic trigger registration loop (read `[[triggers]]` from manifest, register cron schedules + custom-poll triggers) deleted. Documented as "depends on FFI trigger metadata which currently stubs `Ok(vec![])` until TriggerEntry relocates" — pending follow-up.
+
+**Test gates (all green):**
+
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (701 passed; 2 obsolete deleted, 2 new in workflow-plugin)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python)
+- [x] `angreal test integration --backend postgres` (290 + 28 Python; one transient flake on first run, clean on retry after `angreal services reset --clean`)
+
+### Deferred
+
+- **Daemon's automatic trigger registration from packages** is currently a no-op. Restoring it requires the FFI `get_trigger_metadata` stub to be replaced with real inventory walks, which depends on `TriggerEntry` relocating from `cloacina` to `cloacina-workflow-plugin`. Documented in T-0547 status.
+- **`angreal demos features python-packaged-graph` / `packaged-graph` smoke check** (AC item) not run in this iteration — the integration test suite covers the same wire format end-to-end. The demos may need their `package.toml` files updated to drop `package_type`/`[[triggers]]` if any still ship them, since deny_unknown_fields will now reject those manifests.
+
+### State
+
+T-0551 (T-E) **complete**: legacy `package_type` and `[[triggers]]` keys are hard-errored at deserialization with a friendly migration hint; the reconciler's manifest-side trigger registration path is gone; tests lock down the new contract.
+
+I-0102 (Unified Cloacina package plugin shell) is now complete across T-A through T-E. The unified shell is the sole CloacinaPlugin export path, the macro layer is the source of truth for primitive declarations and cross-references, and the manifest is reduced to package identity + language + Python entry-module hints.

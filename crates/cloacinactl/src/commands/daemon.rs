@@ -468,54 +468,13 @@ async fn register_triggers_from_reconcile(
             Err(_) => continue,
         };
 
-        for trigger_def in &cloacina_manifest.metadata.triggers {
-            if let Some(cron_expr) = &trigger_def.cron_expression {
-                // Cron trigger — register via the unified schedule API
-                match runner
-                    .register_cron_workflow(&trigger_def.workflow, cron_expr, "UTC")
-                    .await
-                {
-                    Ok(schedule_id) => {
-                        info!(
-                            "Registered cron schedule: '{}' -> workflow '{}' (cron: {}, id: {})",
-                            trigger_def.name, trigger_def.workflow, cron_expr, schedule_id
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to create cron schedule for '{}': {}",
-                            trigger_def.name, e
-                        );
-                    }
-                }
-            } else {
-                // Custom poll trigger — look for registered Trigger impl
-                if let Some(trigger) = runner.runtime().get_trigger(&trigger_def.name) {
-                    match scheduler
-                        .register_trigger(trigger.as_ref(), &trigger_def.workflow)
-                        .await
-                    {
-                        Ok(_schedule) => {
-                            info!(
-                                "Registered trigger schedule: '{}' -> workflow '{}' (poll: {})",
-                                trigger_def.name, trigger_def.workflow, trigger_def.poll_interval
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to register trigger schedule for '{}': {}",
-                                trigger_def.name, e
-                            );
-                        }
-                    }
-                } else {
-                    warn!(
-                        "Trigger '{}' declared in package.toml but no Trigger impl found in registry",
-                        trigger_def.name
-                    );
-                }
-            }
-        }
+        // T-E / I-0102: legacy `[[triggers]]` manifest path is removed.
+        // The daemon's automatic trigger registration from packages
+        // depends on FFI trigger metadata (`get_trigger_metadata`), which
+        // currently stubs `Ok(vec![])` until `TriggerEntry` relocates to a
+        // cdylib-reachable crate. Tracked as a follow-up in T-0547 status
+        // notes.
+        let _ = (&cloacina_manifest, &runner, &scheduler);
     }
 }
 

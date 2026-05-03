@@ -94,13 +94,37 @@ impl RegistryReconciler {
         })??;
 
         // --- Step 3: load manifest and validate ---
+        // T-E / I-0102: `#[serde(deny_unknown_fields)]` on CloacinaMetadata
+        // makes legacy `package_type` and `[[triggers]]` keys hard-error at
+        // deserialization. Wrap the deserializer error with a friendlier
+        // migration hint so users see what to change rather than the raw
+        // "unknown field" message.
         let source_dir_clone = source_dir.clone();
+        let pkg_name_for_err = metadata.package_name.clone();
         let cloacina_manifest = tokio::task::spawn_blocking(move || {
             fidius_core::package::load_manifest::<cloacina_workflow_plugin::CloacinaMetadata>(
                 &source_dir_clone,
             )
-            .map_err(|e| RegistryError::RegistrationFailed {
-                message: format!("Failed to load package.toml: {}", e),
+            .map_err(|e| {
+                let raw = e.to_string();
+                let migration_hint = if raw.contains("package_type") {
+                    " — `package_type` was removed in CLOACI-I-0102; primitives are now \
+                     self-declared via the unified `cloacina::package!()` shell macro and \
+                     per-primitive macros (`#[workflow]`, `#[reactor]`, `#[trigger]`, \
+                     `#[computation_graph]`)"
+                } else if raw.contains("triggers") {
+                    " — `[[triggers]]` in package.toml was removed in CLOACI-I-0102; declare \
+                     workflow → trigger subscriptions via `#[workflow(triggers = [...])]` on \
+                     the workflow module instead"
+                } else {
+                    ""
+                };
+                RegistryError::RegistrationFailed {
+                    message: format!(
+                        "Failed to load package.toml for {}: {}{}",
+                        pkg_name_for_err, raw, migration_hint
+                    ),
+                }
             })
         })
         .await
@@ -115,39 +139,11 @@ impl RegistryReconciler {
             cloacina_manifest.metadata.language
         );
 
-        // T-B / I-0102: deprecation warnings for manifest keys that the
-        // macro layer now owns. Both are still parsed and routed today,
-        // but T-E (T-0551) will hard-error on either. The warnings give
-        // out-of-tree packages a single release window to migrate.
-        if !cloacina_manifest.metadata.triggers.is_empty() {
-            warn!(
-                "Package {} v{}: `[[triggers]]` in package.toml is deprecated and will be \
-                 removed in a future release. Declare workflow → trigger subscriptions via \
-                 `#[workflow(triggers = [...])]` on the workflow module instead. Found {} \
-                 trigger entr{}",
-                metadata.package_name,
-                metadata.version,
-                cloacina_manifest.metadata.triggers.len(),
-                if cloacina_manifest.metadata.triggers.len() == 1 {
-                    "y"
-                } else {
-                    "ies"
-                },
-            );
-        }
-        // `package_type` defaults to `["workflow"]` when omitted; only warn
-        // if the manifest explicitly set it to a non-default value, since
-        // the default is what every legacy package will produce on
-        // deserialization.
-        if cloacina_manifest.metadata.package_type != vec!["workflow".to_string()] {
-            warn!(
-                "Package {} v{}: `package_type = {:?}` in package.toml is deprecated and will \
-                 be removed in a future release. Primitives are now self-declared via the \
-                 unified `cloacina::package!()` shell macro and per-primitive macros \
-                 (`#[workflow]`, `#[reactor]`, `#[trigger]`, `#[computation_graph]`).",
-                metadata.package_name, metadata.version, cloacina_manifest.metadata.package_type,
-            );
-        }
+        // T-E / I-0102: deprecation warnings removed; `[[triggers]]` and
+        // `package_type` are now hard-errored at deserialization via
+        // `#[serde(deny_unknown_fields)]` on `CloacinaMetadata`. The
+        // friendly migration message is wrapped at the manifest-load
+        // boundary below.
 
         // --- Step 4, 5, 6: language-specific loading ---
         //
@@ -1025,56 +1021,19 @@ impl RegistryReconciler {
         Ok(())
     }
 
+    /// T-E / I-0102: legacy `[[triggers]]` manifest path is removed.
+    /// Workflow → trigger subscriptions now flow through
+    /// `#[workflow(triggers = [...])]` and arrive in the FFI metadata as
+    /// `PackageTasksMetadata.triggers` (consumed by
+    /// `validate_workflow_trigger_subscriptions`). This shim returns the
+    /// empty Vec for callers still wired in until a follow-up cleans them
+    /// up.
     pub(super) fn register_package_triggers(
         &self,
-        metadata: &WorkflowMetadata,
-        cloacina_metadata: &cloacina_workflow_plugin::CloacinaMetadata,
+        _metadata: &WorkflowMetadata,
+        _cloacina_metadata: &cloacina_workflow_plugin::CloacinaMetadata,
     ) -> Result<Vec<String>, RegistryError> {
-        if cloacina_metadata.triggers.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let Some(runtime) = self.runtime.as_ref() else {
-            warn!(
-                "Package {} v{} declares triggers but the reconciler has no Runtime attached",
-                metadata.package_name, metadata.version
-            );
-            return Ok(vec![]);
-        };
-
-        let mut tracked_trigger_names = Vec::new();
-
-        for trigger_def in &cloacina_metadata.triggers {
-            if runtime.get_trigger(&trigger_def.name).is_some() {
-                info!(
-                    "Trigger '{}' (workflow: {}, interval: {}) registered from package {} v{}",
-                    trigger_def.name,
-                    trigger_def.workflow,
-                    trigger_def.poll_interval,
-                    metadata.package_name,
-                    metadata.version
-                );
-                tracked_trigger_names.push(trigger_def.name.clone());
-            } else {
-                warn!(
-                    "Trigger '{}' declared in package.toml for package {} v{} but not found in \
-                     runtime — the package must provide a Trigger impl (via #[trigger] macro or \
-                     manual registration)",
-                    trigger_def.name, metadata.package_name, metadata.version
-                );
-            }
-        }
-
-        if !tracked_trigger_names.is_empty() {
-            info!(
-                "Tracking {} triggers for package {} v{}",
-                tracked_trigger_names.len(),
-                metadata.package_name,
-                metadata.version
-            );
-        }
-
-        Ok(tracked_trigger_names)
+        Ok(Vec::new())
     }
 }
 
@@ -1119,10 +1078,12 @@ mod tests {
     }
 
     fn make_cloacina_metadata_with_triggers(
-        triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>,
+        _triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>,
     ) -> cloacina_workflow_plugin::CloacinaMetadata {
+        // T-E / I-0102: `[[triggers]]` / `package_type` removed from
+        // CloacinaMetadata. Trigger registration now flows through FFI
+        // metadata; the manifest-side path is gone.
         cloacina_workflow_plugin::CloacinaMetadata {
-            package_type: vec!["workflow".to_string()],
             workflow_name: Some("test-workflow".to_string()),
             graph_name: None,
             language: "python".to_string(),
@@ -1130,7 +1091,6 @@ mod tests {
             author: None,
             requires_python: None,
             entry_module: Some("test.tasks".to_string()),
-            triggers,
             reaction_mode: None,
             input_strategy: None,
             accumulators: Vec::new(),
@@ -1154,38 +1114,11 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    #[tokio::test]
-    #[serial]
-    async fn register_triggers_tracks_registered_triggers() {
-        let reconciler = make_test_reconciler();
-        let runtime = runtime_of(&reconciler);
-        let metadata = make_test_metadata();
-
-        // Pre-register a trigger on the reconciler's runtime (simulating what
-        // `Runtime::seed_from_inventory()` would do after dlopen).
-        let trigger_name = format!("test-trigger-{}", Uuid::new_v4());
-        runtime.register_trigger(trigger_name.clone(), || {
-            Arc::new(DummyTrigger {
-                name: "dummy".to_string(),
-            })
-        });
-
-        let cloacina_meta = make_cloacina_metadata_with_triggers(vec![
-            cloacina_workflow_plugin::TriggerDefinition {
-                name: trigger_name.clone(),
-                workflow: "test-workflow".to_string(),
-                poll_interval: "5s".to_string(),
-                cron_expression: None,
-                allow_concurrent: false,
-            },
-        ]);
-
-        let result = reconciler
-            .register_package_triggers(&metadata, &cloacina_meta)
-            .unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], trigger_name);
-    }
+    // T-E / I-0102: register_triggers_tracks_registered_triggers and
+    // register_triggers_mixed_registered_and_missing tests deleted — they
+    // asserted manifest-side `[[triggers]]` parsing, which is gone. The
+    // function is now a no-op shim returning empty Vec; the remaining
+    // tests in this section verify that contract.
 
     #[tokio::test]
     #[serial]
@@ -1209,47 +1142,6 @@ mod tests {
             .unwrap();
         // Should be empty because the trigger is not present in the runtime
         assert!(result.is_empty());
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn register_triggers_mixed_registered_and_missing() {
-        let reconciler = make_test_reconciler();
-        let runtime = runtime_of(&reconciler);
-        let metadata = make_test_metadata();
-
-        // Register one trigger on the runtime, leave the other absent
-        let registered_name = format!("registered-trigger-{}", Uuid::new_v4());
-        let missing_name = format!("missing-trigger-{}", Uuid::new_v4());
-
-        runtime.register_trigger(registered_name.clone(), || {
-            Arc::new(DummyTrigger {
-                name: "dummy".to_string(),
-            })
-        });
-
-        let cloacina_meta = make_cloacina_metadata_with_triggers(vec![
-            cloacina_workflow_plugin::TriggerDefinition {
-                name: registered_name.clone(),
-                workflow: "wf1".to_string(),
-                poll_interval: "5s".to_string(),
-                cron_expression: None,
-                allow_concurrent: false,
-            },
-            cloacina_workflow_plugin::TriggerDefinition {
-                name: missing_name.clone(),
-                workflow: "wf2".to_string(),
-                poll_interval: "10s".to_string(),
-                cron_expression: None,
-                allow_concurrent: false,
-            },
-        ]);
-
-        let result = reconciler
-            .register_package_triggers(&metadata, &cloacina_meta)
-            .unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], registered_name);
     }
 
     // -----------------------------------------------------------------------
