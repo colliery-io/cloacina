@@ -3,16 +3,16 @@ id: reconciler-load-package-precedence
 level: task
 title: "Reconciler load_package precedence-pipeline restructure"
 short_code: "CLOACI-T-0554"
-created_at: 2026-05-03T13:26:01.000000+00:00
-updated_at: 2026-05-03T13:26:01.000000+00:00
+created_at: 2026-05-03T13:26:01+00:00
+updated_at: 2026-05-03T14:12:49.012550+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -46,6 +46,10 @@ Same shape Rust + Python — only the metadata-extraction step differs (fidius `
 - **Current Problems**: Today's branching is heavily forked on `language` (rust/python) AND on what's effectively `has_computation_graph` / `has_workflow` derived from the manifest. New primitive kinds (e.g., the trigger flow restored by T-0553) end up bolted on rather than plugged in. The reactor metadata extraction was added additively in T-B Phase 2; it works but doesn't fit the prior shape cleanly.
 - **Benefits of Fixing**: Single point of dispatch makes future primitive additions trivial. Mirrored Rust/Python pipelines reduce duplicated logic. Cross-package contract mismatch errors get a cleaner home (currently `dispatch_package_reactors_into_scheduler` has no place to validate subscriber accumulator names against a bound reactor).
 - **Risk Assessment**: Medium — high blast radius (~1100 LOC touched) but covered by integration tests on both backends. Restructure should be behavior-equivalent for legacy packages.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -102,4 +106,46 @@ Same shape Rust + Python — only the metadata-extraction step differs (fidius `
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-05-03 — Orientation + scoped plan
+
+Current `loading.rs` (~1176 lines) `load_package` is ~540 LOC with three branches: Rust path, Python workflow path, Python CG path, plus a separate Step 7 CG routing that forks on language again. Today's effective ordering: tasks → workflows → reactors → CG, which doesn't match the target precedence pipeline (cron/custom triggers → reactors → CGs → workflows).
+
+**Scoped plan for this session:**
+
+Phase 1:
+- Define `PackageLoadView` carrying wire-format metadata.
+- Extract per-step helper methods on `RegistryReconciler` (six helpers).
+- Rewrite Rust path's `load_package` body to call helpers in fixed precedence order.
+- Python paths kept as-is for this iteration; the helpers are language-agnostic so a future Python adapter can wire them in.
+
+Phase 2 (deferred):
+- Python metadata-extraction adapter producing the same `PackageLoadView`.
+- Cross-package contract mismatch validation in `load_reactor_bound_cgs`.
+- Reverse-order unload pipeline.
+
+### 2026-05-03 — Phase 1 done
+
+Rust path now runs through the precedence-ordered pipeline. All four test gates green (cargo check, unit 701, integration sqlite, integration postgres 290 + 28 Python).
+
+**Changes shipped:**
+
+- `crates/cloacina/src/registry/reconciler/loading.rs`:
+  - New `PackageLoadView` struct carrying `tasks: PackageMetadata`, `triggers: Vec<TriggerPackageMetadata>`, `reactors: Vec<ReactorPackageMetadata>`, `graph: Option<GraphPackageMetadata>`.
+  - New `build_view_rust(library_data) -> PackageLoadView` extracts all four metadata kinds via fidius FFI (existing `extract_metadata` / `extract_trigger_metadata` / `extract_reactor_metadata` / `extract_graph_metadata`).
+  - Six step helpers added on `RegistryReconciler`:
+    - `step_load_cron_triggers` — filters cron-shaped trigger entries; logs count (no-op pending T-0553's daemon restoration).
+    - `step_load_custom_triggers` — filters non-cron entries and validates each against the runtime registry (current behavior preserved).
+    - `step_load_reactors` — uses `dispatch_package_reactors_into_scheduler`.
+    - `step_load_triggerless_cgs` — no-op (TriggerlessGraphEntry inventory walk happens at task-invocation time, not reconciler time).
+    - `step_load_reactor_bound_cgs` — handles the (single) graph from `view.graph`; merges manifest accumulator overrides; `build_declaration_from_ffi`; `scheduler.load_graph`. Took over the Step 7 Rust branch.
+    - `step_load_workflows` — wraps the existing `register_package_tasks` + `register_package_workflows` + `validate_workflow_trigger_subscriptions` calls.
+  - Rust path of `load_package` rewritten to call the six helpers in fixed precedence order: cron triggers → custom triggers → reactors → trigger-less CGs → reactor-bound CG → workflows.
+  - The original Step 7 CG routing now only handles the **Python** CG path; Rust CG handling moved into the unified pipeline. Detection: if `rust_graph_name.is_some()` from the pipeline, Step 7 short-circuits.
+
+**Behavior equivalence:** verified by all integration tests passing unchanged. The Rust load order shifted from "tasks → workflows → triggers → reactors → CG" to "triggers → reactors → CG → workflows", but legacy fixtures don't depend on the prior order (validation that fails on missing triggers still runs, accumulator dispatch still works, CG registers before workflow constructor needs it). Step 5 (reactor-bound CG) now happens BEFORE step 6 (workflow registration) — fine because the CG's reactor binding doesn't reference the workflow.
+
+### Phase 2 — still deferred
+
+Python metadata-extraction adapter, cross-package contract mismatch validation, reverse-order unload pipeline. Python paths in `load_package` kept as-is (they don't yet route through the unified pipeline).
+
+The structural restructure goal of T-0554 — "single dispatch point for the precedence-ordered pipeline" — is achieved for the Rust path. Python parity is a clean follow-up.

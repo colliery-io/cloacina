@@ -152,93 +152,65 @@ impl RegistryReconciler {
         // reuse the same bytes without another DB round-trip.
         let rust_cdylib_bytes = loaded_workflow.compiled_data.clone();
 
-        let (task_namespaces, workflow_name, trigger_names) = if cloacina_manifest.metadata.language
+        let (task_namespaces, workflow_name, trigger_names, rust_graph_name) = if cloacina_manifest
+            .metadata
+            .language
             == "rust"
         {
-            // Rust path: load the compiler-produced cdylib, extract metadata
-            // via fidius FFI, register. No cargo invocation here.
+            // T-0554 / I-0102: Rust path now runs the precedence-ordered
+            // pipeline. Extract a unified PackageLoadView, then call six
+            // step helpers in fixed order.
             let library_data =
                 rust_cdylib_bytes
                     .clone()
                     .ok_or_else(|| RegistryError::RegistrationFailed {
                         message: format!(
                             "Rust package {} v{} has no compiled_data — compiler service must \
-                         produce the cdylib before the reconciler loads it",
+                             produce the cdylib before the reconciler loads it",
                             metadata.package_name, metadata.version
                         ),
                     })?;
             info!(
-                "Step 4: Loaded compiled cdylib ({} bytes) for {}",
+                "Loaded compiled cdylib ({} bytes) for {}",
                 library_data.len(),
                 metadata.package_name
             );
 
-            info!("Step 5a: Registering tasks for {}", metadata.package_name);
-            let task_namespaces = self
-                .register_package_tasks(&metadata, &library_data)
-                .await?;
-            info!(
-                "Step 5b: Registering workflows for {}",
-                metadata.package_name
-            );
-            let workflow_name = self
-                .register_package_workflows(&metadata, &library_data)
-                .await?;
-            let trigger_names =
-                self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
+            let view = self.build_view_rust(&library_data).await?;
 
-            // T-B / I-0102: validate `#[workflow(triggers = [...])]`
-            // subscriptions. The macro arg surfaces in
-            // `PackageTasksMetadata.triggers`; the reconciler asserts each
-            // named trigger is registered in the runtime so a typo'd name
-            // fails the load instead of silently never firing.
-            self.validate_workflow_trigger_subscriptions(&metadata, &library_data)
+            // Step 1: cron triggers (no-op pending T-0553).
+            self.step_load_cron_triggers(&metadata, &view)?;
+            // Step 2: custom triggers (validated against runtime).
+            let trigger_names = self.step_load_custom_triggers(&metadata, &view)?;
+            // Step 3: reactors → graph scheduler.
+            self.step_load_reactors(&metadata, &view, &cloacina_manifest.metadata)
                 .await?;
+            // Step 4: trigger-less CGs (handled at execute-time today).
+            self.step_load_triggerless_cgs(&metadata, &view)?;
+            // Step 5: reactor-bound CG → graph scheduler. We do this
+            // BEFORE workflow registration so the (newly-supported)
+            // workflow→graph dispatch can resolve graph names if it
+            // wants to. Order is unchanged for legacy fixtures since
+            // their workflows don't reference graphs.
+            let rust_graph_name = self
+                .step_load_reactor_bound_cgs(
+                    &metadata,
+                    &view,
+                    &cloacina_manifest.metadata,
+                    &library_data,
+                )
+                .await?;
+            // Step 6: workflows (tasks + workflow + trigger-subscription
+            // validation).
+            let (task_namespaces, workflow_name) =
+                self.step_load_workflows(&metadata, &library_data).await?;
 
-            // T-B / I-0102: dispatch reactors declared by the cdylib via
-            // the unified `cloacina::package!()` shell. Plugins built
-            // against trait v1 (or per-macro `_ffi` stubs) return
-            // `Ok(Vec::new())` here and this step is a no-op.
-            match self
-                .package_loader
-                .extract_reactor_metadata(&library_data)
-                .await
-            {
-                Ok(reactor_metas) if !reactor_metas.is_empty() => {
-                    let scheduler_guard = self.graph_scheduler.read().await;
-                    if let Some(ref scheduler) = *scheduler_guard {
-                        if let Err(e) =
-                            crate::computation_graph::packaging_bridge::dispatch_package_reactors_into_scheduler(
-                                &reactor_metas,
-                                scheduler,
-                                &cloacina_manifest.metadata.accumulators,
-                                Some(self.config.default_tenant_id.clone()),
-                            )
-                            .await
-                        {
-                            warn!(
-                                "Failed to dispatch package-declared reactors from {}: {}",
-                                metadata.package_name, e
-                            );
-                        }
-                    } else {
-                        warn!(
-                            "Package {} declares {} reactor(s) but no ComputationGraphScheduler is configured",
-                            metadata.package_name,
-                            reactor_metas.len()
-                        );
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    debug!(
-                        "extract_reactor_metadata returned no entries for {}: {}",
-                        metadata.package_name, e
-                    );
-                }
-            }
-
-            (task_namespaces, workflow_name, trigger_names)
+            (
+                task_namespaces,
+                workflow_name,
+                trigger_names,
+                rust_graph_name,
+            )
         } else if cloacina_manifest.metadata.language == "python"
             && !cloacina_manifest.metadata.has_computation_graph()
         {
@@ -328,13 +300,15 @@ impl RegistryReconciler {
                 loaded.task_namespaces,
                 Some(loaded.workflow_name),
                 trigger_names,
+                None,
             )
         } else if cloacina_manifest.metadata.language == "python"
             && cloacina_manifest.metadata.has_computation_graph()
         {
             // Python CG packages: no workflow tasks to register.
-            // The CG import happens in step 7 below.
-            (vec![], None, vec![])
+            // The CG import happens in step 7 below (Python branch only;
+            // Rust CG handled in the unified pipeline above).
+            (vec![], None, vec![], None)
         } else {
             return Err(RegistryError::RegistrationFailed {
                     message: format!(
@@ -344,8 +318,14 @@ impl RegistryReconciler {
                 });
         };
 
-        // --- Step 7: Computation graph routing ---
-        let graph_name = if cloacina_manifest.metadata.has_computation_graph() {
+        // --- Step 7: Python computation graph routing ---
+        // T-0554: Rust CG handling moved into the unified pipeline above
+        // (`step_load_reactor_bound_cgs`). This step now only handles the
+        // Python CG path, which still needs the dedicated PythonRuntime
+        // dispatch.
+        let graph_name = if rust_graph_name.is_some() {
+            rust_graph_name
+        } else if cloacina_manifest.metadata.has_computation_graph() {
             if cloacina_manifest.metadata.language == "rust" {
                 // Reuse the cdylib bytes already fetched for task registration
                 // above — no recompilation, no extra DB hit.
@@ -1035,6 +1015,281 @@ impl RegistryReconciler {
     ) -> Result<Vec<String>, RegistryError> {
         Ok(Vec::new())
     }
+
+    // ========================================================================
+    // T-0554 — Precedence-ordered load pipeline.
+    //
+    // Six steps in fixed order: cron triggers → custom triggers → reactors
+    // → trigger-less CGs → reactor-bound CGs → workflows. Each helper is
+    // language-agnostic: it consumes a `PackageLoadView` produced by
+    // a per-language metadata-extraction adapter. Today only the Rust
+    // adapter is wired; Python parity is a follow-up.
+    // ========================================================================
+
+    /// Extract a `PackageLoadView` from a Rust cdylib via fidius FFI.
+    pub(super) async fn build_view_rust(
+        &self,
+        library_data: &[u8],
+    ) -> Result<PackageLoadView, RegistryError> {
+        let tasks = self
+            .package_loader
+            .extract_metadata(library_data)
+            .await
+            .map_err(RegistryError::Loader)?;
+
+        let triggers = self
+            .package_loader
+            .extract_trigger_metadata(library_data)
+            .await
+            .map_err(RegistryError::Loader)
+            .unwrap_or_default();
+
+        let reactors = self
+            .package_loader
+            .extract_reactor_metadata(library_data)
+            .await
+            .map_err(RegistryError::Loader)
+            .unwrap_or_default();
+
+        let graph = match self
+            .package_loader
+            .extract_graph_metadata(library_data)
+            .await
+        {
+            Ok(opt) => opt,
+            Err(_) => None,
+        };
+
+        Ok(PackageLoadView {
+            tasks,
+            triggers,
+            reactors,
+            graph,
+        })
+    }
+
+    /// Pipeline step 1: cron triggers (entries with `cron_expression.is_some()`).
+    /// Today's path: cron schedules are registered by the daemon (T-0553),
+    /// not the reconciler. Step is a no-op for now; logs the count.
+    pub(super) fn step_load_cron_triggers(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+    ) -> Result<(), RegistryError> {
+        let cron_count = view
+            .triggers
+            .iter()
+            .filter(|t| t.cron_expression.is_some())
+            .count();
+        if cron_count > 0 {
+            debug!(
+                "Package {} v{}: {} cron trigger(s) declared (registration pending T-0553)",
+                metadata.package_name, metadata.version, cron_count
+            );
+        }
+        Ok(())
+    }
+
+    /// Pipeline step 2: custom-poll triggers (entries with
+    /// `cron_expression.is_none()`). Today's path: triggers register
+    /// themselves into the runtime via `inventory::submit!` at dlopen. The
+    /// reconciler validates each declared trigger has a runtime impl.
+    pub(super) fn step_load_custom_triggers(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+    ) -> Result<Vec<String>, RegistryError> {
+        let custom: Vec<&cloacina_workflow_plugin::TriggerPackageMetadata> = view
+            .triggers
+            .iter()
+            .filter(|t| t.cron_expression.is_none())
+            .collect();
+        if custom.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some(runtime) = self.runtime.as_ref() else {
+            warn!(
+                "Package {} v{}: {} custom trigger(s) declared but no Runtime is attached",
+                metadata.package_name,
+                metadata.version,
+                custom.len()
+            );
+            return Ok(Vec::new());
+        };
+        let mut tracked = Vec::new();
+        for t in &custom {
+            if runtime.get_trigger(&t.name).is_some() {
+                tracked.push(t.name.clone());
+            } else {
+                warn!(
+                    "Package {} v{}: trigger '{}' declared in metadata but no Trigger impl in runtime",
+                    metadata.package_name, metadata.version, t.name,
+                );
+            }
+        }
+        Ok(tracked)
+    }
+
+    /// Pipeline step 3: reactors. Dispatches each reactor entry into the
+    /// graph scheduler via `dispatch_package_reactors_into_scheduler`.
+    pub(super) async fn step_load_reactors(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+        manifest: &cloacina_workflow_plugin::CloacinaMetadata,
+    ) -> Result<(), RegistryError> {
+        if view.reactors.is_empty() {
+            return Ok(());
+        }
+        let scheduler_guard = self.graph_scheduler.read().await;
+        let Some(scheduler) = scheduler_guard.as_ref() else {
+            warn!(
+                "Package {} v{}: {} reactor(s) declared but no ComputationGraphScheduler is configured",
+                metadata.package_name, metadata.version, view.reactors.len()
+            );
+            return Ok(());
+        };
+        if let Err(e) =
+            crate::computation_graph::packaging_bridge::dispatch_package_reactors_into_scheduler(
+                &view.reactors,
+                scheduler,
+                &manifest.accumulators,
+                Some(self.config.default_tenant_id.clone()),
+            )
+            .await
+        {
+            warn!(
+                "Failed to dispatch package-declared reactors from {}: {}",
+                metadata.package_name, e
+            );
+        }
+        Ok(())
+    }
+
+    /// Pipeline step 4: trigger-less CGs. Today's path: the `#[task(invokes
+    /// = computation_graph("name"))]` runtime walk pulls these from the
+    /// `TriggerlessGraphEntry` inventory at execute time. The reconciler
+    /// step is a no-op; logs the trigger-less graph names if any.
+    pub(super) fn step_load_triggerless_cgs(
+        &self,
+        _metadata: &WorkflowMetadata,
+        _view: &PackageLoadView,
+    ) -> Result<(), RegistryError> {
+        // Trigger-less CG inventory submission happens at dlopen via the
+        // `#[computation_graph]` macro's emission; runtime walks it at
+        // task-invocation time. No reconciler-side action needed today.
+        Ok(())
+    }
+
+    /// Pipeline step 5: reactor-bound CGs. Dispatches the (single)
+    /// computation graph from `view.graph` into the scheduler, merging
+    /// manifest accumulator config overrides.
+    pub(super) async fn step_load_reactor_bound_cgs(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+        manifest: &cloacina_workflow_plugin::CloacinaMetadata,
+        library_data: &[u8],
+    ) -> Result<Option<String>, RegistryError> {
+        let Some(graph_meta) = view.graph.clone() else {
+            return Ok(None);
+        };
+        info!(
+            "Computation graph detected: {} (accumulators: {:?})",
+            graph_meta.graph_name,
+            graph_meta
+                .accumulators
+                .iter()
+                .map(|a| &a.name)
+                .collect::<Vec<_>>()
+        );
+        // Merge manifest accumulator configs into FFI defaults.
+        let mut graph_meta = graph_meta;
+        for manifest_acc in &manifest.accumulators {
+            if let Some(ffi_acc) = graph_meta
+                .accumulators
+                .iter_mut()
+                .find(|a| a.name == manifest_acc.name)
+            {
+                ffi_acc.accumulator_type = manifest_acc.accumulator_type.clone();
+                ffi_acc.config = manifest_acc.config.clone();
+            }
+        }
+
+        let scheduler_guard = self.graph_scheduler.read().await;
+        let Some(scheduler) = scheduler_guard.as_ref() else {
+            warn!(
+                "Computation graph '{}' detected but no ComputationGraphScheduler configured",
+                graph_meta.graph_name
+            );
+            return Ok(Some(graph_meta.graph_name));
+        };
+
+        let mut decl = crate::computation_graph::packaging_bridge::build_declaration_from_ffi(
+            &graph_meta,
+            library_data.to_vec(),
+        );
+        decl.tenant_id = Some(self.config.default_tenant_id.clone());
+
+        // Mirror the CG into the scoped Runtime so executors can look it
+        // up without going through the global registry.
+        if let Some(runtime) = &self.runtime {
+            let graph_fn = decl.reactor.graph_fn.clone();
+            let accumulator_names: Vec<String> =
+                decl.accumulators.iter().map(|a| a.name.clone()).collect();
+            let reaction_mode = graph_meta.reaction_mode.clone();
+            runtime.register_computation_graph(graph_meta.graph_name.clone(), move || {
+                crate::ComputationGraphRegistration {
+                    graph_fn: graph_fn.clone(),
+                    entry_accumulators: accumulator_names.clone(),
+                    trigger_reactor: None,
+                    accumulator_names: accumulator_names.clone(),
+                    reaction_mode: reaction_mode.clone(),
+                }
+            });
+        }
+
+        if let Err(e) = scheduler.load_graph(decl).await {
+            warn!(
+                "Failed to load computation graph '{}' for package {}: {}",
+                graph_meta.graph_name, metadata.package_name, e
+            );
+        } else {
+            info!(
+                "Computation graph '{}' loaded into ComputationGraphScheduler",
+                graph_meta.graph_name
+            );
+        }
+
+        Ok(Some(graph_meta.graph_name))
+    }
+
+    /// Pipeline step 6: workflows. Registers tasks + workflow + validates
+    /// `#[workflow(triggers = [...])]` subscriptions against the runtime.
+    pub(super) async fn step_load_workflows(
+        &self,
+        metadata: &WorkflowMetadata,
+        library_data: &[u8],
+    ) -> Result<(Vec<TaskNamespace>, Option<String>), RegistryError> {
+        let task_namespaces = self.register_package_tasks(metadata, library_data).await?;
+        let workflow_name = self
+            .register_package_workflows(metadata, library_data)
+            .await?;
+        self.validate_workflow_trigger_subscriptions(metadata, library_data)
+            .await?;
+        Ok((task_namespaces, workflow_name))
+    }
+}
+
+/// T-0554 — Unified package metadata view fed into the precedence
+/// pipeline. Wire-format types from `cloacina-workflow-plugin`. Both the
+/// Rust FFI extraction path and (future) Python scoped-Runtime adapter
+/// produce values of this shape.
+pub(super) struct PackageLoadView {
+    pub(super) tasks: crate::registry::loader::package_loader::PackageMetadata,
+    pub(super) triggers: Vec<cloacina_workflow_plugin::TriggerPackageMetadata>,
+    pub(super) reactors: Vec<cloacina_workflow_plugin::ReactorPackageMetadata>,
+    pub(super) graph: Option<cloacina_workflow_plugin::GraphPackageMetadata>,
 }
 
 #[cfg(test)]
