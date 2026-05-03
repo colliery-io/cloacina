@@ -125,3 +125,115 @@ fn reactor_subscriber_fixture_carries_string_name_binding() {
         "subscriber's trigger_reactor must be the string-named reactor (cross-package binding)"
     );
 }
+
+// ===========================================================================
+// T-0553 — trigger-only and mixed fixtures (T-D completion).
+// ===========================================================================
+
+#[test]
+fn trigger_only_fixture_emits_cron_and_custom_metadata() {
+    let Some(handle) = load_handle("trigger-only-rust") else {
+        eprintln!("Skipping: trigger-only-rust not built");
+        return;
+    };
+
+    // Method index 5 = get_trigger_metadata
+    let triggers: Vec<cloacina_workflow_plugin::TriggerPackageMetadata> = handle
+        .call_method(5, &())
+        .expect("get_trigger_metadata FFI call should succeed");
+
+    assert_eq!(
+        triggers.len(),
+        2,
+        "trigger-only fixture should emit two triggers (one cron + one custom); got {:?}",
+        triggers
+            .iter()
+            .map(|t| (&t.name, &t.cron_expression))
+            .collect::<Vec<_>>()
+    );
+
+    let cron = triggers
+        .iter()
+        .find(|t| t.cron_expression.is_some())
+        .expect("expected a cron-shaped trigger entry");
+    assert_eq!(cron.name, "trigger_only_cron");
+    assert_eq!(
+        cron.cron_expression.as_deref(),
+        Some("*/10 * * * * *"),
+        "cron trigger should expose its expression via cron_expression()"
+    );
+    assert_eq!(cron.package_name, "trigger-only-rust");
+
+    let custom = triggers
+        .iter()
+        .find(|t| t.cron_expression.is_none())
+        .expect("expected a custom-poll trigger entry");
+    assert_eq!(custom.name, "trigger_only_custom");
+}
+
+#[test]
+fn trigger_only_fixture_emits_no_reactors_or_graph() {
+    let Some(handle) = load_handle("trigger-only-rust") else {
+        eprintln!("Skipping: trigger-only-rust not built");
+        return;
+    };
+
+    let reactors: Vec<cloacina_workflow_plugin::ReactorPackageMetadata> = handle
+        .call_method(4, &())
+        .expect("get_reactor_metadata should succeed");
+    assert!(reactors.is_empty(), "trigger-only fixture has no reactors");
+
+    // get_graph_metadata returns NotSupported (Plugin error) when no graph.
+    let graph_result: Result<cloacina_workflow_plugin::GraphPackageMetadata, _> =
+        handle.call_method(2, &());
+    assert!(
+        graph_result.is_err(),
+        "trigger-only fixture has no computation graph; get_graph_metadata should error"
+    );
+}
+
+#[test]
+fn mixed_fixture_exposes_all_primitives() {
+    let Some(handle) = load_handle("mixed-rust") else {
+        eprintln!("Skipping: mixed-rust not built");
+        return;
+    };
+
+    // Reactor present.
+    let reactors: Vec<cloacina_workflow_plugin::ReactorPackageMetadata> = handle
+        .call_method(4, &())
+        .expect("get_reactor_metadata should succeed");
+    assert_eq!(reactors.len(), 1);
+    assert_eq!(reactors[0].name, "mixed_reactor");
+
+    // Trigger present.
+    let triggers: Vec<cloacina_workflow_plugin::TriggerPackageMetadata> = handle
+        .call_method(5, &())
+        .expect("get_trigger_metadata should succeed");
+    assert_eq!(triggers.len(), 1);
+    assert_eq!(triggers[0].name, "mixed_trigger");
+    assert!(
+        triggers[0].cron_expression.is_none(),
+        "mixed fixture's trigger is custom-poll, not cron"
+    );
+
+    // Graph present, reactor-bound.
+    let graph: cloacina_workflow_plugin::GraphPackageMetadata = handle
+        .call_method(2, &())
+        .expect("get_graph_metadata should succeed");
+    assert_eq!(graph.graph_name, "mixed_graph");
+    assert_eq!(graph.trigger_reactor.as_deref(), Some("mixed_reactor"));
+
+    // Workflow present + subscribes to the trigger.
+    let task_meta: cloacina_workflow_plugin::PackageTasksMetadata = handle
+        .call_method(0, &())
+        .expect("get_task_metadata should succeed");
+    assert_eq!(task_meta.workflow_name, "mixed_workflow");
+    assert_eq!(
+        task_meta.triggers,
+        vec!["mixed_trigger".to_string()],
+        "mixed_workflow declares triggers = [\"mixed_trigger\"]"
+    );
+    assert_eq!(task_meta.tasks.len(), 1);
+    assert_eq!(task_meta.tasks[0].id, "mixed_step");
+}

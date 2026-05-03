@@ -310,13 +310,13 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
     let embedded_code = quote! {
         #[derive(Debug, Clone)]
         struct #struct_name {
-            evaluator: cloacina::cron_evaluator::CronEvaluator,
+            evaluator: cloacina_workflow::cron_evaluator::CronEvaluator,
             last_fire: std::sync::Arc<std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>>>,
         }
 
         impl #struct_name {
             fn new() -> Self {
-                let evaluator = cloacina::cron_evaluator::CronEvaluator::new(
+                let evaluator = cloacina_workflow::cron_evaluator::CronEvaluator::new(
                     #cron_expression,
                     #timezone,
                 ).expect("Invalid cron expression — this should have been caught at compile time");

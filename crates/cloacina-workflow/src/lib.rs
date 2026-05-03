@@ -66,6 +66,7 @@
 //! ```
 
 pub mod context;
+pub mod cron_evaluator;
 pub mod error;
 pub mod namespace;
 pub mod retry;

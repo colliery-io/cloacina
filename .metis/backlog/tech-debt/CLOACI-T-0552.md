@@ -4,7 +4,7 @@ level: task
 title: "Relocate TriggerEntry + TriggerlessGraphEntry to cloacina-workflow-plugin"
 short_code: "CLOACI-T-0552"
 created_at: 2026-05-03T13:25:59.116563+00:00
-updated_at: 2026-05-03T13:31:48.343921+00:00
+updated_at: 2026-05-03T14:12:14.151606+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,6 +39,8 @@ This unblocks T-0553 (daemon auto-trigger restoration + trigger-only / mixed-rus
 - **Current Problems**: Shell macro's `get_trigger_metadata` is a stub returning empty Vec. Daemon's automatic trigger registration from packages is gone (loop deleted in T-E). T-D's trigger-only and mixed-rust fixtures can't be built meaningfully — they'd just assert empty trigger metadata.
 - **Benefits of Fixing**: Restores trigger metadata flow end-to-end, unblocks daemon auto-registration, enables full T-D fixture coverage.
 - **Risk Assessment**: Low — same shape as the I-0102 ReactorEntry / TaskEntry / ComputationGraphEntry relocations that landed cleanly. The hard part is the `Trigger` trait location.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

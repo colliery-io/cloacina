@@ -3,16 +3,16 @@ id: restore-daemon-auto-trigger
 level: task
 title: "Restore daemon auto-trigger registration via FFI metadata + finish T-D fixtures"
 short_code: "CLOACI-T-0553"
-created_at: 2026-05-03T13:26:00.000000+00:00
-updated_at: 2026-05-03T13:26:00.000000+00:00
+created_at: 2026-05-03T13:26:00+00:00
+updated_at: 2026-05-03T14:47:40.944040+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,6 +40,10 @@ I-0102 follow-up. Two related deferred items:
 ### Business Justification
 - **User Value**: Packaged workflows that declare `#[trigger]` macros currently won't auto-register on daemon startup; users have to register triggers manually. Restoring the loop closes that gap.
 - **Effort Estimate**: M — most of the wiring is straightforward once T-0552's FFI stub is replaced; the new fixtures are mechanical.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -96,4 +100,38 @@ Extend `crates/cloacina/tests/integration/primitive_only_packaging.rs` (or sibli
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-05-03 — T-0553 done in one landing
+
+All four test gates green.
+
+**Daemon auto-trigger registration (`cloacinactl/src/commands/daemon.rs`):**
+- Reimplemented the deleted post-load loop. For each newly loaded package: load the cdylib via `fidius_host::loader::load_library`, call `cloacina::computation_graph::packaging_bridge::call_get_trigger_metadata` (T-0552's host helper).
+- Cron-shaped entries → `runner.register_cron_workflow(name, expr, "UTC")`.
+- Custom-poll entries → `runner.runtime().get_trigger(name)` + `scheduler.register_trigger(impl, name)`. Warns clearly when no Trigger impl is found.
+- Python packages (no `compiled_data`) skip via the existing import-time path.
+- `cloacinactl` Cargo.toml gains a direct `fidius-host` dep.
+
+**CronEvaluator relocation:**
+- Moved `cloacina/src/cron_evaluator.rs` → `cloacina-workflow/src/cron_evaluator.rs` (leaf-friendly).
+- `cloacina/src/cron_evaluator.rs` reduced to a re-export.
+- `#[trigger(cron = ...)]` macro emission targets `cloacina_workflow::cron_evaluator::CronEvaluator` so cron triggers compile in packaged cdylibs.
+
+**New fixtures:**
+- `examples/fixtures/trigger-only-rust/` — cron + custom triggers + `cloacina_workflow_plugin::package!()`. No reactor / CG / workflow.
+- `examples/fixtures/mixed-rust/` — reactor + custom trigger + reactor-bound CG + workflow with `triggers = ["mixed_trigger"]`. Every primitive in one cdylib.
+- `.angreal/test/integration.py`: pre-builds both new fixtures.
+
+**Integration tests** (`primitive_only_packaging.rs`):
+- `trigger_only_fixture_emits_cron_and_custom_metadata` — asserts shape of both trigger entries (cron expression, package name, custom-poll fallback).
+- `trigger_only_fixture_emits_no_reactors_or_graph` — asserts reactors absent, graph errors.
+- `mixed_fixture_exposes_all_primitives` — asserts all four primitives + workflow's `triggers` field carries the trigger name end-to-end.
+
+**Test gates (all green):**
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (701 passed)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python)
+- [x] `angreal test integration --backend postgres` (293 + 28 Python — was 290; 3 new tests pass)
+
+### Deferred
+
+Reconciler-driven full e2e tests from T-D's original AC (event into trigger fires workflow; event into accumulator fires CG; cross-package contract mismatch; unload lifecycle ordering) still require T-0554 Phase 2 (Python adapter, contract validation, reverse unload). The wire-format coverage shipped here locks down the end-to-end shape of every primitive's metadata flow through the unified shell macro.

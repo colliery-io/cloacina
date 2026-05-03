@@ -4,7 +4,7 @@ level: task
 title: "Reconciler load_package precedence-pipeline restructure"
 short_code: "CLOACI-T-0554"
 created_at: 2026-05-03T13:26:01+00:00
-updated_at: 2026-05-03T14:12:49.012550+00:00
+updated_at: 2026-05-03T14:47:33.105474+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -46,6 +46,8 @@ Same shape Rust + Python — only the metadata-extraction step differs (fidius `
 - **Current Problems**: Today's branching is heavily forked on `language` (rust/python) AND on what's effectively `has_computation_graph` / `has_workflow` derived from the manifest. New primitive kinds (e.g., the trigger flow restored by T-0553) end up bolted on rather than plugged in. The reactor metadata extraction was added additively in T-B Phase 2; it works but doesn't fit the prior shape cleanly.
 - **Benefits of Fixing**: Single point of dispatch makes future primitive additions trivial. Mirrored Rust/Python pipelines reduce duplicated logic. Cross-package contract mismatch errors get a cleaner home (currently `dispatch_package_reactors_into_scheduler` has no place to validate subscriber accumulator names against a bound reactor).
 - **Risk Assessment**: Medium — high blast radius (~1100 LOC touched) but covered by integration tests on both backends. Restructure should be behavior-equivalent for legacy packages.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
