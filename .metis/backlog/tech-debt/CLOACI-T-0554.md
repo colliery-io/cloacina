@@ -146,8 +146,29 @@ Rust path now runs through the precedence-ordered pipeline. All four test gates 
 
 **Behavior equivalence:** verified by all integration tests passing unchanged. The Rust load order shifted from "tasks → workflows → triggers → reactors → CG" to "triggers → reactors → CG → workflows", but legacy fixtures don't depend on the prior order (validation that fails on missing triggers still runs, accumulator dispatch still works, CG registers before workflow constructor needs it). Step 5 (reactor-bound CG) now happens BEFORE step 6 (workflow registration) — fine because the CG's reactor binding doesn't reference the workflow.
 
-### Phase 2 — still deferred
+### 2026-05-03 — Phase 2 done
 
-Python metadata-extraction adapter, cross-package contract mismatch validation, reverse-order unload pipeline. Python paths in `load_package` kept as-is (they don't yet route through the unified pipeline).
+All three deferred chunks landed in one commit. All four test gates green (cargo check workspace, angreal test unit incl. 4 new build_view_python tests, integration sqlite, integration postgres 293 + 28 Python).
 
-The structural restructure goal of T-0554 — "single dispatch point for the precedence-ordered pipeline" — is achieved for the Rust path. Python parity is a clean follow-up.
+**Cross-package contract validation (`step_load_reactor_bound_cgs`):**
+- New scheduler API `ComputationGraphScheduler::reactor_accumulator_names(name)` snapshots a loaded reactor's accumulator list.
+- Pre-validation in step 5: when `graph_meta.trigger_reactor` names a reactor not in `view.reactors` (= cross-package binding), look up the upstream contract and reject the load with a clear, package-named error if the subscriber declares accumulators outside the upstream's contract. Replaces the generic `load_reactor` "different contract" error with a missing-accumulators message.
+- Subscriber-loaded-before-publisher case: clean rejection naming the missing reactor + the publishing-package guidance.
+- Mirrored in the Python CG path so cross-language subscribers get the same error.
+
+**Reverse-order unload pipeline (`unload_package`):**
+- New `PackageState::reactor_names: Vec<String>` tracks the reactors a package owns, computed via a pre/post-load `Runtime::reactor_names()` snapshot diff (covers both Rust and Python load paths uniformly).
+- Tear-down now runs in REVERSE precedence: workflows → CGs → reactors → triggers → tasks. The reactor step calls `scheduler.unload_reactor` per owned reactor; T-0544 M4's reject-with-bound-subscribers guard surfaces as a `RegistrationFailed` error naming the offending package + reactor when an operator tries to drop a publisher with subscribers still attached.
+- Bundled-form CGs preserve their existing semantics: `unload_graph` still tears the reactor down when the package is its own last subscriber (the reactor step's "not loaded" branch is a clean no-op in that case).
+
+**Python metadata-extraction adapter (`build_view_python`):**
+- New helper produces a `PackageLoadView` from scoped `Runtime` state, given pre/post-snapshot diffs of reactor / trigger / graph names. Mirrors `build_view_rust`'s wire-format shape.
+- Walks `Runtime::reactor_names()` / `trigger_names()` / `computation_graph_names()`, calling `get_reactor` / `get_trigger` / `get_computation_graph` and folding manifest accumulator overrides (passthrough vs. stream) for each diff'd entry.
+- Wired into both Python load paths (workflow + CG) for trigger-validation passes (`step_load_cron_triggers` + `step_load_custom_triggers`) and the cross-package contract pre-validation. Reactor + graph dispatch still flows through the existing `dispatch_runtime_reactors_into_scheduler` and `runtime.load_cg_package` calls for now — the adapter establishes wire-format symmetry without rewriting dispatch.
+- Four new unit tests cover the adapter: empty-runtime view, runtime-reactor → wire-format mapping, pre-snapshot filtering, manifest accumulator-override folding.
+
+**Test gates (all green):**
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (690 cloacina + 45 cloacina-workflow)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python)
+- [x] `angreal test integration --backend postgres` (293 + 28 Python)

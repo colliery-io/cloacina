@@ -152,6 +152,16 @@ impl RegistryReconciler {
         // reuse the same bytes without another DB round-trip.
         let rust_cdylib_bytes = loaded_workflow.compiled_data.clone();
 
+        // T-0554 Phase 2: snapshot runtime reactor names BEFORE this
+        // package loads anything so we can compute, after all load steps
+        // (including the Python step 7 below), which reactors this
+        // package introduced. Used for the reverse-order unload pipeline.
+        let pre_load_reactor_names: std::collections::HashSet<String> = self
+            .runtime
+            .as_ref()
+            .map(|rt| rt.reactor_names().into_iter().collect())
+            .unwrap_or_default();
+
         let (task_namespaces, workflow_name, trigger_names, rust_graph_name) = if cloacina_manifest
             .metadata
             .language
@@ -219,6 +229,25 @@ impl RegistryReconciler {
             // service) error cleanly here; the server registers an impl
             // at startup.
             debug!("Loading Python package: {}", metadata.package_name);
+            // T-0554 Phase 2: snapshot scoped runtime registries BEFORE
+            // the Python import so `build_view_python` can compute the
+            // diff (= primitives this package introduced) post-import
+            // and feed the unified pipeline helpers.
+            let py_pre_reactor_names: std::collections::HashSet<String> = self
+                .runtime
+                .as_ref()
+                .map(|rt| rt.reactor_names().into_iter().collect())
+                .unwrap_or_default();
+            let py_pre_trigger_names: std::collections::HashSet<String> = self
+                .runtime
+                .as_ref()
+                .map(|rt| rt.trigger_names().into_iter().collect())
+                .unwrap_or_default();
+            let py_pre_graph_names: std::collections::HashSet<String> = self
+                .runtime
+                .as_ref()
+                .map(|rt| rt.computation_graph_names().into_iter().collect())
+                .unwrap_or_default();
             let runtime = crate::python_runtime::python_runtime().ok_or_else(|| {
                 RegistryError::RegistrationFailed {
                     message: "Python package {} received but no PythonRuntime is attached \
@@ -263,6 +292,24 @@ impl RegistryReconciler {
             // pass. Track them from the manifest so we can unload later.
             let trigger_names =
                 self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
+
+            // T-0554 Phase 2: route the Python load through the same
+            // precedence-pipeline validation helpers as Rust. This is a
+            // pure validation pass — the actual reactor + graph dispatch
+            // still runs through the existing
+            // `dispatch_runtime_reactors_into_scheduler` /
+            // `register_package_triggers` paths below. The view here
+            // surfaces wire-format consistent with `build_view_rust` so
+            // the helpers behave identically.
+            let py_view = self.build_view_python(
+                &metadata.package_name,
+                &py_pre_reactor_names,
+                &py_pre_trigger_names,
+                &py_pre_graph_names,
+                &cloacina_manifest.metadata.accumulators,
+            );
+            self.step_load_cron_triggers(&metadata, &py_view)?;
+            let _ = self.step_load_custom_triggers(&metadata, &py_view)?;
 
             // T-0545 M3a: dispatch any reactors the Python module declared
             // via `@cloaca.reactor` into the ComputationGraphScheduler. Lets
@@ -444,6 +491,24 @@ impl RegistryReconciler {
                     &cloacina_manifest.metadata.graph_name,
                     &cloacina_manifest.metadata.entry_module,
                 ) {
+                    // T-0554 Phase 2: pre-snapshot scoped runtime so the
+                    // post-load view can drive cross-package contract
+                    // validation through the unified pipeline helpers.
+                    let cg_pre_reactor_names: std::collections::HashSet<String> = self
+                        .runtime
+                        .as_ref()
+                        .map(|rt| rt.reactor_names().into_iter().collect())
+                        .unwrap_or_default();
+                    let cg_pre_trigger_names: std::collections::HashSet<String> = self
+                        .runtime
+                        .as_ref()
+                        .map(|rt| rt.trigger_names().into_iter().collect())
+                        .unwrap_or_default();
+                    let cg_pre_graph_names: std::collections::HashSet<String> = self
+                        .runtime
+                        .as_ref()
+                        .map(|rt| rt.computation_graph_names().into_iter().collect())
+                        .unwrap_or_default();
                     let runtime = crate::python_runtime::python_runtime().ok_or_else(|| {
                         RegistryError::RegistrationFailed {
                             message: format!(
@@ -527,6 +592,61 @@ impl RegistryReconciler {
                         }
                     }
 
+                    // T-0554 Phase 2: build the Python view + run
+                    // pre-validation BEFORE handing the declaration to
+                    // the scheduler. This catches cross-package contract
+                    // mismatches (subscriber declares accumulator names
+                    // not present on the upstream reactor) with a clear
+                    // package-named error rather than the scheduler's
+                    // generic "different contract" rejection.
+                    let cg_view = self.build_view_python(
+                        &metadata.package_name,
+                        &cg_pre_reactor_names,
+                        &cg_pre_trigger_names,
+                        &cg_pre_graph_names,
+                        &cloacina_manifest.metadata.accumulators,
+                    );
+                    self.step_load_cron_triggers(&metadata, &cg_view)?;
+                    let _ = self.step_load_custom_triggers(&metadata, &cg_view)?;
+                    if let Some(graph_meta) = cg_view.graph.as_ref() {
+                        if let Some(upstream_reactor_name) = graph_meta.trigger_reactor.as_deref() {
+                            let publisher_in_same_package = cg_view
+                                .reactors
+                                .iter()
+                                .any(|r| r.name == upstream_reactor_name);
+                            if !publisher_in_same_package {
+                                let scheduler_guard = self.graph_scheduler.read().await;
+                                if let Some(ref scheduler) = *scheduler_guard {
+                                    if let Some(upstream_acc_names) = scheduler
+                                        .reactor_accumulator_names(upstream_reactor_name)
+                                        .await
+                                    {
+                                        let upstream_set: std::collections::HashSet<&str> =
+                                            upstream_acc_names.iter().map(|s| s.as_str()).collect();
+                                        let missing: Vec<String> = graph_meta
+                                            .accumulators
+                                            .iter()
+                                            .filter(|a| !upstream_set.contains(a.name.as_str()))
+                                            .map(|a| a.name.clone())
+                                            .collect();
+                                        if !missing.is_empty() {
+                                            return Err(RegistryError::RegistrationFailed {
+                                                message: format!(
+                                                    "package '{}' subscribes to reactor '{}' but declares accumulator(s) {:?} \
+                                                     that are not part of the upstream reactor's contract (upstream declares {:?})",
+                                                    metadata.package_name,
+                                                    upstream_reactor_name,
+                                                    missing,
+                                                    upstream_acc_names,
+                                                ),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if let Some(decl) = maybe_decl {
                         let scheduler_guard = self.graph_scheduler.read().await;
                         if let Some(ref scheduler) = *scheduler_guard {
@@ -561,19 +681,6 @@ impl RegistryReconciler {
             None
         };
 
-        // Track the loaded package state
-        let package_state = PackageState {
-            metadata: metadata.clone(),
-            task_namespaces,
-            workflow_name,
-            trigger_names,
-            graph_name,
-        };
-
-        let mut loaded_packages = self.loaded_packages.write().await;
-        loaded_packages.insert(metadata.id, package_state);
-        drop(loaded_packages);
-
         // Tasks, workflows, and CGs are registered directly on the Runtime by
         // the Rust + Python load paths above. For Rust cdylib packages, we
         // additionally seed the Runtime from `inventory` after dlopen so any
@@ -587,10 +694,48 @@ impl RegistryReconciler {
             }
         }
 
+        // T-0554 Phase 2: compute the reactors this package introduced by
+        // diffing the runtime's reactor list against the pre-load
+        // snapshot. Tracks ownership for the reverse-order unload
+        // pipeline; cross-package subscribers (graphs that bind to a
+        // reactor owned by an earlier package) do not appear here.
+        let post_load_reactor_names: std::collections::HashSet<String> = self
+            .runtime
+            .as_ref()
+            .map(|rt| rt.reactor_names().into_iter().collect())
+            .unwrap_or_default();
+        let reactor_names: Vec<String> = post_load_reactor_names
+            .difference(&pre_load_reactor_names)
+            .cloned()
+            .collect();
+
+        // Track the loaded package state
+        let package_state = PackageState {
+            metadata: metadata.clone(),
+            task_namespaces,
+            workflow_name,
+            trigger_names,
+            graph_name,
+            reactor_names,
+        };
+
+        let mut loaded_packages = self.loaded_packages.write().await;
+        loaded_packages.insert(metadata.id, package_state);
+        drop(loaded_packages);
+
         Ok(())
     }
 
-    /// Unload a package from the global registries
+    /// Unload a package from the global registries.
+    ///
+    /// T-0554 Phase 2: tear-down runs in REVERSE precedence order
+    /// (workflows → CGs → reactors → triggers → tasks). This mirrors the
+    /// load pipeline and lets T-0544 M4's `unload_reactor` reject-with-
+    /// subscribers guard fire cleanly when an operator tries to drop a
+    /// publishing package while subscribers are still bound: the workflow
+    /// + CG steps run first, but the reactor step refuses if any
+    /// out-of-package subscriber remains, and the unload as a whole
+    /// surfaces the rejection.
     pub(super) async fn unload_package(
         &self,
         package_id: WorkflowPackageId,
@@ -608,8 +753,95 @@ impl RegistryReconciler {
                 })?;
         drop(loaded_packages);
 
-        // Tell the task registrar (which owns dlopen handles) to drop the
-        // package so the cdylib is unloaded and any cached state is released.
+        // --- Step 1 (reverse): workflows ---
+        // Drop the workflow registration so future executions can't kick
+        // off new runs of this package's workflow.
+        if let Some(runtime) = &self.runtime {
+            if let Some(workflow_name) = &package_state.workflow_name {
+                runtime.unregister_workflow(workflow_name);
+            }
+        }
+
+        // --- Step 2 (reverse): computation graphs ---
+        // Unbind the graph from its reactor (a no-op for trigger-less or
+        // bundled-form graphs). For bundled-form, `unload_graph` ALSO
+        // tears the reactor down if this was the last subscriber — that
+        // path is preserved here for back-compat. Cross-package
+        // subscribers leave the upstream reactor intact; the reactor's
+        // own owning package tears it down in step 3.
+        if let Some(graph_name) = &package_state.graph_name {
+            if let Some(runtime) = &self.runtime {
+                runtime.unregister_computation_graph(graph_name);
+            }
+            let scheduler_guard = self.graph_scheduler.read().await;
+            if let Some(ref scheduler) = *scheduler_guard {
+                if let Err(e) = scheduler.unload_graph(graph_name).await {
+                    warn!("Failed to unload computation graph '{}': {}", graph_name, e);
+                }
+            }
+        }
+
+        // --- Step 3 (reverse): reactors owned by THIS package ---
+        // Iterate the reactors this package introduced and ask the
+        // scheduler to tear each one down. The T-0544 M4 guard inside
+        // `unload_reactor` rejects when any cross-package subscriber is
+        // still bound; we surface the first such rejection as the
+        // unload's overall error so operators get a clean signal that
+        // they need to unload subscribers first.
+        let mut reactor_unload_error: Option<String> = None;
+        if !package_state.reactor_names.is_empty() {
+            let scheduler_guard = self.graph_scheduler.read().await;
+            if let Some(ref scheduler) = *scheduler_guard {
+                for reactor_name in &package_state.reactor_names {
+                    match scheduler.unload_reactor(reactor_name).await {
+                        Ok(()) => {
+                            debug!(
+                                "Reactor '{}' unloaded for package {}",
+                                reactor_name, package_state.metadata.package_name
+                            );
+                        }
+                        Err(e) => {
+                            // Bundled-form CG packages: the reactor was
+                            // already torn down by `unload_graph` above
+                            // when this package was the last subscriber.
+                            // Treat "not loaded" as a clean no-op.
+                            if e.contains("not loaded") {
+                                continue;
+                            }
+                            warn!(
+                                "Failed to unload reactor '{}' from package {}: {}",
+                                reactor_name, package_state.metadata.package_name, e
+                            );
+                            if reactor_unload_error.is_none() {
+                                reactor_unload_error = Some(format!(
+                                    "package '{}' owns reactor '{}' which has bound subscribers \
+                                     from another package: {}; unload subscribers first",
+                                    package_state.metadata.package_name, reactor_name, e
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Step 4 (reverse): triggers ---
+        if let Some(runtime) = &self.runtime {
+            for trigger_name in &package_state.trigger_names {
+                runtime.unregister_trigger(trigger_name);
+            }
+        }
+
+        // --- Step 5 (reverse): tasks (drops the cdylib via task registrar) ---
+        // Always run this step so the dlopen handle gets dropped even if
+        // an earlier step warned. Reactor-only packages that fail to
+        // unload due to bound subscribers will be rejected below; the
+        // task registrar drop is harmless either way.
+        if let Some(runtime) = &self.runtime {
+            for ns in &package_state.task_namespaces {
+                runtime.unregister_task(ns);
+            }
+        }
         let package_id_str = package_id.to_string();
         self.task_registrar
             .unregister_package_tasks(&package_id_str)
@@ -617,31 +849,8 @@ impl RegistryReconciler {
                 message: format!("Failed to unregister package tasks: {}", e),
             })?;
 
-        // Mirror removals through the runtime so executors drop the stale
-        // entries immediately.
-        if let Some(runtime) = &self.runtime {
-            for ns in &package_state.task_namespaces {
-                runtime.unregister_task(ns);
-            }
-            if let Some(workflow_name) = &package_state.workflow_name {
-                runtime.unregister_workflow(workflow_name);
-            }
-            for trigger_name in &package_state.trigger_names {
-                runtime.unregister_trigger(trigger_name);
-            }
-            if let Some(graph_name) = &package_state.graph_name {
-                runtime.unregister_computation_graph(graph_name);
-            }
-        }
-
-        // Unload computation graph from graph scheduler
-        if let Some(graph_name) = &package_state.graph_name {
-            let scheduler_guard = self.graph_scheduler.read().await;
-            if let Some(ref scheduler) = *scheduler_guard {
-                if let Err(e) = scheduler.unload_graph(graph_name).await {
-                    warn!("Failed to unload computation graph '{}': {}", graph_name, e);
-                }
-            }
+        if let Some(msg) = reactor_unload_error {
+            return Err(RegistryError::RegistrationFailed { message: msg });
         }
 
         info!(
@@ -1026,6 +1235,167 @@ impl RegistryReconciler {
     // adapter is wired; Python parity is a follow-up.
     // ========================================================================
 
+    /// Extract a `PackageLoadView` from a Python scoped Runtime, given
+    /// pre-load snapshots of the runtime's reactor / trigger / graph
+    /// names. The diff identifies primitives this package introduced;
+    /// the helper walks the runtime to materialize wire-format metadata
+    /// matching what `build_view_rust` produces from FFI extraction.
+    ///
+    /// Tasks (the `PackageMetadata` field) intentionally come back empty
+    /// — the Python load path's `register_package_tasks`-equivalent runs
+    /// before this adapter is called, and the unified pipeline doesn't
+    /// re-register tasks from the view. (Tasks live on the `Runtime`
+    /// directly for Python; only the metadata view needs the shape
+    /// match.) (T-0554 Phase 2)
+    pub(super) fn build_view_python(
+        &self,
+        package_name: &str,
+        pre_reactor_names: &std::collections::HashSet<String>,
+        pre_trigger_names: &std::collections::HashSet<String>,
+        pre_graph_names: &std::collections::HashSet<String>,
+        accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    ) -> PackageLoadView {
+        use cloacina_workflow_plugin::{
+            types::AccumulatorDeclarationEntry, GraphPackageMetadata, ReactorPackageMetadata,
+            TriggerPackageMetadata,
+        };
+
+        let runtime = match self.runtime.as_ref() {
+            Some(rt) => rt,
+            None => {
+                return PackageLoadView {
+                    tasks: crate::registry::loader::package_loader::PackageMetadata {
+                        package_name: package_name.to_string(),
+                        version: String::new(),
+                        description: None,
+                        author: None,
+                        tasks: vec![],
+                        graph_data: None,
+                        architecture: String::new(),
+                        symbols: vec![],
+                        workflow_triggers: vec![],
+                    },
+                    triggers: vec![],
+                    reactors: vec![],
+                    graph: None,
+                };
+            }
+        };
+
+        // Reactors: diff vs. pre-snapshot, then walk each runtime
+        // ReactorRegistration into wire-format with manifest accumulator
+        // overrides folded in.
+        let mut reactors: Vec<ReactorPackageMetadata> = Vec::new();
+        for name in runtime.reactor_names() {
+            if pre_reactor_names.contains(&name) {
+                continue;
+            }
+            let Some(reg) = runtime.get_reactor(&name) else {
+                continue;
+            };
+            let accumulators: Vec<AccumulatorDeclarationEntry> = reg
+                .accumulator_names
+                .iter()
+                .map(|acc_name| {
+                    let (accumulator_type, config) = accumulator_overrides
+                        .iter()
+                        .find(|cfg| &cfg.name == acc_name)
+                        .map(|cfg| (cfg.accumulator_type.clone(), cfg.config.clone()))
+                        .unwrap_or_else(|| ("passthrough".to_string(), Default::default()));
+                    AccumulatorDeclarationEntry {
+                        name: acc_name.clone(),
+                        accumulator_type,
+                        config,
+                    }
+                })
+                .collect();
+            let reaction_mode = match reg.reaction_mode {
+                cloacina_computation_graph::ReactionMode::WhenAll => "when_all".to_string(),
+                _ => "when_any".to_string(),
+            };
+            reactors.push(ReactorPackageMetadata {
+                name: reg.name,
+                package_name: package_name.to_string(),
+                reaction_mode,
+                accumulators,
+            });
+        }
+
+        // Custom-poll triggers: the Python load path doesn't currently
+        // register cron triggers via this surface (cron runs through the
+        // daemon's separate path). Walk each runtime trigger and emit
+        // wire-format with cron_expression carried through.
+        let mut triggers: Vec<TriggerPackageMetadata> = Vec::new();
+        for name in runtime.trigger_names() {
+            if pre_trigger_names.contains(&name) {
+                continue;
+            }
+            let Some(impl_) = runtime.get_trigger(&name) else {
+                continue;
+            };
+            triggers.push(TriggerPackageMetadata {
+                name: impl_.name().to_string(),
+                package_name: package_name.to_string(),
+                poll_interval: format!("{}s", impl_.poll_interval().as_secs()),
+                cron_expression: impl_.cron_expression(),
+                allow_concurrent: impl_.allow_concurrent(),
+            });
+        }
+
+        // Computation graph: Python packages declare at most one CG per
+        // package today. Pull the first non-pre-snapshot graph name and
+        // shape it into wire-format. trigger_reactor / accumulators come
+        // from the runtime registration directly.
+        let graph: Option<GraphPackageMetadata> = runtime
+            .computation_graph_names()
+            .into_iter()
+            .find(|n| !pre_graph_names.contains(n))
+            .and_then(|graph_name| {
+                let reg = runtime.get_computation_graph(&graph_name)?;
+                let accumulators: Vec<AccumulatorDeclarationEntry> = reg
+                    .accumulator_names
+                    .iter()
+                    .map(|acc_name| {
+                        let (accumulator_type, config) = accumulator_overrides
+                            .iter()
+                            .find(|cfg| &cfg.name == acc_name)
+                            .map(|cfg| (cfg.accumulator_type.clone(), cfg.config.clone()))
+                            .unwrap_or_else(|| ("passthrough".to_string(), Default::default()));
+                        AccumulatorDeclarationEntry {
+                            name: acc_name.clone(),
+                            accumulator_type,
+                            config,
+                        }
+                    })
+                    .collect();
+                Some(GraphPackageMetadata {
+                    graph_name,
+                    package_name: package_name.to_string(),
+                    reaction_mode: reg.reaction_mode.clone(),
+                    input_strategy: "latest".to_string(),
+                    accumulators,
+                    trigger_reactor: reg.trigger_reactor.clone(),
+                })
+            });
+
+        PackageLoadView {
+            tasks: crate::registry::loader::package_loader::PackageMetadata {
+                package_name: package_name.to_string(),
+                version: String::new(),
+                description: None,
+                author: None,
+                tasks: vec![],
+                graph_data: None,
+                architecture: String::new(),
+                symbols: vec![],
+                workflow_triggers: vec![],
+            },
+            triggers,
+            reactors,
+            graph,
+        }
+    }
+
     /// Extract a `PackageLoadView` from a Rust cdylib via fidius FFI.
     pub(super) async fn build_view_rust(
         &self,
@@ -1225,6 +1595,56 @@ impl RegistryReconciler {
             return Ok(Some(graph_meta.graph_name));
         };
 
+        // T-0554 Phase 2: cross-package contract validation. When the
+        // subscriber binds to a reactor it does not own (publisher loaded
+        // by a previous package), validate the subscriber's declared
+        // accumulator names match the upstream reactor's contract before
+        // we hand the declaration to the scheduler. The error path here
+        // names the offending package + the missing accumulators, which
+        // is more actionable than the generic "different contract"
+        // message that surfaces from `load_reactor`'s idempotent guard.
+        if let Some(upstream_reactor_name) = graph_meta.trigger_reactor.as_deref() {
+            let publisher_in_same_package = view
+                .reactors
+                .iter()
+                .any(|r| r.name == upstream_reactor_name);
+            if !publisher_in_same_package {
+                if let Some(upstream_acc_names) = scheduler
+                    .reactor_accumulator_names(upstream_reactor_name)
+                    .await
+                {
+                    let upstream_set: std::collections::HashSet<&str> =
+                        upstream_acc_names.iter().map(|s| s.as_str()).collect();
+                    let missing: Vec<String> = graph_meta
+                        .accumulators
+                        .iter()
+                        .filter(|a| !upstream_set.contains(a.name.as_str()))
+                        .map(|a| a.name.clone())
+                        .collect();
+                    if !missing.is_empty() {
+                        return Err(RegistryError::RegistrationFailed {
+                            message: format!(
+                                "package '{}' subscribes to reactor '{}' but declares accumulator(s) {:?} \
+                                 that are not part of the upstream reactor's contract (upstream declares {:?})",
+                                metadata.package_name,
+                                upstream_reactor_name,
+                                missing,
+                                upstream_acc_names,
+                            ),
+                        });
+                    }
+                } else {
+                    return Err(RegistryError::RegistrationFailed {
+                        message: format!(
+                            "package '{}' subscribes to reactor '{}' but no such reactor is loaded; \
+                             the publishing package must load before its subscribers",
+                            metadata.package_name, upstream_reactor_name,
+                        ),
+                    });
+                }
+            }
+        }
+
         let mut decl = crate::computation_graph::packaging_bridge::build_declaration_from_ffi(
             &graph_meta,
             library_data.to_vec(),
@@ -1397,6 +1817,115 @@ mod tests {
             .unwrap();
         // Should be empty because the trigger is not present in the runtime
         assert!(result.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // T-0554 Phase 2: build_view_python adapter tests
+    // -----------------------------------------------------------------------
+
+    fn empty_pre_snapshots() -> (
+        std::collections::HashSet<String>,
+        std::collections::HashSet<String>,
+        std::collections::HashSet<String>,
+    ) {
+        (
+            std::collections::HashSet::new(),
+            std::collections::HashSet::new(),
+            std::collections::HashSet::new(),
+        )
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn build_view_python_returns_empty_view_for_unloaded_runtime() {
+        let reconciler = make_test_reconciler();
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("empty-pkg", &pre_r, &pre_t, &pre_g, &[]);
+        assert!(view.reactors.is_empty());
+        assert!(view.triggers.is_empty());
+        assert!(view.graph.is_none());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn build_view_python_emits_wire_format_for_runtime_reactor() {
+        let reconciler = make_test_reconciler();
+        let runtime = runtime_of(&reconciler);
+        runtime.register_reactor("py_reactor".to_string(), || {
+            cloacina_computation_graph::ReactorRegistration {
+                name: "py_reactor".to_string(),
+                accumulator_names: vec!["src_a".to_string(), "src_b".to_string()],
+                reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
+            }
+        });
+
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("py-pkg", &pre_r, &pre_t, &pre_g, &[]);
+        assert_eq!(view.reactors.len(), 1);
+        let r = &view.reactors[0];
+        assert_eq!(r.name, "py_reactor");
+        assert_eq!(r.package_name, "py-pkg");
+        assert_eq!(r.reaction_mode, "when_any");
+        let acc_names: Vec<&str> = r.accumulators.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(acc_names, vec!["src_a", "src_b"]);
+        assert!(r
+            .accumulators
+            .iter()
+            .all(|a| a.accumulator_type == "passthrough"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn build_view_python_skips_pre_snapshot_entries() {
+        let reconciler = make_test_reconciler();
+        let runtime = runtime_of(&reconciler);
+        runtime.register_reactor("preexisting".to_string(), || {
+            cloacina_computation_graph::ReactorRegistration {
+                name: "preexisting".to_string(),
+                accumulator_names: vec!["x".to_string()],
+                reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
+            }
+        });
+
+        let mut pre_r = std::collections::HashSet::new();
+        pre_r.insert("preexisting".to_string());
+        let (_, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("py-pkg", &pre_r, &pre_t, &pre_g, &[]);
+        assert!(
+            view.reactors.is_empty(),
+            "pre-snapshot reactors must not appear in the diff view"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn build_view_python_folds_accumulator_overrides() {
+        let reconciler = make_test_reconciler();
+        let runtime = runtime_of(&reconciler);
+        runtime.register_reactor("py_reactor".to_string(), || {
+            cloacina_computation_graph::ReactorRegistration {
+                name: "py_reactor".to_string(),
+                accumulator_names: vec!["topic_a".to_string()],
+                reaction_mode: cloacina_computation_graph::ReactionMode::WhenAll,
+            }
+        });
+
+        let mut config = std::collections::HashMap::new();
+        config.insert("topic".to_string(), "events".to_string());
+        let overrides = vec![cloacina_workflow_plugin::types::AccumulatorConfig {
+            name: "topic_a".to_string(),
+            accumulator_type: "stream".to_string(),
+            config,
+        }];
+
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("py-pkg", &pre_r, &pre_t, &pre_g, &overrides);
+        assert_eq!(view.reactors.len(), 1);
+        let acc = &view.reactors[0].accumulators[0];
+        assert_eq!(acc.name, "topic_a");
+        assert_eq!(acc.accumulator_type, "stream");
+        assert_eq!(acc.config.get("topic").map(|s| s.as_str()), Some("events"));
+        assert_eq!(view.reactors[0].reaction_mode, "when_all");
     }
 
     // -----------------------------------------------------------------------

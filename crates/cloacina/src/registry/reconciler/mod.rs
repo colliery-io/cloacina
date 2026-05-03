@@ -127,6 +127,14 @@ pub(super) struct PackageState {
 
     /// Computation graph name loaded for this package (if any)
     pub(super) graph_name: Option<String>,
+
+    /// Reactor names this package owns (declared via `#[reactor]` or
+    /// `#[computation_graph]`'s bundled reactor). Used by the reverse-order
+    /// unload pipeline (T-0554 Phase 2): the package's own reactors are
+    /// torn down via `scheduler.unload_reactor` after subscribers have
+    /// been unbound. Cross-package subscribers (graphs that bind to a
+    /// reactor owned by another package) do NOT appear here.
+    pub(super) reactor_names: Vec<String>,
 }
 
 /// Status information about the reconciler

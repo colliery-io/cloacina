@@ -766,6 +766,21 @@ impl ComputationGraphScheduler {
         Ok(())
     }
 
+    /// Snapshot the accumulator names of a loaded reactor, in declaration
+    /// order. Returns `None` if the reactor isn't loaded. Used by the
+    /// reconciler to pre-validate cross-package subscriber bindings against
+    /// the upstream reactor's contract before calling [`load_graph`].
+    pub async fn reactor_accumulator_names(&self, reactor_name: &str) -> Option<Vec<String>> {
+        let reactors = self.reactors.read().await;
+        reactors.get(reactor_name).map(|running| {
+            running
+                .accumulator_handles
+                .iter()
+                .map(|(n, _)| n.clone())
+                .collect()
+        })
+    }
+
     /// List all loaded computation graphs with status. Emits one entry per
     /// graph; multiple graphs sharing a reactor each get a status reflecting
     /// the same reactor's running state.
