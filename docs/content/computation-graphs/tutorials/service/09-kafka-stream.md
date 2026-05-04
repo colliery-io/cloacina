@@ -113,12 +113,9 @@ interface_version = 1
 extension = "cloacina"
 
 [metadata]
-package_type = ["computation_graph"]
 graph_name = "kafka_price_signal"
 language = "rust"
 description = "Price signal graph driven by a Kafka topic"
-reaction_mode = "when_any"
-input_strategy = "latest"
 
 [[metadata.accumulators]]
 name = "orderbook"

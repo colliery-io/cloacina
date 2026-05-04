@@ -1039,7 +1039,7 @@ impl RegistryReconciler {
         // Check if package has tasks (which means it has a workflow since it was compiled with the macro)
         if !package_metadata.tasks.is_empty() {
             debug!(
-                "Package {} has {} tasks - workflow exists since it compiled with packaged_workflow macro",
+                "Package {} has {} tasks - workflow exists since it compiled with the unified `cloacina::package!()` shell macro",
                 metadata.package_name,
                 package_metadata.tasks.len()
             );
