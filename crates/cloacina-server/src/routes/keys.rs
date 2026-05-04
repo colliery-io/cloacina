@@ -79,20 +79,32 @@ pub async fn create_key(
         return AuthenticatedKey::insufficient_role_response().into_response();
     }
 
-    // Prevent privilege escalation: non-god-mode admins cannot create god-mode keys
-    let requested_role = body.role.as_str();
-    if !auth.is_admin && requested_role == "admin" {
-        // Tenant-scoped admin creating another admin is OK (same level),
-        // but only god-mode can create god-mode keys (is_admin=true).
-        // Since create_key always sets is_admin=false, this is safe.
-    }
-
+    // Privilege-escalation guard. `body.role` populates the per-key
+    // `permissions` string (read/write/admin scoped to a tenant);
+    // `is_admin` is the orthogonal god-mode flag that grants
+    // cross-tenant access. T-0557 Bug 3 audit flagged the
+    // earlier shape of this block as a no-op — the comment claimed
+    // "create_key always sets is_admin=false, this is safe" while
+    // performing no actual check. The safety claim is correct
+    // (god-mode is granted only via `bootstrap-admin` at server
+    // start, never here): we hard-code `is_admin = false` in the
+    // `create_key` call below, so a tenant-admin issuing
+    // role="admin" gets another tenant-admin key, never god-mode.
+    // Keep the call shape explicit and reject any caller that
+    // somehow tried to set is_admin (today the request body has no
+    // such field, but lock that in defensively).
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal
         .api_keys()
-        .create_key(&hash, &body.name, None, false, body.role.as_str())
+        .create_key(
+            &hash,
+            &body.name,
+            None,
+            false, /* is_admin: never granted via this endpoint */
+            body.role.as_str(),
+        )
         .await
     {
         Ok(info) => (

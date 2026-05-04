@@ -233,17 +233,34 @@ pub async fn get_workflow(
         Ok(workflows) => {
             let found = workflows.into_iter().find(|w| w.package_name == name);
             match found {
-                Some(w) => Json(serde_json::json!({
-                    "tenant_id": tenant_id,
-                    "id": w.id.to_string(),
-                    "package_name": w.package_name,
-                    "version": w.version,
-                    "description": w.description,
-                    "tasks": w.tasks,
-                    "created_at": w.created_at.to_rfc3339(),
-                    "build_status": "success",
-                }))
-                .into_response(),
+                Some(w) => {
+                    // T-0557 Bug 4: previously hard-coded
+                    // build_status: "success" here. Route the
+                    // name-lookup path through the same inspector the
+                    // UUID-lookup path uses so the response reflects
+                    // real build state (pending/building/failed in
+                    // addition to success).
+                    match registry.inspect_package_by_id(w.id).await {
+                        Ok(Some(ins)) => Json(serde_json::json!({
+                            "tenant_id": tenant_id,
+                            "id": ins.metadata.id.to_string(),
+                            "package_name": ins.metadata.package_name,
+                            "version": ins.metadata.version,
+                            "description": ins.metadata.description,
+                            "tasks": ins.metadata.tasks,
+                            "created_at": ins.metadata.created_at.to_rfc3339(),
+                            "build_status": ins.build_status,
+                            "build_error": ins.build_error,
+                        }))
+                        .into_response(),
+                        Ok(None) => ApiError::not_found(
+                            "workflow_not_found",
+                            format!("workflow '{}' not found", name),
+                        )
+                        .into_response(),
+                        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+                    }
+                }
                 None => ApiError::not_found(
                     "workflow_not_found",
                     format!("workflow '{}' not found", name),
