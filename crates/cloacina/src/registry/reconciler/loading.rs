@@ -240,6 +240,8 @@ impl RegistryReconciler {
             .map(|rt| rt.reactor_names().into_iter().collect())
             .unwrap_or_default();
 
+        let mut cron_schedule_ids: Vec<String> = Vec::new();
+
         let (task_namespaces, workflow_name, trigger_names, rust_graph_name) = if cloacina_manifest
             .metadata
             .language
@@ -267,8 +269,9 @@ impl RegistryReconciler {
             let view = self.build_view_rust(&library_data).await?;
             rust_reactor_names = view.reactors.iter().map(|r| r.name.clone()).collect();
 
-            // Step 1: cron triggers (no-op pending T-0553).
-            self.step_load_cron_triggers(&metadata, &view)?;
+            // Step 1: cron triggers — registered through the attached
+            // CronWorkflowRegistrar (no-op when none is wired).
+            cron_schedule_ids = self.step_load_cron_triggers(&metadata, &view).await?;
             // Step 2: custom triggers (validated against runtime).
             let trigger_names =
                 self.step_load_custom_triggers(&metadata, &view, Some(&library_data))?;
@@ -388,7 +391,7 @@ impl RegistryReconciler {
                 &py_pre_graph_names,
                 &cloacina_manifest.metadata.accumulators,
             );
-            self.step_load_cron_triggers(&metadata, &py_view)?;
+            cron_schedule_ids = self.step_load_cron_triggers(&metadata, &py_view).await?;
             let _ = self.step_load_custom_triggers(&metadata, &py_view, None)?;
 
             // T-0545 M3a: dispatch any reactors the Python module declared
@@ -686,7 +689,10 @@ impl RegistryReconciler {
                         &cg_pre_graph_names,
                         &cloacina_manifest.metadata.accumulators,
                     );
-                    self.step_load_cron_triggers(&metadata, &cg_view)?;
+                    let cg_cron_ids = self.step_load_cron_triggers(&metadata, &cg_view).await?;
+                    if !cg_cron_ids.is_empty() {
+                        cron_schedule_ids.extend(cg_cron_ids);
+                    }
                     let _ = self.step_load_custom_triggers(&metadata, &cg_view, None)?;
                     if let Some(graph_meta) = cg_view.graph.as_ref() {
                         if let Some(upstream_reactor_name) = graph_meta.trigger_reactor.as_deref() {
@@ -800,6 +806,7 @@ impl RegistryReconciler {
             trigger_names,
             graph_name,
             reactor_names,
+            cron_schedule_ids,
         };
 
         let mut loaded_packages = self.loaded_packages.write().await;
@@ -909,9 +916,33 @@ impl RegistryReconciler {
         }
 
         // --- Step 4 (reverse): triggers ---
+        // Custom-poll triggers come out of the runtime registry; cron
+        // schedules go back through the attached CronWorkflowRegistrar
+        // (mirroring the load step). A missing registrar here is a
+        // best-effort no-op — if it wasn't there at load time, nothing
+        // to deregister either.
         if let Some(runtime) = &self.runtime {
             for trigger_name in &package_state.trigger_names {
                 runtime.unregister_trigger(trigger_name);
+            }
+        }
+        if !package_state.cron_schedule_ids.is_empty() {
+            if let Some(registrar) = self.cron_registrar.as_ref() {
+                for schedule_id in &package_state.cron_schedule_ids {
+                    if let Err(e) = registrar.unregister_cron_workflow(schedule_id).await {
+                        warn!(
+                            "Failed to drop cron schedule '{}' for package {}: {}",
+                            schedule_id, package_state.metadata.package_name, e
+                        );
+                    }
+                }
+            } else {
+                warn!(
+                    "Package {} owns {} cron schedule(s) but no registrar is attached \
+                     for unload — schedules may stay live in the DB",
+                    package_state.metadata.package_name,
+                    package_state.cron_schedule_ids.len()
+                );
             }
         }
 
@@ -1522,25 +1553,68 @@ impl RegistryReconciler {
     }
 
     /// Pipeline step 1: cron triggers (entries with `cron_expression.is_some()`).
-    /// Today's path: cron schedules are registered by the daemon (T-0553),
-    /// not the reconciler. Step is a no-op for now; logs the count.
-    pub(super) fn step_load_cron_triggers(
+    ///
+    /// When a `CronWorkflowRegistrar` is attached, each cron entry is
+    /// installed as a schedule and the returned schedule IDs are
+    /// captured into `PackageState::cron_schedule_ids` so unload can
+    /// drop them. Without a registrar, the step warns once per
+    /// declaration and returns an empty Vec — historically this was
+    /// the standalone-daemon's job (`cloacinactl daemon` registers
+    /// post-reconcile through its own loop), but server-mode users had
+    /// no equivalent until this hook landed.
+    pub(super) async fn step_load_cron_triggers(
         &self,
         metadata: &WorkflowMetadata,
         view: &PackageLoadView,
-    ) -> Result<(), RegistryError> {
-        let cron_count = view
+    ) -> Result<Vec<String>, RegistryError> {
+        let cron_entries: Vec<&cloacina_workflow_plugin::TriggerPackageMetadata> = view
             .triggers
             .iter()
             .filter(|t| t.cron_expression.is_some())
-            .count();
-        if cron_count > 0 {
-            debug!(
-                "Package {} v{}: {} cron trigger(s) declared (registration pending T-0553)",
-                metadata.package_name, metadata.version, cron_count
-            );
+            .collect();
+        if cron_entries.is_empty() {
+            return Ok(Vec::new());
         }
-        Ok(())
+
+        let Some(registrar) = self.cron_registrar.as_ref() else {
+            warn!(
+                "Package {} v{}: {} cron trigger(s) declared but no CronWorkflowRegistrar \
+                 attached to the reconciler — cron schedules will NOT fire (this binary \
+                 must wire `with_cron_registrar` to support packaged cron triggers)",
+                metadata.package_name,
+                metadata.version,
+                cron_entries.len()
+            );
+            return Ok(Vec::new());
+        };
+
+        let mut schedule_ids = Vec::new();
+        for t in cron_entries {
+            let expr = t
+                .cron_expression
+                .as_deref()
+                .expect("cron_expression presence already filtered");
+            // Default to UTC so behavior is deterministic across hosts.
+            // The trigger metadata doesn't carry a timezone today; if we
+            // need per-trigger timezones in future, plumb a field on
+            // TriggerPackageMetadata.
+            match registrar.register_cron_workflow(&t.name, expr, "UTC").await {
+                Ok(id) => {
+                    info!(
+                        "Package {} v{}: registered cron schedule '{}' (cron='{}', id={})",
+                        metadata.package_name, metadata.version, t.name, expr, id
+                    );
+                    schedule_ids.push(id);
+                }
+                Err(e) => {
+                    warn!(
+                        "Package {} v{}: failed to register cron schedule '{}' (cron='{}'): {}",
+                        metadata.package_name, metadata.version, t.name, expr, e
+                    );
+                }
+            }
+        }
+        Ok(schedule_ids)
     }
 
     /// Pipeline step 2: custom-poll triggers (entries with
@@ -2400,6 +2474,7 @@ mod tests {
             trigger_names: vec![],
             graph_name: None,
             reactor_names: vec!["owned_rx".to_string()],
+            cron_schedule_ids: vec![],
         };
         reconciler
             .loaded_packages
@@ -2471,6 +2546,7 @@ mod tests {
                 trigger_names: vec![],
                 graph_name: None,
                 reactor_names: vec!["lone_rx".to_string()],
+                cron_schedule_ids: vec![],
             },
         );
 

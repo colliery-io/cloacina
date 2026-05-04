@@ -344,3 +344,69 @@ impl DefaultRunner {
         self.config.enable_registry_reconciler()
     }
 }
+
+/// Adapter that lets the registry reconciler register/unregister cron
+/// workflow schedules without holding a `DefaultRunner` reference back
+/// (which would form a cycle, given the runner OWNS the reconciler).
+/// Holds an `Arc<Database>` and replicates the schedule-CRUD logic
+/// from the runner's `register_cron_workflow` / `delete_cron_schedule`
+/// methods. Constructed by `services.rs` only when cron scheduling is
+/// enabled in the runner config; otherwise the reconciler runs without
+/// a registrar and cron triggers warn loudly at load.
+pub struct DalCronRegistrar {
+    database: crate::database::Database,
+}
+
+impl DalCronRegistrar {
+    pub fn new(database: crate::database::Database) -> Self {
+        Self { database }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
+    async fn register_cron_workflow(
+        &self,
+        workflow_name: &str,
+        cron_expression: &str,
+        timezone: &str,
+    ) -> Result<String, String> {
+        use crate::database::universal_types::UniversalTimestamp;
+        use crate::models::schedule::NewSchedule;
+        use crate::CronEvaluator;
+
+        CronEvaluator::validate(cron_expression, timezone)
+            .map_err(|e| format!("Invalid cron expression or timezone: {}", e))?;
+        let evaluator = CronEvaluator::new(cron_expression, timezone)
+            .map_err(|e| format!("Failed to create cron evaluator: {}", e))?;
+        let now = chrono::Utc::now();
+        let next_run = evaluator
+            .next_execution(now)
+            .map_err(|e| format!("Failed to calculate next execution: {}", e))?;
+
+        let mut new_schedule =
+            NewSchedule::cron(workflow_name, cron_expression, UniversalTimestamp(next_run));
+        new_schedule.timezone = Some(timezone.to_string());
+
+        let dal = DAL::new(self.database.clone());
+        let schedule = dal
+            .schedule()
+            .create(new_schedule)
+            .await
+            .map_err(|e| format!("Failed to create cron schedule: {}", e))?;
+
+        Ok(schedule.id.to_string())
+    }
+
+    async fn unregister_cron_workflow(&self, schedule_id: &str) -> Result<(), String> {
+        let parsed: UniversalUuid = schedule_id
+            .parse::<uuid::Uuid>()
+            .map_err(|e| format!("invalid schedule id '{}': {}", schedule_id, e))?
+            .into();
+        let dal = DAL::new(self.database.clone());
+        dal.schedule()
+            .delete(parsed)
+            .await
+            .map_err(|e| format!("Failed to delete cron schedule: {}", e))
+    }
+}

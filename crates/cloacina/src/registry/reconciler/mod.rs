@@ -135,6 +135,39 @@ pub(super) struct PackageState {
     /// been unbound. Cross-package subscribers (graphs that bind to a
     /// reactor owned by another package) do NOT appear here.
     pub(super) reactor_names: Vec<String>,
+
+    /// Cron schedule IDs created when the reconciler registered this
+    /// package's `#[trigger(cron = ...)]` declarations through an
+    /// attached `CronWorkflowRegistrar`. Empty when no registrar is
+    /// attached (e.g. the standalone daemon path runs cron registration
+    /// out-of-band). Used by `unload_package` to drop the schedules
+    /// when the package is removed.
+    pub(super) cron_schedule_ids: Vec<String>,
+}
+
+/// Trait the reconciler uses to register and unregister cron workflow
+/// schedules at package load/unload time. Implementations live on the
+/// runner side (the standalone daemon and the embedded
+/// `cloacina-server` runner both implement this against their cron
+/// scheduler / DAL). Decoupling this from the reconciler lets cron
+/// registration ride the same `reconcile()` lifecycle as every other
+/// primitive, instead of relying on the daemon's bespoke post-reconcile
+/// hook (which never fired in server mode).
+#[async_trait::async_trait]
+pub trait CronWorkflowRegistrar: Send + Sync {
+    /// Create a cron schedule for a workflow. Returns an opaque
+    /// schedule ID the reconciler hands back to
+    /// [`unregister_cron_workflow`] on unload.
+    async fn register_cron_workflow(
+        &self,
+        workflow_name: &str,
+        cron_expression: &str,
+        timezone: &str,
+    ) -> Result<String, String>;
+
+    /// Drop a cron schedule by the ID returned from
+    /// [`register_cron_workflow`].
+    async fn unregister_cron_workflow(&self, schedule_id: &str) -> Result<(), String>;
 }
 
 /// Status information about the reconciler
@@ -195,6 +228,14 @@ pub struct RegistryReconciler {
     /// Optional graph scheduler for computation graph packages.
     /// Shared reference so it can be set after construction.
     graph_scheduler: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>>>>,
+
+    /// Optional cron registrar. When attached, the reconciler registers
+    /// each `#[trigger(cron = ...)]` declaration in the package at load
+    /// time and deregisters at unload. Without it, cron triggers are a
+    /// no-op (the standalone daemon historically did this out-of-band;
+    /// server mode had no cron registration at all). Closes the gap
+    /// where packaged cron triggers never fired under cloacina-server.
+    pub(super) cron_registrar: Option<Arc<dyn CronWorkflowRegistrar>>,
 }
 
 impl RegistryReconciler {
@@ -222,6 +263,7 @@ impl RegistryReconciler {
             shutdown_rx,
             interval,
             graph_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
+            cron_registrar: None,
         })
     }
 
@@ -249,6 +291,25 @@ impl RegistryReconciler {
         slot: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>>>>,
     ) {
         self.graph_scheduler = slot;
+    }
+
+    /// Attach a cron registrar that the reconciler will use to install
+    /// cron schedules for each `#[trigger(cron = ...)]` declaration in
+    /// loaded packages, and to drop them on unload. Builder-style
+    /// counterpart for callers that wire the reconciler in one chained
+    /// expression.
+    pub fn with_cron_registrar(mut self, registrar: Arc<dyn CronWorkflowRegistrar>) -> Self {
+        self.cron_registrar = Some(registrar);
+        self
+    }
+
+    /// Inject a cron registrar after construction (mirrors
+    /// `set_graph_scheduler_slot`). Used by `DefaultRunner` setup
+    /// because the runner needs to construct the reconciler before it
+    /// can build the cron registrar (the registrar holds runner-owned
+    /// resources).
+    pub fn set_cron_registrar(&mut self, registrar: Arc<dyn CronWorkflowRegistrar>) {
+        self.cron_registrar = Some(registrar);
     }
 
     /// Start the background reconciliation loop

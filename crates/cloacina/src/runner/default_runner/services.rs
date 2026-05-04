@@ -234,6 +234,19 @@ impl DefaultRunner {
         registry_reconciler.set_graph_scheduler_slot(manager.graph_scheduler.clone());
         registry_reconciler = registry_reconciler.with_runtime(self.runtime.clone());
 
+        // T-0553 follow-up: wire a cron registrar so packaged
+        // `#[trigger(cron = ...)]` declarations land as schedules at
+        // load time without depending on the standalone daemon's
+        // bespoke post-reconcile hook (which never fired in
+        // server / embedded-runner contexts). Skip when cron is
+        // disabled in config — `step_load_cron_triggers` will warn
+        // explicitly in that case.
+        if self.config.enable_cron_scheduling() {
+            use crate::runner::default_runner::cron_api::DalCronRegistrar;
+            let registrar = std::sync::Arc::new(DalCronRegistrar::new(self.database.clone()));
+            registry_reconciler.set_cron_registrar(registrar);
+        }
+
         manager.workflow_registry = Some(workflow_registry_arc);
 
         manager.register(Box::new(RegistryReconcilerService::new(

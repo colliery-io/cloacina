@@ -198,6 +198,29 @@ The "workflow-trigger subscription with packaged cdylibs" deferral is now closed
 - [x] `angreal test integration --backend sqlite` (6 + 28 Python)
 - [x] `angreal test integration --backend postgres` (295 Rust + 28 Python — was 294; +1 new e2e test)
 
+### 2026-05-03 — Cron registration moved into the reconciler (closes server-mode gap)
+
+Cron-trigger registration was previously a no-op inside the reconciler — only the standalone `cloacinactl daemon` registered cron schedules via its bespoke `register_triggers_from_reconcile` post-hook. Server-mode users uploading packaged workflows with `#[trigger(cron = ...)]` declarations got the package loaded but the schedule never installed, so the workflow never fired.
+
+**New trait + adapter:**
+- `crates/cloacina/src/registry/reconciler/mod.rs::CronWorkflowRegistrar` — async trait with `register_cron_workflow(name, expr, timezone) -> Result<schedule_id_string, String>` + `unregister_cron_workflow(schedule_id) -> Result<(), String>`.
+- `crates/cloacina/src/runner/default_runner/cron_api.rs::DalCronRegistrar` — wraps a `Database` handle and reuses the same `CronEvaluator` validation + `NewSchedule` DAL writes the runner's `register_cron_workflow` method already does. Avoids a circular reference back into `DefaultRunner`.
+
+**Reconciler integration:**
+- `RegistryReconciler` gains `cron_registrar: Option<Arc<dyn CronWorkflowRegistrar>>` plus builder `with_cron_registrar` / setter `set_cron_registrar`.
+- `step_load_cron_triggers` is no longer a no-op — when a registrar is attached, it iterates cron-shaped trigger entries and registers each. Schedule IDs land in the new `PackageState::cron_schedule_ids` field.
+- `unload_package` step 4 (triggers) drops cron schedules through the same registrar.
+
+**Runner wiring:**
+- `services.rs::register_registry_reconciler` injects a `DalCronRegistrar` when `config.enable_cron_scheduling()` is true. So both the embedded `DefaultRunner` (used by `cloacina-server`) and the standalone daemon now register cron schedules through the same reconciler-driven path.
+- `cloacinactl/src/commands/daemon.rs::register_triggers_from_reconcile` no longer registers cron schedules itself (would double-register). It still handles custom-poll triggers via the cron-style scheduler API.
+
+**Test gates (all green):**
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (695 + 45)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python)
+- [x] `angreal test integration --backend postgres` (295 Rust + 28 Python)
+
 **Test gates (all green):**
 - [x] `cargo check --workspace --all-features`
 - [x] `angreal test unit` (695 + 45)

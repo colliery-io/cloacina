@@ -499,52 +499,42 @@ async fn register_triggers_from_reconcile(
         }
 
         for trigger in &trigger_metadata {
-            if let Some(cron_expr) = &trigger.cron_expression {
-                // Cron trigger — register via the unified schedule API.
-                // The trigger's `name` doubles as the workflow name in the
-                // legacy daemon path; preserved for compatibility.
-                match runner
-                    .register_cron_workflow(&trigger.name, cron_expr, "UTC")
-                    .await
-                {
-                    Ok(schedule_id) => {
+            if trigger.cron_expression.is_some() {
+                // Cron trigger registration moved into the reconciler
+                // via `CronWorkflowRegistrar` (T-0553 follow-up). The
+                // DefaultRunner injects a `DalCronRegistrar` at startup,
+                // so the schedule was already created by the time this
+                // post-reconcile hook fires. Skip to avoid double-
+                // registration.
+                continue;
+            }
+            // Custom-poll trigger — register against the cron-style
+            // scheduler so it polls on its declared interval. The
+            // `runtime.get_trigger` lookup succeeds for both in-process
+            // triggers (compiled in) and packaged cdylib triggers (the
+            // reconciler's `step_load_custom_triggers` registers an
+            // FfiTriggerImpl per declared trigger via the FFI bridge).
+            match runner.runtime().get_trigger(&trigger.name) {
+                Some(t) => match scheduler.register_trigger(t.as_ref(), &trigger.name).await {
+                    Ok(_) => {
                         info!(
-                            "Registered cron schedule from package {}: '{}' (cron: {}, id: {})",
-                            metadata.package_name, trigger.name, cron_expr, schedule_id
+                            "Registered trigger schedule from package {}: '{}' (poll: {})",
+                            metadata.package_name, trigger.name, trigger.poll_interval
                         );
                     }
                     Err(e) => {
                         warn!(
-                            "Failed to create cron schedule for trigger '{}' in package {}: {}",
+                            "Failed to register trigger schedule for '{}' in package {}: {}",
                             trigger.name, metadata.package_name, e
                         );
                     }
-                }
-            } else {
-                // Custom-poll trigger — look up the registered Trigger impl
-                // (placed by `#[trigger]` macro inventory at dlopen time).
-                match runner.runtime().get_trigger(&trigger.name) {
-                    Some(t) => match scheduler.register_trigger(t.as_ref(), &trigger.name).await {
-                        Ok(_) => {
-                            info!(
-                                "Registered trigger schedule from package {}: '{}' (poll: {})",
-                                metadata.package_name, trigger.name, trigger.poll_interval
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to register trigger schedule for '{}' in package {}: {}",
-                                trigger.name, metadata.package_name, e
-                            );
-                        }
-                    },
-                    None => {
-                        warn!(
-                            "Trigger '{}' declared in FFI metadata for package {} but no Trigger \
-                             impl found in runtime — was the cdylib loaded?",
-                            trigger.name, metadata.package_name
-                        );
-                    }
+                },
+                None => {
+                    warn!(
+                        "Trigger '{}' declared in FFI metadata for package {} but no Trigger \
+                         impl found in runtime — was the cdylib loaded?",
+                        trigger.name, metadata.package_name
+                    );
                 }
             }
         }

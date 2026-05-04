@@ -75,7 +75,8 @@ pub mod workflow_registry;
 pub use error::{LoaderError, RegistryError, StorageError};
 pub use loader::{PackageLoader, PackageValidator, TaskRegistrar};
 pub use reconciler::{
-    PackageStatusDetail, ReconcileResult, ReconcilerConfig, ReconcilerStatus, RegistryReconciler,
+    CronWorkflowRegistrar, PackageStatusDetail, ReconcileResult, ReconcilerConfig,
+    ReconcilerStatus, RegistryReconciler,
 };
 pub use traits::{RegistryStorage, WorkflowRegistry};
 pub use types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackage, WorkflowPackageId};
