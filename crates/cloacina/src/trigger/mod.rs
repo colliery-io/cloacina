@@ -48,8 +48,6 @@
 //! }
 //! ```
 
-pub mod registry;
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
@@ -164,8 +162,6 @@ impl TriggerConfig {
 // so packaged cdylibs can collect TriggerEntry inventory entries. Engine
 // paths re-export.
 pub use cloacina_workflow::Trigger;
-
-pub use registry::TriggerConstructor;
 
 #[cfg(test)]
 mod tests {

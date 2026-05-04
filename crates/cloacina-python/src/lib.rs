@@ -16,22 +16,16 @@
 
 //! Python integration for Cloacina.
 //!
-//! This module provides:
-//! - Abstract [`PythonTaskExecutor`] trait for executing Python tasks from packages
-//! - Concrete PyO3 bindings: [`PyContext`], [`PyWorkflowBuilder`], [`PyTaskHandle`],
-//!   [`TaskDecorator`] (`@task`), and [`PythonTaskWrapper`] (implements [`cloacina::Task`])
-//!
-//! The `@task` decorator machinery and `WorkflowBuilder` context manager are compiled
-//! into the cloacina binary. The `cloaca` Python wheel re-exports these types via its
-//! `#[pymodule]` definition.
+//! This module provides PyO3 bindings: [`PyContext`], [`PyWorkflowBuilder`],
+//! [`PyTaskHandle`], [`TaskDecorator`] (`@task`), and [`PythonTaskWrapper`]
+//! (implements [`cloacina::Task`]). The `@task` decorator machinery and
+//! `WorkflowBuilder` context manager live in this crate; the `cloaca` Python
+//! wheel re-exports them via its `#[pymodule]` definition.
 
 // Computation graph bindings
 pub mod computation_graph;
 #[cfg(test)]
 mod computation_graph_tests;
-
-// Abstract executor interface (no PyO3 dependency)
-pub mod executor;
 
 // Concrete PyO3 bindings
 pub mod context;
@@ -42,9 +36,6 @@ pub mod task;
 pub mod trigger;
 pub mod workflow;
 pub mod workflow_context;
-
-// Re-exports: abstract executor
-pub use executor::{PythonExecutionError, PythonTaskExecutor, PythonTaskResult};
 
 // Re-exports: PyO3 bindings
 pub use context::PyContext;

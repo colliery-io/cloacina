@@ -73,7 +73,7 @@ pub mod workflow_registry;
 
 // Re-export commonly used types
 pub use error::{LoaderError, RegistryError, StorageError};
-pub use loader::{PackageLoader, PackageValidator, TaskRegistrar};
+pub use loader::{PackageLoader, TaskRegistrar};
 pub use reconciler::{
     CronWorkflowRegistrar, PackageStatusDetail, ReconcileResult, ReconcilerConfig,
     ReconcilerStatus, RegistryReconciler,

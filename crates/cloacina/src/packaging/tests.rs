@@ -81,75 +81,6 @@ pub mod test_package {
     }
 
     #[test]
-    fn test_generate_manifest_basic() {
-        let cargo_toml = create_test_cargo_toml();
-        let (_temp_dir, lib_path) = create_mock_library_file();
-        let (_project_temp, project_path) = create_test_project();
-
-        // This will fail at FFI loading since we have a mock library,
-        // but we can test the basic structure
-        let result = manifest::generate_manifest(&cargo_toml, &lib_path, &None, &project_path);
-
-        match result {
-            Ok(manifest) => {
-                assert_eq!(manifest.format_version, "2");
-                assert_eq!(manifest.package.name, "test-package");
-                assert_eq!(manifest.package.version, "1.0.0");
-                assert!(manifest.rust.is_some());
-                assert!(!manifest.rust.as_ref().unwrap().library_path.is_empty());
-            }
-            Err(e) => {
-                // Expected to fail due to mock library, but should be FFI-related
-                let error_msg = format!("{}", e);
-                assert!(
-                    error_msg.contains("Failed to load library")
-                        || error_msg.contains("metadata")
-                        || error_msg.contains("symbol"),
-                    "Error should be FFI-related: {}",
-                    error_msg
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_generate_manifest_with_target() {
-        let cargo_toml = create_test_cargo_toml();
-        let (_temp_dir, lib_path) = create_mock_library_file();
-        let (_project_temp, project_path) = create_test_project();
-        let target = Some("x86_64-unknown-linux-gnu".to_string());
-
-        let result = manifest::generate_manifest(&cargo_toml, &lib_path, &target, &project_path);
-
-        match result {
-            Ok(manifest) => {
-                assert!(manifest
-                    .package
-                    .targets
-                    .contains(&"x86_64-unknown-linux-gnu".to_string()));
-            }
-            Err(_) => {
-                // Expected to fail due to mock library
-            }
-        }
-    }
-
-    #[test]
-    fn test_generate_manifest_missing_package() {
-        let mut cargo_toml = create_test_cargo_toml();
-        cargo_toml.package = None; // Remove package section
-
-        let (_temp_dir, lib_path) = create_mock_library_file();
-        let (_project_temp, project_path) = create_test_project();
-
-        let result = manifest::generate_manifest(&cargo_toml, &lib_path, &None, &project_path);
-
-        assert!(result.is_err());
-        let error_msg = format!("{}", result.unwrap_err());
-        assert!(error_msg.contains("Missing package section"));
-    }
-
-    #[test]
     fn test_compile_options_builder_pattern() {
         let options = CompileOptions {
             target: Some("aarch64-apple-darwin".to_string()),
@@ -239,15 +170,5 @@ pub mod test_package {
                 part
             );
         }
-    }
-
-    #[test]
-    fn test_manifest_error_display() {
-        use super::super::manifest::ManifestError;
-
-        let err = ManifestError::LibraryError {
-            message: "test error".to_string(),
-        };
-        assert!(err.to_string().contains("test error"));
     }
 }

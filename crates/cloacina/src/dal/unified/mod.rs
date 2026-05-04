@@ -57,7 +57,6 @@ pub mod task_execution_metadata;
 pub mod task_outbox;
 pub mod workflow_execution;
 pub mod workflow_packages;
-pub mod workflow_registry;
 pub mod workflow_registry_storage;
 
 // Re-export DAL components
@@ -74,7 +73,6 @@ pub use task_execution_metadata::TaskExecutionMetadataDAL;
 pub use task_outbox::TaskOutboxDAL;
 pub use workflow_execution::WorkflowExecutionDAL;
 pub use workflow_packages::WorkflowPackagesDAL;
-pub use workflow_registry::WorkflowRegistryDAL;
 pub use workflow_registry_storage::UnifiedRegistryStorage;
 
 /// Helper macro for dispatching operations based on backend type.

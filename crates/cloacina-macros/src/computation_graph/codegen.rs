@@ -186,36 +186,23 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         legacy_acc_names_expr,
         legacy_reaction_mode_expr,
         trigger_reactor_expr,
-        ffi_accumulator_entries_expr,
-        ffi_reaction_mode_expr,
         type_binding_check,
     ) = match &ir.trigger {
         TriggerSpec::ByReactor(reactor_name) => {
-            // I-0102 / T-A: The reactor reference is now a string name.
-            // Compile-time accumulator-subset / reaction-mode lookups via
-            // `<TypePath as Reactor>::ACCUMULATORS` are gone — the binding
-            // is resolved at load time by the reconciler's runtime contract
-            // validator (T-B). Per-macro `_ffi` accumulator metadata is
-            // therefore emitted empty here; the reconciler reads accumulator
-            // declarations from the bound reactor's `get_reactor_metadata`
-            // wire-format payload instead. T-0543 M4's const-eval subset
-            // check is removed.
-            let _ = reactor_name; // silence unused if both branches degenerate
+            // I-0102 / T-A: reactor reference is a string name. Compile-time
+            // accumulator-subset / reaction-mode lookups via `<TypePath as
+            // Reactor>::ACCUMULATORS` are gone — the binding is resolved at
+            // load time by the reconciler's runtime contract validator.
             let reactor_name_lit = reactor_name.clone();
 
             let legacy_accs = quote! { Vec::<String>::new() };
             let legacy_mode = quote! { "when_any".to_string() };
             let trigger_reactor = quote! { Some(#reactor_name_lit.to_string()) };
-            let ffi_accs =
-                quote! { Vec::<cloacina_workflow_plugin::AccumulatorDeclarationEntry>::new() };
-            let ffi_mode = quote! { "when_any".to_string() };
 
             (
                 legacy_accs,
                 legacy_mode,
                 trigger_reactor,
-                ffi_accs,
-                ffi_mode,
                 proc_macro2::TokenStream::new(),
             )
         }
@@ -223,155 +210,12 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             let legacy_accs = quote! { Vec::<String>::new() };
             let legacy_mode = quote! { "none".to_string() };
             let trigger_reactor = quote! { None::<String> };
-            let ffi_accs =
-                quote! { Vec::<cloacina_workflow_plugin::AccumulatorDeclarationEntry>::new() };
-            let ffi_mode = quote! { "none".to_string() };
             (
                 legacy_accs,
                 legacy_mode,
                 trigger_reactor,
-                ffi_accs,
-                ffi_mode,
                 proc_macro2::TokenStream::new(),
             )
-        }
-    };
-
-    // Generate the packaged FFI module (only when feature = "packaged")
-    let ffi_plugin_name = format_ident!("_GraphPlugin{}", pascal_case_ident(mod_name));
-    let packaged_ffi = quote! {
-        #[cfg(feature = "packaged")]
-        pub mod _ffi {
-            use cloacina_workflow_plugin::__fidius_CloacinaPlugin;
-            use cloacina_workflow_plugin::CloacinaPlugin as _;
-
-            pub struct #ffi_plugin_name;
-
-            #[cloacina_workflow_plugin::plugin_impl(CloacinaPlugin, crate = "cloacina_workflow_plugin")]
-            impl cloacina_workflow_plugin::CloacinaPlugin for #ffi_plugin_name {
-                fn get_task_metadata(&self) -> Result<cloacina_workflow_plugin::PackageTasksMetadata, cloacina_workflow_plugin::PluginError> {
-                    // Computation graph packages don't have workflow tasks
-                    Ok(cloacina_workflow_plugin::PackageTasksMetadata {
-                        workflow_name: String::new(),
-                        package_name: env!("CARGO_PKG_NAME").to_string(),
-                        package_description: None,
-                        package_author: None,
-                        workflow_fingerprint: None,
-                        graph_data_json: None,
-                        tasks: vec![],
-                    })
-                }
-
-                fn execute_task(&self, _request: cloacina_workflow_plugin::TaskExecutionRequest) -> Result<cloacina_workflow_plugin::TaskExecutionResult, cloacina_workflow_plugin::PluginError> {
-                    Err(cloacina_workflow_plugin::PluginError {
-                        code: "NOT_SUPPORTED".to_string(),
-                        message: "This is a computation graph package, not a workflow package".to_string(),
-                        details: None,
-                    })
-                }
-
-                fn get_graph_metadata(&self) -> Result<cloacina_workflow_plugin::GraphPackageMetadata, cloacina_workflow_plugin::PluginError> {
-                    Ok(cloacina_workflow_plugin::GraphPackageMetadata {
-                        graph_name: #mod_name_str.to_string(),
-                        package_name: env!("CARGO_PKG_NAME").to_string(),
-                        reaction_mode: #ffi_reaction_mode_expr,
-                        input_strategy: "latest".to_string(),
-                        accumulators: #ffi_accumulator_entries_expr,
-                        // T-0544 M5: split-form `trigger = reactor(R)` packages
-                        // emit Some(R.NAME) so cross-package fan-out collapses
-                        // them to one runtime instance.
-                        trigger_reactor: #trigger_reactor_expr,
-                    })
-                }
-
-                fn execute_graph(&self, request: cloacina_workflow_plugin::GraphExecutionRequest) -> Result<cloacina_workflow_plugin::GraphExecutionResult, cloacina_workflow_plugin::PluginError> {
-                    static CDYLIB_RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
-
-                    let rt = CDYLIB_RUNTIME.get_or_init(|| {
-                        tokio::runtime::Builder::new_multi_thread()
-                            .enable_all()
-                            .worker_threads(2)
-                            .thread_name("cg-cdylib-worker")
-                            .build()
-                            .expect("Failed to create cdylib tokio runtime for computation graph")
-                    });
-
-                    // Build InputCache from the JSON request.
-                    // The FFI boundary always uses JSON strings. We parse each
-                    // into serde_json::Value and re-serialize using the
-                    // computation graph's serialize() (JSON in debug, bincode in release).
-                    let mut cache = cloacina_computation_graph::InputCache::new();
-                    for (source_name, json_str) in &request.cache {
-                        let value: serde_json::Value = serde_json::from_str(json_str)
-                            .map_err(|e| cloacina_workflow_plugin::PluginError {
-                                code: "DESERIALIZATION_ERROR".to_string(),
-                                message: format!("Failed to parse cache entry '{}': {}", source_name, e),
-                                details: None,
-                            })?;
-                        let bytes = cloacina_computation_graph::serialize(&value)
-                            .map_err(|e| cloacina_workflow_plugin::PluginError {
-                                code: "SERIALIZATION_ERROR".to_string(),
-                                message: format!("Failed to serialize cache entry '{}': {}", source_name, e),
-                                details: None,
-                            })?;
-                        cache.update(
-                            cloacina_computation_graph::SourceName::new(source_name),
-                            bytes,
-                        );
-                    }
-
-                    // Execute the compiled graph
-                    let result = rt.block_on(async {
-                        super::#compiled_fn_name(&cache).await
-                    });
-
-                    match result {
-                        cloacina_computation_graph::GraphResult::Completed { outputs } => {
-                            // Serialize terminal outputs to JSON strings
-                            let terminal_json: Vec<String> = outputs
-                                .iter()
-                                .filter_map(|o| {
-                                    // Try to downcast to common types and serialize
-                                    if let Some(val) = o.downcast_ref::<serde_json::Value>() {
-                                        Some(serde_json::to_string(val).unwrap_or_default())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-
-                            Ok(cloacina_workflow_plugin::GraphExecutionResult {
-                                success: true,
-                                terminal_outputs_json: if terminal_json.is_empty() { None } else { Some(terminal_json) },
-                                error: None,
-                            })
-                        }
-                        cloacina_computation_graph::GraphResult::Error(e) => {
-                            Ok(cloacina_workflow_plugin::GraphExecutionResult {
-                                success: false,
-                                terminal_outputs_json: None,
-                                error: Some(format!("{}", e)),
-                            })
-                        }
-                    }
-                }
-
-                // T-A / I-0102: per-macro `_ffi` blocks predate the unified
-                // `cloacina::package!()` shell. They report "no reactors" /
-                // "no triggers" — the reconciler picks up reactor + trigger
-                // metadata from packages built against the new shell instead.
-                // Method order in the impl block must match trait declaration
-                // order (fidius's vtable is positional).
-                fn get_reactor_metadata(&self) -> Result<Vec<cloacina_workflow_plugin::ReactorPackageMetadata>, cloacina_workflow_plugin::PluginError> {
-                    Ok(Vec::new())
-                }
-
-                fn get_trigger_metadata(&self) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, cloacina_workflow_plugin::PluginError> {
-                    Ok(Vec::new())
-                }
-            }
-
-            cloacina_workflow_plugin::fidius_plugin_registry!();
         }
     };
 
@@ -569,9 +413,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         #ctor_body
     })
 }
-
-#[allow(dead_code)]
-fn _packaged_ffi_was_stripped_in_t_c() {}
 
 /// Extract named async functions from a module.
 fn extract_functions(module: &ItemMod) -> syn::Result<HashMap<String, ItemFn>> {
