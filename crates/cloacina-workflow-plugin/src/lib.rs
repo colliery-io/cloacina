@@ -45,9 +45,9 @@ pub use inventory_entries::{
 pub use types::{
     AccumulatorDeclarationEntry, CloacinaMetadata, GraphExecutionRequest, GraphExecutionResult,
     GraphPackageMetadata, PackageTasksMetadata, ReactorPackageMetadata, TaskExecutionRequest,
-    TaskExecutionResult, TaskMetadataEntry, TriggerDefinition, TriggerInvokeRequest,
-    TriggerInvokeResult, TriggerPackageMetadata, TriggerlessGraphInvokeRequest,
-    TriggerlessGraphInvokeResult, TriggerlessGraphMetadataEntry,
+    TaskExecutionResult, TaskMetadataEntry, TriggerInvokeRequest, TriggerInvokeResult,
+    TriggerPackageMetadata, TriggerlessGraphInvokeRequest, TriggerlessGraphInvokeResult,
+    TriggerlessGraphMetadataEntry,
 };
 
 // Re-export fidius crates so generated code can reference them

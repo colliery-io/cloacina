@@ -15,23 +15,11 @@
  */
 
 use anyhow::{Context, Result};
-use once_cell::sync::Lazy;
-use regex::Regex;
 use std::path::Path;
 use thiserror::Error;
 
 use super::manifest_schema::{Manifest, PackageInfo, PackageLanguage, RustRuntime, TaskDefinition};
 use super::types::CargoToml;
-
-/// Statically compiled regex for matching workflow attributes.
-/// Matches both `#[workflow(name = "...")]` (new) and `#[packaged_workflow(package = "...")]` (legacy).
-#[allow(dead_code)]
-static PACKAGED_WORKFLOW_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r#"#\[(?:packaged_)?workflow\s*\(\s*[^)]*(?:package|name)\s*=\s*"([^"]+)"[^)]*\)\s*\]"#,
-    )
-    .expect("Invalid workflow regex pattern - this is a compile-time bug")
-});
 
 /// Errors that can occur during manifest extraction.
 #[derive(Debug, Error)]
@@ -228,33 +216,6 @@ fn extract_task_info_and_graph_from_library(
     Ok((tasks, graph_data, package_metadata))
 }
 
-/// Extract package names from source files by looking for #[packaged_workflow] attributes.
-#[allow(dead_code)]
-pub(crate) fn extract_package_names_from_source(project_path: &Path) -> Result<Vec<String>> {
-    let src_path = project_path.join("src");
-    let mut package_names = Vec::new();
-
-    for entry in std::fs::read_dir(&src_path)
-        .with_context(|| format!("Failed to read src directory: {:?}", src_path))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.extension().and_then(|s| s.to_str()) == Some("rs") {
-            let content = std::fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read file: {:?}", path))?;
-
-            for captures in PACKAGED_WORKFLOW_REGEX.captures_iter(&content) {
-                if let Some(package_name) = captures.get(1) {
-                    package_names.push(package_name.as_str().to_string());
-                }
-            }
-        }
-    }
-
-    Ok(package_names)
-}
-
 pub(crate) fn get_current_platform() -> String {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
@@ -266,10 +227,4 @@ pub(crate) fn get_current_platform() -> String {
         _ => return format!("{}-{}", os, arch),
     };
     platform.to_string()
-}
-
-/// Kept for backward compatibility with external callers.
-#[allow(dead_code)]
-pub(crate) fn get_current_architecture() -> String {
-    std::env::consts::ARCH.to_string()
 }

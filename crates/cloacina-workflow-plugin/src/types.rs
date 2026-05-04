@@ -352,27 +352,11 @@ impl CloacinaMetadata {
         self.graph_name.is_some()
     }
 
-    /// Get the workflow name, falling back for backward compatibility.
+    /// Get the workflow name as a `&str`. Used by the cloacina-python
+    /// loader to derive the workflow registry key from the manifest.
     pub fn effective_workflow_name(&self) -> Option<&str> {
         self.workflow_name.as_deref()
     }
-}
-
-/// A trigger definition within a workflow package manifest.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TriggerDefinition {
-    /// Trigger name
-    pub name: String,
-    /// Workflow to fire when trigger activates
-    pub workflow: String,
-    /// Poll interval for custom poll triggers (e.g., "5s", "1m")
-    pub poll_interval: String,
-    /// Cron expression (e.g., "*/10 * * * *"). If present, this is a cron trigger.
-    #[serde(default)]
-    pub cron_expression: Option<String>,
-    /// Whether concurrent executions are allowed
-    #[serde(default)]
-    pub allow_concurrent: bool,
 }
 
 #[cfg(test)]

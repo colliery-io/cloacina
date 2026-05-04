@@ -1997,12 +1997,7 @@ mod tests {
         }
     }
 
-    fn make_cloacina_metadata_with_triggers(
-        _triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>,
-    ) -> cloacina_workflow_plugin::CloacinaMetadata {
-        // T-E / I-0102: `[[triggers]]` / `package_type` removed from
-        // CloacinaMetadata. Trigger registration now flows through FFI
-        // metadata; the manifest-side path is gone.
+    fn make_cloacina_metadata() -> cloacina_workflow_plugin::CloacinaMetadata {
         cloacina_workflow_plugin::CloacinaMetadata {
             workflow_name: Some("test-workflow".to_string()),
             graph_name: None,
@@ -2218,7 +2213,7 @@ mod tests {
             "shared_rx",
             vec!["alpha", "gamma"],
         );
-        let manifest = make_cloacina_metadata_with_triggers(vec![]);
+        let manifest = make_cloacina_metadata();
 
         let err = reconciler
             .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
@@ -2258,7 +2253,7 @@ mod tests {
         };
         let view =
             make_test_view_with_subscriber_graph("subscriber-orphan", "missing_rx", vec!["alpha"]);
-        let manifest = make_cloacina_metadata_with_triggers(vec![]);
+        let manifest = make_cloacina_metadata();
 
         let err = reconciler
             .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"")
@@ -2325,7 +2320,7 @@ mod tests {
                 trigger_reactor: Some("self_rx".to_string()),
             }),
         };
-        let manifest = make_cloacina_metadata_with_triggers(vec![]);
+        let manifest = make_cloacina_metadata();
 
         // Even though the upstream "self_rx" has not been loaded into
         // the scheduler, the validation must skip because the publisher
