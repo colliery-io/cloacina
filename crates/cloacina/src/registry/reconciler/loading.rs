@@ -400,29 +400,14 @@ impl RegistryReconciler {
             cron_schedule_ids = self.step_load_cron_triggers(&metadata, &py_view).await?;
             let _ = self.step_load_custom_triggers(&metadata, &py_view, None)?;
 
-            // T-0545 M3a: dispatch any reactors the Python module declared
-            // via `@cloaca.reactor` into the ComputationGraphScheduler. Lets
-            // a Python workflow package that also declares reactors bring
-            // them up at load time, without a co-located CG subscriber.
-            {
-                let scheduler_guard = self.graph_scheduler.read().await;
-                if let Some(ref scheduler) = *scheduler_guard {
-                    if let Err(e) =
-                        crate::computation_graph::packaging_bridge::dispatch_runtime_reactors_into_scheduler(
-                            cloacina_runtime.as_ref(),
-                            scheduler,
-                            &cloacina_manifest.metadata.accumulators,
-                            Some(self.config.default_tenant_id.clone()),
-                        )
-                        .await
-                    {
-                        warn!(
-                            "Failed to dispatch Python reactors from package {} into scheduler: {}",
-                            metadata.package_name, e
-                        );
-                    }
-                }
-            }
+            // Reactors: route through the unified pipeline helper.
+            // build_view_python already produced wire-format reactor
+            // metadata by walking the scoped Runtime; step_load_reactors
+            // dispatches each into the scheduler via the same idempotent
+            // path the Rust pipeline uses. Replaces the old inline
+            // `dispatch_runtime_reactors_into_scheduler` call.
+            self.step_load_reactors(&metadata, &py_view, &cloacina_manifest.metadata)
+                .await?;
 
             info!(
                 "Python package loaded: {} v{} — {} tasks, workflow '{}'",
@@ -655,39 +640,16 @@ impl RegistryReconciler {
                         })??
                     };
 
-                    // T-0545 M3a: dispatch reactors the Python CG module
-                    // declared via `@cloaca.reactor` BEFORE loading the
-                    // graph itself. The reactor must be running first so
-                    // load_graph's idempotent path finds it (T-0544 M2);
-                    // otherwise it would synthesize a per-graph reactor
-                    // and miss cross-package fan-out.
-                    {
-                        let scheduler_guard = self.graph_scheduler.read().await;
-                        if let Some(ref scheduler) = *scheduler_guard {
-                            if let Err(e) =
-                                crate::computation_graph::packaging_bridge::dispatch_runtime_reactors_into_scheduler(
-                                    cloacina_runtime.as_ref(),
-                                    scheduler,
-                                    &cloacina_manifest.metadata.accumulators,
-                                    Some(self.config.default_tenant_id.clone()),
-                                )
-                                .await
-                            {
-                                warn!(
-                                    "Failed to dispatch Python reactors from CG package {} into scheduler: {}",
-                                    metadata.package_name, e
-                                );
-                            }
-                        }
-                    }
-
-                    // T-0554 Phase 2: build the Python view + run
-                    // pre-validation BEFORE handing the declaration to
-                    // the scheduler. This catches cross-package contract
-                    // mismatches (subscriber declares accumulator names
-                    // not present on the upstream reactor) with a clear
-                    // package-named error rather than the scheduler's
-                    // generic "different contract" rejection.
+                    // T-0554 Phase 2: build the Python view + run the
+                    // unified pipeline helpers (cron triggers, custom
+                    // triggers, reactors, cross-package contract
+                    // validation) BEFORE handing the declaration to
+                    // the scheduler. The reactor step replaces the old
+                    // inline `dispatch_runtime_reactors_into_scheduler`
+                    // call: build_view_python already produced wire-
+                    // format reactor metadata from the runtime walk,
+                    // so step_load_reactors dispatches it the same way
+                    // the Rust pipeline does.
                     let cg_view = self.build_view_python(
                         &metadata.package_name,
                         &cg_pre_reactor_names,
@@ -700,6 +662,8 @@ impl RegistryReconciler {
                         cron_schedule_ids.extend(cg_cron_ids);
                     }
                     let _ = self.step_load_custom_triggers(&metadata, &cg_view, None)?;
+                    self.step_load_reactors(&metadata, &cg_view, &cloacina_manifest.metadata)
+                        .await?;
                     if let Some(graph_meta) = cg_view.graph.as_ref() {
                         if let Some(upstream_reactor_name) = graph_meta.trigger_reactor.as_deref() {
                             let publisher_in_same_package = cg_view

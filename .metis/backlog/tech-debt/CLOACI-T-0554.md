@@ -172,3 +172,19 @@ All three deferred chunks landed in one commit. All four test gates green (cargo
 - [x] `angreal test unit` (690 cloacina + 45 cloacina-workflow)
 - [x] `angreal test integration --backend sqlite` (6 + 28 Python)
 - [x] `angreal test integration --backend postgres` (293 + 28 Python)
+
+### 2026-05-03 — Phase 2 finalization: Python paths now route through the unified pipeline
+
+The Python workflow + CG load paths previously called `dispatch_runtime_reactors_into_scheduler` inline (a separate code path that walked the scoped `Runtime`'s reactor map and pushed each into the scheduler). They now call `step_load_reactors(&metadata, &py_view, manifest)` instead — same shape as the Rust path. `build_view_python` already produces wire-format `view.reactors` from the runtime walk, so the unified helper drives identical behavior with no extra extraction work.
+
+**Changes:**
+- Python workflow path: replaced the inline `dispatch_runtime_reactors_into_scheduler` block with `step_load_reactors(&metadata, &py_view, &cloacina_manifest.metadata).await?`.
+- Python CG path: same replacement, plus removed a duplicated cross-package contract validation block that crept in during the earlier T-0554 Phase 2 wiring (the validation now runs once per CG load, not twice).
+
+The cross-package contract check, custom-trigger validation, cron-trigger registration, and reactor dispatch all flow through the same helpers regardless of language. The reactor + graph DISPATCH for Python CG loading still uses `runtime.load_cg_package` (the Python interpreter is fundamentally different from FFI), but the metadata extraction + helper dispatch is unified.
+
+**Test gates (all green):**
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (695 + 45)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python)
+- [x] `angreal test integration --backend postgres` (295 Rust + 28 Python)
