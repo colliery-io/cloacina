@@ -507,7 +507,7 @@ impl WorkflowStatus {
     /// - API response parsing
     /// - Status conversion from external systems
     /// - Testing and validation
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn from_str(s: &str) -> Self {
         match s {
             "Pending" => WorkflowStatus::Pending,

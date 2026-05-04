@@ -245,10 +245,6 @@ struct RunningGraph {
     /// All keys are deregistered when the reactor is unloaded and
     /// re-registered after a restart.
     endpoint_registry_keys: Vec<String>,
-    /// Manual command sender, kept here so the supervisor's restart path
-    /// can re-register the same channel under the same keys without going
-    /// back through `register_reactor` from scratch.
-    manual_tx: mpsc::Sender<super::reactor::ManualCommand>,
     /// Per-component consecutive failure count.
     failure_counts: HashMap<String, u32>,
     /// Timestamp of last successful operation per component (for failure count reset).
@@ -497,7 +493,6 @@ impl ComputationGraphScheduler {
             declaration: anchor,
             subscribers,
             endpoint_registry_keys,
-            manual_tx,
             failure_counts: HashMap::new(),
             last_success: HashMap::new(),
         };
@@ -956,7 +951,6 @@ impl ComputationGraphScheduler {
                 // aliases for bundled-form callers; T-0545 M1 stores these
                 // explicitly on RunningGraph instead of recovering from
                 // declaration.name).
-                running.manual_tx = manual_tx.clone();
                 for key in &running.endpoint_registry_keys {
                     self.registry
                         .register_reactor(key.clone(), manual_tx.clone(), reactor_shared.clone())

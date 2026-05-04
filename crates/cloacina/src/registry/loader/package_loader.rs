@@ -540,7 +540,9 @@ impl PackageLoader {
         out
     }
 
-    /// Get the temporary directory path for manual file operations.
+    /// Get the temporary directory path. Test-only: production code does not
+    /// inspect the loader's temp dir directly.
+    #[cfg(test)]
     pub fn temp_dir(&self) -> &Path {
         self.temp_dir.path()
     }

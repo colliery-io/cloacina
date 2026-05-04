@@ -345,22 +345,13 @@ pub async fn run(
     Ok(())
 }
 
-/// Build the axum router with all routes.
-///
-/// Public routes (health/ready/metrics) have no auth.
-/// Authenticated routes use `route_layer` (not `layer`) so unmatched paths still 404.
-/// A request ID attached to each incoming request.
-#[derive(Clone, Debug)]
-pub struct RequestId(pub String);
-
 /// Middleware that generates a UUID request ID, creates a tracing span,
 /// and adds the X-Request-Id response header.
 async fn request_id_middleware(
-    mut request: axum::extract::Request,
+    request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let id = uuid::Uuid::new_v4().to_string();
-    request.extensions_mut().insert(RequestId(id.clone()));
 
     let span = tracing::info_span!(
         "request",
