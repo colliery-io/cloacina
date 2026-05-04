@@ -377,19 +377,10 @@ impl RegistryReconciler {
                 })??
             };
 
-            // Python triggers are registered during the runtime's import
-            // pass. Track them from the manifest so we can unload later.
-            let trigger_names =
-                self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
-
-            // T-0554 Phase 2: route the Python load through the same
-            // precedence-pipeline validation helpers as Rust. This is a
-            // pure validation pass — the actual reactor + graph dispatch
-            // still runs through the existing
-            // `dispatch_runtime_reactors_into_scheduler` /
-            // `register_package_triggers` paths below. The view here
-            // surfaces wire-format consistent with `build_view_rust` so
-            // the helpers behave identically.
+            // Python load now routes fully through the unified pipeline.
+            // build_view_python walks the scoped Runtime to produce
+            // wire-format reactor/trigger/graph metadata; step_load_*
+            // helpers consume the view identically to the Rust path.
             let py_view = self.build_view_python(
                 &metadata.package_name,
                 &py_pre_reactor_names,
@@ -398,7 +389,7 @@ impl RegistryReconciler {
                 &cloacina_manifest.metadata.accumulators,
             );
             cron_schedule_ids = self.step_load_cron_triggers(&metadata, &py_view).await?;
-            let _ = self.step_load_custom_triggers(&metadata, &py_view, None)?;
+            let trigger_names = self.step_load_custom_triggers(&metadata, &py_view, None)?;
 
             // Reactors: route through the unified pipeline helper.
             // build_view_python already produced wire-format reactor
@@ -1304,29 +1295,14 @@ impl RegistryReconciler {
         Ok(())
     }
 
-    /// T-E / I-0102: legacy `[[triggers]]` manifest path is removed.
-    /// Workflow → trigger subscriptions now flow through
-    /// `#[workflow(triggers = [...])]` and arrive in the FFI metadata as
-    /// `PackageTasksMetadata.triggers` (consumed by
-    /// `validate_workflow_trigger_subscriptions`). This shim returns the
-    /// empty Vec for callers still wired in until a follow-up cleans them
-    /// up.
-    pub(super) fn register_package_triggers(
-        &self,
-        _metadata: &WorkflowMetadata,
-        _cloacina_metadata: &cloacina_workflow_plugin::CloacinaMetadata,
-    ) -> Result<Vec<String>, RegistryError> {
-        Ok(Vec::new())
-    }
-
     // ========================================================================
     // T-0554 — Precedence-ordered load pipeline.
     //
     // Six steps in fixed order: cron triggers → custom triggers → reactors
     // → trigger-less CGs → reactor-bound CGs → workflows. Each helper is
     // language-agnostic: it consumes a `PackageLoadView` produced by
-    // a per-language metadata-extraction adapter. Today only the Rust
-    // adapter is wired; Python parity is a follow-up.
+    // a per-language metadata-extraction adapter. Both Rust and Python
+    // adapters are wired today.
     // ========================================================================
 
     /// Extract a `PackageLoadView` from a Python scoped Runtime, given
@@ -1358,17 +1334,6 @@ impl RegistryReconciler {
             Some(rt) => rt,
             None => {
                 return PackageLoadView {
-                    tasks: crate::registry::loader::package_loader::PackageMetadata {
-                        package_name: package_name.to_string(),
-                        version: String::new(),
-                        description: None,
-                        author: None,
-                        tasks: vec![],
-                        graph_data: None,
-                        architecture: String::new(),
-                        symbols: vec![],
-                        workflow_triggers: vec![],
-                    },
                     triggers: vec![],
                     reactors: vec![],
                     graph: None,
@@ -1473,17 +1438,6 @@ impl RegistryReconciler {
             });
 
         PackageLoadView {
-            tasks: crate::registry::loader::package_loader::PackageMetadata {
-                package_name: package_name.to_string(),
-                version: String::new(),
-                description: None,
-                author: None,
-                tasks: vec![],
-                graph_data: None,
-                architecture: String::new(),
-                symbols: vec![],
-                workflow_triggers: vec![],
-            },
             triggers,
             reactors,
             graph,
@@ -1495,12 +1449,6 @@ impl RegistryReconciler {
         &self,
         library_data: &[u8],
     ) -> Result<PackageLoadView, RegistryError> {
-        let tasks = self
-            .package_loader
-            .extract_metadata(library_data)
-            .await
-            .map_err(RegistryError::Loader)?;
-
         let triggers = self
             .package_loader
             .extract_trigger_metadata(library_data)
@@ -1525,7 +1473,6 @@ impl RegistryReconciler {
         };
 
         Ok(PackageLoadView {
-            tasks,
             triggers,
             reactors,
             graph,
@@ -2005,7 +1952,6 @@ impl RegistryReconciler {
 /// Rust FFI extraction path and (future) Python scoped-Runtime adapter
 /// produce values of this shape.
 pub(super) struct PackageLoadView {
-    pub(super) tasks: crate::registry::loader::package_loader::PackageMetadata,
     pub(super) triggers: Vec<cloacina_workflow_plugin::TriggerPackageMetadata>,
     pub(super) reactors: Vec<cloacina_workflow_plugin::ReactorPackageMetadata>,
     pub(super) graph: Option<cloacina_workflow_plugin::GraphPackageMetadata>,
@@ -2069,53 +2015,6 @@ mod tests {
             input_strategy: None,
             accumulators: Vec::new(),
         }
-    }
-
-    // -----------------------------------------------------------------------
-    // register_package_triggers tests
-    // -----------------------------------------------------------------------
-
-    #[tokio::test]
-    #[serial]
-    async fn register_triggers_with_no_triggers_returns_empty() {
-        let reconciler = make_test_reconciler();
-        let metadata = make_test_metadata();
-        let cloacina_meta = make_cloacina_metadata_with_triggers(vec![]);
-
-        let result = reconciler
-            .register_package_triggers(&metadata, &cloacina_meta)
-            .unwrap();
-        assert!(result.is_empty());
-    }
-
-    // T-E / I-0102: register_triggers_tracks_registered_triggers and
-    // register_triggers_mixed_registered_and_missing tests deleted — they
-    // asserted manifest-side `[[triggers]]` parsing, which is gone. The
-    // function is now a no-op shim returning empty Vec; the remaining
-    // tests in this section verify that contract.
-
-    #[tokio::test]
-    #[serial]
-    async fn register_triggers_skips_unregistered_triggers() {
-        let reconciler = make_test_reconciler();
-        let metadata = make_test_metadata();
-
-        let trigger_name = format!("nonexistent-trigger-{}", Uuid::new_v4());
-        let cloacina_meta = make_cloacina_metadata_with_triggers(vec![
-            cloacina_workflow_plugin::TriggerDefinition {
-                name: trigger_name.clone(),
-                workflow: "test-workflow".to_string(),
-                poll_interval: "10s".to_string(),
-                cron_expression: None,
-                allow_concurrent: false,
-            },
-        ]);
-
-        let result = reconciler
-            .register_package_triggers(&metadata, &cloacina_meta)
-            .unwrap();
-        // Should be empty because the trigger is not present in the runtime
-        assert!(result.is_empty());
     }
 
     // -----------------------------------------------------------------------
@@ -2228,36 +2127,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Dummy trigger for testing
-    // -----------------------------------------------------------------------
-
-    #[derive(Debug, Clone)]
-    struct DummyTrigger {
-        name: String,
-    }
-
-    #[async_trait::async_trait]
-    impl crate::trigger::Trigger for DummyTrigger {
-        fn name(&self) -> &str {
-            &self.name
-        }
-
-        fn poll_interval(&self) -> std::time::Duration {
-            std::time::Duration::from_secs(60)
-        }
-
-        fn allow_concurrent(&self) -> bool {
-            false
-        }
-
-        async fn poll(
-            &self,
-        ) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
-            Ok(cloacina_workflow::TriggerResult::Skip)
-        }
-    }
-
-    // -----------------------------------------------------------------------
     // T-0554 Phase 2 + T-0553 deferred AC: cross-package contract validation
     // and reverse-order unload pipeline e2e (in-crate scaffolding).
     // -----------------------------------------------------------------------
@@ -2281,17 +2150,6 @@ mod tests {
             })
             .collect();
         PackageLoadView {
-            tasks: crate::registry::loader::package_loader::PackageMetadata {
-                package_name: package_name.to_string(),
-                version: "1.0.0".to_string(),
-                description: None,
-                author: None,
-                tasks: vec![],
-                graph_data: None,
-                architecture: String::new(),
-                symbols: vec![],
-                workflow_triggers: vec![],
-            },
             triggers: vec![],
             reactors: vec![],
             graph: Some(GraphPackageMetadata {
@@ -2447,17 +2305,6 @@ mod tests {
             ..make_test_metadata()
         };
         let view = PackageLoadView {
-            tasks: crate::registry::loader::package_loader::PackageMetadata {
-                package_name: "self-publisher".to_string(),
-                version: "1.0.0".to_string(),
-                description: None,
-                author: None,
-                tasks: vec![],
-                graph_data: None,
-                architecture: String::new(),
-                symbols: vec![],
-                workflow_triggers: vec![],
-            },
             triggers: vec![],
             reactors: vec![ReactorPackageMetadata {
                 name: "self_rx".to_string(),
