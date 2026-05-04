@@ -45,7 +45,8 @@ pub use inventory_entries::{
 pub use types::{
     AccumulatorDeclarationEntry, CloacinaMetadata, GraphExecutionRequest, GraphExecutionResult,
     GraphPackageMetadata, PackageTasksMetadata, ReactorPackageMetadata, TaskExecutionRequest,
-    TaskExecutionResult, TaskMetadataEntry, TriggerDefinition, TriggerPackageMetadata,
+    TaskExecutionResult, TaskMetadataEntry, TriggerDefinition, TriggerInvokeRequest,
+    TriggerInvokeResult, TriggerPackageMetadata,
 };
 
 // Re-export fidius crates so generated code can reference them
@@ -460,6 +461,82 @@ macro_rules! package {
                     }
                     Ok(out)
                 }
+
+                fn invoke_trigger_poll(
+                    &self,
+                    request: $crate::TriggerInvokeRequest,
+                ) -> ::core::result::Result<$crate::TriggerInvokeResult, $crate::PluginError>
+                {
+                    static CDYLIB_TRIGGER_RUNTIME: ::std::sync::OnceLock<
+                        cloacina_workflow::__private::tokio::runtime::Runtime,
+                    > = ::std::sync::OnceLock::new();
+                    let rt = CDYLIB_TRIGGER_RUNTIME.get_or_init(|| {
+                        cloacina_workflow::__private::tokio::runtime::Builder::new_multi_thread()
+                            .enable_all()
+                            .worker_threads(2)
+                            .thread_name("package-shell-trigger-worker")
+                            .build()
+                            .expect("Failed to create cdylib trigger tokio runtime")
+                    });
+
+                    let trigger_arc_opt = $crate::inventory::iter::<$crate::TriggerEntry>
+                        .into_iter()
+                        .find(|entry| entry.name == request.trigger_name)
+                        .map(|entry| (entry.constructor)());
+
+                    let trigger = match trigger_arc_opt {
+                        Some(t) => t,
+                        None => {
+                            return Ok($crate::TriggerInvokeResult {
+                                fire: false,
+                                context_json: None,
+                                error: Some(format!("Unknown trigger: {}", request.trigger_name)),
+                            });
+                        }
+                    };
+
+                    let poll_result = rt
+                        .block_on(async move { cloacina_workflow::Trigger::poll(&*trigger).await });
+
+                    match poll_result {
+                        Ok(cloacina_workflow::TriggerResult::Skip) => {
+                            Ok($crate::TriggerInvokeResult {
+                                fire: false,
+                                context_json: None,
+                                error: None,
+                            })
+                        }
+                        Ok(cloacina_workflow::TriggerResult::Fire(None)) => {
+                            Ok($crate::TriggerInvokeResult {
+                                fire: true,
+                                context_json: None,
+                                error: None,
+                            })
+                        }
+                        Ok(cloacina_workflow::TriggerResult::Fire(Some(ctx))) => {
+                            match ctx.to_json() {
+                                Ok(ctx_json) => Ok($crate::TriggerInvokeResult {
+                                    fire: true,
+                                    context_json: Some(ctx_json),
+                                    error: None,
+                                }),
+                                Err(e) => Err($crate::PluginError {
+                                    code: "SERIALIZATION_ERROR".to_string(),
+                                    message: format!("Failed to serialize trigger context: {}", e),
+                                    details: None,
+                                }),
+                            }
+                        }
+                        Err(e) => Ok($crate::TriggerInvokeResult {
+                            fire: false,
+                            context_json: None,
+                            error: Some(format!(
+                                "Trigger '{}' poll failed: {:?}",
+                                request.trigger_name, e
+                            )),
+                        }),
+                    }
+                }
             }
 
             $crate::fidius_plugin_registry!();
@@ -527,4 +604,21 @@ pub trait CloacinaPlugin: Send + Sync {
     /// (T-A — I-0102)
     #[optional(since = 2)]
     fn get_trigger_metadata(&self) -> Result<Vec<TriggerPackageMetadata>, PluginError>;
+
+    /// Polls a named trigger across the FFI boundary and returns a wire-
+    /// format `TriggerInvokeResult` describing whether to fire the
+    /// associated workflow. Method index 6. Optional (since version 2):
+    /// the host's `FfiTriggerImpl` adapter calls this on every scheduled
+    /// poll for triggers that came from a packaged cdylib (where
+    /// `inventory` doesn't span linker boundaries, so the host can't
+    /// build a host-side `Arc<dyn Trigger>` directly). Plugins built
+    /// from the unified `cloacina::package!()` shell walk
+    /// `inventory::iter::<TriggerEntry>` for the matching name, call
+    /// the constructor, and dispatch `Trigger::poll()` through the
+    /// shared cdylib tokio runtime.
+    #[optional(since = 2)]
+    fn invoke_trigger_poll(
+        &self,
+        request: TriggerInvokeRequest,
+    ) -> Result<TriggerInvokeResult, PluginError>;
 }

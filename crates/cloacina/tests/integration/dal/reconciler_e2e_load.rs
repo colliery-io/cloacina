@@ -297,3 +297,134 @@ async fn reconciler_loads_cross_package_publisher_subscriber_end_to_end() {
 
     scheduler.shutdown_all().await;
 }
+
+/// Closes the gap documented earlier: mixed-rust packs every primitive
+/// into one cdylib, including a workflow that subscribes to a trigger
+/// declared in the same cdylib (`triggers = ["mixed_trigger"]`). Before
+/// the FFI Trigger bridge landed, this load failed at
+/// `validate_workflow_trigger_subscriptions` because
+/// `Runtime::seed_from_inventory` doesn't see entries from
+/// independently-compiled cdylibs (each fixture is its own
+/// `[workspace]`). With the bridge, `step_load_custom_triggers` now
+/// dlopens the cdylib and registers an `FfiTriggerImpl` per declared
+/// trigger BEFORE workflow validation runs, so the validation finds
+/// the trigger via `runtime.get_trigger`. This test asserts:
+///
+/// 1. mixed-rust loads through `reconcile()` without errors.
+/// 2. `mixed_trigger` is registered in the runtime as an FfiTriggerImpl.
+/// 3. The trigger's `poll()` actually round-trips through the FFI: the
+///    cdylib's user code returns `Skip`, the host adapter receives
+///    `Ok(TriggerResult::Skip)`.
+/// 4. The trigger's metadata accessors (name, poll_interval,
+///    cron_expression, allow_concurrent) come back with the values
+///    declared by the macro.
+#[tokio::test]
+#[serial]
+async fn reconciler_loads_mixed_rust_with_in_package_trigger_subscription() {
+    let archive = pack_fixture("mixed-rust");
+    let dylib = read_fixture_dylib("mixed-rust");
+
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let dal = fixture.get_dal();
+    let storage_writer = fixture.create_storage();
+    let mut registry_writer = dal.workflow_registry(storage_writer);
+    let pkg_id = registry_writer
+        .register_workflow_package(archive.clone())
+        .await
+        .expect("register mixed-rust");
+    registry_writer.claim_next_build().await.expect("claim");
+    registry_writer
+        .mark_build_success(pkg_id, dylib.clone())
+        .await
+        .expect("mark built");
+
+    let storage_reader = fixture.create_storage();
+    let registry_reader: Arc<dyn WorkflowRegistry> = Arc::new(
+        WorkflowRegistryImpl::new(storage_reader, fixture.get_database())
+            .expect("WorkflowRegistryImpl::new"),
+    );
+
+    let endpoint_registry = EndpointRegistry::new();
+    let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
+    let runtime = Arc::new(Runtime::empty());
+
+    let config = ReconcilerConfig {
+        default_tenant_id: "public".to_string(),
+        ..ReconcilerConfig::default()
+    };
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let reconciler = RegistryReconciler::new(registry_reader, config, shutdown_rx)
+        .expect("reconciler new")
+        .with_runtime(runtime.clone())
+        .with_graph_scheduler(scheduler.clone());
+
+    let result = reconciler.reconcile().await.expect("reconcile mixed-rust");
+    assert!(
+        result.packages_failed.is_empty(),
+        "mixed-rust must load cleanly with the FFI Trigger bridge; failures = {:?}",
+        result.packages_failed
+    );
+    assert_eq!(
+        result.packages_loaded.len(),
+        1,
+        "exactly one package should load"
+    );
+
+    // FFI Trigger bridge: trigger is registered as an FfiTriggerImpl
+    // adapter (cdylib's inventory entries don't reach the host's
+    // inventory::iter, so this only succeeds because the bridge ran).
+    let trigger = runtime
+        .get_trigger("mixed_trigger")
+        .expect("mixed_trigger must be registered after reconcile");
+    assert_eq!(trigger.name(), "mixed_trigger");
+    assert!(
+        trigger.cron_expression().is_none(),
+        "mixed_trigger is custom-poll, not cron"
+    );
+    // Macro emits poll_interval = "5s".
+    assert_eq!(
+        trigger.poll_interval(),
+        std::time::Duration::from_secs(5),
+        "poll_interval should round-trip from the macro declaration"
+    );
+
+    // Round-trip the actual poll() through FFI. The cdylib's user code
+    // returns Skip; if the bridge is wired correctly, the host sees
+    // Ok(TriggerResult::Skip).
+    let poll_outcome = trigger.poll().await.expect("FFI poll round-trip");
+    assert!(
+        !poll_outcome.should_fire(),
+        "mixed_trigger's user-code returns Skip; got fire=true"
+    );
+
+    // Reactor + workflow + graph must also have landed.
+    assert!(
+        scheduler
+            .reactor_accumulator_names("mixed_reactor")
+            .await
+            .is_some(),
+        "mixed_reactor must be loaded"
+    );
+    assert!(
+        runtime
+            .workflow_names()
+            .iter()
+            .any(|n| n == "mixed_workflow"),
+        "mixed_workflow must be registered"
+    );
+    assert!(
+        runtime
+            .computation_graph_names()
+            .iter()
+            .any(|n| n == "mixed_graph"),
+        "mixed_graph must be registered"
+    );
+
+    scheduler.shutdown_all().await;
+}

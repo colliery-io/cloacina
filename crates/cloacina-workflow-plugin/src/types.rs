@@ -155,6 +155,38 @@ pub struct ReactorPackageMetadata {
     pub accumulators: Vec<AccumulatorDeclarationEntry>,
 }
 
+/// Request to invoke a trigger's `poll()` from the host across the FFI
+/// boundary. Used by the reconciler to drive trigger polling without
+/// relying on `inventory` crossing the cdylib linker boundary (which
+/// fails when fixtures/example crates are independently-compiled
+/// workspaces). The host's `FfiTriggerImpl` adapter sends one of these
+/// per scheduled poll. (T-0553 follow-up — Trigger FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerInvokeRequest {
+    /// Inventory-registered trigger name to poll.
+    pub trigger_name: String,
+}
+
+/// Result of a cross-FFI trigger poll. Mirrors `cloacina_workflow::TriggerResult`
+/// but in a wire-format-friendly shape: the `Context` becomes a JSON
+/// string so it can travel through the bincode boundary. The host's
+/// `FfiTriggerImpl::poll` reconstructs `TriggerResult` from this. (T-0553
+/// follow-up — Trigger FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerInvokeResult {
+    /// `true` if the trigger returned `Fire(_)`, `false` if it returned
+    /// `Skip`. When `error` is set, this field is meaningless.
+    pub fire: bool,
+    /// Serialized `Context<serde_json::Value>` for the `Fire(Some(ctx))`
+    /// case. `None` for `Fire(None)` and `Skip`.
+    pub context_json: Option<String>,
+    /// When the cdylib's `poll()` returned `Err(_)` or could not find the
+    /// requested trigger by name, this carries a description. The host
+    /// converts it to `TriggerError::PollError` so the polling supervisor
+    /// can log + back off.
+    pub error: Option<String>,
+}
+
 /// Metadata for a single trigger declared by this package, returned by
 /// `get_trigger_metadata()`. The reconciler routes cron-shaped triggers
 /// (`cron_expression.is_some()`) to the cron scheduler and custom-poll

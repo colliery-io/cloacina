@@ -20,6 +20,7 @@
 //! extract metadata, validate package integrity, and register tasks with the
 //! global task registry.
 
+pub mod ffi_trigger;
 pub mod package_loader;
 pub mod task_registrar;
 pub mod validator;

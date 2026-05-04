@@ -341,16 +341,44 @@ impl RegistryReconciler {
             loaded_packages.keys().cloned().collect();
         drop(loaded_packages);
 
-        // Determine what needs to be loaded and unloaded
-        let packages_to_load: Vec<_> = db_package_ids
+        // Determine what needs to be loaded and unloaded.
+        //
+        // T-0553 follow-up: sort `packages_to_load` by registration
+        // timestamp (`created_at`) so cross-package binding order is
+        // deterministic. The HashSet difference produces an arbitrary
+        // iteration order, which broke cross-package fan-out (subscriber
+        // loading before publisher → "no such reactor is loaded"). For
+        // unloads, sort REVERSE by created_at so dependents tear down
+        // before publishers — this complements the per-package reverse
+        // step pipeline (workflows → CGs → reactors → triggers → tasks)
+        // by also reversing across packages.
+        let mut packages_to_load: Vec<_> = db_package_ids
             .difference(&loaded_package_ids)
             .cloned()
             .collect();
+        packages_to_load.sort_by_key(|id| {
+            db_packages
+                .iter()
+                .find(|p| p.id == *id)
+                .map(|p| p.created_at)
+                .unwrap_or_else(chrono::Utc::now)
+        });
 
-        let packages_to_unload: Vec<_> = loaded_package_ids
+        let mut packages_to_unload: Vec<_> = loaded_package_ids
             .difference(&db_package_ids)
             .cloned()
             .collect();
+        // Best-effort reverse-creation-order unload using whatever metadata
+        // the loaded_packages map still holds; fall back to package_id as
+        // a stable tiebreaker.
+        {
+            let snapshot = self.loaded_packages.read().await;
+            packages_to_unload.sort_by(|a, b| {
+                let a_t = snapshot.get(a).map(|s| s.metadata.created_at);
+                let b_t = snapshot.get(b).map(|s| s.metadata.created_at);
+                b_t.cmp(&a_t).then_with(|| b.cmp(a))
+            });
+        }
 
         debug!(
             "Reconciliation: {} packages to load, {} to unload",

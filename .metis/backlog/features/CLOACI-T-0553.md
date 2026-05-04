@@ -168,8 +168,35 @@ T-0554 Phase 2 unblocked two of the four originally-deferred reconciler-driven t
 - **Cross-package subscriber binding skipped reactor-load idempotency check** — the subscriber's FFI `graph_meta.accumulators` is empty (it doesn't bring its own factories), but `scheduler.load_graph` was unconditionally calling `load_reactor` first, which failed the idempotent contract check (existing reactor's accumulators vs. empty). Added a fast path in `load_graph`: when `decl.reactor_name = Some(X)`, X is already loaded, AND `decl.accumulators.is_empty()`, bind directly via `bind_graph_to_reactor` and skip `load_reactor`.
 - **`PackageState::reactor_names` was unreliable for cross-cdylib loads** — the pre/post `Runtime::reactor_names()` diff approach didn't work because independently-compiled fixture crates have their own `cloacina-workflow-plugin` compilation with distinct linker symbols, so `Runtime::seed_from_inventory` never sees their entries. Switched the Rust path to populate `reactor_names` from `view.reactors` (FFI metadata, cross-cdylib safe). Python path keeps the diff (the scoped Runtime IS the authoritative registry there).
 
-**Still out of scope: workflow-trigger subscription with packaged cdylibs.**
-"Event into trigger fires workflow" needs `runtime.get_trigger(name)` to succeed, which currently requires inventory crossing the cdylib boundary. The mixed-rust fixture (every primitive in one cdylib, including a workflow with `triggers = ["mixed_trigger"]`) cannot load through the reconciler today — `validate_workflow_trigger_subscriptions` rejects because `seed_from_inventory` doesn't see entries from independently-compiled cdylibs. The same limitation applies to T-0553's daemon trigger registration. Proper fix: design a Trigger FFI bridge that constructs host-side Trigger impls from cdylib metadata + dispatches `poll()` via FFI. Substantial new mechanism, deferred as a follow-up.
+### 2026-05-03 — Trigger FFI bridge landed (closes the cross-cdylib gap)
+
+The "workflow-trigger subscription with packaged cdylibs" deferral is now closed. Mixed-rust (every primitive in one cdylib, including `triggers = ["mixed_trigger"]`) loads cleanly through the reconciler.
+
+**Wire surface:**
+- New `TriggerInvokeRequest` / `TriggerInvokeResult` types in `cloacina-workflow-plugin/types.rs`. The result carries the `Fire`/`Skip` flag, a serialized `Context` JSON for `Fire(Some(ctx))`, and an optional error string.
+- New `CloacinaPlugin::invoke_trigger_poll(request) -> Result<TriggerInvokeResult, PluginError>` trait method (index 6, `#[optional(since = 2)]`). Plugin `method_count` bumps from 6 to 7.
+- `cloacina::package!()` shell macro emits the method body: walks `inventory::iter::<TriggerEntry>` for the matching name, constructs the Trigger via the registered constructor, runs `poll()` on a dedicated cdylib tokio runtime (`OnceLock<Runtime>`), and serializes the result into the wire shape.
+
+**Host-side adapter (`crates/cloacina/src/registry/loader/ffi_trigger.rs`):**
+- New `FfiTriggerImpl` implements `cloacina_workflow::Trigger`. It caches name/poll_interval/allow_concurrent/cron_expression at registration, so the synchronous accessors don't cross FFI; only `poll()` does.
+- `poll()` bounces `handle.call_method(6, &TriggerInvokeRequest)` through `tokio::task::spawn_blocking` (fidius is sync) and reconstructs `TriggerResult` from the wire type.
+
+**Reconciler integration (`step_load_custom_triggers`):**
+- Now takes `library_data: Option<&[u8]>`. When the cdylib bytes are available and any custom-poll trigger isn't already in the runtime, it dlopens the cdylib once and registers an `FfiTriggerImpl` per declared trigger via `runtime.register_trigger`. Triggers that ARE already in the runtime (in-process / inventory-visible) keep their existing path.
+- Helpers `load_plugin_handle_from_bytes` + `parse_humantime_duration` added at the module level.
+
+**Deterministic load order (`reconcile()`):**
+- The HashSet difference produced an arbitrary `packages_to_load` order, which broke cross-package fan-out non-deterministically (subscriber arriving before publisher → "no such reactor is loaded"). Fixed by sorting `packages_to_load` ascending by `WorkflowMetadata::created_at`. Symmetric fix on unloads: sort descending by created_at so dependents tear down before publishers across packages, complementing the per-package reverse step pipeline.
+
+**Test coverage:**
+- New `reconciler_loads_mixed_rust_with_in_package_trigger_subscription` end-to-end test packs the mixed-rust archive, drives `reconcile()`, and asserts (1) no failures, (2) `mixed_trigger` is registered in the runtime as the FfiTriggerImpl adapter, (3) the trigger's `poll()` actually round-trips through FFI (cdylib's user code returns `Skip`, host adapter receives `Ok(TriggerResult::Skip)`), (4) all four primitives (reactor + trigger + workflow + graph) land correctly.
+- `fidius_validation::test_plugin_info_populated` updated for the bumped method count (6 → 7).
+
+**Test gates (all green):**
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (695 + 45)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python)
+- [x] `angreal test integration --backend postgres` (295 Rust + 28 Python — was 294; +1 new e2e test)
 
 **Test gates (all green):**
 - [x] `cargo check --workspace --all-features`

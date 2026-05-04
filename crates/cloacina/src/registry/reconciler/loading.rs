@@ -25,6 +25,78 @@ use crate::task::TaskNamespace;
 use crate::Runtime;
 use std::sync::Arc;
 
+/// Best-effort humantime parser for trigger metadata's poll_interval
+/// strings (e.g. "5s", "500ms", "1m"). Falls back to `None` for
+/// unparsable values; callers default to a safe constant. Used by
+/// `step_load_custom_triggers` when registering FFI trigger adapters
+/// from packaged cdylibs (the cdylib serializes the duration as a
+/// string in `TriggerPackageMetadata`).
+fn parse_humantime_duration(s: &str) -> Option<std::time::Duration> {
+    let trimmed = s.trim();
+    if let Some(num) = trimmed.strip_suffix("ms") {
+        num.trim()
+            .parse::<u64>()
+            .ok()
+            .map(std::time::Duration::from_millis)
+    } else if let Some(num) = trimmed.strip_suffix('s') {
+        num.trim()
+            .parse::<u64>()
+            .ok()
+            .map(std::time::Duration::from_secs)
+    } else if let Some(num) = trimmed.strip_suffix('m') {
+        num.trim()
+            .parse::<u64>()
+            .ok()
+            .map(|m| std::time::Duration::from_secs(m * 60))
+    } else if let Some(num) = trimmed.strip_suffix('h') {
+        num.trim()
+            .parse::<u64>()
+            .ok()
+            .map(|h| std::time::Duration::from_secs(h * 3600))
+    } else {
+        trimmed
+            .parse::<u64>()
+            .ok()
+            .map(std::time::Duration::from_secs)
+    }
+}
+
+/// Write the cdylib bytes to a temp path and dlopen via fidius. The
+/// returned `PluginHandle` keeps the dlopen'd library alive; drop it to
+/// release. Used by `step_load_custom_triggers` to register FFI
+/// `Trigger` adapters for packaged cdylibs whose inventory submissions
+/// don't reach the host's `inventory::iter` (cross-cdylib linker
+/// boundary).
+fn load_plugin_handle_from_bytes(library_data: &[u8]) -> Result<fidius_host::PluginHandle, String> {
+    use std::io::Write;
+    let library_extension = crate::registry::loader::package_loader::get_library_extension();
+    let temp_dir = tempfile::TempDir::new().map_err(|e| format!("temp dir: {}", e))?;
+    let temp_path = temp_dir
+        .path()
+        .join(format!("trigger_plugin.{}", library_extension));
+    {
+        let mut f =
+            std::fs::File::create(&temp_path).map_err(|e| format!("create temp library: {}", e))?;
+        f.write_all(library_data)
+            .map_err(|e| format!("write temp library: {}", e))?;
+    }
+    let loaded = fidius_host::loader::load_library(&temp_path)
+        .map_err(|e| format!("dlopen failed: {:?}", e))?;
+    let plugin = loaded
+        .plugins
+        .into_iter()
+        .next()
+        .ok_or_else(|| "library exposes no fidius plugins".to_string())?;
+    let handle = fidius_host::PluginHandle::from_loaded(plugin);
+    // Leak the temp_dir so the file path stays valid for the lifetime
+    // of the dlopen handle. The OS reclaims on process exit; for the
+    // long-running daemon/server use case this matches the intended
+    // load lifecycle (one tempdir per package, dropped on full process
+    // restart).
+    std::mem::forget(temp_dir);
+    Ok(handle)
+}
+
 impl RegistryReconciler {
     /// Load a package into the global registries.
     ///
@@ -198,7 +270,8 @@ impl RegistryReconciler {
             // Step 1: cron triggers (no-op pending T-0553).
             self.step_load_cron_triggers(&metadata, &view)?;
             // Step 2: custom triggers (validated against runtime).
-            let trigger_names = self.step_load_custom_triggers(&metadata, &view)?;
+            let trigger_names =
+                self.step_load_custom_triggers(&metadata, &view, Some(&library_data))?;
             // Step 3: reactors → graph scheduler.
             self.step_load_reactors(&metadata, &view, &cloacina_manifest.metadata)
                 .await?;
@@ -316,7 +389,7 @@ impl RegistryReconciler {
                 &cloacina_manifest.metadata.accumulators,
             );
             self.step_load_cron_triggers(&metadata, &py_view)?;
-            let _ = self.step_load_custom_triggers(&metadata, &py_view)?;
+            let _ = self.step_load_custom_triggers(&metadata, &py_view, None)?;
 
             // T-0545 M3a: dispatch any reactors the Python module declared
             // via `@cloaca.reactor` into the ComputationGraphScheduler. Lets
@@ -614,7 +687,7 @@ impl RegistryReconciler {
                         &cloacina_manifest.metadata.accumulators,
                     );
                     self.step_load_cron_triggers(&metadata, &cg_view)?;
-                    let _ = self.step_load_custom_triggers(&metadata, &cg_view)?;
+                    let _ = self.step_load_custom_triggers(&metadata, &cg_view, None)?;
                     if let Some(graph_meta) = cg_view.graph.as_ref() {
                         if let Some(upstream_reactor_name) = graph_meta.trigger_reactor.as_deref() {
                             let publisher_in_same_package = cg_view
@@ -1471,13 +1544,24 @@ impl RegistryReconciler {
     }
 
     /// Pipeline step 2: custom-poll triggers (entries with
-    /// `cron_expression.is_none()`). Today's path: triggers register
-    /// themselves into the runtime via `inventory::submit!` at dlopen. The
-    /// reconciler validates each declared trigger has a runtime impl.
+    /// `cron_expression.is_none()`).
+    ///
+    /// In-process triggers (compiled into the host binary) reach the
+    /// runtime through `seed_from_inventory` after dlopen. Cross-cdylib
+    /// triggers (the common case for packaged workflows) DON'T —
+    /// independently-compiled cdylibs have their own
+    /// `cloacina-workflow-plugin` linker symbols, so the host's
+    /// `inventory::iter` never sees their submissions. To close that
+    /// gap, when `library_data` is provided we load the cdylib via
+    /// fidius and register an `FfiTriggerImpl` adapter for every
+    /// custom-poll trigger that isn't already in the runtime. The
+    /// adapter dispatches `poll()` through method index 6
+    /// (`invoke_trigger_poll`) on the cdylib's plugin.
     pub(super) fn step_load_custom_triggers(
         &self,
         metadata: &WorkflowMetadata,
         view: &PackageLoadView,
+        library_data: Option<&[u8]>,
     ) -> Result<Vec<String>, RegistryError> {
         let custom: Vec<&cloacina_workflow_plugin::TriggerPackageMetadata> = view
             .triggers
@@ -1496,9 +1580,61 @@ impl RegistryReconciler {
             );
             return Ok(Vec::new());
         };
+        // FFI registration path: when the cdylib bytes are available,
+        // build a shared fidius PluginHandle once and register an
+        // FfiTriggerImpl per custom-poll trigger that isn't already in
+        // the runtime. We share the handle across all triggers from
+        // this package so we only pay the dlopen cost once.
+        let ffi_plugin: Option<Arc<fidius_host::PluginHandle>> = if let Some(bytes) = library_data {
+            let needs_ffi = custom
+                .iter()
+                .any(|t| runtime.get_trigger(&t.name).is_none());
+            if needs_ffi {
+                match load_plugin_handle_from_bytes(bytes) {
+                    Ok(h) => Some(Arc::new(h)),
+                    Err(e) => {
+                        warn!(
+                            "Package {} v{}: failed to open cdylib for FFI trigger \
+                             registration ({}); custom triggers will fall back to \
+                             inventory lookup only",
+                            metadata.package_name, metadata.version, e
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let mut tracked = Vec::new();
         for t in &custom {
             if runtime.get_trigger(&t.name).is_some() {
+                tracked.push(t.name.clone());
+                continue;
+            }
+            if let Some(handle) = ffi_plugin.as_ref() {
+                let poll_interval = parse_humantime_duration(&t.poll_interval)
+                    .unwrap_or_else(|| std::time::Duration::from_secs(60));
+                let handle_for_ctor = handle.clone();
+                let trigger_name = t.name.clone();
+                let allow_concurrent = t.allow_concurrent;
+                let cron_expression = t.cron_expression.clone();
+                runtime.register_trigger(t.name.clone(), move || {
+                    std::sync::Arc::new(crate::registry::loader::ffi_trigger::FfiTriggerImpl::new(
+                        handle_for_ctor.clone(),
+                        trigger_name.clone(),
+                        poll_interval,
+                        allow_concurrent,
+                        cron_expression.clone(),
+                    )) as std::sync::Arc<dyn cloacina_workflow::Trigger>
+                });
+                info!(
+                    "Package {} v{}: registered FFI trigger adapter for '{}' (poll={:?})",
+                    metadata.package_name, metadata.version, t.name, poll_interval
+                );
                 tracked.push(t.name.clone());
             } else {
                 warn!(
