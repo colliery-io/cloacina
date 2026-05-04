@@ -267,7 +267,7 @@ fn python_trigger_decorator_registers_and_wraps() {
         // Define a trigger using @cloaca.trigger decorator
         py.run(
             pyo3::ffi::c_str!(
-                "from cloaca import trigger, TriggerResult\n\n@trigger(name='test_inbox_check', poll_interval='10s')\ndef check_inbox():\n    return TriggerResult(should_fire=False)\n"
+                "from cloaca import trigger, TriggerResult\n\n@trigger(name='test_inbox_check', poll_interval='10s')\ndef check_inbox():\n    return TriggerResult.skip()\n"
             ),
             None,
             None,
@@ -318,7 +318,7 @@ async fn python_trigger_poll_returns_result() {
         // Define a trigger that fires
         py.run(
             pyo3::ffi::c_str!(
-                "from cloaca import trigger, TriggerResult\n\n@trigger(name='test_fire_trigger', poll_interval='1s')\ndef fire_trigger():\n    return TriggerResult(should_fire=True, context={'key': 'value'})\n"
+                "from cloaca import trigger, TriggerResult, Context\n\n@trigger(name='test_fire_trigger', poll_interval='1s')\ndef fire_trigger():\n    ctx = Context()\n    ctx.set('key', 'value')\n    return TriggerResult.fire(ctx)\n"
             ),
             None,
             None,

@@ -123,7 +123,10 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
 
     // Trigger decorator and result
     module.add_function(wrap_pyfunction!(super::trigger::trigger, &module)?)?;
-    module.add_class::<super::trigger::PyTriggerResult>()?;
+    // T-0557 Bug 5: register the canonical `skip/fire` PyTriggerResult
+    // from `bindings::trigger`. The synthetic loader and the wheel
+    // `#[pymodule]` now expose the same `cloaca.TriggerResult` shape.
+    module.add_class::<super::bindings::trigger::PyTriggerResult>()?;
     module.add_class::<super::trigger::TriggerDecorator>()?;
 
     // Reactor class decorator (mirrors Rust #[reactor])

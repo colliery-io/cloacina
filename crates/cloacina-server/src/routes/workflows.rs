@@ -56,22 +56,76 @@ pub async fn upload_workflow(
         return ApiError::bad_request("invalid_request", "empty package file").into_response();
     }
 
-    // Signature verification gate: when require_signatures is enabled,
-    // reject uploads. The package must be signed and uploaded with its
-    // signature via the package signing workflow before it can be loaded.
-    // This prevents unsigned native code from being dlopen'd by the reconciler.
+    // T-0557 Bug 2: signature verification at upload time.
+    //
+    // When `require_signatures` is enabled AND a `verification_org_id`
+    // is configured, run real verification against the trusted-key list
+    // for that org. The signature is looked up by package hash from the
+    // `package_signatures` table (`SignatureSource::Database`); the
+    // signing flow (`cloacinactl pack`/`publish` + the future T-0514
+    // sidecar) is responsible for inserting the row before upload.
+    //
+    // When `require_signatures` is enabled but no org is configured
+    // we fail-safe with a clearer error than the old "TODO" stub —
+    // the operator knows verification is enabled but unwired, not
+    // that signing is required for the upload itself.
     if state.security_config.require_signatures {
-        // TODO: implement full signature verification at upload time.
-        // For now, reject all uploads when signatures are required —
-        // packages must be pre-signed and loaded through the signing pipeline.
-        warn!(
-            "Package upload rejected: signature verification is required (require_signatures=true)"
-        );
-        return ApiError::forbidden(
-            "signature_required",
-            "package signature verification is required — sign the package before uploading",
+        let Some(org_id) = state.security_config.verification_org_id else {
+            warn!(
+                "Package upload rejected: require_signatures=true but no \
+                 verification_org_id configured. Set SecurityConfig::verification_org_id \
+                 before enabling signature requirements."
+            );
+            return ApiError::forbidden(
+                "signature_verification_unconfigured",
+                "signature verification is required but server is not configured \
+                 with a verification_org_id; contact the server operator",
+            )
+            .into_response();
+        };
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        let package_signer = cloacina::security::DbPackageSigner::new(dal.clone());
+        let key_manager = cloacina::security::DbKeyManager::new(dal);
+        match cloacina::security::verify_package_bytes(
+            &package_data,
+            org_id,
+            cloacina::security::SignatureSource::Database,
+            &package_signer,
+            &key_manager,
         )
-        .into_response();
+        .await
+        {
+            Ok(result) => {
+                info!(
+                    "Package signature verified: hash={} signer={}",
+                    result.package_hash, result.signer_fingerprint
+                );
+            }
+            Err(e) => {
+                warn!("Package signature verification failed: {}", e);
+                let (code, msg) = match &e {
+                    cloacina::security::VerificationError::TamperedPackage { .. } => (
+                        "package_tampered",
+                        "package contents do not match the signed hash".to_string(),
+                    ),
+                    cloacina::security::VerificationError::UntrustedSigner { fingerprint } => (
+                        "untrusted_signer",
+                        format!("package signed by untrusted key: {}", fingerprint),
+                    ),
+                    cloacina::security::VerificationError::InvalidSignature => (
+                        "invalid_signature",
+                        "cryptographic signature verification failed".to_string(),
+                    ),
+                    cloacina::security::VerificationError::SignatureNotFound { .. } => (
+                        "signature_not_found",
+                        "no signature row found for this package; sign before uploading"
+                            .to_string(),
+                    ),
+                    _ => ("signature_verification_error", format!("{}", e)),
+                };
+                return ApiError::forbidden(code, msg).into_response();
+            }
+        }
     }
 
     // Register via WorkflowRegistry

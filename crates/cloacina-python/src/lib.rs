@@ -53,10 +53,14 @@ pub use task::{task as task_decorator, PyTaskHandle, PythonTaskWrapper, TaskDeco
 pub use workflow::{py_register_workflow, PyWorkflow, PyWorkflowBuilder};
 pub use workflow_context::PyWorkflowContext;
 
-// Re-exports: trigger bindings
+// Re-exports: trigger bindings.
+// `PyTriggerResult` is the canonical `skip/fire` API from
+// `bindings::trigger`; the older `should_fire/context` shape was
+// removed in T-0557 Bug 5 / T-0555 T1 consolidation.
+pub use bindings::trigger::PyTriggerResult;
 pub use trigger::{
-    drain_python_triggers, trigger as trigger_decorator, PyTriggerResult, PythonTriggerDef,
-    PythonTriggerWrapper, TriggerDecorator,
+    drain_python_triggers, trigger as trigger_decorator, PythonTriggerDef, PythonTriggerWrapper,
+    TriggerDecorator,
 };
 
 // Re-exports: loader

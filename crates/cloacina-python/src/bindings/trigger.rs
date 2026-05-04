@@ -88,12 +88,29 @@ impl PyTriggerResult {
 }
 
 impl PyTriggerResult {
-    /// Convert to Rust TriggerResult
+    /// Convert to Rust TriggerResult by consuming self.
     pub fn into_rust(self) -> TriggerResult {
         if !self.is_fire {
             TriggerResult::Skip
         } else {
             let ctx = self.data.map(|d| {
+                let mut context = Context::new();
+                for (key, value) in d {
+                    context.insert(key, value).ok();
+                }
+                context
+            });
+            TriggerResult::Fire(ctx)
+        }
+    }
+
+    /// Convert to Rust TriggerResult by cloning self (for &self callers
+    /// such as the cross-API loader-side `PythonTriggerWrapper.poll`).
+    pub fn clone_into_rust(&self) -> TriggerResult {
+        if !self.is_fire {
+            TriggerResult::Skip
+        } else {
+            let ctx = self.data.clone().map(|d| {
                 let mut context = Context::new();
                 for (key, value) in d {
                     context.insert(key, value).ok();
