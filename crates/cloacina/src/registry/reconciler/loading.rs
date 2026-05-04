@@ -241,6 +241,7 @@ impl RegistryReconciler {
             .unwrap_or_default();
 
         let mut cron_schedule_ids: Vec<String> = Vec::new();
+        let mut triggerless_graph_names: Vec<String> = Vec::new();
 
         let (task_namespaces, workflow_name, trigger_names, rust_graph_name) = if cloacina_manifest
             .metadata
@@ -278,8 +279,13 @@ impl RegistryReconciler {
             // Step 3: reactors → graph scheduler.
             self.step_load_reactors(&metadata, &view, &cloacina_manifest.metadata)
                 .await?;
-            // Step 4: trigger-less CGs (handled at execute-time today).
-            self.step_load_triggerless_cgs(&metadata, &view)?;
+            // Step 4: trigger-less CGs — register FFI adapters for any
+            // declared by the cdylib (cross-cdylib inventory doesn't
+            // reach the host runtime; close that gap with FFI dispatch
+            // through method index 8).
+            triggerless_graph_names = self
+                .step_load_triggerless_cgs(&metadata, &view, Some(&library_data))
+                .await?;
             // Step 5: reactor-bound CG → graph scheduler. We do this
             // BEFORE workflow registration so the (newly-supported)
             // workflow→graph dispatch can resolve graph names if it
@@ -807,6 +813,7 @@ impl RegistryReconciler {
             graph_name,
             reactor_names,
             cron_schedule_ids,
+            triggerless_graph_names,
         };
 
         let mut loaded_packages = self.loaded_packages.write().await;
@@ -849,6 +856,15 @@ impl RegistryReconciler {
         if let Some(runtime) = &self.runtime {
             if let Some(workflow_name) = &package_state.workflow_name {
                 runtime.unregister_workflow(workflow_name);
+            }
+        }
+
+        // --- Step 2a (reverse): trigger-less graphs registered via FFI ---
+        // These come out before reactor-bound CGs since workflow tasks
+        // that invoke them have already been deregistered in step 1.
+        if let Some(runtime) = &self.runtime {
+            for name in &package_state.triggerless_graph_names {
+                runtime.unregister_triggerless_graph(name);
             }
         }
 
@@ -1756,19 +1772,105 @@ impl RegistryReconciler {
         Ok(())
     }
 
-    /// Pipeline step 4: trigger-less CGs. Today's path: the `#[task(invokes
-    /// = computation_graph("name"))]` runtime walk pulls these from the
-    /// `TriggerlessGraphEntry` inventory at execute time. The reconciler
-    /// step is a no-op; logs the trigger-less graph names if any.
-    pub(super) fn step_load_triggerless_cgs(
+    /// Pipeline step 4: trigger-less CGs.
+    ///
+    /// In-process trigger-less CGs (compiled into the host binary)
+    /// reach the runtime through `seed_from_inventory` after dlopen.
+    /// Cross-cdylib trigger-less CGs DON'T — same linker-section
+    /// limitation as triggers (T-0553 follow-up). When `library_data`
+    /// is provided we call `get_triggerless_graph_metadata` (FFI
+    /// method index 7), and for every entry that isn't already in the
+    /// runtime we register a `TriggerlessGraphRegistration` whose
+    /// `graph_fn` dispatches through `invoke_triggerless_graph` (FFI
+    /// method index 8). Each registered name is returned so unload
+    /// can drop them.
+    pub(super) async fn step_load_triggerless_cgs(
         &self,
-        _metadata: &WorkflowMetadata,
+        metadata: &WorkflowMetadata,
         _view: &PackageLoadView,
-    ) -> Result<(), RegistryError> {
-        // Trigger-less CG inventory submission happens at dlopen via the
-        // `#[computation_graph]` macro's emission; runtime walks it at
-        // task-invocation time. No reconciler-side action needed today.
-        Ok(())
+        library_data: Option<&[u8]>,
+    ) -> Result<Vec<String>, RegistryError> {
+        let Some(bytes) = library_data else {
+            return Ok(Vec::new());
+        };
+        let Some(runtime) = self.runtime.as_ref() else {
+            return Ok(Vec::new());
+        };
+
+        let triggerless_meta = match self
+            .package_loader
+            .extract_triggerless_graph_metadata(bytes)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                debug!(
+                    "Package {} v{}: extract_triggerless_graph_metadata returned no entries ({})",
+                    metadata.package_name, metadata.version, e
+                );
+                Vec::new()
+            }
+        };
+        if triggerless_meta.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let needs_handle = triggerless_meta
+            .iter()
+            .any(|m| runtime.get_triggerless_graph(&m.name).is_none());
+        let plugin_handle: Option<Arc<fidius_host::PluginHandle>> = if needs_handle {
+            match load_plugin_handle_from_bytes(bytes) {
+                Ok(h) => Some(Arc::new(h)),
+                Err(e) => {
+                    warn!(
+                        "Package {} v{}: failed to open cdylib for FFI trigger-less CG \
+                         registration ({}); these graphs will fall back to inventory \
+                         lookup only",
+                        metadata.package_name, metadata.version, e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let mut registered = Vec::new();
+        for entry in triggerless_meta {
+            if runtime.get_triggerless_graph(&entry.name).is_some() {
+                registered.push(entry.name.clone());
+                continue;
+            }
+            let Some(handle) = plugin_handle.as_ref() else {
+                warn!(
+                    "Package {} v{}: trigger-less graph '{}' declared in metadata but \
+                     no PluginHandle available for FFI dispatch",
+                    metadata.package_name, metadata.version, entry.name,
+                );
+                continue;
+            };
+            let graph_fn =
+                crate::registry::loader::ffi_triggerless_graph::build_ffi_triggerless_graph_fn(
+                    handle.clone(),
+                    entry.name.clone(),
+                    entry.terminal_node_names.len(),
+                );
+            let name_for_ctor = entry.name.clone();
+            let terminal_names = entry.terminal_node_names.clone();
+            runtime.register_triggerless_graph(entry.name.clone(), move || {
+                cloacina_workflow_plugin::TriggerlessGraphRegistration {
+                    name: name_for_ctor.clone(),
+                    graph_fn: graph_fn.clone(),
+                    terminal_node_names: terminal_names.clone(),
+                }
+            });
+            info!(
+                "Package {} v{}: registered FFI trigger-less graph '{}' (terminals={:?})",
+                metadata.package_name, metadata.version, entry.name, entry.terminal_node_names,
+            );
+            registered.push(entry.name);
+        }
+        Ok(registered)
     }
 
     /// Pipeline step 5: reactor-bound CGs. Dispatches the (single)
@@ -2475,6 +2577,7 @@ mod tests {
             graph_name: None,
             reactor_names: vec!["owned_rx".to_string()],
             cron_schedule_ids: vec![],
+            triggerless_graph_names: vec![],
         };
         reconciler
             .loaded_packages
@@ -2547,6 +2650,7 @@ mod tests {
                 graph_name: None,
                 reactor_names: vec!["lone_rx".to_string()],
                 cron_schedule_ids: vec![],
+                triggerless_graph_names: vec![],
             },
         );
 

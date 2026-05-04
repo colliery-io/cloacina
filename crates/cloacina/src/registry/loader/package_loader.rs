@@ -472,6 +472,74 @@ impl PackageLoader {
         result
     }
 
+    /// Extract trigger-less computation graph metadata from compiled
+    /// library bytes (T-0553 follow-up — Trigger-less CG FFI bridge).
+    ///
+    /// Calls `get_triggerless_graph_metadata()` (method index 7) on
+    /// the fidius plugin. Returns one entry per `#[computation_graph]`
+    /// without a `trigger = reactor(...)` clause; the reconciler
+    /// installs each into the runtime via a host-side adapter that
+    /// dispatches `graph_fn` through `invoke_triggerless_graph` (FFI
+    /// method index 8).
+    pub async fn extract_triggerless_graph_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Vec<cloacina_workflow_plugin::TriggerlessGraphMetadataEntry>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self.temp_dir.path().join(format!(
+            "triggerless_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        // Method index 7 = get_triggerless_graph_metadata. NotImplemented
+        // (older plugins) returns an Ok(Vec::new()) at the call_method
+        // layer — the reconciler treats that as "package declares no
+        // trigger-less graphs".
+        let result: Result<
+            Vec<cloacina_workflow_plugin::TriggerlessGraphMetadataEntry>,
+            fidius_host::CallError,
+        > = handle.call_method(7, &());
+
+        let out = match result {
+            Ok(v) => Ok(v),
+            Err(fidius_host::CallError::NotImplemented { .. }) => Ok(Vec::new()),
+            Err(e) => Err(LoaderError::MetadataExtraction {
+                reason: format!("get_triggerless_graph_metadata failed: {:?}", e),
+            }),
+        };
+
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
+
+        out
+    }
+
     /// Get the temporary directory path for manual file operations.
     pub fn temp_dir(&self) -> &Path {
         self.temp_dir.path()

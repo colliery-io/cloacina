@@ -143,6 +143,13 @@ pub(super) struct PackageState {
     /// out-of-band). Used by `unload_package` to drop the schedules
     /// when the package is removed.
     pub(super) cron_schedule_ids: Vec<String>,
+
+    /// Trigger-less graph names registered through the FFI bridge for
+    /// this package (T-0553 follow-up — Trigger-less CG FFI bridge).
+    /// Populated by `step_load_triggerless_cgs` for cdylib packages;
+    /// empty for in-process / Python loads. `unload_package` drops
+    /// each name from the runtime.
+    pub(super) triggerless_graph_names: Vec<String>,
 }
 
 /// Trait the reconciler uses to register and unregister cron workflow

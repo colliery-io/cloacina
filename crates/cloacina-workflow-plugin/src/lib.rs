@@ -46,7 +46,8 @@ pub use types::{
     AccumulatorDeclarationEntry, CloacinaMetadata, GraphExecutionRequest, GraphExecutionResult,
     GraphPackageMetadata, PackageTasksMetadata, ReactorPackageMetadata, TaskExecutionRequest,
     TaskExecutionResult, TaskMetadataEntry, TriggerDefinition, TriggerInvokeRequest,
-    TriggerInvokeResult, TriggerPackageMetadata,
+    TriggerInvokeResult, TriggerPackageMetadata, TriggerlessGraphInvokeRequest,
+    TriggerlessGraphInvokeResult, TriggerlessGraphMetadataEntry,
 };
 
 // Re-export fidius crates so generated code can reference them
@@ -537,6 +538,127 @@ macro_rules! package {
                         }),
                     }
                 }
+
+                fn get_triggerless_graph_metadata(
+                    &self,
+                ) -> ::core::result::Result<
+                    ::std::vec::Vec<$crate::TriggerlessGraphMetadataEntry>,
+                    $crate::PluginError,
+                > {
+                    let mut out: ::std::vec::Vec<$crate::TriggerlessGraphMetadataEntry> =
+                        ::std::vec::Vec::new();
+                    for entry in $crate::inventory::iter::<$crate::TriggerlessGraphEntry> {
+                        let reg = (entry.constructor)();
+                        out.push($crate::TriggerlessGraphMetadataEntry {
+                            name: entry.name.to_string(),
+                            package_name: env!("CARGO_PKG_NAME").to_string(),
+                            terminal_node_names: reg.terminal_node_names.clone(),
+                        });
+                    }
+                    Ok(out)
+                }
+
+                fn invoke_triggerless_graph(
+                    &self,
+                    request: $crate::TriggerlessGraphInvokeRequest,
+                ) -> ::core::result::Result<
+                    $crate::TriggerlessGraphInvokeResult,
+                    $crate::PluginError,
+                > {
+                    static CDYLIB_TLCG_RUNTIME: ::std::sync::OnceLock<
+                        cloacina_workflow::__private::tokio::runtime::Runtime,
+                    > = ::std::sync::OnceLock::new();
+                    let rt = CDYLIB_TLCG_RUNTIME.get_or_init(|| {
+                        cloacina_workflow::__private::tokio::runtime::Builder::new_multi_thread()
+                            .enable_all()
+                            .worker_threads(2)
+                            .thread_name("package-shell-tlcg-worker")
+                            .build()
+                            .expect("Failed to create cdylib trigger-less CG tokio runtime")
+                    });
+
+                    let entry_opt = $crate::inventory::iter::<$crate::TriggerlessGraphEntry>
+                        .into_iter()
+                        .find(|e| e.name == request.graph_name);
+                    let entry = match entry_opt {
+                        Some(e) => e,
+                        None => {
+                            return Ok($crate::TriggerlessGraphInvokeResult {
+                                success: false,
+                                terminal_outputs_json: None,
+                                error: Some(format!(
+                                    "Unknown trigger-less graph: {}",
+                                    request.graph_name
+                                )),
+                            });
+                        }
+                    };
+
+                    let context: cloacina_workflow::Context<::serde_json::Value> =
+                        match cloacina_workflow::Context::from_json(request.context_json) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                return Err($crate::PluginError {
+                                    code: "CONTEXT_ERROR".to_string(),
+                                    message: format!(
+                                        "Failed to parse context for graph '{}': {}",
+                                        request.graph_name, e
+                                    ),
+                                    details: None,
+                                });
+                            }
+                        };
+
+                    let reg = (entry.constructor)();
+                    let graph_fn = reg.graph_fn.clone();
+                    let terminal_names = reg.terminal_node_names.clone();
+                    let result = rt.block_on(async move { graph_fn(context).await });
+
+                    match result {
+                        ::cloacina_computation_graph::GraphResult::Completed { outputs } => {
+                            let mut json_outputs: ::std::vec::Vec<::serde_json::Value> =
+                                ::std::vec::Vec::with_capacity(outputs.len());
+                            for boxed in outputs.iter() {
+                                if let Some(value) = boxed.downcast_ref::<::serde_json::Value>() {
+                                    json_outputs.push(value.clone());
+                                } else {
+                                    json_outputs.push(::serde_json::Value::Null);
+                                }
+                            }
+                            while json_outputs.len() < terminal_names.len() {
+                                json_outputs.push(::serde_json::Value::Null);
+                            }
+                            let outputs_json = match ::serde_json::to_string(&json_outputs) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    return Err($crate::PluginError {
+                                        code: "SERIALIZATION_ERROR".to_string(),
+                                        message: format!(
+                                            "Failed to serialize terminal outputs: {}",
+                                            e
+                                        ),
+                                        details: None,
+                                    });
+                                }
+                            };
+                            Ok($crate::TriggerlessGraphInvokeResult {
+                                success: true,
+                                terminal_outputs_json: Some(outputs_json),
+                                error: None,
+                            })
+                        }
+                        ::cloacina_computation_graph::GraphResult::Error(err) => {
+                            Ok($crate::TriggerlessGraphInvokeResult {
+                                success: false,
+                                terminal_outputs_json: None,
+                                error: Some(format!(
+                                    "Graph '{}' failed: {}",
+                                    request.graph_name, err
+                                )),
+                            })
+                        }
+                    }
+                }
             }
 
             $crate::fidius_plugin_registry!();
@@ -621,4 +743,35 @@ pub trait CloacinaPlugin: Send + Sync {
         &self,
         request: TriggerInvokeRequest,
     ) -> Result<TriggerInvokeResult, PluginError>;
+
+    /// Returns metadata about every trigger-less computation graph
+    /// declared by this package. Method index 7. Optional (since
+    /// version 2): plugins built before T-0553's follow-up gap-close
+    /// return `CallError::NotImplemented`, which the reconciler treats
+    /// as "package declares no trigger-less graphs". The unified
+    /// `cloacina::package!()` shell walks
+    /// `inventory::iter::<TriggerlessGraphEntry>` and projects each
+    /// entry's name + terminal_node_names into a
+    /// `TriggerlessGraphMetadataEntry`. Used by
+    /// `step_load_triggerless_cgs` to register host-side
+    /// `TriggerlessGraphRegistration` adapters that dispatch
+    /// invocation through `invoke_triggerless_graph` (method index 8).
+    #[optional(since = 2)]
+    fn get_triggerless_graph_metadata(
+        &self,
+    ) -> Result<Vec<TriggerlessGraphMetadataEntry>, PluginError>;
+
+    /// Invokes a named trigger-less computation graph across the FFI
+    /// boundary and returns a wire-format result. Method index 8.
+    /// Optional (since version 2): the host's `FfiTriggerlessGraph`
+    /// adapter calls this on every workflow-task invocation for graphs
+    /// that came from a packaged cdylib. The shell walks
+    /// `inventory::iter::<TriggerlessGraphEntry>` for the matching
+    /// name, calls the constructor, and dispatches `graph_fn(ctx)` on
+    /// the cdylib's shared tokio runtime.
+    #[optional(since = 2)]
+    fn invoke_triggerless_graph(
+        &self,
+        request: TriggerlessGraphInvokeRequest,
+    ) -> Result<TriggerlessGraphInvokeResult, PluginError>;
 }

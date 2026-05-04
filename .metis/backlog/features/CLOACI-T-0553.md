@@ -221,6 +221,33 @@ Cron-trigger registration was previously a no-op inside the reconciler — only 
 - [x] `angreal test integration --backend sqlite` (6 + 28 Python)
 - [x] `angreal test integration --backend postgres` (295 Rust + 28 Python)
 
+### 2026-05-03 — Trigger-less CG FFI bridge landed (closes the second cdylib gap)
+
+Trigger-less computation graphs declared in packaged cdylibs (the kind invoked by `#[task(invokes = computation_graph("name"))]`) now reach the host runtime via the same FFI-bridge pattern as the Trigger bridge. Previously `step_load_triggerless_cgs` was a pure no-op; cross-cdylib trigger-less graphs would silently fail at task-invocation time when `runtime.get_triggerless_graph` returned None.
+
+**Wire surface (cloacina-workflow-plugin):**
+- `TriggerlessGraphMetadataEntry { name, package_name, terminal_node_names }`.
+- `TriggerlessGraphInvokeRequest { graph_name, context_json }`.
+- `TriggerlessGraphInvokeResult { success, terminal_outputs_json, error }` — terminal outputs ride as a serialized `Vec<serde_json::Value>` ordered to match `terminal_node_names`.
+- Two new optional FFI methods on `CloacinaPlugin`: `get_triggerless_graph_metadata` (index 7) and `invoke_triggerless_graph` (index 8). Plugin `method_count` bumps from 7 to 9.
+- `cloacina::package!()` shell macro emits both bodies. `get_*` walks `inventory::iter::<TriggerlessGraphEntry>` and projects each entry. `invoke_*` finds the matching entry by name, parses the context JSON, runs `graph_fn(ctx)` on a dedicated cdylib tokio runtime, downcasts terminal outputs to `serde_json::Value`, and serializes them.
+
+**Host-side adapter (`crates/cloacina/src/registry/loader/ffi_triggerless_graph.rs`):**
+- `build_ffi_triggerless_graph_fn(handle, graph_name, terminal_count) -> TriggerlessGraphFn`. The closure serializes the workflow context, bounces through `tokio::task::spawn_blocking`, calls method index 8, and reconstructs `GraphResult::Completed { outputs }` (boxed `serde_json::Value`s) or `GraphResult::Error(...)` from the wire result.
+
+**Reconciler integration (`step_load_triggerless_cgs`):**
+- No longer a no-op. Now `async`, takes `library_data: Option<&[u8]>`, calls the new `PackageLoader::extract_triggerless_graph_metadata` (uses fidius `call_method(7, &())`, treats `NotImplemented` as empty), and registers a `TriggerlessGraphRegistration` for each cdylib-declared graph. The registration's `graph_fn` is the FFI dispatcher built above; `terminal_node_names` flows through verbatim so the `cloacina-macros` post-invocation context-write logic (`downcast_ref::<serde_json::Value>` per terminal) keeps working unchanged.
+- `PackageState` gains `triggerless_graph_names: Vec<String>`. `unload_package` adds a step 2a that drops each via `runtime.unregister_triggerless_graph` before reactor-bound CG teardown.
+
+**fidius_validation:**
+- `test_plugin_info_populated` updated for the bumped method count (7 → 9).
+
+**Test gates (all green):**
+- [x] `cargo check --workspace --all-features`
+- [x] `angreal test unit` (695 + 45)
+- [x] `angreal test integration --backend sqlite` (6 + 28 Python)
+- [x] `angreal test integration --backend postgres` (295 Rust + 28 Python)
+
 **Test gates (all green):**
 - [x] `cargo check --workspace --all-features`
 - [x] `angreal test unit` (695 + 45)

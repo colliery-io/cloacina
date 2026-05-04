@@ -253,7 +253,7 @@ fn test_plugin_info_populated() {
         "Interface version should be 2 (CLOACI-I-0102 trait bump)"
     );
     assert_eq!(
-        plugin.method_count, 7,
-        "Should have 7 methods (get_task_metadata, execute_task, get_graph_metadata, execute_graph, get_reactor_metadata, get_trigger_metadata, invoke_trigger_poll)"
+        plugin.method_count, 9,
+        "Should have 9 methods (get_task_metadata, execute_task, get_graph_metadata, execute_graph, get_reactor_metadata, get_trigger_metadata, invoke_trigger_poll, get_triggerless_graph_metadata, invoke_triggerless_graph)"
     );
 }

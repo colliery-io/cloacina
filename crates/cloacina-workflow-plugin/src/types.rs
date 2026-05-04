@@ -155,6 +155,60 @@ pub struct ReactorPackageMetadata {
     pub accumulators: Vec<AccumulatorDeclarationEntry>,
 }
 
+/// Metadata entry for a single trigger-less computation graph declared
+/// by this package, returned by `get_triggerless_graph_metadata()`.
+/// `terminal_node_names` mirrors the field on
+/// `TriggerlessGraphRegistration` so the host's
+/// `register_triggerless_graph` registration carries the same
+/// ordering — workflow tasks invoke the graph and write each terminal
+/// output into context under the corresponding name. (T-0553 follow-up
+/// — Trigger-less CG FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerlessGraphMetadataEntry {
+    /// Graph name (the `#[computation_graph]` mod name).
+    pub name: String,
+    /// Cargo package name (sourcing context for diagnostics).
+    pub package_name: String,
+    /// Terminal node names in declaration order. The host adapter uses
+    /// this when registering the graph into the scoped Runtime so
+    /// `#[task(invokes = computation_graph(...))]` writes the right
+    /// keys back into context after invocation.
+    pub terminal_node_names: Vec<String>,
+}
+
+/// Request to invoke a trigger-less computation graph from the host
+/// across the FFI boundary. The host's `FfiTriggerlessGraph` adapter
+/// sends one of these per workflow-task invocation. (T-0553 follow-up
+/// — Trigger-less CG FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerlessGraphInvokeRequest {
+    /// Inventory-registered graph name to invoke.
+    pub graph_name: String,
+    /// Serialized `Context<serde_json::Value>` carrying inputs.
+    pub context_json: String,
+}
+
+/// Result of a cross-FFI trigger-less graph invocation. Mirrors
+/// `GraphResult::Completed { outputs }` / `GraphResult::Error(...)` in
+/// a wire-format-friendly shape: terminal outputs ride as a serialized
+/// `Vec<serde_json::Value>` ordered to match the metadata's
+/// `terminal_node_names`. The host's `FfiTriggerlessGraph` reconstructs
+/// `GraphResult` from this. (T-0553 follow-up — Trigger-less CG FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerlessGraphInvokeResult {
+    /// `true` if the cdylib's graph_fn returned `Completed { .. }`,
+    /// `false` if it returned `Error(_)`. When `error` is set, this
+    /// field is meaningless.
+    pub success: bool,
+    /// Serialized `Vec<serde_json::Value>` of terminal outputs, indexed
+    /// by `terminal_node_names`. `None` for graphs that don't return
+    /// any terminal output values (the typical packaged shape).
+    pub terminal_outputs_json: Option<String>,
+    /// When the cdylib's graph_fn returned `Error(_)` or the named
+    /// graph wasn't found in inventory, this carries a description.
+    pub error: Option<String>,
+}
+
 /// Request to invoke a trigger's `poll()` from the host across the FFI
 /// boundary. Used by the reconciler to drive trigger polling without
 /// relying on `inventory` crossing the cdylib linker boundary (which

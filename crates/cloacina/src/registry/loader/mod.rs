@@ -21,6 +21,7 @@
 //! global task registry.
 
 pub mod ffi_trigger;
+pub mod ffi_triggerless_graph;
 pub mod package_loader;
 pub mod task_registrar;
 pub mod validator;
