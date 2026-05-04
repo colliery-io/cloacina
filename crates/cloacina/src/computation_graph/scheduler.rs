@@ -623,13 +623,15 @@ impl ComputationGraphScheduler {
     ///
     /// This spawns a fresh reactor instance tied to this graph, using the
     /// criteria + accumulator list carried by `reactor`, and binds `graph_fn`
-    /// as the firing callback. The reactor is registered in the endpoint
-    /// registry under `graph_name` (not the reactor's own name), which keeps
-    /// parity with today's bundled-form operational surface. Sharing a
-    /// single reactor instance across multiple graphs is a later step
-    /// (T-01b) — for now, "split form" means "the user declared the reactor
-    /// separately and referenced it by type path," and the linkage still
-    /// gets one reactor instance per graph.
+    /// as the firing callback.
+    ///
+    /// **Test-only convenience API.** Production reconciler code does NOT
+    /// call this — the `RegistryReconciler` calls `load_reactor` followed
+    /// by `bind_graph_to_reactor` directly so the reactor identity is
+    /// explicit at every step. This helper exists for integration tests in
+    /// `crates/cloacina/tests/integration/computation_graph.rs` that exercise
+    /// the split-form lifecycle. (T-0556 audit confirmed zero non-test
+    /// callers.)
     ///
     /// `input_strategy` defaults to [`InputStrategy::Latest`].
     pub async fn load_graph_split(

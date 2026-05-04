@@ -322,21 +322,8 @@ impl RegistryReconciler {
             // the Python import so `build_view_python` can compute the
             // diff (= primitives this package introduced) post-import
             // and feed the unified pipeline helpers.
-            let py_pre_reactor_names: std::collections::HashSet<String> = self
-                .runtime
-                .as_ref()
-                .map(|rt| rt.reactor_names().into_iter().collect())
-                .unwrap_or_default();
-            let py_pre_trigger_names: std::collections::HashSet<String> = self
-                .runtime
-                .as_ref()
-                .map(|rt| rt.trigger_names().into_iter().collect())
-                .unwrap_or_default();
-            let py_pre_graph_names: std::collections::HashSet<String> = self
-                .runtime
-                .as_ref()
-                .map(|rt| rt.computation_graph_names().into_iter().collect())
-                .unwrap_or_default();
+            let (py_pre_reactor_names, py_pre_trigger_names, py_pre_graph_names) =
+                self.snapshot_runtime_registries();
             let runtime = crate::python_runtime::python_runtime().ok_or_else(|| {
                 RegistryError::RegistrationFailed {
                     message: "Python package {} received but no PythonRuntime is attached \
@@ -438,116 +425,7 @@ impl RegistryReconciler {
         let graph_name = if rust_graph_name.is_some() {
             rust_graph_name
         } else if cloacina_manifest.metadata.has_computation_graph() {
-            if cloacina_manifest.metadata.language == "rust" {
-                // Reuse the cdylib bytes already fetched for task registration
-                // above — no recompilation, no extra DB hit.
-                let library_data =
-                    rust_cdylib_bytes
-                        .clone()
-                        .ok_or_else(|| RegistryError::RegistrationFailed {
-                            message: format!(
-                                "Rust CG package {} v{} has no compiled_data",
-                                metadata.package_name, metadata.version
-                            ),
-                        })?;
-
-                match self
-                    .package_loader
-                    .extract_graph_metadata(&library_data)
-                    .await
-                {
-                    Ok(Some(graph_meta)) => {
-                        info!(
-                            "Computation graph detected: {} (accumulators: {:?})",
-                            graph_meta.graph_name,
-                            graph_meta
-                                .accumulators
-                                .iter()
-                                .map(|a| &a.name)
-                                .collect::<Vec<_>>()
-                        );
-
-                        // Merge manifest accumulator configs into FFI defaults
-                        let mut graph_meta = graph_meta;
-                        for manifest_acc in &cloacina_manifest.metadata.accumulators {
-                            if let Some(ffi_acc) = graph_meta
-                                .accumulators
-                                .iter_mut()
-                                .find(|a| a.name == manifest_acc.name)
-                            {
-                                ffi_acc.accumulator_type = manifest_acc.accumulator_type.clone();
-                                ffi_acc.config = manifest_acc.config.clone();
-                            }
-                        }
-
-                        let scheduler_guard = self.graph_scheduler.read().await;
-                        if let Some(ref scheduler) = *scheduler_guard {
-                            let mut decl =
-                                crate::computation_graph::packaging_bridge::build_declaration_from_ffi(
-                                    &graph_meta,
-                                    library_data.clone(),
-                                );
-                            decl.tenant_id = Some(self.config.default_tenant_id.clone());
-
-                            // Also register the CG on the attached Runtime so
-                            // executors can look it up without going through
-                            // the global CG registry.
-                            if let Some(runtime) = &self.runtime {
-                                let graph_fn = decl.reactor.graph_fn.clone();
-                                let accumulator_names: Vec<String> =
-                                    decl.accumulators.iter().map(|a| a.name.clone()).collect();
-                                let reaction_mode = graph_meta.reaction_mode.clone();
-                                runtime.register_computation_graph(
-                                    graph_meta.graph_name.clone(),
-                                    move || crate::ComputationGraphRegistration {
-                                        graph_fn: graph_fn.clone(),
-                                        // Packaged CG loading predates the
-                                        // split form (I-0101). Entry
-                                        // accumulators mirror the declared
-                                        // accumulator set, and the reactor
-                                        // is bundled with the graph, so we
-                                        // don't carry a separate reactor
-                                        // binding.
-                                        entry_accumulators: accumulator_names.clone(),
-                                        trigger_reactor: None,
-                                        accumulator_names: accumulator_names.clone(),
-                                        reaction_mode: reaction_mode.clone(),
-                                    },
-                                );
-                            }
-
-                            if let Err(e) = scheduler.load_graph(decl).await {
-                                warn!(
-                                    "Failed to load computation graph '{}': {}",
-                                    graph_meta.graph_name, e
-                                );
-                            } else {
-                                info!(
-                                    "Computation graph '{}' loaded into ComputationGraphScheduler",
-                                    graph_meta.graph_name
-                                );
-                            }
-                        } else {
-                            warn!(
-                                "Computation graph '{}' detected but no ComputationGraphScheduler configured",
-                                graph_meta.graph_name
-                            );
-                        }
-
-                        Some(graph_meta.graph_name)
-                    }
-                    Ok(None) => {
-                        debug!(
-                            "Package claims computation_graph type but plugin doesn't support get_graph_metadata"
-                        );
-                        None
-                    }
-                    Err(e) => {
-                        warn!("Failed to extract graph metadata: {}", e);
-                        None
-                    }
-                }
-            } else if cloacina_manifest.metadata.language == "python" {
+            if cloacina_manifest.metadata.language == "python" {
                 // Python computation graph: dispatch through the
                 // `PythonRuntime` trait. Same reasoning as the workflow
                 // branch — binaries without Python support error out here
@@ -559,21 +437,8 @@ impl RegistryReconciler {
                     // T-0554 Phase 2: pre-snapshot scoped runtime so the
                     // post-load view can drive cross-package contract
                     // validation through the unified pipeline helpers.
-                    let cg_pre_reactor_names: std::collections::HashSet<String> = self
-                        .runtime
-                        .as_ref()
-                        .map(|rt| rt.reactor_names().into_iter().collect())
-                        .unwrap_or_default();
-                    let cg_pre_trigger_names: std::collections::HashSet<String> = self
-                        .runtime
-                        .as_ref()
-                        .map(|rt| rt.trigger_names().into_iter().collect())
-                        .unwrap_or_default();
-                    let cg_pre_graph_names: std::collections::HashSet<String> = self
-                        .runtime
-                        .as_ref()
-                        .map(|rt| rt.computation_graph_names().into_iter().collect())
-                        .unwrap_or_default();
+                    let (cg_pre_reactor_names, cg_pre_trigger_names, cg_pre_graph_names) =
+                        self.snapshot_runtime_registries();
                     let runtime = crate::python_runtime::python_runtime().ok_or_else(|| {
                         RegistryError::RegistrationFailed {
                             message: format!(
@@ -729,12 +594,21 @@ impl RegistryReconciler {
         };
 
         // Tasks, workflows, and CGs are registered directly on the Runtime by
-        // the Rust + Python load paths above. For Rust cdylib packages, we
-        // additionally seed the Runtime from `inventory` after dlopen so any
-        // `#[trigger]`/`#[computation_graph]`/`#[task]` entries emitted by the
-        // loaded library's `inventory::submit!` blocks land in the Runtime.
-        // Python packages register through the thread-local scope and do not
-        // need this re-seed.
+        // the Rust + Python load paths above. For Rust cdylib packages we
+        // re-seed the Runtime from `inventory` after dlopen — but only
+        // for inventory entries from libraries linked into the host
+        // process, NOT from independently-compiled cdylibs. Each
+        // packaged crate has its own `cloacina-workflow-plugin`
+        // compilation with distinct linker symbols, so its
+        // `inventory::submit!` entries never reach the host's
+        // `inventory::iter`. The cross-cdylib path for triggers /
+        // trigger-less graphs / reactors goes through the FFI bridges
+        // (T-0553 follow-ups: `step_load_custom_triggers`,
+        // `step_load_triggerless_cgs`, `step_load_reactors`). This
+        // re-seed only catches late host-side submissions and is a
+        // no-op for the typical packaged-cdylib case.
+        // Python packages register through the thread-local scope and
+        // don't need this re-seed.
         if let Some(runtime) = &self.runtime {
             if cloacina_manifest.metadata.language == "rust" {
                 runtime.seed_from_inventory();
@@ -1317,6 +1191,31 @@ impl RegistryReconciler {
     /// re-register tasks from the view. (Tasks live on the `Runtime`
     /// directly for Python; only the metadata view needs the shape
     /// match.) (T-0554 Phase 2)
+    /// Snapshot the scoped Runtime's reactor / trigger / computation-graph
+    /// name sets. Used by the Python load paths to capture pre-import
+    /// state so `build_view_python` can compute the diff (= primitives
+    /// this package introduced) once the import finishes registering
+    /// into the same Runtime. Returns `(reactor, trigger, graph)` empty
+    /// sets when no Runtime is attached — callers treat that as
+    /// "no Runtime, no diff to compute."
+    fn snapshot_runtime_registries(
+        &self,
+    ) -> (
+        std::collections::HashSet<String>,
+        std::collections::HashSet<String>,
+        std::collections::HashSet<String>,
+    ) {
+        let rt = match self.runtime.as_ref() {
+            Some(rt) => rt,
+            None => return Default::default(),
+        };
+        (
+            rt.reactor_names().into_iter().collect(),
+            rt.trigger_names().into_iter().collect(),
+            rt.computation_graph_names().into_iter().collect(),
+        )
+    }
+
     pub(super) fn build_view_python(
         &self,
         package_name: &str,
