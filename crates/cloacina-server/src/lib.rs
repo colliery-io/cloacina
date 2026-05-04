@@ -292,9 +292,9 @@ pub async fn run(
     info!("  GET  /health     — liveness check");
     info!("  GET  /ready      — readiness check");
     info!("  GET  /metrics    — Prometheus metrics");
-    info!("  POST /auth/keys  — create API key (auth required)");
-    info!("  GET  /auth/keys  — list API keys (auth required)");
-    info!("  DEL  /auth/keys/:id — revoke key (auth required)");
+    info!("  POST /v1/auth/keys      — create API key (auth required)");
+    info!("  GET  /v1/auth/keys      — list API keys (auth required)");
+    info!("  DEL  /v1/auth/keys/:id  — revoke key (auth required)");
     info!("");
 
     // Shared shutdown signal — used by supervision loop and graceful shutdown.
@@ -311,7 +311,7 @@ pub async fn run(
             let _ = rx.changed().await;
             info!("Shutting down graph scheduler...");
             scheduler.shutdown_all().await;
-            info!("Reactive scheduler shutdown complete");
+            info!("Computation graph scheduler shutdown complete");
         })
     };
 
@@ -713,7 +713,7 @@ mod tests {
                 std::time::Duration::from_secs(60),
             )),
             metrics_handle: test_metrics_handle,
-            tenant_databases: Arc::new(TenantDatabaseCache::new(String::new())),
+            tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
         }
     }
 
@@ -932,6 +932,34 @@ mod tests {
         );
     }
 
+    // ── Routing guard ─────────────────────────────────────────────────
+
+    /// Regression for T-0557 Bug 1: T-0449 nested every authenticated
+    /// route under `/v1/`, but the test suite kept hitting bare paths
+    /// for ~7 months without anyone noticing because the suite was
+    /// silently failing on a missing Postgres connection. This test
+    /// asserts the `/v1/` prefix is mandatory — a request to the
+    /// unprefixed path must hit the 404 fallback, not be silently
+    /// fall-through-routed somewhere else.
+    #[tokio::test]
+    #[serial]
+    async fn test_unprefixed_auth_route_returns_404() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/auth/keys")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "/auth/keys (without /v1/ prefix) must 404 — production paths are /v1/-prefixed"
+        );
+    }
+
     // ── Auth middleware ───────────────────────────────────────────────
 
     #[tokio::test]
@@ -941,7 +969,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/auth/keys")
+            .uri("/v1/auth/keys")
             .body(Body::empty())
             .unwrap();
 
@@ -957,7 +985,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/auth/keys")
+            .uri("/v1/auth/keys")
             .header("Authorization", "Bearer clk_totally_invalid_key_12345678")
             .body(Body::empty())
             .unwrap();
@@ -975,7 +1003,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/auth/keys")
+            .uri("/v1/auth/keys")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -992,7 +1020,7 @@ mod tests {
 
         // "Basic" instead of "Bearer"
         let req = axum::http::Request::builder()
-            .uri("/auth/keys")
+            .uri("/v1/auth/keys")
             .header("Authorization", "Basic abc123")
             .body(Body::empty())
             .unwrap();
@@ -1012,7 +1040,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/auth/keys")
+            .uri("/v1/auth/keys")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(r#"{"name": "new-test-key"}"#))
@@ -1034,7 +1062,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/auth/keys")
+            .uri("/v1/auth/keys")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(r#"{}"#))
@@ -1053,7 +1081,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/auth/keys")
+            .uri("/v1/auth/keys")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1083,7 +1111,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri(format!("/auth/keys/{}", info2.id))
+            .uri(format!("/v1/auth/keys/{}", info2.id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1103,7 +1131,7 @@ mod tests {
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri(format!("/auth/keys/{}", fake_id))
+            .uri(format!("/v1/auth/keys/{}", fake_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1121,7 +1149,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri("/auth/keys/not-a-uuid")
+            .uri("/v1/auth/keys/not-a-uuid")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1151,7 +1179,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/tenants")
+            .uri("/v1/tenants")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(serde_json::to_string(&body_json).unwrap()))
@@ -1170,7 +1198,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/tenants")
+            .uri("/v1/tenants")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1189,7 +1217,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri("/tenants/nonexistent_schema_xyz")
+            .uri("/v1/tenants/nonexistent_schema_xyz")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1220,7 +1248,7 @@ mod tests {
         let app = build_router(state.clone());
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/tenants")
+            .uri("/v1/tenants")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(serde_json::to_string(&body_json).unwrap()))
@@ -1232,7 +1260,7 @@ mod tests {
         let app = build_router(state);
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri(format!("/tenants/{}", schema))
+            .uri(format!("/v1/tenants/{}", schema))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1251,7 +1279,7 @@ mod tests {
         // Missing required schema_name and username
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/tenants")
+            .uri("/v1/tenants")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(r#"{}"#))
@@ -1270,7 +1298,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/tenants/default/workflows")
+            .uri("/v1/tenants/default/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1288,7 +1316,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/tenants/default/workflows/nonexistent_workflow")
+            .uri("/v1/tenants/default/workflows/nonexistent_workflow")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1312,7 +1340,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/tenants/default/workflows")
+            .uri("/v1/tenants/default/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -1340,7 +1368,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/tenants/default/workflows")
+            .uri("/v1/tenants/default/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -1380,7 +1408,10 @@ mod tests {
         let app = build_router(state.clone());
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri(format!("/tenants/default/workflows/{}/{}", name, version))
+            .uri(format!(
+                "/v1/tenants/default/workflows/{}/{}",
+                name, version
+            ))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1404,7 +1435,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/tenants/default/workflows")
+            .uri("/v1/tenants/default/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -1434,7 +1465,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/tenants/default/workflows")
+            .uri("/v1/tenants/default/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -1459,7 +1490,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/tenants/default/workflows")
+            .uri("/v1/tenants/default/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -1482,7 +1513,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/tenants/default/executions")
+            .uri("/v1/tenants/default/executions")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1500,7 +1531,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/tenants/default/executions/not-a-uuid")
+            .uri("/v1/tenants/default/executions/not-a-uuid")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1518,7 +1549,7 @@ mod tests {
 
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
-            .uri(format!("/tenants/default/executions/{}", fake_id))
+            .uri(format!("/v1/tenants/default/executions/{}", fake_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1535,7 +1566,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/tenants/default/executions/not-a-uuid/events")
+            .uri("/v1/tenants/default/executions/not-a-uuid/events")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1553,7 +1584,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/tenants/default/workflows/nonexistent_wf/execute")
+            .uri("/v1/tenants/default/workflows/nonexistent_wf/execute")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(r#"{"context": {}}"#))
@@ -1574,7 +1605,7 @@ mod tests {
         // an empty events list (the DAL returns Ok([]) for missing executions)
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
-            .uri(format!("/tenants/default/executions/{}/events", fake_id))
+            .uri(format!("/v1/tenants/default/executions/{}/events", fake_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1595,7 +1626,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/tenants/default/triggers")
+            .uri("/v1/tenants/default/triggers")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1613,7 +1644,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/tenants/default/triggers/nonexistent_trigger")
+            .uri("/v1/tenants/default/triggers/nonexistent_trigger")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
