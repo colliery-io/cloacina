@@ -679,6 +679,23 @@ macro_rules! package {
 ///
 /// - `execute_task` — Runs a specific task by name with a JSON-serialized
 ///   context. Returns the updated context or an error.
+/// Method index constants for the `CloacinaPlugin` trait. The fidius
+/// plugin ABI dispatches by positional method index — call sites on the
+/// host (and any out-of-tree consumers) must match the order in which
+/// methods are declared on the trait below. Defining them here in the
+/// canonical interface crate keeps host and plugin in lockstep: a
+/// reorder of trait methods is impossible without also re-numbering
+/// these constants.
+pub const METHOD_GET_TASK_METADATA: usize = 0;
+pub const METHOD_EXECUTE_TASK: usize = 1;
+pub const METHOD_GET_GRAPH_METADATA: usize = 2;
+pub const METHOD_EXECUTE_GRAPH: usize = 3;
+pub const METHOD_GET_REACTOR_METADATA: usize = 4;
+pub const METHOD_GET_TRIGGER_METADATA: usize = 5;
+pub const METHOD_INVOKE_TRIGGER_POLL: usize = 6;
+pub const METHOD_GET_TRIGGERLESS_GRAPH_METADATA: usize = 7;
+pub const METHOD_INVOKE_TRIGGERLESS_GRAPH: usize = 8;
+
 #[fidius::plugin_interface(version = 2, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.

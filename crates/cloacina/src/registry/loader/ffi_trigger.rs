@@ -33,13 +33,11 @@
 //! runtime.
 
 use cloacina_workflow::{Context, Trigger, TriggerError, TriggerResult};
-use cloacina_workflow_plugin::{TriggerInvokeRequest, TriggerInvokeResult};
+use cloacina_workflow_plugin::{
+    TriggerInvokeRequest, TriggerInvokeResult, METHOD_INVOKE_TRIGGER_POLL,
+};
 use std::sync::Arc;
 use std::time::Duration;
-
-/// Method index of `invoke_trigger_poll` on the `CloacinaPlugin` trait.
-/// Mirrors the trait declaration order in `cloacina-workflow-plugin/src/lib.rs`.
-const INVOKE_TRIGGER_POLL_METHOD_INDEX: usize = 6;
 
 /// Host-side `Trigger` impl that proxies to a packaged cdylib through
 /// fidius. Cached metadata (`name`, `poll_interval`, `allow_concurrent`,
@@ -111,7 +109,7 @@ impl Trigger for FfiTriggerImpl {
         // drives user poll() code.
         let result: Result<TriggerInvokeResult, fidius_host::CallError> =
             tokio::task::spawn_blocking(move || {
-                handle.call_method(INVOKE_TRIGGER_POLL_METHOD_INDEX, &request)
+                handle.call_method(METHOD_INVOKE_TRIGGER_POLL, &request)
             })
             .await
             .map_err(|e| TriggerError::PollError {

@@ -92,7 +92,7 @@ impl LoadedGraphPlugin {
         })
     }
 
-    /// Call execute_graph (method index 3) on the loaded plugin.
+    /// Call execute_graph on the loaded plugin.
     fn execute_graph(
         &self,
         request: GraphExecutionRequest,
@@ -102,21 +102,21 @@ impl LoadedGraphPlugin {
             .lock()
             .map_err(|e| format!("Plugin mutex poisoned: {}", e))?;
         handle
-            .call_method(3, &(request,))
+            .call_method(METHOD_EXECUTE_GRAPH, &(request,))
             .map_err(|e| format!("execute_graph FFI call failed: {}", e))
     }
 }
 
-/// Method index constants for the version-2 `CloacinaPlugin` trait. Used by
-/// the reconciler dispatch (T-B) so call sites don't sprinkle bare numeric
-/// literals across the codebase. Order must match the trait's method
-/// declaration order in `cloacina-workflow-plugin/src/lib.rs`.
-pub const METHOD_GET_TASK_METADATA: usize = 0;
-pub const METHOD_EXECUTE_TASK: usize = 1;
-pub const METHOD_GET_GRAPH_METADATA: usize = 2;
-pub const METHOD_EXECUTE_GRAPH: usize = 3;
-pub const METHOD_GET_REACTOR_METADATA: usize = 4;
-pub const METHOD_GET_TRIGGER_METADATA: usize = 5;
+/// Method index constants for the version-2 `CloacinaPlugin` trait. The
+/// canonical definitions live alongside the trait in
+/// `cloacina-workflow-plugin`; we re-export them here so existing
+/// `crate::computation_graph::packaging_bridge::METHOD_*` consumers don't
+/// have to change their import paths.
+pub use cloacina_workflow_plugin::{
+    METHOD_EXECUTE_GRAPH, METHOD_EXECUTE_TASK, METHOD_GET_GRAPH_METADATA,
+    METHOD_GET_REACTOR_METADATA, METHOD_GET_TASK_METADATA, METHOD_GET_TRIGGERLESS_GRAPH_METADATA,
+    METHOD_GET_TRIGGER_METADATA, METHOD_INVOKE_TRIGGERLESS_GRAPH, METHOD_INVOKE_TRIGGER_POLL,
+};
 
 /// Call `get_reactor_metadata` (method index 4) on a loaded fidius plugin.
 ///

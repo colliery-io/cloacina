@@ -717,13 +717,20 @@ impl RegistryReconciler {
         }
 
         // --- Step 3 (reverse): reactors owned by THIS package ---
-        // Iterate the reactors this package introduced and ask the
-        // scheduler to tear each one down. The T-0544 M4 guard inside
-        // `unload_reactor` rejects when any cross-package subscriber is
-        // still bound; we surface the first such rejection as the
-        // unload's overall error so operators get a clean signal that
-        // they need to unload subscribers first.
+        // Iterate the reactors this package introduced and tear each
+        // one down at both layers:
+        // 1. Scheduler-side: stop the running reactor task + accumulators,
+        //    deregister endpoint-registry keys. The T-0544 M4 guard inside
+        //    `unload_reactor` rejects when any cross-package subscriber is
+        //    still bound; we surface the first such rejection as the
+        //    unload's overall error so operators get a clean signal that
+        //    they need to unload subscribers first.
+        // 2. Runtime-side: drop the reactor constructor from the global
+        //    `Runtime` registry. Without this, hot-reloading the same
+        //    package leaves a stale constructor entry; over many reload
+        //    cycles in a long-lived daemon this leaks (T-0564).
         let mut reactor_unload_error: Option<String> = None;
+        let mut scheduler_unloaded_reactors: Vec<&String> = Vec::new();
         if !package_state.reactor_names.is_empty() {
             let scheduler_guard = self.graph_scheduler.read().await;
             if let Some(ref scheduler) = *scheduler_guard {
@@ -734,13 +741,16 @@ impl RegistryReconciler {
                                 "Reactor '{}' unloaded for package {}",
                                 reactor_name, package_state.metadata.package_name
                             );
+                            scheduler_unloaded_reactors.push(reactor_name);
                         }
                         Err(e) => {
                             // Bundled-form CG packages: the reactor was
                             // already torn down by `unload_graph` above
                             // when this package was the last subscriber.
-                            // Treat "not loaded" as a clean no-op.
+                            // Treat "not loaded" as a clean no-op — and
+                            // still drop the runtime constructor below.
                             if e.contains("not loaded") {
+                                scheduler_unloaded_reactors.push(reactor_name);
                                 continue;
                             }
                             warn!(
@@ -757,6 +767,15 @@ impl RegistryReconciler {
                         }
                     }
                 }
+            }
+        }
+        // Drop reactor constructors from the Runtime registry for every
+        // reactor whose scheduler-side teardown succeeded (or was a clean
+        // no-op). Reactors blocked by bound subscribers stay registered;
+        // the next unload attempt will try again once subscribers unbind.
+        if let Some(runtime) = &self.runtime {
+            for reactor_name in scheduler_unloaded_reactors {
+                runtime.unregister_reactor(reactor_name);
             }
         }
 
@@ -2370,6 +2389,72 @@ mod tests {
                 .await
                 .is_none(),
             "reactor must be torn down after publisher unload"
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    /// T-0564: unload_package must drop the reactor constructor from the
+    /// Runtime registry alongside the scheduler-side teardown. Without
+    /// this, hot-reloading the same package leaves a stale constructor
+    /// entry; long-running daemons that reload the same package across
+    /// many cycles accumulate dead entries.
+    #[tokio::test]
+    #[serial]
+    async fn unload_package_drops_reactor_from_runtime_registry() {
+        use crate::registry::reconciler::PackageState;
+        use crate::registry::types::WorkflowPackageId;
+
+        let endpoint_registry = EndpointRegistry::new();
+        let scheduler = Arc::new(ComputationGraphScheduler::new(endpoint_registry));
+        load_publishing_reactor_into_scheduler(&scheduler, "ephemeral_rx", &["alpha"]).await;
+
+        let reconciler = make_reconciler_with_scheduler(scheduler.clone());
+
+        // Mirror what the load path does for Rust packages: register the
+        // reactor constructor in the Runtime registry. (For real loads
+        // this happens via `view.reactors` projection in
+        // `step_load_reactors`; here we register directly so the unload
+        // arm has something to remove.)
+        let runtime = runtime_of(&reconciler);
+        runtime.register_reactor("ephemeral_rx".to_string(), || {
+            cloacina_computation_graph::ReactorRegistration {
+                name: "ephemeral_rx".to_string(),
+                accumulator_names: vec!["alpha".to_string()],
+                reaction_mode: cloacina_computation_graph::ReactionMode::WhenAny,
+            }
+        });
+        assert!(
+            runtime.reactor_names().iter().any(|n| n == "ephemeral_rx"),
+            "precondition: reactor constructor registered before unload"
+        );
+
+        let publisher_id: WorkflowPackageId = uuid::Uuid::new_v4();
+        reconciler.loaded_packages.write().await.insert(
+            publisher_id,
+            PackageState {
+                metadata: WorkflowMetadata {
+                    package_name: "publisher-ephemeral".to_string(),
+                    ..make_test_metadata()
+                },
+                task_namespaces: vec![],
+                workflow_name: None,
+                trigger_names: vec![],
+                graph_name: None,
+                reactor_names: vec!["ephemeral_rx".to_string()],
+                cron_schedule_ids: vec![],
+                triggerless_graph_names: vec![],
+            },
+        );
+
+        reconciler
+            .unload_package(publisher_id)
+            .await
+            .expect("unload should succeed when no subscribers are bound");
+
+        assert!(
+            !runtime.reactor_names().iter().any(|n| n == "ephemeral_rx"),
+            "reactor constructor must be removed from Runtime registry after unload"
         );
 
         scheduler.shutdown_all().await;

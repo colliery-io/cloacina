@@ -68,13 +68,11 @@ impl TaskRegistrar {
 
         let handle = fidius_host::PluginHandle::from_loaded(plugin);
 
-        // Method index 0 = get_task_metadata (zero-arg, encoded as empty tuple)
-        let metadata: cloacina_workflow_plugin::PackageTasksMetadata =
-            handle
-                .call_method(0, &())
-                .map_err(|e| LoaderError::MetadataExtraction {
-                    reason: format!("Failed to call get_task_metadata: {}", e),
-                })?;
+        let metadata: cloacina_workflow_plugin::PackageTasksMetadata = handle
+            .call_method(cloacina_workflow_plugin::METHOD_GET_TASK_METADATA, &())
+            .map_err(|e| LoaderError::MetadataExtraction {
+                reason: format!("Failed to call get_task_metadata: {}", e),
+            })?;
 
         // Convert PackageTasksMetadata → OwnedTaskMetadataCollection
         let task_count = metadata.tasks.len();

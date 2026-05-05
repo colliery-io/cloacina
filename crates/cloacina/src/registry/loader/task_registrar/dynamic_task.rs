@@ -89,14 +89,14 @@ impl LoadedWorkflowPlugin {
         })
     }
 
-    /// Call execute_task (method index 1) on the loaded plugin.
+    /// Call execute_task on the loaded plugin.
     fn execute_task(&self, request: TaskExecutionRequest) -> Result<TaskExecutionResult, String> {
         let handle = self
             .handle
             .lock()
             .map_err(|e| format!("Plugin mutex poisoned: {}", e))?;
         handle
-            .call_method(1, &(request,))
+            .call_method(cloacina_workflow_plugin::METHOD_EXECUTE_TASK, &(request,))
             .map_err(|e| format!("execute_task FFI call failed: {}", e))
     }
 }

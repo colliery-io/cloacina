@@ -27,11 +27,10 @@
 
 use cloacina_computation_graph::{GraphError, GraphResult};
 use cloacina_workflow::Context;
-use cloacina_workflow_plugin::{TriggerlessGraphInvokeRequest, TriggerlessGraphInvokeResult};
+use cloacina_workflow_plugin::{
+    TriggerlessGraphInvokeRequest, TriggerlessGraphInvokeResult, METHOD_INVOKE_TRIGGERLESS_GRAPH,
+};
 use std::sync::Arc;
-
-/// Method index of `invoke_triggerless_graph` on `CloacinaPlugin`.
-const INVOKE_TRIGGERLESS_GRAPH_METHOD_INDEX: usize = 8;
 
 /// Build a `TriggerlessGraphFn` that dispatches the named graph
 /// through the cdylib at every invocation. The returned closure
@@ -72,7 +71,7 @@ pub fn build_ffi_triggerless_graph_fn(
             };
             let call_result: Result<TriggerlessGraphInvokeResult, fidius_host::CallError> =
                 tokio::task::spawn_blocking(move || {
-                    handle.call_method(INVOKE_TRIGGERLESS_GRAPH_METHOD_INDEX, &request)
+                    handle.call_method(METHOD_INVOKE_TRIGGERLESS_GRAPH, &request)
                 })
                 .await
                 .unwrap_or_else(|e| {

@@ -228,9 +228,8 @@ impl PackageLoader {
 
         let handle = fidius_host::PluginHandle::from_loaded(plugin);
 
-        // Method index 0 = get_task_metadata (zero-arg, encoded as empty tuple)
         let ffi_metadata: cloacina_workflow_plugin::PackageTasksMetadata = handle
-            .call_method(0, &())
+            .call_method(cloacina_workflow_plugin::METHOD_GET_TASK_METADATA, &())
             .map_err(|e| LoaderError::MetadataExtraction {
                 reason: format!("Failed to call get_task_metadata: {}", e),
             })?;
@@ -350,10 +349,10 @@ impl PackageLoader {
 
         let handle = fidius_host::PluginHandle::from_loaded(plugin);
 
-        // Method index 2 = get_graph_metadata (zero-arg)
-        let result = match handle
-            .call_method::<(), cloacina_workflow_plugin::GraphPackageMetadata>(2, &())
-        {
+        let result = match handle.call_method::<(), cloacina_workflow_plugin::GraphPackageMetadata>(
+            cloacina_workflow_plugin::METHOD_GET_GRAPH_METADATA,
+            &(),
+        ) {
             Ok(meta) => Ok(Some(meta)),
             Err(e) => {
                 // Plugin doesn't support graph metadata — that's OK for workflow-only packages
@@ -523,7 +522,10 @@ impl PackageLoader {
         let result: Result<
             Vec<cloacina_workflow_plugin::TriggerlessGraphMetadataEntry>,
             fidius_host::CallError,
-        > = handle.call_method(7, &());
+        > = handle.call_method(
+            cloacina_workflow_plugin::METHOD_GET_TRIGGERLESS_GRAPH_METADATA,
+            &(),
+        );
 
         let out = match result {
             Ok(v) => Ok(v),
