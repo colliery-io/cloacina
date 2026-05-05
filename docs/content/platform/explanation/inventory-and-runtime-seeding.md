@@ -52,10 +52,10 @@ explicit per-symbol registration call.
 
 ## Why this replaced `#[ctor]`
 
-Pre-I-0096, Cloacina used the `ctor` crate to register symbols. Each
-macro emitted a `#[ctor::ctor]` function that ran before `main()` and
-mutated process-global registries. This worked but had three sharp
-problems:
+In an earlier model, Cloacina used the `ctor` crate to register
+symbols. Each macro emitted a `#[ctor::ctor]` function that ran
+before `main()` and mutated process-global registries. This worked
+but had three sharp problems:
 
 1. **Pre-`main` execution forbids many things.** `#[ctor]` runs
    before tokio is initialized, before logging, before allocator setup.
@@ -68,7 +68,7 @@ problems:
    independently-built cdylibs both register tasks under the same name
    into a process-global registry, the loser silently overwrites the
    winner. Debugging this requires staring at link order. The
-   I-0096 flip moved registries onto `Runtime` instances, so each
+   redesign moved registries onto `Runtime` instances, so each
    `Runtime::new()` produces an isolated set of registries seeded fresh
    from inventory.
 

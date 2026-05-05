@@ -9,7 +9,10 @@ weight: 31
 Cloacina plugins (`.cloacina` packages) export a fixed FFI vtable that
 the host calls by **positional index**. The vtable is declared by the
 `CloacinaPlugin` trait in `crates/cloacina-workflow-plugin/src/lib.rs`
-and is dispatched at runtime by [fidius](https://github.com/colliery-software/fidius).
+and is dispatched at runtime by [fidius](https://github.com/colliery-software/fidius)
+— the plugin framework Cloacina uses to load shared libraries and
+call into them by index. The host-side fidius API is provided by the
+`fidius-host` crate; the plugin-side helpers come from `fidius-core`.
 
 The canonical method indices are exported as constants from
 `cloacina-workflow-plugin`:
@@ -66,11 +69,16 @@ context back across the boundary.
 | Wire output | `Result<GraphPackageMetadata, PluginError>` |
 | Optional since | — |
 
-Returns the package's *bundled-form* computation graph metadata: name,
-reaction mode (`when_any` / `when_all`), input strategy
-(`latest` / `sequential`), and accumulator declarations. Packages
-without a CG return `PluginError`; the reconciler treats that as "no
-bundled CG" and skips step 5.
+Returns the package's *bundled-form* computation graph metadata
+(*bundled-form* = the original 1:1 reactor-per-graph model where the
+reactor is synthesized inside the same `#[computation_graph]` macro
+expansion; contrast *split-form*, where the reactor is declared
+standalone via `#[reactor(...)]` and graphs bind to it via
+`trigger = reactor(...)` — see [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}})).
+The metadata carries name, reaction mode (`when_any` / `when_all`),
+input strategy (`latest` / `sequential`), and accumulator
+declarations. Packages without a CG return `PluginError`; the
+reconciler treats that as "no bundled CG" and skips step 5.
 
 ## Method Index 3 — `execute_graph`
 
@@ -158,6 +166,25 @@ invocation through method 8.
 Invokes a named trigger-less CG with a workflow context. Same blocking
 + cross-runtime pattern as method 6: the cdylib's tokio runtime drives
 the graph execution, the host receives the terminal outputs.
+
+## Python Plugins and Host-Build Requirements
+
+Python `.cloacina` packages are loaded via PyO3 rather than the FFI
+vtable — they do not implement `CloacinaPlugin` directly. However,
+the host must be compiled **with Python support** to load them. A
+host built without the Python feature will reject Python packages at
+load time with:
+
+```text
+RegistryError::RegistrationFailed(
+    "Python package <name> received but no PythonRuntime is attached"
+)
+```
+
+If you operate a multi-language deployment, ensure your host build
+includes Python support (or run separate hosts per language). Rust-
+only packages have no such requirement; the FFI vtable is
+language-neutral.
 
 ## ABI Stability and Versioning
 

@@ -1,6 +1,6 @@
 ---
 title: "package! Macro Reference"
-description: "Reference for the cloacina::package!() unified plugin shell macro emitted by I-0102."
+description: "Reference for the cloacina::package!() unified plugin shell macro: where to put it, what it emits, ABI versioning."
 weight: 30
 ---
 
@@ -8,9 +8,9 @@ weight: 30
 
 `cloacina::package!()` is the single-line macro that turns a Rust crate
 into a fully-formed Cloacina plugin (`.cloacina` package). It replaces
-the per-macro `_ffi` emission path that pre-I-0102 packages used —
-authors no longer hand-stitch the FFI vtable, the `inventory`
-walk-and-project step, or the trait-impl boilerplate.
+the per-macro `_ffi` emission path used by older packages — authors no
+longer hand-stitch the FFI vtable, the `inventory` walk-and-project
+step, or the trait-impl boilerplate.
 
 ## Where to put it
 
@@ -67,27 +67,18 @@ preventing two `CloacinaPackagePlugin` impls from coexisting.
 
 ## Why a single shell macro
 
-Pre-I-0102, every per-symbol macro (`#[task]`, `#[trigger]`,
-`#[reactor]`, `#[computation_graph]`) emitted its own `_ffi` block.
-This produced O(N) FFI surface per crate, made it hard to add new
-methods to the trait without touching every macro, and let the host
-and plugin disagree about the vtable shape if a developer forgot to
-update one of the macros. The unified shell collapses everything into
-one expansion site that always matches the canonical
-`CloacinaPlugin` trait declaration in
-`cloacina-workflow-plugin/src/lib.rs`. Adding a method now means
-adding it to the trait, the canonical method-index constant, and the
-shell macro — three sites in two files, all reviewed together.
+The unified shell collapses every per-symbol FFI emission into one
+expansion site that always matches the canonical `CloacinaPlugin`
+trait declaration. For the design rationale, the predecessor model
+this replaced, and the trade-offs, see [Inventory and Runtime
+Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}}).
 
 ## Inventory boundary
 
-The shell macro walks the **cdylib's own** inventory section, not the
-host's. This is deliberate: `inventory` entries do not span shared-
-library boundaries, so a host-side `Runtime::seed_from_inventory()` will
-*not* discover plugin entries. The FFI vtable is the bridge that lets
-the host enumerate plugin entries indirectly. See [Inventory and
-Runtime Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}})
-for the rationale.
+The shell macro walks the cdylib's own inventory section, not the
+host's. The FFI vtable bridges across the shared-library boundary.
+See [Inventory and Runtime Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}})
+for the full mechanism.
 
 ## Versioning
 

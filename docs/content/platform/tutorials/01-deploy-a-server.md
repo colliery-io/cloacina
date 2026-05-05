@@ -128,7 +128,7 @@ cloacinactl tenant create acme \
     --api-key "$ADMIN_KEY"
 ```
 
-Response (per the SEC-08 fix, the password is **not** returned):
+Response (the password is **not** returned per security policy):
 
 ```json
 {"schema_name": "acme", "username": "acme_user"}
@@ -207,12 +207,27 @@ Response:
 ```
 
 The reconciler runs through its [six-step pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}})
-to load the package. Watch the server logs in your first terminal —
-you'll see step-by-step trace lines as cron triggers, custom
-triggers, reactors, trigger-less CGs, reactor-bound CGs, and
-workflows are registered.
+to load the package. Watch the server logs in your first terminal.
+You'll see lines like:
 
-Verify the workflow is visible:
+```text
+INFO loading package package_id=f47ac10b-...
+DEBUG step_load_cron_triggers: 0 cron schedules
+DEBUG step_load_custom_triggers: 0 triggers
+DEBUG step_load_reactors: 0 reactors
+DEBUG step_load_triggerless_cgs: 0 trigger-less graphs
+DEBUG step_load_reactor_bound_cgs: 0 graphs
+DEBUG step_load_workflows: 1 workflow registered (my_workflow)
+INFO  package loaded successfully
+```
+
+The `0` counts reflect what your specific example package declares;
+a more elaborate package would show non-zero counts at each step.
+The `package loaded successfully` line is the signal that all six
+steps completed.
+
+Verify the workflow is visible (allow a couple of seconds for the
+reconciler to run if you're polling immediately after upload):
 
 ```bash
 cloacinactl workflow list --tenant acme

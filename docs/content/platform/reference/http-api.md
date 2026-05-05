@@ -12,7 +12,9 @@ workflows, executions, triggers, and computation-graph health.
 
 All authenticated routes are mounted under the `/v1/` prefix. The
 unauthenticated probes `/health`, `/ready`, and `/metrics` are at the
-root. The server was renamed from `cloacinactl serve` in T-0511.
+root. The server subcommand was renamed from `cloacinactl serve` to
+`cloacinactl server start` in an earlier release; older docs may
+still mention the old name.
 
 ## Authentication
 
@@ -56,7 +58,8 @@ Liveness check. Always returns 200.
 
 ### GET /ready
 
-Readiness check. Verifies the database connection pool is healthy.
+Readiness check. Verifies two things: the database connection pool
+is healthy, and no loaded computation graphs have crashed.
 
 **Response:** `200 OK`
 
@@ -64,11 +67,28 @@ Readiness check. Verifies the database connection pool is healthy.
 {"status": "ready"}
 ```
 
-**Response:** `503 Service Unavailable`
+**Response:** `503 Service Unavailable` — database path
 
 ```json
 {"status": "not ready", "reason": "database unreachable"}
 ```
+
+**Response:** `503 Service Unavailable` — crashed-graph path
+
+```json
+{
+  "status": "not ready",
+  "reason": "crashed computation graphs",
+  "crashed_graphs": ["pricing_graph", "alerts_graph"]
+}
+```
+
+The `crashed_graphs` array names every loaded graph whose reactor
+task is no longer running. The graph scheduler's supervision loop
+attempts to restart crashed graphs every 5 seconds; if a graph stays
+crashed past `MAX_RECOVERY_ATTEMPTS` (5 consecutive failures) it is
+permanently abandoned and remains in this list until the package is
+reloaded.
 
 ### GET /metrics
 
@@ -126,6 +146,16 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 ### POST /v1/auth/ws-ticket
 
 Exchange a Bearer token for a single-use WebSocket ticket. The ticket can be passed as a query parameter on WebSocket upgrade requests, avoiding long-lived API keys in URLs.
+
+**Capacity & lifecycle:** Tickets are stored in an in-memory store
+bounded to **1024 unconsumed tickets** with a **60-second TTL**.
+Tickets are single-use — the first WebSocket upgrade consuming the
+ticket invalidates it. If the store reaches capacity, the ticket
+nearest to expiry is evicted; rapid `/v1/auth/ws-ticket` calls
+without consumption can silently exhaust capacity. Plan ticket
+issuance to match your client connection rate; if you hold a
+ticket but disconnect without upgrading, the ticket is wasted and
+you must request a new one.
 
 **Request:** Bearer token in `Authorization` header. No request body.
 
@@ -273,7 +303,7 @@ Create a new tenant.
 }
 ```
 
-> **Security (SEC-08, T-0557 Bug 2 fix):** The tenant password is **never returned** in the response, even when auto-generated. The password is set during provisioning and not surfaced over the API. Operators who need the password must capture it at provisioning time via the database admin tooling, not via this endpoint.
+> **Security:** The tenant password is **never returned** in the response, even when auto-generated. The password is set during provisioning and is not surfaced over the API. Operators who need the password must capture it at provisioning time via the database admin tooling, not via this endpoint.
 
 **Errors:**
 
@@ -758,8 +788,8 @@ them.
   Key updates (rare) are not visible until the TTL expires.
 - Revoking a key via `DELETE /v1/auth/keys/{id}` clears the **entire**
   cache, not just the revoked key. This makes revocation immediate but
-  causes a one-time validation thunder on subsequent requests as the
-  cache rewarms.
+  causes a brief spike in database validation queries as subsequent
+  requests rewarm the cache.
 
 ### WebSocket tickets
 

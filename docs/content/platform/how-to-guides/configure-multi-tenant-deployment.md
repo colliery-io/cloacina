@@ -17,17 +17,12 @@ and the known isolation caveats you need to design around.
 > - An admin API key (the bootstrap key from first startup, or any
 >   `is_admin=true` key).
 
-## Architecture in 30 Seconds
+## Mental Model
 
-Each tenant lives in its own **PostgreSQL schema** with its own
-database user and migrations. The server holds a global
-`TenantDatabaseCache` of per-tenant connection pools (2 connections
-per tenant). API keys are scoped: either global (`tenant_id = null`,
-admin only) or tenant-scoped (`tenant_id = <name>`, can only access
-that tenant). The `is_admin` ("god-mode") flag bypasses tenant
-scoping entirely.
-
-See [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}) for the detailed design.
+For the architectural design (per-schema isolation, the
+`TenantDatabaseCache`, the role/scope model, the rationale behind
+each choice), see [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}).
+This guide focuses on the operational recipe.
 
 ## Step 1: Capture the Bootstrap Key
 
@@ -165,66 +160,55 @@ isolated.
 
 ## Operational Caveats You MUST Know
 
-These caveats are surfaced from the implementation. Build your
-deployment around them.
+Build your deployment around these. The full enumeration with
+implementation details lives in [HTTP API Reference → Operational
+Caveats]({{< ref "/platform/reference/http-api" >}}#operational-caveats);
+the deployment-relevant summary follows.
 
-### 1. Workflow Execution Scheduling Is NOT Tenant-Scoped
+### 1. Workflow execution scheduling is NOT tenant-scoped
 
-The `DefaultRunner` that backs
-`POST /v1/tenants/{id}/workflows/{name}/execute` is a **single global
-instance**. Executions land in the **runner's schema** (typically
-`public`), not the tenant's schema.
+`POST /v1/tenants/{id}/workflows/{name}/execute` runs through a
+single global `DefaultRunner`. Executions land in the runner's
+schema (typically `public`), not the tenant's. In multi-tenant
+deployments this is a real isolation gap.
 
-In single-tenant deployments this is transparent. In multi-tenant
-deployments it's a real isolation gap: tenant A's executions
-co-mingle with tenant B's at the execution-state layer. The DAL
-context, registry, and packages are tenant-scoped; the
-*scheduling/execution state* is not.
+**Mitigations:**
+- Run a separate `cloacina-server` per tenant if compliance
+  requires strict isolation. Each server gets its own database
+  (or schema for the runner's home) and its own runner.
+- For low-isolation use cases (internal multi-tenancy, dev/stage),
+  document the gap and proceed.
 
-**Mitigations until per-tenant runner support ships:**
-- Run a separate `cloacina-server` instance per tenant if isolation
-  matters for compliance. Each server gets its own database (or its
-  own schema as the runner's home) and its own runner.
-- For development/staging with low isolation requirements, accept
-  the gap and document it for ops.
+### 2. `TenantDatabaseCache` never evicts
 
-### 2. `TenantDatabaseCache` Never Evicts
+Deleting a tenant via `DELETE /v1/tenants/{name}` drops the schema
+but leaves the cached connection pool in memory. Subsequent
+requests to the deleted tenant fail with stale-pool errors.
 
-The server lazily creates a per-tenant connection pool the first
-time a request hits a tenant's routes. The pool is then cached for
-the server's lifetime. Deleting the tenant via
-`DELETE /v1/tenants/{name}` drops the schema but **leaves the cached
-pool**. Subsequent requests to the deleted tenant fail with stale-
-pool errors.
+**Mitigation:** restart `cloacina-server` after any `tenant
+delete`. There is no in-process workaround as of v0.5.
 
-**Mitigation:** restart `cloacina-server` after any
-`tenant delete`. This is the only way to reclaim the pool.
+### 3. Trigger list is global
 
-### 3. Trigger List Is Global
+`GET /v1/tenants/{id}/triggers` returns the global schedule list
+filtered client-side by name; it is not schema-aware. Tenant-scoped
+keys can read all schedule *names* (but not manipulate other
+tenants' schedules).
 
-`GET /v1/tenants/{id}/triggers` returns the global schedule list,
-filtered client-side by name. It is not a true per-tenant audit.
-Tenant-scoped key holders can see all schedule names, just not
-manipulate other tenants' schedules.
+**Mitigation:** treat schedule names as non-sensitive. If names
+themselves leak business intent, segregate by deployment.
 
-**Mitigation:** treat schedule names as non-sensitive. If schedule
-names themselves leak business intent, segregate by deployment
-rather than tenant.
+### 4. `/metrics` is unauthenticated
 
-### 4. Public `/metrics` Endpoint
-
-`/metrics` exposes Prometheus output unauthenticated. A reverse
-proxy must enforce access control if your deployment requires it.
-
-**Recommended Caddyfile snippet:**
+Reverse-proxy `/metrics` if your deployment requires access
+control. Sample Caddyfile:
 
 ```text
 cloacina.example.com {
     @metrics path /metrics
-    reverse_proxy @metrics localhost:8080 {
-        # Enforce internal-only access:
-        @internal remote_ip 10.0.0.0/8 192.168.0.0/16
-        rewrite @internal /metrics
+    @internal remote_ip 10.0.0.0/8 192.168.0.0/16
+    handle @metrics {
+        reverse_proxy @internal localhost:8080
     }
 
     reverse_proxy /v1/* localhost:8080
@@ -233,13 +217,13 @@ cloacina.example.com {
 }
 ```
 
-### 5. Bootstrap Key Is Single-Capture
+### 5. Bootstrap key is single-capture
 
-If you lose the bootstrap key and have no other admin key, you
-**cannot** recover admin access without resetting the
-`api_keys` table directly (effectively a manual re-bootstrap). Plan
-for at least two admin keys: one for emergencies, one for routine
-ops.
+If you lose the bootstrap key and have no other admin key,
+recovery requires direct database access (delete the row in
+`api_keys` to trigger a re-bootstrap on next startup). Plan for at
+least two admin keys: one for routine ops, one stored offline as a
+cold backup.
 
 ## Verification
 

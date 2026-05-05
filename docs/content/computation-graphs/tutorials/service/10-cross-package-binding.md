@@ -285,7 +285,16 @@ cloacinactl graph status PriceReactor --tenant acme
 
 The accumulators are passthrough; you can push events via the
 WebSocket interface (see [Tutorial 08]({{< ref "/computation-graphs/tutorials/service/08-websocket-events" >}})
-for the full WS protocol):
+for the full WS protocol).
+
+The recipe below uses
+[`websocat`](https://github.com/vi/websocat) (`cargo install
+websocat` or `brew install websocat`) and `jq`. If you don't have
+them, the WebSocket tutorial walks through alternatives.
+
+> The reactor and the subscriber graph must be loaded in the
+> **same tenant**. Cross-tenant binding is not supported; the
+> reactor lookup happens in the tenant's `Runtime` registry.
 
 ```bash
 # Acquire a single-use WebSocket ticket.

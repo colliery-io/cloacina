@@ -17,13 +17,13 @@ torn down, and the invariants that keep both halves safe.
 
 A reactor can be declared two ways:
 
-**Bundled form** — pre-I-0101, and still the simplest path. The
-`#[computation_graph(react = ..., graph = ...)]` macro on a single
+**Bundled form** — the original model, and still the simplest path.
+The `#[computation_graph(react = ..., graph = ...)]` macro on a single
 module produces both a synthesized reactor and the graph that
 subscribes to it. There's a 1:1 reactor-to-graph mapping; loading
 the package creates one reactor with one subscriber.
 
-**Split form** — the I-0101 model. A `#[reactor(...)]` declaration
+**Split form** — the decoupled model. A `#[reactor(...)]` declaration
 defines a reactor as a unit struct with named accumulators and a
 reaction mode. One or more `#[computation_graph(trigger =
 reactor(MyReactor), ...)]` declarations bind separate graphs to that
@@ -104,8 +104,9 @@ Unload runs step 3 in reverse:
 
 The scheduler-side teardown (step 1 above) and the runtime-side
 teardown (step 2) are *both* required. Earlier versions of Cloacina
-only had step 1; T-0564 added step 2 after observing reactor-name
-leaks across hot-reload cycles in long-running daemons.
+only had step 1; the second arm was added after operators observed
+reactor-name leaks across hot-reload cycles in long-running daemons
+(every reload accumulated a stale constructor entry in `Runtime`).
 
 ## The bundled-form back-compat path
 

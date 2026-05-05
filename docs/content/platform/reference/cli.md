@@ -156,8 +156,9 @@ health, uptime, packages loaded, last reconciliation. Respects
 cloacinactl daemon health
 ```
 
-Terse health probe via the Unix socket. No output. Exit 0 if up, 2
-otherwise. Use this in scripts and supervisor checks.
+Terse health probe via the Unix socket at `~/.cloacina/daemon.sock`
+(or `<home>/daemon.sock` if `--home` is set). No output. Exit 0 if
+up, 2 otherwise. Use this in scripts and supervisor checks.
 
 ## `server`
 
@@ -177,13 +178,16 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
 | `--bind <ADDR>` | | `127.0.0.1:8080` | Listen address. |
-| `--database-url <URL>` | `DATABASE_URL` | (required) | PostgreSQL or SQLite connection URL. |
+| `--database-url <URL>` | `DATABASE_URL` | (required) | Database connection URL. Examples: `sqlite:///path/to/cloacina.db`, `postgres://user:pass@host/dbname`. |
 | `--bootstrap-key <KEY>` | `CLOACINA_BOOTSTRAP_KEY` | (auto-generated) | Pre-supplied admin key for first startup. If a key is generated, the plaintext is written to `~/.cloacina/bootstrap-key` with `0600` perms exactly once. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | `false` | Enforce package signature verification at upload time. |
-| `--reconcile-interval-s <N>` | | (runtime default) | Reconciler poll interval. |
 
-This subcommand was renamed from `serve` in T-0511; older docs may
-still mention the old name.
+This subcommand was renamed from `serve` in an earlier release; older
+docs may still mention the old name. Reconciler poll interval and
+similar runtime-tuning knobs are not exposed as CLI flags on
+`cloacinactl server start`; they're hard-coded to safe defaults at
+the wrapper layer. If you need to tune them, invoke the underlying
+`cloacina-server` binary directly with the appropriate arguments.
 
 ### `server stop` / `status` / `health`
 
