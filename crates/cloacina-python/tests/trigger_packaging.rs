@@ -28,7 +28,12 @@ use cloacina::packaging::{
     Manifest, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime, TaskDefinition,
     TriggerDefinition,
 };
-use cloacina::trigger::{Trigger, TriggerError, TriggerResult};
+// The `Trigger` trait + its associated error/result types live in
+// cloacina-workflow (the leaf crate that packaged cdylibs depend on).
+// `cloacina::trigger::TriggerError` is the *engine-side* error, broader
+// than the trait error. Implementations of `Trigger` MUST use the
+// leaf-crate variant.
+use cloacina_workflow::{Trigger, TriggerError, TriggerResult};
 
 fn rust_manifest_with_triggers() -> Manifest {
     Manifest {
