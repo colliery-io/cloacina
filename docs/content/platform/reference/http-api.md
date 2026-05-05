@@ -1,12 +1,18 @@
 ---
 title: "HTTP API Reference"
-description: "Complete REST API reference for the Cloacina API server (cloacinactl serve)"
+description: "Complete REST API reference for the Cloacina API server (cloacinactl server start)"
 weight: 6
 ---
 
 # HTTP API Reference
 
-The Cloacina API server (`cloacinactl serve`) exposes a REST API backed by PostgreSQL for managing API keys, tenants, workflows, executions, and triggers.
+The Cloacina API server (`cloacinactl server start`) exposes a REST
+API backed by PostgreSQL or SQLite for managing API keys, tenants,
+workflows, executions, triggers, and computation-graph health.
+
+All authenticated routes are mounted under the `/v1/` prefix. The
+unauthenticated probes `/health`, `/ready`, and `/metrics` are at the
+root. The server was renamed from `cloacinactl serve` in T-0511.
 
 ## Authentication
 
@@ -236,9 +242,9 @@ Create an API key scoped to a specific tenant. Only `is_admin` (god-mode) keys c
 
 Tenants are isolated PostgreSQL schemas. Each tenant gets its own schema, database user, permissions, and migrations.
 
-> **Note:** The `tenant_id` used in URL paths (e.g., `/tenants/{tenant_id}/workflows`) corresponds to the `schema_name` value used when creating the tenant via `POST /tenants`.
+> **Note:** The `tenant_id` used in URL paths (e.g., `/v1/tenants/{tenant_id}/workflows`) corresponds to the `schema_name` value used when creating the tenant via `POST /v1/tenants`.
 
-### POST /tenants
+### POST /v1/tenants
 
 Create a new tenant.
 
@@ -263,11 +269,11 @@ Create a new tenant.
 ```json
 {
   "schema_name": "tenant_acme",
-  "username": "acme_user",
-  "password": "auto_generated_secure_password_32c",
-  "connection_string": "postgresql://acme_user:auto_generated_secure_password_32c@localhost/cloacina?options=-c search_path=tenant_acme"
+  "username": "acme_user"
 }
 ```
+
+> **Security (SEC-08, T-0557 Bug 2 fix):** The tenant password is **never returned** in the response, even when auto-generated. The password is set during provisioning and not surfaced over the API. Operators who need the password must capture it at provisioning time via the database admin tooling, not via this endpoint.
 
 **Errors:**
 
@@ -275,7 +281,7 @@ Create a new tenant.
 |---|---|
 | `400` | `{"error": "<detail>"}` |
 
-### GET /tenants
+### GET /v1/tenants
 
 List all tenant schemas.
 
@@ -296,9 +302,11 @@ List all tenant schemas.
 |---|---|
 | `500` | `{"error": "<detail>"}` |
 
-### DELETE /tenants/{schema_name}
+### DELETE /v1/tenants/{schema_name}
 
 Remove a tenant. Drops the schema (CASCADE) and the database user.
+
+> **Operational caveat:** The server's `TenantDatabaseCache` does **not** evict its connection pool when a tenant is deleted. Subsequent requests to the deleted tenant will fail with stale-pool errors. Restart `cloacina-server` to reclaim the cache. See [Operational Caveats](#operational-caveats) below.
 
 **Path parameters:**
 
@@ -322,7 +330,7 @@ Remove a tenant. Drops the schema (CASCADE) and the database user.
 
 Workflow packages are `.cloacina` archives uploaded via multipart form data, scoped to a tenant.
 
-### POST /tenants/{tenant_id}/workflows
+### POST /v1/tenants/{tenant_id}/workflows
 
 Upload a workflow package.
 
@@ -360,7 +368,7 @@ curl -X POST http://localhost:8080/tenants/tenant_acme/workflows \
 | `400` | `{"error": "<detail>"}` | Package validation or registration failure |
 | `500` | `{"error": "internal registry error"}` | Registry initialization failure |
 
-### GET /tenants/{tenant_id}/workflows
+### GET /v1/tenants/{tenant_id}/workflows
 
 List all registered workflows for a tenant.
 
@@ -382,7 +390,7 @@ List all registered workflows for a tenant.
 }
 ```
 
-### GET /tenants/{tenant_id}/workflows/{name}
+### GET /v1/tenants/{tenant_id}/workflows/{name}
 
 Get details for a specific workflow by package name.
 
@@ -413,7 +421,7 @@ Get details for a specific workflow by package name.
 |---|---|
 | `404` | `{"error": "workflow 'etl_pipeline' not found"}` |
 
-### DELETE /tenants/{tenant_id}/workflows/{name}/{version}
+### DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}
 
 Unregister a specific workflow version.
 
@@ -443,7 +451,7 @@ Unregister a specific workflow version.
 
 ## Executions
 
-### POST /tenants/{tenant_id}/workflows/{name}/execute
+### POST /v1/tenants/{tenant_id}/workflows/{name}/execute
 
 Execute a workflow. Returns immediately with a scheduled execution ID.
 
@@ -479,7 +487,7 @@ Execute a workflow. Returns immediately with a scheduled execution ID.
 |---|---|
 | `400` | `{"error": "<detail>"}` |
 
-### GET /tenants/{tenant_id}/executions
+### GET /v1/tenants/{tenant_id}/executions
 
 List pipeline executions for a tenant. Returns all recent executions (including running and completed).
 
@@ -500,7 +508,7 @@ List pipeline executions for a tenant. Returns all recent executions (including 
 }
 ```
 
-### GET /tenants/{tenant_id}/executions/{exec_id}
+### GET /v1/tenants/{tenant_id}/executions/{exec_id}
 
 Get execution status.
 
@@ -528,7 +536,7 @@ Get execution status.
 | `400` | `{"error": "invalid execution ID"}` | `exec_id` is not a valid UUID |
 | `404` | `{"error": "<detail>"}` | Execution not found |
 
-### GET /tenants/{tenant_id}/executions/{exec_id}/events
+### GET /v1/tenants/{tenant_id}/executions/{exec_id}/events
 
 Get the execution event log for a specific execution.
 
@@ -568,7 +576,7 @@ Get the execution event log for a specific execution.
 
 Read-only listing of cron and trigger schedules.
 
-### GET /tenants/{tenant_id}/triggers
+### GET /v1/tenants/{tenant_id}/triggers
 
 List all schedules (cron and trigger) for a tenant.
 
@@ -606,7 +614,7 @@ List all schedules (cron and trigger) for a tenant.
 }
 ```
 
-### GET /tenants/{tenant_id}/triggers/{name}
+### GET /v1/tenants/{tenant_id}/triggers/{name}
 
 Get trigger details and recent executions. Matches by trigger name or workflow name.
 
@@ -647,7 +655,7 @@ Get trigger details and recent executions. Matches by trigger name or workflow n
 |---|---|
 | `404` | `{"error": "trigger 'my_trigger' not found"}` |
 
-## Reactive Health
+## Computation Graph Health
 
 Health endpoints for the computation graph system. These endpoints require authentication.
 
@@ -738,9 +746,113 @@ Unmatched routes return:
 {"error": "not found"}
 ```
 
+## Operational Caveats
+
+These are non-obvious failure modes and invariants surfaced from the
+implementation. Operators deploying cloacina-server should be aware of
+them.
+
+### Authentication cache
+
+- The auth cache is an LRU with **256 entries and a 30-second TTL**.
+  Key updates (rare) are not visible until the TTL expires.
+- Revoking a key via `DELETE /v1/auth/keys/{id}` clears the **entire**
+  cache, not just the revoked key. This makes revocation immediate but
+  causes a one-time validation thunder on subsequent requests as the
+  cache rewarms.
+
+### WebSocket tickets
+
+- Tickets issued by `POST /v1/auth/ws-ticket` are **single-use** with
+  a 60-second TTL. A client that holds a ticket but disconnects
+  without upgrading wastes the ticket; retries require a fresh ticket.
+- The `WsTicketStore` is bounded to **1024 unconsumed tickets**. If
+  capacity is reached, the ticket nearest to expiry is evicted.
+  Rapid `/v1/auth/ws-ticket` calls without consumption can exhaust
+  capacity; there is no backpressure signal, just silent eviction.
+
+### Tenant database isolation
+
+- **Workflow execution scheduling is NOT tenant-scoped.** The
+  `DefaultRunner` that backs `POST /v1/tenants/{id}/workflows/{name}/execute`
+  is a single global instance; executions land in the **runner's
+  schema** (typically `public`), not the tenant's schema. In
+  multi-tenant deployments this is a known isolation gap. Operators
+  who need true per-tenant execution isolation must run a separate
+  `cloacina-server` instance per tenant or wait for per-tenant runner
+  support to ship.
+- The trigger list endpoint `GET /v1/tenants/{id}/triggers` returns
+  schedules from the **global** schedule table and filters
+  client-side by name. It is not a true per-tenant audit; the same
+  schedule will appear regardless of which tenant ID is in the path
+  if it matches the filter.
+- The `TenantDatabaseCache` lazily creates per-tenant connection
+  pools but **never evicts**. Deleting a tenant via
+  `DELETE /v1/tenants/{name}` drops the schema but leaves the cached
+  pool. Subsequent requests to the deleted tenant fail with stale-
+  pool errors. **Restart the server** to reclaim the cache.
+
+### Request handling
+
+- All routes share a global **100 MB body limit** via
+  `DefaultBodyLimit::max(100 * 1024 * 1024)`. Package uploads consume
+  this; there's no per-route override.
+- **No request timeout** is enforced by the server itself; rely on
+  OS / reverse-proxy timeouts. Long-running executions block the
+  handler thread; `/ready` may stall if computation graphs are
+  wedged.
+- **Database admin operations are synchronous.** Creating or deleting
+  tenants blocks the request handler. Large schemas or slow databases
+  can cause client timeouts; there is no async background-task path
+  for provisioning.
+
+### Bootstrap key
+
+- On first startup with no API keys in the database, the server
+  generates an admin key (or uses `--bootstrap-key` /
+  `CLOACINA_BOOTSTRAP_KEY` if supplied) and writes the plaintext to
+  `~/.cloacina/bootstrap-key` with mode `0600`. **The plaintext is
+  written exactly once and never logged.** Capture it from the file;
+  there is no way to retrieve it later.
+- On subsequent startups, the bootstrap path is skipped if any keys
+  exist. There is no automatic re-bootstrap.
+
+### Signature verification
+
+- When `--require-signatures` (or `CLOACINA_REQUIRE_SIGNATURES=true`)
+  is set, the server verifies package signatures at upload via
+  `cloacina::security::verify_package_bytes()`. The verification
+  requires a signature row in the `package_signatures` table — the
+  server does **not** sign packages, only verifies. Signing is done
+  offline (e.g., `cloacinactl pack --sign <key>` once the side-car
+  generation is wired up).
+- A signature row keyed by the configured `verification_org_id` must
+  exist before upload. Missing signature → `403 Forbidden`.
+
+### Metrics endpoint
+
+- `/metrics` is **public** — no authentication is enforced. Operators
+  who need to restrict access should reverse-proxy the endpoint and
+  enforce auth at that layer.
+
+### Graph supervision
+
+- The graph scheduler restarts crashed accumulator/reactor tasks on
+  a **5-second supervision cadence**. If an accumulator crashes
+  outside the window, it stays dead until the next check. There is
+  no active health check or alerting; the only signal is the
+  `paused: true` field returned by `GET /v1/health/graphs/{name}`.
+
+### Unmatched routes
+
+- The fallback handler returns `{"error": "not found"}` as JSON, not
+  HTML. Clients that expect HTML error pages need to handle the JSON
+  shape.
+
 ## See Also
 
-- [CLI Reference]({{< ref "cli" >}}) -- `cloacinactl serve` flags and bootstrap key behavior
-- [DatabaseAdmin API]({{< ref "database-admin" >}}) -- tenant provisioning internals
-- [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}) -- schema isolation design
-- [WebSocket Protocol]({{< ref "websocket-protocol" >}}) -- real-time WebSocket endpoints and message formats
+- [CLI Reference]({{< ref "cli" >}}) — `cloacinactl server start` flags and bootstrap-key behavior.
+- [DatabaseAdmin API]({{< ref "database-admin" >}}) — tenant provisioning internals.
+- [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}) — schema isolation design.
+- [WebSocket Protocol]({{< ref "websocket-protocol" >}}) — real-time WebSocket endpoints and message formats.
+- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — how the server loads and unloads packaged workflows.
