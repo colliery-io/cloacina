@@ -57,18 +57,11 @@ pub mod assertions;
 pub mod result;
 pub mod runner;
 
-// TODO: remove continuous feature gate — continuous scheduling is always on
-#[cfg(feature = "continuous")]
 pub mod boundary;
-#[cfg(feature = "continuous")]
 pub mod mock;
 
 // Re-exports
+pub use boundary::BoundaryEmitter;
+pub use mock::MockDataConnection;
 pub use result::{TaskOutcome, TestResult};
 pub use runner::{TestRunner, TestRunnerError};
-
-// TODO: remove continuous feature gate — continuous scheduling is always on
-#[cfg(feature = "continuous")]
-pub use boundary::BoundaryEmitter;
-#[cfg(feature = "continuous")]
-pub use mock::MockDataConnection;
