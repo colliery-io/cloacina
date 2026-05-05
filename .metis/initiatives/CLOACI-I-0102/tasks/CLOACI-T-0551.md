@@ -4,14 +4,14 @@ level: task
 title: "T-E: Manifest cleanup — remove [[triggers]] and package_type"
 short_code: "CLOACI-T-0551"
 created_at: 2026-04-30T04:10:00+00:00
-updated_at: 2026-05-02T19:02:46.343865+00:00
+updated_at: 2026-05-03T12:57:23.174800+00:00
 parent: CLOACI-I-0102
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -34,6 +34,8 @@ Two-phase delivery within the single PR:
 2. **Removal pass.** Delete the parsing code. Either key present in `package.toml` → load failure with the migration message.
 
 The deprecation step exists to give external/out-of-tree packages a single release window to migrate; T-E itself ships both phases in one PR but the warning code remains in a release tag that downstream consumers can pin to.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

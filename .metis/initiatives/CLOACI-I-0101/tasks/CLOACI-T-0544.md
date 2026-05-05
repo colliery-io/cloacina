@@ -4,14 +4,14 @@ level: task
 title: "T-02b: Multi-graph-per-reactor fan-out"
 short_code: "CLOACI-T-0544"
 created_at: 2026-04-25T15:08:05.348610+00:00
-updated_at: 2026-04-28T12:24:34.785069+00:00
+updated_at: 2026-04-28T17:36:48.760134+00:00
 parent: CLOACI-I-0101
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0101
 Lift the current "one reactor instance per graph" constraint in `ComputationGraphScheduler` so a single `#[reactor]` declaration can fan out to multiple `#[computation_graph(trigger = reactor(R))]` subscribers. Today's `load_graph_split` builds a fresh reactor instance per graph load (carried over from the bundled-form era — see T-0543 M5 status note); this task adds a shared-reactor binding path so one firing of R invokes every graph subscribed to R, rather than just one.
 
 This was originally folded into T-0540's acceptance criteria (the fan-out integration test), but the runtime change is independent of the workflow-task `invokes = computation_graph(...)` macro work, so it lives on its own.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

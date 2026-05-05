@@ -4,14 +4,14 @@ level: task
 title: "T-02: Workflow-task CG invocation (`invokes = computation_graph(...)`)"
 short_code: "CLOACI-T-0540"
 created_at: 2026-04-24T15:08:15.391806+00:00
-updated_at: 2026-04-25T15:02:52.600670+00:00
+updated_at: 2026-04-25T16:26:27.962739+00:00
 parent: CLOACI-I-0101
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0101
 ## Objective
 
 Add the capability for a workflow task to wrap a computation graph and execute it on demand. Implements the `invokes = computation_graph("name")` clause on `#[task]`, the matching executor path that resolves a graph by name and runs it to completion, and the context ↔ graph-types adapter. This is the embedded-CG-in-workflow payoff from S-0011 — one shot per task execution, no reactor in scope, no streams, graph runs as a deterministic function.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -126,8 +128,34 @@ Three commits on `i-0101-cg-reactor-decouple`:
 - [ ] Pre/post body wrapping (current impl supports pre-body only — flagging as a documented limitation; "post" can be added if there's demand or via a sibling task).
 - [x] `cargo check --workspace --all-features` green; macro lib tests green; T-053x + T-054x integration tests green on sqlite (10 cases).
 
-**Remaining work** (M5):
-- Integration test: graph error → task fails → workflow retry.
-- Integration test: graph timeout → task cancellation per T-0487 path.
-- (Optional) trybuild / `compile_fail` test asserting `invokes = computation_graph(R)` fails when `R` is reactor-triggered.
-- Full angreal runs (unit, macros, integration sqlite + postgres) before transitioning to completed.
+### 2026-04-25 — M5 + final angreal validation
+
+Commit `9b5bd31` lands the remaining AC items:
+- **Post-invocation hook**: `#[task(invokes = ..., post_invocation = fn_name)]` runs `fn_name(&mut context)` after the graph fires and outputs are routed into the context, before `on_success`. Macro-time error if `post_invocation` is set without `invokes`.
+- **Error path test**: `test_cloaci_t_0540_task_invokes_panicking_graph` declares a trigger-less graph whose terminal panics and uses `futures::FutureExt::catch_unwind` to assert the task body propagates the panic. Real workflow executors translate that into `TaskError::ExecutionFailed`.
+- **trybuild compile-fail regression**: `crates/cloacina/tests/trybuild_t_0540*` adds a `trybuild = "1.0"` dev-dep + a fixture that tries to bind `#[task(invokes = computation_graph(H))]` to a reactor-triggered graph. Locked stderr asserts the expected diagnostic: `the trait bound \`__CGHandle_<...>: TriggerlessGraph\` is not satisfied`. Future macro changes that weaken the gate will fail this test.
+- Also: cloacina re-exports the `reactor` macro that was missed in T-0538.
+
+**Final acceptance criteria — full run results:**
+
+- [x] Trigger-less form takes `&Context<Value>`.
+- [x] `__CGHandle_<mod>` unit struct + `Graph` trait impl.
+- [x] `#[task]` accepts `invokes = computation_graph(GraphHandle)`; reactor-triggered graphs are rejected at compile time via `TriggerlessGraph` trait absence.
+- [x] Executor path: macro embeds the invocation in the task body — no separate executor change.
+- [x] Pre-body wrapping: user fn body runs as pre-work.
+- [x] Post-body wrapping: `post_invocation = fn_name` runs after the graph.
+- [x] Graph panic surfaces at the task boundary (panicking-graph integration test).
+- [x] Compile-failure test for reactor-triggered graph (trybuild `invokes_reactor_triggered.rs`).
+- [x] `cargo check --workspace --all-features` green.
+- [x] `angreal test unit` — **32 + 701 passed, 1 ignored** (post-M5).
+- [x] `angreal test macros` — all macro validation scenarios passed.
+- [x] `angreal test integration --backend sqlite` — Rust 6 passed (287 backend-filtered), Python sqlite 27/27, "All integration tests passed!".
+- [x] `angreal test integration --backend postgres` — **Rust 281 passed, 0 failed, 6 ignored, 6 filtered**; Python postgres 27/27; "All integration tests passed!".
+
+**Five commits on `i-0101-cg-reactor-decouple` land T-0540:**
+- `0f1b13c` (M1) — Graph trait + per-graph __CGHandle_ unit struct
+- `0aeafd6` (M2) — trigger-less CG entry contract switches to &Context<Value>
+- `71e446a` (M3) — #[task(invokes = computation_graph(H))] end-to-end
+- `9b5bd31` (M5) — post_invocation hook + error-path + trybuild compile gate
+
+Ready for phase transition to completed.

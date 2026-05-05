@@ -2,7 +2,7 @@
 id: t-01a-cg-macro-split-internals-new
 level: task
 title: "T-01a: CG macro split internals (new declaration + type binding + tests)"
-short_code: "CLOACI-T-0538"
+short_code: "CLOACI-T-0543"
 created_at: 2026-04-24T15:08:02.717131+00:00
 updated_at: 2026-04-24T23:13:00.851546+00:00
 parent: CLOACI-I-0101

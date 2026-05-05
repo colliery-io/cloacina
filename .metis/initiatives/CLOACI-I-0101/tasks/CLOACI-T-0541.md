@@ -4,14 +4,14 @@ level: task
 title: "T-03: Python decorator parity for split CG + CG-invoking task"
 short_code: "CLOACI-T-0541"
 created_at: 2026-04-24T15:08:19.954995+00:00
-updated_at: 2026-04-25T17:42:39.823528+00:00
+updated_at: 2026-04-27T17:10:27.660766+00:00
 parent: CLOACI-I-0101
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0101
 ## Objective
 
 Mirror the Rust declaration surface from T-01a and T-02 in the Python bindings. `@cloaca.computation_graph` accepts the `trigger = reactor("name")` kwarg; `@cloaca.task` accepts `invokes = computation_graph("name")`. Python is dynamic, so validation is runtime, not compile-time, but the authoring experience must match what Rust users see.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

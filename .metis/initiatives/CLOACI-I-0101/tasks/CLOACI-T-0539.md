@@ -4,14 +4,14 @@ level: task
 title: "T-01b: Migrate Rust callers + remove bundled CG form"
 short_code: "CLOACI-T-0539"
 created_at: 2026-04-24T15:08:10.182883+00:00
-updated_at: 2026-04-24T23:15:37.830169+00:00
+updated_at: 2026-04-25T15:02:30.939823+00:00
 parent: CLOACI-I-0101
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0101
 ## Objective
 
 Migrate every in-tree Rust user of the bundled `#[computation_graph]` form to the new split form (`#[reactor]` declaration + `#[computation_graph(trigger = reactor(TypePath))]`, where `TypePath` is the unit-struct type emitted by `#[reactor]`). Then remove the bundled-form desugar from the macro, leaving only the split form on main. After this task lands, the bundled form is unreachable in the tree and in the public macro surface.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -118,6 +120,49 @@ let ffi_mode = quote! {
 - `angreal demos tutorials rust 10` — routing demo, 7 fires across enum-dispatch outputs.
 
 Bundled-form parser/codegen still in place (intentional). Macro fix is uncommitted on top of `689b688`. Next: commit the fix, then proceed to step 2 of the kickoff plan (delete bundled-form parse/IR/desugar + emit compile-error diagnostic on `react = ...`).
+
+### 2026-04-24 — bundled-form removal landed + full test suites green
+
+Step 2 of the kickoff plan. Commit `b2b7b1f` removes the bundled-form path end-to-end:
+
+- **Macro (`cloacina-macros`)**:
+  - Parser: dropped `react = when_any|when_all(...)` clause, `ReactionCriteria`/`ReactionMode` types, conflict detection. The `react` ident is still recognized so a hard migration error fires pointing at CLOACI-I-0101 (instead of a generic "unknown field").
+  - IR/codegen: dropped `TriggerSpec::Bundled`, the synthesized `__Reactor_<graph>` struct + inventory entry, and the macro-time bundled-form subset check (split form's const-eval check still emitted).
+  - `#[reactor]` attribute: dropped the reserved-prefix guard on `name = "..."` (no synthesized name to defend against).
+- **Runtime (`cloacina` + `cloacina-computation-graph`)**:
+  - `Runtime::user_reactor_names()` removed — no `__Reactor_*` producer remains, so the dunder filter has no purpose. `reactor_names()` is the single accessor.
+  - Doc comments on `ReactorRegistration`, `ReactorEntry`, and the `Reactor` trait section dropped bundled-form references.
+- **Tests**:
+  - Macro tests: dropped bundled parse coverage, react/trigger conflict, unknown-reaction-mode, duplicate-react, reserved-prefix. Added `test_error_react_form_removed` (asserts diagnostic + I-0101 reference) and `test_error_duplicate_trigger`.
+  - Integration `test_cloaci_t_0538_runtime_reactor_registry_shape` simplified to drop the dunder-filter assertion.
+- **Net**: 71 insertions, 333 deletions across 8 files.
+
+Compile-error diagnostic on the old form (live):
+```
+the bundled `#[computation_graph(react = ...)]` form has been removed.
+Declare a standalone `#[reactor]` and reference it via
+`#[computation_graph(trigger = reactor(MyReactor), ...)]` —
+see initiative CLOACI-I-0101 for migration guidance.
+```
+
+**Acceptance criteria — full run results:**
+
+- [x] Every in-tree CG declaration uses split form (689b688).
+- [x] Bundled-form desugar removed from `cloacina-macros` (b2b7b1f).
+- [x] Old form produces a compile error pointing at I-0101 docs (verified by `test_error_react_form_removed`).
+- [x] `cargo check --workspace --all-features` — green (only pre-existing warnings).
+- [x] `angreal test unit` — **32 + 701 passed, 0 failed, 1 ignored**.
+- [x] `angreal test macros` — all macro validation scenarios passed (4/4 expected-failure builds + macro lib tests).
+- [x] `angreal test integration --backend sqlite` — Rust 6 passed (282 backend-filtered out), Python sqlite 27/27, "All integration tests passed!".
+- [x] `angreal test integration --backend postgres` — **Rust 276 passed, 0 failed, 6 ignored, 6 filtered**; Python postgres 27/27; "All integration tests passed!".
+- [x] No new cargo warnings introduced.
+
+Three commits on the branch land T-0539:
+- `689b688` — caller migration to split form.
+- `31a8ca3` — macro fix: split-form trigger reactor scoping inside packaged FFI module (uncovered by `examples/features/computation-graphs/packaged-graph`).
+- `b2b7b1f` — bundled-form removal + migration diagnostic.
+
+Ready for phase transition to completed.
 
 ### 2026-04-24 — kickoff
 - T-0538 committed as `5f773dc` on branch `i-0101-cg-reactor-decouple`.
