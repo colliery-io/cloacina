@@ -20,7 +20,7 @@ This guide walks through converting an existing embedded Rust workflow into a pa
 | Macro | `#[workflow]` | `#[workflow]` (same — packaging is handled by `build.rs` and Cargo features) |
 | Crate type | `bin` or `lib` | `cdylib` (shared library) |
 | Dependencies | `cloacina` (full crate) | `cloacina-workflow` + `cloacina-macros` + `cloacina-workflow-plugin` |
-| Registration | `#[ctor]` at startup | FFI entry points for dynamic loading |
+| Registration | `inventory::submit!` entries seeded into `Runtime` at startup via `seed_from_inventory()` | FFI vtable exports (9 methods, indices 0–8) loaded dynamically; the unified [`cloacina::package!()`]({{< ref "/platform/reference/package-shell-macro" >}}) shell macro emits the entry points |
 | Runtime | Your `#[tokio::main]` | Daemon or server loads and runs it |
 | Build | `cargo build` | `cloacina_build::configure()` in `build.rs` |
 
@@ -60,7 +60,6 @@ edition = "2021"
 cloacina = { version = "0.5.0", features = ["macros", "sqlite"] }
 async-trait = "0.1"
 serde_json = "1.0"
-ctor = "0.2"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -84,7 +83,6 @@ cloacina-workflow = { version = "0.5.0", features = ["packaged"] }
 cloacina-workflow-plugin = "0.5.0"
 async-trait = "0.1"
 serde_json = "1.0"
-ctor = "0.2"
 
 [build-dependencies]
 cloacina-build = "0.5.0"

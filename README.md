@@ -33,7 +33,6 @@ Add Cloacina to your `Cargo.toml`:
 cloacina = "0.1.0"
 
 async-trait = "0.1"    # Required for async task definitions
-ctor = "0.2"          # Required for task registration
 serde_json = "1.0"    # Required for context data serialization
 ```
 

@@ -196,8 +196,8 @@ The `#[workflow]` macro generates different code depending on compilation featur
 
 | Mode | Feature Flag | Behavior |
 |---|---|---|
-| **Embedded** | (default) | Generates `#[ctor]` auto-registration. The workflow is registered in the global registry at program startup. |
-| **Packaged** | `features = ["packaged"]` | Generates FFI exports for `.cloacina` packages. The workflow is loaded dynamically at runtime. |
+| **Embedded** | (default) | Emits `inventory::submit!` entries for the workflow + each task. `cloacina::Runtime::seed_from_inventory()` walks those entries at startup and populates the runtime registry. (Pre-I-0096 docs may reference `#[ctor]`; that path is gone — no `ctor` dependency is required.) |
+| **Packaged** | `features = ["packaged"]` | Generates FFI exports for `.cloacina` packages. Pair with the [`cloacina::package!()`]({{< ref "/platform/reference/package-shell-macro" >}}) shell at the cdylib crate root. The workflow is loaded dynamically at runtime by the reconciler. |
 
 ### Compile-Time Validation
 

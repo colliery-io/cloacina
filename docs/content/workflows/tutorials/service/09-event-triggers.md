@@ -112,7 +112,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde_json = "1.0"
 chrono = "0.4"
 async-trait = "0.1"
-ctor = "0.2"
 ```
 
 ## Step 1: Create Your Trigger

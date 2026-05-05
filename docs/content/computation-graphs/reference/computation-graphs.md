@@ -133,23 +133,36 @@ This function executes all nodes in topological order and returns terminal outpu
 
 ### Generated Registration
 
-In embedded mode (not `feature = "packaged"`), the macro generates a `#[ctor]` function that registers the graph in the global registry at program start:
+In embedded mode (not `feature = "packaged"`), the macro emits an
+`inventory::submit!` entry of type `ComputationGraphEntry`. At startup,
+`cloacina::Runtime::seed_from_inventory()` walks every entry in the
+inventory section and registers a constructor under the graph's name:
 
 ```rust
-#[ctor::ctor]
-fn _auto_register_graph_my_graph() {
-    register_computation_graph_constructor(
-        "my_graph".to_string(),
-        || ComputationGraphRegistration {
-            graph_fn: Arc::new(|cache| Box::pin(async move {
+cloacina_workflow_plugin::inventory::submit! {
+    cloacina_workflow_plugin::ComputationGraphEntry {
+        name: "my_graph",
+        constructor: || cloacina_computation_graph::ComputationGraphRegistration {
+            graph_fn: std::sync::Arc::new(|cache| Box::pin(async move {
                 my_graph_compiled(&cache).await
             })),
+            trigger_reactor: None,
             accumulator_names: vec!["source1".to_string(), "source2".to_string()],
             reaction_mode: "when_any".to_string(),
         },
-    );
+    }
 }
 ```
+
+The `inventory` mechanism replaces the pre-I-0096 `#[ctor]`-based path —
+no `ctor = "0.2"` dependency is required, and the `cloacina_macros`
+crate emits these entries directly. See [Inventory and Runtime
+Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}})
+for the rationale behind the flip.
+
+In packaged mode (`feature = "packaged"`), the same constructor is
+walked at FFI call time by the [`cloacina::package!()`]({{< ref "/platform/reference/package-shell-macro" >}})
+shell macro instead of being seeded into a process-local `Runtime`.
 
 ### Complete Example
 
