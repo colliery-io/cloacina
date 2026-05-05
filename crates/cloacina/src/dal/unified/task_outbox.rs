@@ -305,7 +305,7 @@ impl<'a> TaskOutboxDAL<'a> {
     ///
     /// This is used for cleanup of orphaned entries that were never claimed
     /// (e.g., due to task failures or system crashes).
-    pub async fn delete_older_than(
+    pub(crate) async fn delete_older_than(
         &self,
         cutoff: UniversalTimestamp,
     ) -> Result<i64, ValidationError> {

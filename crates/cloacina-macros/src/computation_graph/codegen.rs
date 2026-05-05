@@ -158,14 +158,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     } else {
         quote! { ::cloacina_computation_graph }
     };
-    // Entry accumulators as both strings (for per-graph const block) and
-    // compile-time-visible vec!.
-    let entry_acc_strs: Vec<String> = ir.entry_accumulators();
-    let entry_accs_vec = {
-        let entries = entry_acc_strs.iter();
-        quote! { vec![#(#entries.to_string()),*] }
-    };
-
     // Derive per-trigger-form code fragments:
     // - `legacy_acc_names_expr`: expression producing the `accumulator_names`
     //   field of `ComputationGraphRegistration` (legacy, kept for packaging
@@ -304,7 +296,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                                 #compiled_fn_name(&cache).await
                             })
                         }),
-                        entry_accumulators: #entry_accs_vec,
                         trigger_reactor: #trigger_reactor_expr,
                         accumulator_names: #legacy_acc_names_expr,
                         reaction_mode: #legacy_reaction_mode_expr,
@@ -337,7 +328,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                                 #compiled_fn_name(&cache).await
                             })
                         }),
-                        entry_accumulators: #entry_accs_vec,
                         trigger_reactor: #trigger_reactor_expr,
                         accumulator_names: #legacy_acc_names_expr,
                         reaction_mode: #legacy_reaction_mode_expr,

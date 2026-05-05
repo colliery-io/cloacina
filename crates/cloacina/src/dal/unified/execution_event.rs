@@ -207,7 +207,7 @@ impl<'a> ExecutionEventDAL<'a> {
     }
 
     /// Gets all execution events for a specific task execution, ordered by sequence.
-    pub async fn list_by_task(
+    pub(crate) async fn list_by_task(
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<ExecutionEvent>, ValidationError> {
@@ -269,7 +269,7 @@ impl<'a> ExecutionEventDAL<'a> {
     }
 
     /// Gets execution events by type for monitoring and analysis.
-    pub async fn list_by_type(
+    pub(crate) async fn list_by_type(
         &self,
         event_type: ExecutionEventType,
         limit: i64,
@@ -338,7 +338,10 @@ impl<'a> ExecutionEventDAL<'a> {
     }
 
     /// Gets recent execution events for monitoring purposes.
-    pub async fn get_recent(&self, limit: i64) -> Result<Vec<ExecutionEvent>, ValidationError> {
+    pub(crate) async fn get_recent(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<ExecutionEvent>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
             self.get_recent_postgres(limit).await,
@@ -459,7 +462,7 @@ impl<'a> ExecutionEventDAL<'a> {
     }
 
     /// Counts total execution events for a workflow execution.
-    pub async fn count_by_workflow(
+    pub(crate) async fn count_by_workflow(
         &self,
         workflow_execution_id: UniversalUuid,
     ) -> Result<i64, ValidationError> {

@@ -90,7 +90,7 @@ pub fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, GraphError> {
 /// Convenience for external producers pushing events via WebSocket.
 /// The WebSocket handler calls this to convert incoming JSON to the
 /// internal bincode wire format before forwarding to accumulators.
-pub fn json_to_wire<T: Serialize + DeserializeOwned>(
+pub(crate) fn json_to_wire<T: Serialize + DeserializeOwned>(
     json_str: &str,
 ) -> Result<Vec<u8>, GraphError> {
     let value: T =
@@ -220,7 +220,7 @@ impl GraphResult {
         Self::Completed { outputs }
     }
 
-    pub fn completed_empty() -> Self {
+    pub(crate) fn completed_empty() -> Self {
         Self::Completed {
             outputs: Vec::new(),
         }
@@ -276,32 +276,23 @@ pub type CompiledGraphFn =
 
 /// Metadata about a registered computation graph.
 ///
-/// The shape carries both the legacy bundled-form metadata
-/// (`accumulator_names` + `reaction_mode`, consumed by packaging FFI and the
-/// reconciler) and the new split-form metadata (`entry_accumulators` +
-/// `trigger_reactor`). Graphs emitted from the bundled form populate both.
-/// Graphs emitted from the split form also populate both — legacy fields are
-/// copied from the referenced reactor's declaration so downstream code that
-/// still reads them keeps working during the I-0101 migration.
-/// Trigger-less graphs carry empty legacy fields and `trigger_reactor = None`.
+/// `accumulator_names` and `reaction_mode` are the canonical fields consumed
+/// by the packaging FFI and the reconciler. Bundled-form graphs populate
+/// these from the local declaration; split-form graphs mirror the
+/// referenced reactor's declaration. Trigger-less graphs carry empty
+/// `accumulator_names` and `trigger_reactor = None`.
 pub struct ComputationGraphRegistration {
     /// The compiled graph function.
     pub graph_fn: CompiledGraphFn,
-    /// Accumulator names used by the graph's entry nodes. Enforced to be a
-    /// subset of the referenced reactor's `ACCUMULATORS` at macro expansion
-    /// for split form; identical to `accumulator_names` for bundled form.
-    pub entry_accumulators: Vec<String>,
     /// Name of the reactor this graph is bound to, if any. `None` for
     /// trigger-less graphs (T-02/T-03 invoke these directly from workflow
     /// tasks or Python tasks).
     pub trigger_reactor: Option<String>,
-    /// Accumulator names — legacy field kept for packaging FFI + reconciler
-    /// compatibility. For split-form graphs this mirrors the reactor's
+    /// Accumulator names. For split-form graphs this mirrors the reactor's
     /// accumulators; for trigger-less graphs it is empty.
     pub accumulator_names: Vec<String>,
     /// Reaction mode: `"when_any"`, `"when_all"`, or `"none"` for
-    /// trigger-less graphs. Legacy field retained for the same reasons as
-    /// `accumulator_names`.
+    /// trigger-less graphs.
     pub reaction_mode: String,
 }
 

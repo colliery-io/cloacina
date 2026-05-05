@@ -4,15 +4,15 @@ level: task
 title: "Audit T4c: DAL/Runtime/Registry visibility downgrades (pub → pub(crate))"
 short_code: "CLOACI-T-0565"
 created_at: 2026-05-04T20:19:12.054404+00:00
-updated_at: 2026-05-04T20:19:12.054404+00:00
+updated_at: 2026-05-05T02:58:38.773323+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,6 +39,12 @@ Downgrade these to `pub(crate)` — preserves them as internal capability, remov
 - **Current Problems**: External API surface includes ~20 methods with no documented use cases. Reviewers / external consumers can't tell which methods are stable contracts.
 - **Benefits of Fixing**: External surface shrinks to what's actually committed. Compiler dead-code lint becomes a real signal for these symbols (currently muted because they're `pub`).
 - **Risk Assessment**: Medium-low. Some of these may have out-of-tree consumers we don't know about. Downgrade is reversible; user can re-promote on request.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -92,4 +98,31 @@ None blocking.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-05-04 — Completed
+
+**Downgraded `pub → pub(crate)`:**
+- `RecoveryEventDAL`: `get_by_workflow`, `get_by_task`, `get_by_type`, `get_workflow_unavailable_events`, `get_recent`.
+- `ExecutionEventDAL`: `list_by_task`, `list_by_type`, `get_recent`, `count_by_workflow`.
+- `TaskOutboxDAL::delete_older_than`.
+- `Runtime::all_workflows`, `all_triggers`, `has_task`, `has_stream_backend`, `stream_backend_names`.
+- 4 `Runtime` type aliases: `TriggerlessGraphConstructor`, `TaskConstructorFn`, `WorkflowConstructorFn`, `TriggerConstructorFn`.
+- `cloacina-computation-graph::GraphResult::completed_empty`.
+- `cloacina-computation-graph::json_to_wire`.
+
+**Dead field deletion** (instead of downgrade):
+- `ComputationGraphRegistration::entry_accumulators` — written by macro codegen + reconciler manual construction, never read in production. `accumulator_names` is the canonical field consumed by packaging/reconciler/scheduler. Removed the field, the 2 macro write sites in `cloacina-macros/src/computation_graph/codegen.rs`, the supporting `entry_acc_strs` / `entry_accs_vec` codegen helpers, and the reconciler manual-construction write site at `loading.rs:1815`. Updated the doc comment on `ComputationGraphRegistration` to drop the `entry_accumulators` reference.
+
+**Audit was wrong — skipped:**
+- `ExecutionEventDAL::delete_older_than` and `count_older_than` — used by `cloacinactl::commands::cleanup_events.rs`.
+- `RegistryReconciler::with_graph_scheduler` — has integration test callers in `tests/integration/dal/reconciler_e2e_load.rs`. Gating to `#[cfg(test)]` would break those tests. Leave `pub`.
+- `WorkflowRegistryImpl` convenience methods (`exists_by_id`, `exists_by_name`, `get_workflow_package_by_id`, `get_workflow_package_by_name`, `list_packages`, `unregister_workflow_package_by_id`, `loaded_package_count`, `total_registered_tasks`) — all have integration test callers in `tests/integration/dal/workflow_registry.rs` and `tests/integration/test_registry_dynamic_loading.rs`. Downgrade would force test deletion or relocation; out-of-scope here.
+- `WorkflowRegistryImpl::with_strict_validation` — does not exist. Audit hallucinated.
+- `ContextDAL::list` and `update` — initially downgraded, then reverted: integration tests at `tests/integration/dal/context.rs:175` exercise them. Left `pub`.
+
+**Test gates:**
+- `cargo check --workspace --all-features` green.
+- `angreal test unit` green (45 macros + 658 cloacina lib, including new T-0564 test).
+- `angreal test integration --backend sqlite` green (Rust + 28 Python pytest scenarios all passed; scenario 15 that hung last run also passed cleanly).
+
+**Out-of-scope follow-up:**
+- The `WorkflowRegistryImpl` and `RegistryReconciler::with_graph_scheduler` integration-test-only surface needs a separate decision: relocate tests as lib unit tests (then `pub(crate)` works), or accept that these methods remain `pub` because they have committed test contracts. Either way it's a test-relocation ticket, not a visibility ticket.

@@ -140,7 +140,7 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets all recovery events for a specific workflow execution.
-    pub async fn get_by_workflow(
+    pub(crate) async fn get_by_workflow(
         &self,
         workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
@@ -202,7 +202,7 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets all recovery events for a specific task execution.
-    pub async fn get_by_task(
+    pub(crate) async fn get_by_task(
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
@@ -264,7 +264,7 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets recovery events by type for monitoring and analysis.
-    pub async fn get_by_type(
+    pub(crate) async fn get_by_type(
         &self,
         recovery_type: &str,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
@@ -328,7 +328,7 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets all workflow unavailability events for monitoring unknown workflow cleanup.
-    pub async fn get_workflow_unavailable_events(
+    pub(crate) async fn get_workflow_unavailable_events(
         &self,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         self.get_by_type(RecoveryType::WorkflowUnavailable.as_str())
@@ -336,7 +336,10 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets recent recovery events for monitoring purposes.
-    pub async fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
+    pub(crate) async fn get_recent(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
             self.get_recent_postgres(limit).await,

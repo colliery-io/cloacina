@@ -1812,7 +1812,6 @@ impl RegistryReconciler {
             runtime.register_computation_graph(graph_meta.graph_name.clone(), move || {
                 crate::ComputationGraphRegistration {
                     graph_fn: graph_fn.clone(),
-                    entry_accumulators: accumulator_names.clone(),
                     trigger_reactor: None,
                     accumulator_names: accumulator_names.clone(),
                     reaction_mode: reaction_mode.clone(),

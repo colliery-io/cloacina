@@ -53,16 +53,17 @@ use cloacina_computation_graph::{
 };
 
 /// Type alias for trigger-less graph constructor functions.
-pub type TriggerlessGraphConstructor = Box<dyn Fn() -> TriggerlessGraphRegistration + Send + Sync>;
+pub(crate) type TriggerlessGraphConstructor =
+    Box<dyn Fn() -> TriggerlessGraphRegistration + Send + Sync>;
 
 /// Type alias for task constructor functions.
-pub type TaskConstructorFn = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
+pub(crate) type TaskConstructorFn = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
 
 /// Type alias for workflow constructor functions.
-pub type WorkflowConstructorFn = Box<dyn Fn() -> Workflow + Send + Sync>;
+pub(crate) type WorkflowConstructorFn = Box<dyn Fn() -> Workflow + Send + Sync>;
 
 /// Type alias for trigger constructor functions.
-pub type TriggerConstructorFn = Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>;
+pub(crate) type TriggerConstructorFn = Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>;
 
 /// A scoped runtime holding the registries for every cloacina extension point.
 ///
@@ -197,7 +198,7 @@ impl Runtime {
     }
 
     /// Check if a task is registered for the given namespace.
-    pub fn has_task(&self, namespace: &TaskNamespace) -> bool {
+    pub(crate) fn has_task(&self, namespace: &TaskNamespace) -> bool {
         self.inner.tasks.read().contains_key(namespace)
     }
 
@@ -239,7 +240,7 @@ impl Runtime {
     }
 
     /// Get all registered workflows (instantiated).
-    pub fn all_workflows(&self) -> Vec<Workflow> {
+    pub(crate) fn all_workflows(&self) -> Vec<Workflow> {
         self.inner
             .workflows
             .read()
@@ -279,7 +280,7 @@ impl Runtime {
     }
 
     /// Get all registered triggers (instantiated).
-    pub fn all_triggers(&self) -> HashMap<String, Arc<dyn Trigger>> {
+    pub(crate) fn all_triggers(&self) -> HashMap<String, Arc<dyn Trigger>> {
         self.inner
             .triggers
             .read()
@@ -427,7 +428,7 @@ impl Runtime {
     }
 
     /// Check if a stream backend is registered for the given type name.
-    pub fn has_stream_backend(&self, type_name: &str) -> bool {
+    pub(crate) fn has_stream_backend(&self, type_name: &str) -> bool {
         self.inner.stream_backends.read().contains_key(type_name)
     }
 
@@ -445,7 +446,7 @@ impl Runtime {
     }
 
     /// Get all registered stream backend type names.
-    pub fn stream_backend_names(&self) -> Vec<String> {
+    pub(crate) fn stream_backend_names(&self) -> Vec<String> {
         self.inner.stream_backends.read().keys().cloned().collect()
     }
 }
