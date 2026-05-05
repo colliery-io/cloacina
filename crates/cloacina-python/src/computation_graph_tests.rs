@@ -297,11 +297,8 @@ with ComputationGraphBuilder("exec_linear",
         );
 
         let result = executor.execute(&cache).await;
-        match &result {
-            cloacina::computation_graph::GraphResult::Error(e) => {
-                panic!("execution failed: {:?}", e)
-            }
-            _ => {}
+        if let cloacina::computation_graph::GraphResult::Error(e) = &result {
+            panic!("execution failed: {:?}", e);
         }
         assert!(result.is_completed(), "linear graph should complete");
     }
@@ -373,11 +370,8 @@ with ComputationGraphBuilder("exec_routing",
         );
 
         let result = executor.execute(&cache).await;
-        match &result {
-            cloacina::computation_graph::GraphResult::Error(e) => {
-                panic!("routing execution failed: {:?}", e)
-            }
-            _ => {}
+        if let cloacina::computation_graph::GraphResult::Error(e) = &result {
+            panic!("routing execution failed: {:?}", e);
         }
         assert!(result.is_completed(), "routing graph should complete");
     }

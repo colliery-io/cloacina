@@ -1394,7 +1394,7 @@ mod resilience_tests {
     /// Live when all accumulators report healthy.
     #[tokio::test]
     async fn test_reactor_health_warming_to_live() {
-        let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
+        let (_boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
         let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
 
@@ -2102,12 +2102,18 @@ async fn test_cloaci_t_0540_graph_handle_consts() {
         <__CGHandle_cloaci_t_0538_split_graph as Graph>::NAME,
         "cloaci_t_0538_split_graph"
     );
-    assert!(!<__CGHandle_cloaci_t_0538_split_graph as Graph>::IS_TRIGGERLESS);
-    assert_eq!(
-        <__CGHandle_cloaci_t_0538_triggerless_graph as Graph>::NAME,
-        "cloaci_t_0538_triggerless_graph"
-    );
-    assert!(<__CGHandle_cloaci_t_0538_triggerless_graph as Graph>::IS_TRIGGERLESS);
+    // The IS_TRIGGERLESS asserts below check macro-emitted const values.
+    // Clippy flags them as "constant assertion"; that's the point — these
+    // are runtime sanity checks for what the macro should produce.
+    #[allow(clippy::assertions_on_constants)]
+    {
+        assert!(!<__CGHandle_cloaci_t_0538_split_graph as Graph>::IS_TRIGGERLESS);
+        assert_eq!(
+            <__CGHandle_cloaci_t_0538_triggerless_graph as Graph>::NAME,
+            "cloaci_t_0538_triggerless_graph"
+        );
+        assert!(<__CGHandle_cloaci_t_0538_triggerless_graph as Graph>::IS_TRIGGERLESS);
+    }
 }
 
 #[tokio::test]

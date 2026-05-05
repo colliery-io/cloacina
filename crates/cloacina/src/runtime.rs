@@ -34,14 +34,12 @@
 //! ```
 
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 
 use crate::computation_graph::stream_backend::{
-    StreamBackend, StreamBackendFactory, StreamBackendFuture, StreamConfig, StreamError,
+    StreamBackendFactory, StreamBackendFuture, StreamConfig,
 };
 use crate::computation_graph::triggerless::TriggerlessGraphRegistration;
 use crate::task::{Task, TaskNamespace};

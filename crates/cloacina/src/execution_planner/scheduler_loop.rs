@@ -129,7 +129,7 @@ impl<'a> SchedulerLoop<'a> {
                             "Scheduler loop circuit open: {} consecutive errors — backing off (latest: {})",
                             self.consecutive_errors, e
                         );
-                    } else if self.consecutive_errors % 10 == 0 {
+                    } else if self.consecutive_errors.is_multiple_of(10) {
                         // Rate-limited logging: every 10th error after circuit opens
                         warn!(
                             "Scheduler loop still failing: {} consecutive errors (latest: {})",

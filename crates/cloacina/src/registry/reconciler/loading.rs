@@ -654,13 +654,13 @@ impl RegistryReconciler {
 
     /// Unload a package from the global registries.
     ///
-    /// T-0554 Phase 2: tear-down runs in REVERSE precedence order
+    /// Tear-down runs in REVERSE precedence order
     /// (workflows → CGs → reactors → triggers → tasks). This mirrors the
-    /// load pipeline and lets T-0544 M4's `unload_reactor` reject-with-
-    /// subscribers guard fire cleanly when an operator tries to drop a
+    /// load pipeline and lets the bound-subscriber guard inside
+    /// `unload_reactor` fire cleanly when an operator tries to drop a
     /// publishing package while subscribers are still bound: the workflow
-    /// + CG steps run first, but the reactor step refuses if any
-    /// out-of-package subscriber remains, and the unload as a whole
+    /// and CG steps run first, but the reactor step refuses if any
+    /// cross-package subscriber remains, and the unload as a whole
     /// surfaces the rejection.
     pub(super) async fn unload_package(
         &self,
@@ -1381,14 +1381,11 @@ impl RegistryReconciler {
             .map_err(RegistryError::Loader)
             .unwrap_or_default();
 
-        let graph = match self
+        let graph = self
             .package_loader
             .extract_graph_metadata(library_data)
             .await
-        {
-            Ok(opt) => opt,
-            Err(_) => None,
-        };
+            .unwrap_or_default();
 
         Ok(PackageLoadView {
             triggers,

@@ -178,14 +178,12 @@ impl TaskRegistrar {
 
             let plugin = plugin.clone();
             let task_name = task_id.to_string();
-            let pkg_name = package_name.to_string();
             let deps = dependency_namespaces.clone();
 
             let constructor = Box::new(move || {
                 Arc::new(DynamicLibraryTask::new(
                     plugin.clone(),
                     task_name.clone(),
-                    pkg_name.clone(),
                     deps.clone(),
                 )) as Arc<dyn Task>
             });

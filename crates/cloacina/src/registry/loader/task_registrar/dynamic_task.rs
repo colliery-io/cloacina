@@ -117,8 +117,6 @@ pub(super) struct DynamicLibraryTask {
     plugin: Arc<LoadedWorkflowPlugin>,
     /// Name of the task within the package
     task_name: String,
-    /// Name of the package containing this task
-    package_name: String,
     /// Task dependencies as fully qualified namespaces
     dependencies: Vec<TaskNamespace>,
 }
@@ -136,13 +134,11 @@ impl DynamicLibraryTask {
     pub(super) fn new(
         plugin: Arc<LoadedWorkflowPlugin>,
         task_name: String,
-        package_name: String,
         dependencies: Vec<TaskNamespace>,
     ) -> Self {
         Self {
             plugin,
             task_name,
-            package_name,
             dependencies,
         }
     }
@@ -174,7 +170,6 @@ impl Task for DynamicLibraryTask {
         // Call via the shared plugin handle
         let plugin = self.plugin.clone();
         let task_name = self.task_name.clone();
-        let pkg_name = self.package_name.clone();
 
         let result = tokio::task::spawn_blocking(move || plugin.execute_task(request))
             .await
@@ -252,8 +247,6 @@ impl Task for DynamicLibraryTask {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_loaded_workflow_plugin_debug() {
         // Just verify Debug trait works

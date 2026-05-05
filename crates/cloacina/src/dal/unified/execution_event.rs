@@ -40,6 +40,12 @@ pub struct ExecutionEventDAL<'a> {
     dal: &'a DAL,
 }
 
+// Several methods on this impl block are kept as future admin/ops
+// surface (per T-0565): `list_by_task`, `list_by_type`, `get_recent`,
+// `count_by_workflow`. They have zero in-tree callers today but are
+// preserved as the "deliberately complete CRUD surface" the audit
+// flagged. Re-promote to `pub` if a real consumer arrives.
+#[allow(dead_code)]
 impl<'a> ExecutionEventDAL<'a> {
     /// Creates a new ExecutionEventDAL instance.
     pub fn new(dal: &'a DAL) -> Self {

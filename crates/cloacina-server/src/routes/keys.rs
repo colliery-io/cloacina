@@ -33,9 +33,10 @@ use crate::routes::error::ApiError;
 use crate::AppState;
 
 /// Allowed roles for API keys.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyRole {
+    #[default]
     Admin,
     Write,
     Read,
@@ -48,12 +49,6 @@ impl KeyRole {
             KeyRole::Write => "write",
             KeyRole::Read => "read",
         }
-    }
-}
-
-impl Default for KeyRole {
-    fn default() -> Self {
-        KeyRole::Admin
     }
 }
 

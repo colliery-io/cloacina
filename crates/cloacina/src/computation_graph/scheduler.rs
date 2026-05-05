@@ -27,7 +27,7 @@ use tokio::sync::{mpsc, watch, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use super::accumulator::{health_channel, shutdown_signal, AccumulatorHealth, CheckpointHandle};
+use super::accumulator::{health_channel, shutdown_signal, AccumulatorHealth};
 use super::reactor::{
     reactor_health_channel, CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor,
     ReactorHandle,
@@ -1172,9 +1172,9 @@ mod tests {
     use super::*;
     use crate::computation_graph::accumulator::{
         accumulator_runtime, Accumulator, AccumulatorContext, AccumulatorRuntimeConfig,
-        BoundarySender,
+        BoundarySender, CheckpointHandle,
     };
-    use crate::computation_graph::types::{serialize, GraphResult, InputCache};
+    use crate::computation_graph::types::{GraphResult, InputCache};
     use serde::{Deserialize, Serialize};
     use std::sync::atomic::{AtomicU32, Ordering};
 

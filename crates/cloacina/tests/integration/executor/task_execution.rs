@@ -1106,9 +1106,11 @@ async fn downstream_of_failure(context: &mut Context<Value>) -> Result<(), TaskE
 
 /// Helper to set up a runner with registered tasks and workflow, execute, and
 /// return the final workflow execution status string.
+type TaskCtor = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
+
 async fn run_workflow_and_get_status(
     workflow_name: &str,
-    task_defs: Vec<(&str, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>)>,
+    task_defs: Vec<(&str, TaskCtor)>,
     dep_map: Vec<(&str, Vec<&str>)>,
 ) -> String {
     let fixture = get_or_init_fixture().await;

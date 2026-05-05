@@ -174,22 +174,6 @@ pub fn init_test_logging() {
         .try_init();
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tracing::{debug, error, info, warn};
-
-    #[test]
-    fn test_logging_levels() {
-        init_test_logging();
-
-        error!("This is an error message");
-        warn!("This is a warning message");
-        info!("This is an info message");
-        debug!("This is a debug message");
-    }
-}
-
 /// Mask the password in a database URL for safe logging.
 ///
 /// Replaces the password portion (between the last `:` before `@` and the `@`)
@@ -217,4 +201,20 @@ pub fn mask_db_url(url: &str) -> String {
         }
     }
     url.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tracing::{debug, error, info, warn};
+
+    #[test]
+    fn test_logging_levels() {
+        init_test_logging();
+
+        error!("This is an error message");
+        warn!("This is a warning message");
+        info!("This is an info message");
+        debug!("This is a debug message");
+    }
 }

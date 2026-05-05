@@ -21,7 +21,6 @@
 use std::path::{Path, PathBuf};
 
 use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
-use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use tempfile::TempDir;
 use tracing::{debug, info, warn};

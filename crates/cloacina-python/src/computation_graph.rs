@@ -74,7 +74,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
-use pyo3::exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyAttributeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyCFunction, PyDict, PyList, PyString, PyTuple};
 
@@ -194,7 +194,7 @@ pub fn stream_accumulator_decorator(
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
               -> PyResult<PyObject> {
-            let py = args.py();
+            let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
 
@@ -235,7 +235,7 @@ pub fn polling_accumulator_decorator(py: Python<'_>, interval: String) -> PyResu
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
               -> PyResult<PyObject> {
-            let py = args.py();
+            let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
 
@@ -277,7 +277,7 @@ pub fn batch_accumulator_decorator(
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
               -> PyResult<PyObject> {
-            let py = args.py();
+            let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
 
@@ -326,7 +326,7 @@ enum PyEdgeDecl {
 /// current ComputationGraphBuilder context.
 #[pyfunction]
 pub fn node(py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
-    let ctx = current_graph_context().ok_or_else(|| {
+    let _ctx = current_graph_context().ok_or_else(|| {
         PyValueError::new_err(
             "@cloaca.node must be used inside a ComputationGraphBuilder context manager",
         )
@@ -613,7 +613,7 @@ impl PythonGraphExecutor {
         // Convert PyObject inputs to serde_json::Value for the executor
         let mut cache_values: HashMap<String, serde_json::Value> = HashMap::new();
         for (name, obj) in inputs {
-            let val = pythonize::depythonize::<serde_json::Value>(&obj.bind(py))?;
+            let val = pythonize::depythonize::<serde_json::Value>(obj.bind(py))?;
             cache_values.insert(name.clone(), val);
         }
 
@@ -635,10 +635,10 @@ impl PythonGraphExecutor {
                         })?;
                         Ok(py_obj.unbind())
                     } else {
-                        Ok(py.None().into())
+                        Ok(py.None())
                     }
                 } else {
-                    Ok(py.None().into())
+                    Ok(py.None())
                 }
             }
             Err(e) => Err(PyValueError::new_err(format!(
@@ -844,24 +844,6 @@ fn execute_graph_sync(
         node_map,
         cache_values,
         None,
-    )
-}
-
-fn execute_graph_sync_with_context(
-    py: Python<'_>,
-    node_functions: &HashMap<String, PyObject>,
-    execution_order: &[String],
-    node_map: &HashMap<String, PyNodeDecl>,
-    ctx: &PyObject,
-) -> Result<Vec<Box<dyn std::any::Any + Send>>, GraphError> {
-    let empty_cache: HashMap<String, serde_json::Value> = HashMap::new();
-    execute_graph_sync_inner(
-        py,
-        node_functions,
-        execution_order,
-        node_map,
-        &empty_cache,
-        Some(ctx),
     )
 }
 

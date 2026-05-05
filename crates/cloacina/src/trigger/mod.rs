@@ -48,15 +48,9 @@
 //! }
 //! ```
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use thiserror::Error;
-
-use crate::Context;
 
 /// Errors that can occur during trigger operations.
 #[derive(Debug, Error)]
@@ -166,6 +160,8 @@ pub use cloacina_workflow::Trigger;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Context;
+    use async_trait::async_trait;
 
     #[derive(Debug)]
     struct TestTrigger {

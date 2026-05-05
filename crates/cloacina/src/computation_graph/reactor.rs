@@ -33,6 +33,10 @@ use tokio::sync::{mpsc, watch, RwLock};
 
 use super::types::{GraphResult, InputCache, SourceName};
 
+/// Sequential-strategy queue: shared boundary buffer that the strategy
+/// driver drains in arrival order. Each entry is `(source, raw bytes)`.
+type SeqQueue = Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>>;
+
 // =============================================================================
 // Reactor Health
 // =============================================================================
@@ -272,7 +276,7 @@ impl Reactor {
         Self {
             graph,
             criteria,
-            input_strategy: input_strategy,
+            input_strategy,
             accumulator_rx,
             manual_rx,
             shutdown,
@@ -506,8 +510,7 @@ impl Reactor {
         let input_strategy = self.input_strategy.clone();
 
         // Sequential queue — only used when InputStrategy::Sequential
-        let seq_queue: Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>> =
-            Arc::new(RwLock::new(VecDeque::new()));
+        let seq_queue: SeqQueue = Arc::new(RwLock::new(VecDeque::new()));
 
         let (strategy_tx, mut strategy_rx) = mpsc::channel::<StrategySignal>(64);
 
@@ -669,7 +672,7 @@ async fn persist_reactor_state(
     graph_name: &str,
     cache: &Arc<RwLock<InputCache>>,
     dirty: &Arc<RwLock<DirtyFlags>>,
-    seq_queue: Option<&Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>>>,
+    seq_queue: Option<&SeqQueue>,
 ) {
     let dal = match dal {
         Some(d) if !graph_name.is_empty() => d,

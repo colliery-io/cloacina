@@ -31,6 +31,9 @@ pub struct ClientContext {
     pub api_key: String,
     pub tenant: Option<String>,
     pub output: OutputFormat,
+    /// Propagated from `--no-color` for table renderers. Currently no
+    /// consumer reads it (pending wire-up in the renderer layer).
+    #[allow(dead_code)]
     pub no_color: bool,
 }
 
@@ -139,8 +142,10 @@ mod tests {
 
     #[test]
     fn explicit_flag_wins() {
-        let mut config = CloacinaConfig::default();
-        config.default_profile = Some("p1".into());
+        let mut config = CloacinaConfig {
+            default_profile: Some("p1".into()),
+            ..Default::default()
+        };
         config.profiles.insert(
             "p1".into(),
             Profile {
@@ -159,8 +164,10 @@ mod tests {
 
     #[test]
     fn named_profile_wins_over_default() {
-        let mut config = CloacinaConfig::default();
-        config.default_profile = Some("a".into());
+        let mut config = CloacinaConfig {
+            default_profile: Some("a".into()),
+            ..Default::default()
+        };
         config.profiles.insert(
             "a".into(),
             Profile {

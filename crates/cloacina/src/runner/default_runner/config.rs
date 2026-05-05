@@ -674,7 +674,7 @@ impl DefaultRunnerBuilder {
         // Runtime, else create a fresh inventory-seeded one.
         let runtime = self
             .runtime_arc
-            .unwrap_or_else(|| Arc::new(self.runtime.unwrap_or_else(Runtime::new)));
+            .unwrap_or_else(|| Arc::new(self.runtime.unwrap_or_default()));
 
         // Create scheduler with the scoped runtime
         let scheduler = TaskScheduler::with_poll_interval(

@@ -152,7 +152,6 @@ pub async fn run(
     {
         if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() {
             use opentelemetry::trace::TracerProvider;
-            use opentelemetry_otlp::WithExportConfig;
 
             let service_name =
                 std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "cloacina".to_string());
