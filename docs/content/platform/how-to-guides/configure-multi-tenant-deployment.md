@@ -219,11 +219,42 @@ cloacina.example.com {
 
 ### 5. Bootstrap key is single-capture
 
-If you lose the bootstrap key and have no other admin key,
-recovery requires direct database access (delete the row in
-`api_keys` to trigger a re-bootstrap on next startup). Plan for at
-least two admin keys: one for routine ops, one stored offline as a
-cold backup.
+If you lose the bootstrap key and have no other admin key in the
+database, you cannot recover admin access through the API alone.
+The bootstrap path runs only when the `api_keys` table contains
+zero non-revoked keys; once any key exists, the path is skipped on
+subsequent starts.
+
+**Recommended: keep two admin keys.** Capture the bootstrap key on
+first startup, then immediately create a second admin key via
+`POST /v1/auth/keys` and store *that* in your secret manager. The
+bootstrap key file (`~/.cloacina/bootstrap-key`) can then be
+deleted from disk; the secret-manager-stored key is your daily
+driver.
+
+**If you've already lost both:** recovery requires direct database
+access. Stop `cloacina-server`, then on the database:
+
+```sql
+-- Postgres
+UPDATE api_keys SET revoked = true WHERE is_admin = true;
+
+-- SQLite (UPDATE-then-restart works the same)
+UPDATE api_keys SET revoked = 1 WHERE is_admin = 1;
+```
+
+Restart the server. Because no non-revoked admin keys exist, the
+bootstrap path runs again, generates a fresh admin key, and writes
+the plaintext to `~/.cloacina/bootstrap-key` (or the
+`CLOACINA_BOOTSTRAP_KEY` value if supplied). Capture the new key
+immediately and rebuild from there. The old revoked rows can be
+deleted later for cleanliness; leaving them in place is harmless.
+
+> **Don't `DELETE FROM api_keys` directly.** Foreign-key references
+> from `package_signatures` (and other tables, depending on your
+> deployment) point at key rows. Marking `revoked = true` is the
+> safe equivalent that triggers re-bootstrap without breaking
+> referential integrity.
 
 ## Verification
 

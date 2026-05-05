@@ -125,6 +125,47 @@ serves new requests. For zero-downtime upgrades, run two
 `cloacina-server` instances behind a load balancer and swap one at a
 time.
 
+## Common Errors
+
+### `reactor 'X' has N bound subscriber(s): [...]; unbind them first`
+
+The bound-subscriber guard refused to tear down a reactor because
+a CG (in this or another package) is still subscribed. Exact wire
+format:
+
+```text
+reactor 'price_reactor' has 2 bound subscriber(s):
+       ['analyzer_v1', 'aggregator']; unbind them first
+```
+
+**Resolution**: identify the named subscribers, unload the packages
+that own them, then retry. See [Recipe 2](#recipe-2-unload-a-reactor-owning-package-with-external-subscribers)
+above. The reconciler does *not* cascade unloads automatically.
+
+### `reactor 'X' not loaded`
+
+You're trying to unload (or bind to) a reactor that's not in the
+scheduler. Possible causes:
+- The publisher package never loaded (check the server log for
+  load failures during the publisher's reconciliation).
+- The publisher unloaded already (check via
+  `cloacinactl graph list`).
+- A typo in the reactor name (case-sensitive).
+
+For unload paths, this is treated as a clean no-op — the runtime-
+side constructor cleanup still runs. You don't need to do anything;
+the warning is informational. For load paths (loading a subscriber
+before the publisher exists), wait for the publisher to load or
+re-upload it.
+
+### `package <id> failed: <reason>`
+
+The reconciler logged a failure mid-load. Re-run unload to clean up
+any partial state, then investigate the failure. Common causes:
+malformed manifest, cdylib that doesn't expose the expected FFI
+methods, signature verification mismatch when
+`--require-signatures` is set.
+
 ## Recovering from a Partial Unload
 
 If the unload errors mid-pipeline (e.g., a cron schedule delete fails

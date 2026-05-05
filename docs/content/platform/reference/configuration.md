@@ -63,7 +63,7 @@ let config = DefaultRunnerConfig::builder()
 | `registry_reconcile_interval` | `Duration` | `60s` | How often the reconciler scans for changes. |
 | `registry_enable_startup_reconciliation` | `bool` | `true` | Whether to run a full reconciliation pass on startup. |
 | `registry_storage_path` | `Option<PathBuf>` | `None` | Custom path for filesystem-based registry storage. `None` uses the default location. |
-| `registry_storage_backend` | `String` | `"filesystem"` | Storage backend type. Options: `"filesystem"`, `"database"`. The `serve` command uses `"database"`. |
+| `registry_storage_backend` | `String` | `"filesystem"` | Storage backend type. Options: `"filesystem"`, `"database"`. The `server start` command uses `"database"`. |
 
 ### Task Claiming
 
@@ -83,6 +83,51 @@ Task claiming enables horizontal scaling by allowing multiple runner instances t
 | `runner_id` | `Option<String>` | `None` | Optional unique identifier for this runner instance. Used in logs and claim ownership. |
 | `runner_name` | `Option<String>` | `None` | Optional human-readable name for this runner instance. |
 | `routing_config` | `Option<RoutingConfig>` | `None` | Task routing configuration for dispatching tasks to specific executor backends. |
+
+### Tuning the cron knobs
+
+The defaults work for most deployments. The cases where you should
+deviate:
+
+- **`cron_max_catchup_executions`** (default `usize::MAX` — unbounded)
+  caps how many missed cron firings are caught up after downtime. The
+  default replays *every* missed firing; a daemon offline for an hour
+  with a per-minute cron schedule will replay 60 executions on
+  startup. Set this to a small finite value (e.g. `10`) for
+  workflows where missed firings are stale and should be skipped, not
+  recovered. Examples: dashboards, hourly aggregations whose
+  inputs have already advanced.
+- **`cron_recovery_interval`** (default `300s`) is how often the
+  recovery scanner looks for lost cron executions. Lower it
+  (e.g. `60s`) for high-frequency cron schedules where a
+  5-minute detection delay is too long. Raise it if recovery scans
+  contend with primary workload.
+- **`cron_lost_threshold_minutes`** (default `10`) is the heartbeat-
+  miss window before a started-but-not-completed cron execution is
+  reclaimed. Increase it if your cron tasks legitimately take longer
+  than 10 minutes; otherwise the recovery system will reclaim a still-
+  running execution and start a duplicate. Decrease it for fast cron
+  workloads where 10 minutes is too long to tolerate a stuck task.
+- **`cron_max_recovery_age`** (default `86400s` — 24h) caps how old
+  an execution can be before recovery gives up. Raise it if you
+  expect long outages from which you genuinely want full recovery.
+  Lower it on systems where stale executions are noise rather than
+  signal.
+- **`cron_max_recovery_attempts`** (default `3`) limits how many times
+  recovery will retry a failing reclaim before abandoning it. Raise
+  for transient-error tolerance; lower for fast failure isolation.
+
+Example: a daemon scheduling hourly summary jobs that should never
+duplicate or backfill more than the last hour:
+
+```rust
+DefaultRunnerConfig::builder()
+    .cron_max_catchup_executions(1)
+    .cron_recovery_interval(Duration::from_secs(60))
+    .cron_lost_threshold_minutes(15)  // Allow up to 15 min for the job
+    .cron_max_recovery_age(Duration::from_secs(3600))
+    .build()
+```
 
 ## DefaultRunnerConfigBuilder
 
@@ -191,8 +236,8 @@ The server uses `DefaultRunnerConfig::builder().registry_storage_backend("databa
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | Database connection URL for `serve` and `admin` commands |
-| `CLOACINA_BOOTSTRAP_KEY` | Bootstrap API key for `serve` first startup |
+| `DATABASE_URL` | Database connection URL for `server start` and `admin` commands |
+| `CLOACINA_BOOTSTRAP_KEY` | Bootstrap API key for `server start` first startup |
 | `RUST_LOG` | Log filter directive (e.g., `info`, `debug`, `cloacina=trace`) |
 
 ## See Also

@@ -106,6 +106,48 @@ This pattern preserves the "plugins own their own tokio runtime"
 invariant — the host never tries to drive a future across the FFI
 boundary.
 
+## Error handling at the FFI boundary
+
+When a packaged trigger-less graph fails inside the cdylib (a node
+panicked, deserialization broke, the user code returned `Err`), the
+plugin reports failure via the wire format:
+
+```rust
+TriggerlessGraphInvokeResult {
+    success: false,
+    terminal_outputs_json: None,
+    error: Some("...some message..."),
+}
+```
+
+The host adapter (`build_ffi_triggerless_graph_fn` in
+`registry/loader/ffi_triggerless_graph.rs`) translates this into a
+`GraphResult::Error(GraphError::Execution(...))` for the workflow
+task that invoked the graph. The workflow task then surfaces the
+error like any other task failure: the task itself is marked
+failed, `on_failure` callbacks fire, retry policies apply.
+
+**Two failure modes to be aware of:**
+
+1. **Plugin returns `success: false` but no `error` message.** This
+   happens if the cdylib's panic handler caught a panic but couldn't
+   extract a useful message. The host inserts a generic placeholder
+   (`"trigger-less graph invocation failed (plugin returned no
+   error message)"`) so the workflow task still sees a failure
+   string. Diagnose by checking the plugin's stderr/log output —
+   the panic backtrace will be there.
+
+2. **FFI dispatch itself fails** (the cdylib was unloaded, fidius
+   serialization broke, the host couldn't reach the plugin). The
+   host wraps this as `GraphError::Execution("FFI dispatch failed:
+   ...")` with the underlying fidius error. Treat these as
+   infrastructure failures; the plugin probably needs to be
+   reloaded.
+
+For embedded trigger-less graphs (no FFI), errors flow directly
+from the user's `Result<...>` into the same `GraphError::Execution`
+shape, with the message preserved verbatim.
+
 ## Loading and unloading
 
 Trigger-less graphs load in **step 4** of the [reconciler

@@ -120,7 +120,13 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Human-readable name for the key |
-| `role` | string | no | Key role: `"admin"`, `"write"`, or `"read"`. Defaults to `"admin"`. |
+| `role` | string | no | Key role. Lowercase string: `"admin"`, `"write"`, or `"read"`. Defaults to `"admin"`. |
+
+> **Naming note:** the request field is `role`; the response field
+> is `permissions`. They carry the same value (e.g., `"admin"`).
+> The split is a historical artifact and intentional for backward
+> compatibility — clients should send `role` in requests and read
+> `permissions` from responses.
 
 **Response:** `201 Created`
 
