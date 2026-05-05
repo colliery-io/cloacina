@@ -392,7 +392,9 @@ mod unified_schema {
 }
 
 // =============================================================================
-// Legacy Backend-Specific Schemas (to be removed after migration)
+// Backend-specific schemas — kept for code paths that still need
+// native-type access (Postgres uuid/timestamptz, SQLite text/integer)
+// alongside the unified-types schema above.
 // =============================================================================
 
 #[cfg(feature = "postgres")]
@@ -1068,8 +1070,9 @@ pub mod unified {
     pub use super::unified_schema::*;
 }
 
-// Legacy backend-specific modules (to be removed after migration)
-// Use schema::postgres::* or schema::sqlite::* for legacy code
+// Backend-specific module aliases. Code that needs native Postgres or
+// SQLite typing imports from `schema::postgres::*` / `schema::sqlite::*`
+// instead of the unified-types schema above.
 #[cfg(feature = "postgres")]
 pub mod postgres {
     pub use super::postgres_schema::*;

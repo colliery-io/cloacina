@@ -555,7 +555,7 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-/// GET /metrics — Prometheus metrics (placeholder for now)
+/// GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     let body = state.metrics_handle.render();
     (

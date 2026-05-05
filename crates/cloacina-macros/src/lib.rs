@@ -65,7 +65,8 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
 /// Applied to a `pub mod` containing `#[task]` functions. Auto-discovers tasks,
 /// validates dependencies, and generates registration code based on delivery mode:
 ///
-/// - **Embedded** (default): `#[ctor]` auto-registration
+/// - **Embedded** (default): `inventory::submit!` auto-registration consumed by
+///   `cloacina::Runtime::seed_from_inventory`
 /// - **Packaged** (`features = ["packaged"]`): FFI exports for `.cloacina` packages
 ///
 /// # Example

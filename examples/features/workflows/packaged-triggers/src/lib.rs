@@ -28,8 +28,9 @@ This example shows the same concept in a **packageable** form:
 
 - Tasks and triggers are defined in a cdylib using `#[workflow]`
   and `#[trigger]` macros
-- When the cdylib is loaded by the reconciler, triggers are automatically
-  registered in the global trigger registry via `ctor`
+- When the cdylib is loaded by the reconciler, triggers are projected from
+  the cdylib's `inventory::iter::<TriggerEntry>` into the host's `Runtime`
+  trigger registry through the `get_trigger_metadata` FFI bridge
 - The `Manifest` manifest declares trigger metadata so the reconciler
   can track and manage them
 

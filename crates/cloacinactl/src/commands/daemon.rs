@@ -17,8 +17,11 @@
 //! Daemon mode — lightweight local scheduler.
 //!
 //! Watches directories for `.cloacina` packages, loads them via the reconciler,
-//! and runs cron + trigger schedules. Uses SQLite for state, filesystem for
-//! package storage.
+//! and registers polling-scheduler entries for FFI-declared custom-poll
+//! triggers. Cron-shaped triggers are registered by
+//! `RegistryReconciler::step_load_cron_triggers` at load time (T-0553), so
+//! this module only handles the non-cron arm. Uses SQLite for state and the
+//! filesystem for package storage.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -434,7 +437,9 @@ async fn register_triggers_from_reconcile(
             None => continue,
         };
 
-        // Load the package data to read the manifest for trigger definitions
+        // Pull the loaded package's compiled cdylib bytes so we can call
+        // `get_trigger_metadata` over FFI. Python packages have no cdylib;
+        // their triggers register through the import-time path.
         let loaded = match registry
             .get_workflow(&metadata.package_name, &metadata.version)
             .await
@@ -442,47 +447,16 @@ async fn register_triggers_from_reconcile(
             Ok(Some(l)) => l,
             _ => continue,
         };
-
-        // Unpack the source archive to a temp dir and read package.toml
-        let tmp = match tempfile::TempDir::new() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        let archive_path = tmp.path().join("pkg.cloacina");
-        if std::fs::write(&archive_path, &loaded.package_data).is_err() {
-            continue;
-        }
-        let extract_dir = tmp.path().join("source");
-        if std::fs::create_dir_all(&extract_dir).is_err() {
-            continue;
-        }
-        let source_dir = match fidius_core::package::unpack_package(&archive_path, &extract_dir) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-        let cloacina_manifest = match fidius_core::package::load_manifest::<
-            cloacina_workflow_plugin::CloacinaMetadata,
-        >(&source_dir)
-        {
-            Ok(m) => m,
-            Err(_) => continue,
+        let library_data = match &loaded.compiled_data {
+            Some(bytes) => bytes,
+            None => continue,
         };
 
         // T-0553 / I-0102: read trigger metadata from the cdylib's
         // `get_trigger_metadata` FFI method (T-0552 made this real).
-        // Cron-shaped entries route to the cron scheduler; non-cron
-        // entries route to the runtime trigger registry via the unified
-        // scheduler.
-        let _ = &cloacina_manifest; // manifest still useful for diagnostics
-        let library_data = match &loaded.compiled_data {
-            Some(bytes) => bytes,
-            None => {
-                // Python packages have no cdylib; their triggers register
-                // through the import-time path, not via FFI.
-                continue;
-            }
-        };
-
+        // Cron-shaped entries route to the cron scheduler (already
+        // registered by the reconciler at load time); non-cron entries
+        // route to the polling scheduler here.
         let trigger_metadata = match load_trigger_metadata(library_data) {
             Ok(m) => m,
             Err(e) => {
@@ -495,6 +469,12 @@ async fn register_triggers_from_reconcile(
         };
 
         if trigger_metadata.is_empty() {
+            continue;
+        }
+
+        // If every trigger is cron-shaped, the reconciler already handled
+        // them via `CronWorkflowRegistrar`. Skip the per-entry walk.
+        if trigger_metadata.iter().all(|t| t.cron_expression.is_some()) {
             continue;
         }
 

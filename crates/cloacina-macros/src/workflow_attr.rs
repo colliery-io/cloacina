@@ -19,8 +19,9 @@
 //! Applied to a `pub mod` containing `#[task]` functions. Auto-discovers tasks,
 //! validates dependencies, and generates registration code.
 //!
-//! - Without `packaged` feature: generates `#[ctor]` auto-registration (embedded mode)
-//! - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
+//! - Without `packaged` feature: emits `inventory::submit!` entries that
+//!   `cloacina::Runtime::seed_from_inventory` walks at runtime (embedded mode)
+//! - With `packaged` feature: generates FFI exports (packaged mode)
 
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -155,7 +156,8 @@ pub fn workflow_attr(args: TokenStream, input: TokenStream) -> TokenStream {
 /// In embedded mode (no `packaged` feature), generates:
 /// - The original module with all task functions
 /// - A workflow constructor function
-/// - `#[ctor]` auto-registration for workflow + tasks
+/// - `inventory::submit!` entries for workflow + tasks (consumed by
+///   `Runtime::seed_from_inventory` at runtime)
 fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2 {
     let mod_name = &input.ident;
     let mod_vis = &input.vis;
@@ -370,7 +372,7 @@ fn validate_dependencies(
 /// Generate embedded mode registration code.
 ///
 /// Creates task constructors, workflow constructor, namespace registration,
-/// and `#[ctor]` auto-registration.
+/// and `inventory::submit!` entries for runtime seeding.
 #[allow(clippy::too_many_arguments)]
 fn generate_embedded_registration(
     mod_name: &syn::Ident,

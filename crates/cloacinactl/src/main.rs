@@ -57,7 +57,7 @@ pub struct GlobalOpts {
     #[arg(long, global = true, default_value_os_t = default_home())]
     pub home: PathBuf,
 
-    /// Named profile from `~/.cloacina/config.toml` (profile resolution lands in T-0512).
+    /// Named profile from `~/.cloacina/config.toml`.
     #[arg(long, global = true)]
     pub profile: Option<String>,
 
