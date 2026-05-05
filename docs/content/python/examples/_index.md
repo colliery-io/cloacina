@@ -1,63 +1,50 @@
 ---
 title: "Python Examples"
-description: "Complete examples and real-world patterns for Cloaca Python workflows"
+description: "Worked examples for Cloaca Python workflows."
 weight: 50
 ---
 
 # Python Examples
 
-Explore comprehensive examples and real-world patterns for building production-ready workflows with Cloaca Python bindings.
+Worked end-to-end examples for the Cloaca Python bindings.
 
-## Available Examples
+## Available examples
 
-{{< toc-tree >}}
+- [Basic Workflow]({{< ref "basic-workflow" >}}) — a complete
+  end-to-end example: define tasks with `@cloaca.task`, build a
+  workflow, run it via `DefaultRunner.execute()`, and inspect the
+  result.
 
-## Example Categories
+## Looking for more?
 
-### Basic Patterns
-- Simple workflow construction
-- Task dependency management
-- Context handling patterns
-- Error handling strategies
+The example library here is intentionally small. For broader
+coverage, use the dedicated tracks:
 
-### Advanced Workflows
-- Multi-stage data processing
-- Conditional execution flows
-- Dynamic workflow generation
-- Complex dependency chains
+- **[Python Tutorials]({{< ref "/python/tutorials" >}})** — the
+  step-by-step learning path: first workflow, context handling,
+  complex workflows, error handling, multi-tenancy, cron
+  scheduling, event triggers, packaged workflows, computation
+  graphs, accumulators.
+- **[Python How-To Guides]({{< ref "/python/how-to-guides" >}})** —
+  task-oriented recipes: testing workflows, performance
+  optimization, packaging Python workflows, backend selection.
+- **[Python API Reference]({{< ref "/python/api-reference" >}})** —
+  the full surface for `cloaca`'s decorators, types, and runner
+  configuration.
+- **The repo's [`examples/tutorials/python/`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/python)
+  directory** — runnable sources for every Python tutorial, kept
+  in lockstep with the prose.
 
-### Integration Examples
-- Database integration patterns
-- API service workflows
-- File processing pipelines
-- Message queue integration
+If you need an example that isn't covered by any of the above,
+opening an issue with the use case is the most direct path to a
+new tutorial or guide.
 
-### Production Patterns
-- Multi-tenant workflow management
-- Performance optimization examples
-- Monitoring and logging patterns
-- Deployment configuration examples
-
-## Quick Reference
-
-Each example includes:
-
-1. **Complete working code** - Ready to run examples
-2. **Detailed explanations** - Step-by-step breakdown
-3. **Configuration examples** - Database and environment setup
-4. **Testing patterns** - How to test the workflows
-5. **Production considerations** - Deployment and scaling notes
-
-## Running Examples
-
-### Prerequisites
+## Prerequisites for running examples
 
 ```bash
 # Install Python bindings
-pip install cloaca
+pip install cloaca[sqlite]    # or cloaca[postgres]
 ```
-
-### Basic Setup
 
 ```python
 import cloaca
@@ -65,103 +52,13 @@ import cloaca
 # SQLite for development
 runner = cloaca.DefaultRunner("sqlite:///examples.db")
 
-# PostgreSQL for production examples
+# PostgreSQL for production
 runner = cloaca.DefaultRunner("postgresql://user:pass@localhost:5432/cloacina")
 ```
 
-## Example Structure
-
-Each example follows a consistent structure:
-
-```
-example_name/
-├── README.md                    # Overview and setup instructions
-├── main.py                      # Main example code
-├── tasks.py                     # Task definitions
-├── workflows.py                 # Workflow builders
-├── config.py                    # Configuration handling
-├── tests/                       # Example tests
-│   ├── test_tasks.py
-│   └── test_workflows.py
-└── requirements.txt             # Dependencies
-```
-
-## Featured Examples
-
-### Data Processing Pipeline
-
-A complete example showing how to build a data processing pipeline with error handling, retries, and monitoring.
-
-```python
-# Preview of the data processing example
-@cloaca.task(id="extract_data")
-def extract_data(context):
-    # Extract data from multiple sources
-    pass
-
-@cloaca.task(id="transform_data", dependencies=["extract_data"])
-def transform_data(context):
-    # Apply transformations with error handling
-    pass
-
-@cloaca.task(id="load_data", dependencies=["transform_data"])
-def load_data(context):
-    # Load into target system with validation
-    pass
-```
-
-### Multi-Tenant SaaS Example
-
-Demonstrates how to build a multi-tenant SaaS application with isolated workflow execution per customer.
-
-```python
-# Preview of multi-tenant example
-class TenantWorkflowManager:
-    def __init__(self, admin_db_url):
-        self.admin = cloaca.DatabaseAdmin(admin_db_url)
-        self.tenant_runners = {}
-
-    def execute_for_customer(self, customer_id, workflow_name, context):
-        runner = self._get_customer_runner(customer_id)
-        return runner.execute(workflow_name, context)
-```
-
-### Real-World Scenarios
-
-Production-ready examples covering common use cases:
-
-- **E-commerce Order Processing** - Handle orders, payments, inventory
-- **Content Management** - Process uploads, generate thumbnails, notifications
-- **Analytics Pipeline** - Collect, process, and report on user data
-- **Backup and Sync** - Automated backup and synchronization workflows
-
-## Learning Path
-
-### Available Examples
-1. [Basic Workflow]({{< ref "/python/examples/basic-workflow/" >}}) - Your first workflow
-
-### Tutorial-Based Learning
-For comprehensive examples, follow the step-by-step tutorials:
-1. [Tutorial 01: First Python Workflow]({{< ref "/python/tutorials/workflows/01-first-python-workflow/" >}}) - Basic concepts
-2. [Tutorial 02: Context Handling]({{< ref "/python/tutorials/workflows/02-context-handling/" >}}) - Data flow
-3. [Tutorial 03: Complex Workflows]({{< ref "/python/tutorials/workflows/03-complex-workflows/" >}}) - Dependencies
-4. [Tutorial 04: Error Handling]({{< ref "/python/tutorials/workflows/04-error-handling/" >}}) - Resilience
-5. [Tutorial 05: Cron Scheduling]({{< ref "/python/tutorials/workflows/05-cron-scheduling/" >}}) - Automation
-6. [Tutorial 06: Multi-Tenancy]({{< ref "/python/tutorials/workflows/06-multi-tenancy/" >}}) - Production patterns
-
-## Contributing Examples
-
-We welcome contributions of new examples! Each example should:
-
-- Solve a real-world problem
-- Include comprehensive documentation
-- Provide working code that can be run as-is
-- Include appropriate tests
-- Follow Python best practices
-
 ## Related Resources
 
-- **[Tutorials]({{< ref "/python/tutorials/workflows/" >}})** - Step-by-step learning guides
-- **[How-to Guides]({{< ref "/python/how-to-guides/" >}})** - Problem-solving guides
-- **[API Reference]({{< ref "/python/api-reference/" >}})** - Complete API documentation
-- **[GitHub Examples](https://github.com/colliery-io/cloacina/tree/main/examples)** - Source code repository
+- **[Tutorials]({{< ref "/python/tutorials/workflows/" >}})** — step-by-step learning.
+- **[How-to Guides]({{< ref "/python/how-to-guides/" >}})** — problem-solving recipes.
+- **[API Reference]({{< ref "/python/api-reference/" >}})** — complete API documentation.
+- **[Repository examples](https://github.com/colliery-io/cloacina/tree/main/examples)** — source code.
