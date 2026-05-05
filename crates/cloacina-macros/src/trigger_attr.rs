@@ -217,12 +217,7 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
         fn_name.span(),
     );
 
-    let auto_register_name = syn::Ident::new(
-        &format!("_auto_register_trigger_{}", fn_name),
-        Span::call_site(),
-    );
-
-    // T-0552: macro emission targets cdylib-reachable paths.
+    // Trigger emission targets cdylib-reachable paths.
     // `cloacina_workflow::Trigger` is the (relocated) trait; its `poll()`
     // returns leaf-crate `TriggerResult` / `TriggerError`.
     let embedded_code = quote! {
@@ -297,11 +292,6 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
     let struct_name = syn::Ident::new(
         &format!("{}CronTrigger", to_pascal_case(&fn_name.to_string())),
         fn_name.span(),
-    );
-
-    let auto_register_name = syn::Ident::new(
-        &format!("_auto_register_cron_trigger_{}", fn_name),
-        Span::call_site(),
     );
 
     // Poll interval for cron: check every 30 seconds

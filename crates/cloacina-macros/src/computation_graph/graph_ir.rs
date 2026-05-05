@@ -19,7 +19,7 @@
 //! Transforms `ParsedTopology` into a validated, sorted graph structure
 //! suitable for code generation. Independent of `syn` types.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 use super::parser::{ParsedEdge, ParsedTopology, TriggerSpec};
 
@@ -80,12 +80,6 @@ pub struct IncomingEdge {
 pub enum GraphIRError {
     #[error("cycle detected in graph: {0}")]
     Cycle(String),
-
-    #[error("node '{0}' referenced in graph but not defined as a function in the module")]
-    DanglingReference(String),
-
-    #[error("duplicate edge: node '{from}' has multiple edges to '{to}'")]
-    DuplicateEdge { from: String, to: String },
 }
 
 impl GraphIR {
@@ -217,24 +211,10 @@ impl GraphIR {
         })
     }
 
-    /// Return the set of accumulator names referenced by the graph's entry
-    /// nodes (nodes with no incoming edges). This is the set checked at
-    /// compile time against the bound reactor's accumulator list for split
-    /// form; it's also what we publish on `ComputationGraphRegistration`.
-    pub fn entry_accumulators(&self) -> Vec<String> {
-        let mut seen = std::collections::HashSet::new();
-        let mut out = Vec::new();
-        for node in self.entry_nodes() {
-            for input in &node.cache_inputs {
-                if seen.insert(input.clone()) {
-                    out.push(input.clone());
-                }
-            }
-        }
-        out
-    }
-
-    /// Get all terminal nodes (leaves of the graph).
+    /// Get all terminal nodes (leaves of the graph). Test-only helper;
+    /// production code derives terminal-node names directly from
+    /// `GraphNode::is_terminal`.
+    #[cfg(test)]
     pub fn terminal_nodes(&self) -> Vec<&GraphNode> {
         self.nodes.values().filter(|n| n.is_terminal).collect()
     }
@@ -250,14 +230,6 @@ impl GraphIR {
     /// Get a node by name.
     pub fn get_node(&self, name: &str) -> Option<&GraphNode> {
         self.nodes.get(name)
-    }
-
-    /// Get all node names that feed into a given node.
-    pub fn incoming_sources(&self, name: &str) -> Vec<&IncomingEdge> {
-        self.nodes
-            .get(name)
-            .map(|n| n.edges_in.iter().collect())
-            .unwrap_or_default()
     }
 }
 
@@ -348,6 +320,7 @@ fn topological_sort(nodes: &HashMap<String, GraphNode>) -> Result<Vec<String>, G
 mod tests {
     use super::*;
     use crate::computation_graph::parser::RoutingVariant;
+    use std::collections::HashSet;
     use syn::Ident;
 
     fn ident(name: &str) -> Ident {

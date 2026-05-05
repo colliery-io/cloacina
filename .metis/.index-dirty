@@ -1,0 +1,14 @@
+/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/computation_graph/graph_ir.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/reactor_attr.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/computation_graph/codegen.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/trigger_attr.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/computation_graph/parser.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-computation-graph/src/lib.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-workflow-plugin/src/lib.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/runtime.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/stream_backend.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/inventory_entries.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/packaging/tests.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/executor/thread_task_executor.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/dal/unified/task_outbox.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/workflow_registry/database.rs

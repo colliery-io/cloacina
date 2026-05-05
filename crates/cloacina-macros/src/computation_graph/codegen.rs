@@ -29,22 +29,6 @@ use syn::{Ident, ItemFn, ItemMod};
 use super::graph_ir::{GraphEdge, GraphIR, GraphNode};
 use super::parser::TriggerSpec;
 
-/// Convert a snake_case Ident to PascalCase string for struct naming.
-fn pascal_case_ident(ident: &Ident) -> Ident {
-    let pascal = ident
-        .to_string()
-        .split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect::<String>();
-    format_ident!("{}", pascal)
-}
-
 /// Validate the graph against the module's functions and generate the compiled output.
 pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // Extract functions from the module
@@ -149,15 +133,10 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
 
     // Generate inventory registration for global registry
     let mod_name_str = mod_name.to_string();
-    let auto_register_name = format_ident!("_auto_register_graph_{}", mod_name);
-    let _ = auto_register_name; // reserved for future diagnostics
 
-    // Path roots that differ between internal (cloacina) and external consumers.
-    let cg_path = if is_cloacina_crate_early {
-        quote! { ::cloacina_computation_graph }
-    } else {
-        quote! { ::cloacina_computation_graph }
-    };
+    // Path prefix: same absolute path in internal and external builds since
+    // cloacina re-exports the computation-graph crate.
+    let cg_path = quote! { ::cloacina_computation_graph };
     // Derive per-trigger-form code fragments:
     // - `legacy_acc_names_expr`: expression producing the `accumulator_names`
     //   field of `ComputationGraphRegistration` (legacy, kept for packaging
@@ -225,12 +204,6 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     } else {
         quote! { cloacina_computation_graph }
     };
-    let inventory_path = if is_cloacina_crate_early {
-        quote! { crate::inventory }
-    } else {
-        quote! { cloacina::inventory }
-    };
-
     let terminal_node_names: Vec<String> = ir
         .nodes
         .values()
@@ -629,7 +602,7 @@ fn generate_node_execution(
 }
 
 /// Generate the argument list for a node function call.
-fn generate_call_args(ir: &GraphIR, node: &GraphNode, is_triggerless: bool) -> TokenStream {
+fn generate_call_args(_ir: &GraphIR, node: &GraphNode, is_triggerless: bool) -> TokenStream {
     let mut args = Vec::new();
 
     // Trigger-less entry nodes receive the workflow context directly.
@@ -649,13 +622,9 @@ fn generate_call_args(ir: &GraphIR, node: &GraphNode, is_triggerless: bool) -> T
     for incoming in &node.edges_in {
         let from_var = format_ident!("__result_{}", incoming.from);
         // If this comes from a routing variant, the variable is already the unwrapped variant value
-        if incoming.variant.is_some() {
-            let variant_var = format_ident!(
-                "__variant_{}_{}_{}",
-                incoming.from,
-                incoming.variant.as_ref().unwrap(),
-                node.name
-            );
+        if let Some(variant) = &incoming.variant {
+            let variant_var =
+                format_ident!("__variant_{}_{}_{}", incoming.from, variant, node.name);
             args.push(quote! { &#variant_var });
         } else {
             args.push(quote! { &#from_var });
@@ -666,6 +635,7 @@ fn generate_call_args(ir: &GraphIR, node: &GraphNode, is_triggerless: bool) -> T
 }
 
 /// Generate match arms for a routing node.
+#[allow(clippy::too_many_arguments)]
 fn generate_routing_match(
     ir: &GraphIR,
     from_name: &str,

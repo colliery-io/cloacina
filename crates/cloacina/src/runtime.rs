@@ -41,7 +41,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use crate::computation_graph::stream_backend::{
-    StreamBackend, StreamBackendFactory, StreamConfig, StreamError,
+    StreamBackend, StreamBackendFactory, StreamBackendFuture, StreamConfig, StreamError,
 };
 use crate::computation_graph::triggerless::TriggerlessGraphRegistration;
 use crate::task::{Task, TaskNamespace};
@@ -139,28 +139,23 @@ impl Runtime {
         }
 
         for entry in inventory::iter::<WorkflowEntry> {
-            let ctor = entry.constructor;
-            self.register_workflow(entry.name.to_string(), move || ctor());
+            self.register_workflow(entry.name.to_string(), entry.constructor);
         }
 
         for entry in inventory::iter::<TriggerEntry> {
-            let ctor = entry.constructor;
-            self.register_trigger(entry.name.to_string(), move || ctor());
+            self.register_trigger(entry.name.to_string(), entry.constructor);
         }
 
         for entry in inventory::iter::<ComputationGraphEntry> {
-            let ctor = entry.constructor;
-            self.register_computation_graph(entry.name.to_string(), move || ctor());
+            self.register_computation_graph(entry.name.to_string(), entry.constructor);
         }
 
         for entry in inventory::iter::<TriggerlessGraphEntry> {
-            let ctor = entry.constructor;
-            self.register_triggerless_graph(entry.name.to_string(), move || ctor());
+            self.register_triggerless_graph(entry.name.to_string(), entry.constructor);
         }
 
         for entry in inventory::iter::<ReactorEntry> {
-            let ctor = entry.constructor;
-            self.register_reactor(entry.name.to_string(), move || ctor());
+            self.register_reactor(entry.name.to_string(), entry.constructor);
         }
 
         for entry in inventory::iter::<StreamBackendEntry> {
@@ -198,6 +193,7 @@ impl Runtime {
     }
 
     /// Check if a task is registered for the given namespace.
+    #[cfg(test)]
     pub(crate) fn has_task(&self, namespace: &TaskNamespace) -> bool {
         self.inner.tasks.read().contains_key(namespace)
     }
@@ -239,16 +235,6 @@ impl Runtime {
         self.inner.workflows.read().keys().cloned().collect()
     }
 
-    /// Get all registered workflows (instantiated).
-    pub(crate) fn all_workflows(&self) -> Vec<Workflow> {
-        self.inner
-            .workflows
-            .read()
-            .values()
-            .map(|ctor| ctor())
-            .collect()
-    }
-
     // -----------------------------------------------------------------------
     // Trigger registry
     // -----------------------------------------------------------------------
@@ -277,16 +263,6 @@ impl Runtime {
     /// Get all registered trigger names.
     pub fn trigger_names(&self) -> Vec<String> {
         self.inner.triggers.read().keys().cloned().collect()
-    }
-
-    /// Get all registered triggers (instantiated).
-    pub(crate) fn all_triggers(&self) -> HashMap<String, Arc<dyn Trigger>> {
-        self.inner
-            .triggers
-            .read()
-            .iter()
-            .map(|(name, ctor)| (name.clone(), ctor()))
-            .collect()
     }
 
     // -----------------------------------------------------------------------
@@ -428,6 +404,7 @@ impl Runtime {
     }
 
     /// Check if a stream backend is registered for the given type name.
+    #[cfg(test)]
     pub(crate) fn has_stream_backend(&self, type_name: &str) -> bool {
         self.inner.stream_backends.read().contains_key(type_name)
     }
@@ -438,14 +415,14 @@ impl Runtime {
         &self,
         type_name: &str,
         config: StreamConfig,
-    ) -> Option<Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>>
-    {
+    ) -> Option<StreamBackendFuture> {
         let guard = self.inner.stream_backends.read();
         let factory = guard.get(type_name)?;
         Some(factory(config))
     }
 
     /// Get all registered stream backend type names.
+    #[cfg(test)]
     pub(crate) fn stream_backend_names(&self) -> Vec<String> {
         self.inner.stream_backends.read().keys().cloned().collect()
     }

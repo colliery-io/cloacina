@@ -30,10 +30,7 @@
 //! Nothing in this file reads inventory yet. That wiring lands in T-0506
 //! together with the removal of the global static registries.
 
-use std::future::Future;
-use std::pin::Pin;
-
-use crate::computation_graph::stream_backend::{StreamBackend, StreamConfig, StreamError};
+use crate::computation_graph::stream_backend::{StreamBackendFuture, StreamConfig};
 use crate::workflow::Workflow;
 
 // I-0102 + T-0552: inventory entries reachable from packaged cdylibs all
@@ -58,10 +55,7 @@ inventory::collect!(WorkflowEntry);
 /// returns a heap-allocated future; at seed time the runtime wraps the
 /// pointer into a `Box<dyn Fn(StreamConfig) -> Pin<Box<Future<..>>> + Send + Sync>`
 /// to match the shape of dynamically-registered backends.
-pub type StreamBackendFactoryFn =
-    fn(
-        StreamConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>;
+pub type StreamBackendFactoryFn = fn(StreamConfig) -> StreamBackendFuture;
 
 pub struct StreamBackendEntry {
     pub type_name: &'static str,

@@ -85,19 +85,6 @@ pub fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, GraphError> {
     bincode::deserialize(bytes).map_err(|e| GraphError::Deserialization(e.to_string()))
 }
 
-/// Convert a JSON string to bincode bytes for a given type.
-///
-/// Convenience for external producers pushing events via WebSocket.
-/// The WebSocket handler calls this to convert incoming JSON to the
-/// internal bincode wire format before forwarding to accumulators.
-pub(crate) fn json_to_wire<T: Serialize + DeserializeOwned>(
-    json_str: &str,
-) -> Result<Vec<u8>, GraphError> {
-    let value: T =
-        serde_json::from_str(json_str).map_err(|e| GraphError::Serialization(e.to_string()))?;
-    serialize(&value)
-}
-
 // ---------------------------------------------------------------------------
 // InputCache
 // ---------------------------------------------------------------------------
@@ -218,12 +205,6 @@ pub enum GraphResult {
 impl GraphResult {
     pub fn completed(outputs: Vec<Box<dyn Any + Send>>) -> Self {
         Self::Completed { outputs }
-    }
-
-    pub(crate) fn completed_empty() -> Self {
-        Self::Completed {
-            outputs: Vec::new(),
-        }
     }
 
     pub fn error(err: GraphError) -> Self {

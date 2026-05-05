@@ -107,6 +107,10 @@ pub struct RoutingVariant {
     pub target: Ident,
 }
 
+// `from_name` and `from_inputs` are accessor methods that return the
+// `from` / `from_inputs` field of the parsed edge — they are not factory
+// methods, so the `from_*` lint about taking `self` doesn't apply.
+#[allow(clippy::wrong_self_convention)]
 impl ParsedEdge {
     pub fn from_name(&self) -> &Ident {
         match self {

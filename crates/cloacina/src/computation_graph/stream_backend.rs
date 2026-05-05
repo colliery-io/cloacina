@@ -68,15 +68,13 @@ pub trait StreamBackend: Send + 'static {
     fn current_offset(&self) -> Option<u64>;
 }
 
+/// Future returned by a `StreamBackendFactory`. Boxed so the factory
+/// signature can be expressed as a plain `Fn(...) -> StreamBackendFuture`.
+pub type StreamBackendFuture =
+    Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>;
+
 /// Factory function type for creating stream backends.
-pub type StreamBackendFactory = Box<
-    dyn Fn(
-            StreamConfig,
-        )
-            -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>
-        + Send
-        + Sync,
->;
+pub type StreamBackendFactory = Box<dyn Fn(StreamConfig) -> StreamBackendFuture + Send + Sync>;
 
 /// Registry of stream backend factories.
 pub struct StreamBackendRegistry {
@@ -118,8 +116,7 @@ impl StreamBackendRegistry {
         &self,
         type_name: &str,
         config: StreamConfig,
-    ) -> Option<Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>>
-    {
+    ) -> Option<StreamBackendFuture> {
         let factory = self.backends.get(type_name)?;
         Some(factory(config))
     }

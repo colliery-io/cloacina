@@ -55,7 +55,10 @@ use async_trait::async_trait;
 /// Bounded reason value for `cloacina_tasks_total{status="failed", reason=...}`.
 ///
 /// Cardinality is closed: the set of returned values is fixed here so label
-/// explosion is impossible.
+/// explosion is impossible. Currently used only by the test that pins the
+/// label set; production code path that emitted these labels was removed
+/// in T-0563. Kept as a behavioral spec test.
+#[cfg(test)]
 fn failure_reason(err: &ExecutorError) -> &'static str {
     match err {
         ExecutorError::TaskTimeout => "timeout",

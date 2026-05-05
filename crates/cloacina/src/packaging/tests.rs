@@ -20,65 +20,6 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use super::super::*;
-    use std::path::PathBuf;
-    use tempfile::TempDir;
-
-    /// Create a minimal test Cargo.toml structure
-    fn create_test_cargo_toml() -> types::CargoToml {
-        types::CargoToml {
-            package: Some(types::CargoPackage {
-                name: "test-package".to_string(),
-                version: "1.0.0".to_string(),
-                description: Some("Test description".to_string()),
-                authors: Some(vec!["Test Author <test@example.com>".to_string()]),
-                keywords: Some(vec!["test".to_string(), "packaging".to_string()]),
-                rust_version: None,
-            }),
-            lib: Some(types::CargoLib {
-                crate_type: Some(vec!["cdylib".to_string()]),
-            }),
-            dependencies: None,
-        }
-    }
-
-    /// Create a mock compiled library file for testing
-    fn create_mock_library_file() -> (TempDir, PathBuf) {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let lib_path = temp_dir.path().join("libtest.so");
-
-        // Create a simple mock library file
-        std::fs::write(&lib_path, b"mock library content").expect("Failed to write mock library");
-
-        (temp_dir, lib_path)
-    }
-
-    /// Create a test project structure
-    fn create_test_project() -> (TempDir, PathBuf) {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let project_path = temp_dir.path().to_path_buf();
-
-        // Create src directory
-        let src_dir = project_path.join("src");
-        std::fs::create_dir_all(&src_dir).expect("Failed to create src dir");
-
-        // Create lib.rs with test workflow
-        let lib_rs_content = r#"
-use cloacina::{workflow, task, Context, TaskError};
-
-#[workflow(name = "test_package")]
-pub mod test_package {
-    use super::*;
-
-    #[task(id = "simple_task", dependencies = [])]
-    pub async fn simple_task(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-        Ok(())
-    }
-}
-"#;
-        std::fs::write(src_dir.join("lib.rs"), lib_rs_content).expect("Failed to write lib.rs");
-
-        (temp_dir, project_path)
-    }
 
     #[test]
     fn test_compile_options_builder_pattern() {

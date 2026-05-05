@@ -37,7 +37,7 @@ use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{braced, parse2, Ident, ItemStruct, LitStr, Token};
+use syn::{parse2, Ident, ItemStruct, LitStr, Token};
 
 /// Parsed form of the `#[reactor(...)]` arguments.
 struct ReactorArgs {
@@ -283,16 +283,9 @@ fn reactor_impl(
         CriteriaMode::WhenAll => "when_all",
     };
 
-    // Determine whether we're inside the cloacina crate (path prefix choice).
-    let is_cloacina_crate = std::env::var("CARGO_CRATE_NAME")
-        .map(|n| n == "cloacina")
-        .unwrap_or(false);
-
-    let cg_path = if is_cloacina_crate {
-        quote! { ::cloacina_computation_graph }
-    } else {
-        quote! { ::cloacina_computation_graph }
-    };
+    // Path prefix: both internal and external builds resolve through the
+    // same absolute crate path now that cloacina re-exports it.
+    let cg_path = quote! { ::cloacina_computation_graph };
 
     // I-0102 / T-A: ReactorEntry lives in cloacina-workflow-plugin so
     // packaged cdylibs can collect entries at link time. The submission
