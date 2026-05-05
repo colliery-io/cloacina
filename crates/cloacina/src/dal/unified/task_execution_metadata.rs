@@ -1062,7 +1062,6 @@ mod tests {
 
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    #[ignore = "requires matching task_name format with internal query — needs investigation"]
     async fn test_get_dependency_metadata_with_contexts() {
         let dal = unique_dal().await;
         let wf_exec = dal
@@ -1147,7 +1146,7 @@ mod tests {
             .iter()
             .find(|(m, _)| m.task_execution_id == task_with_ctx.id)
             .unwrap();
-        assert_eq!(with_ctx.1.as_deref(), Some("{\"output\": \"hello\"}"));
+        assert_eq!(with_ctx.1.as_deref(), Some("{\"output\":\"hello\"}"));
 
         // Find the one without context
         let without_ctx = results

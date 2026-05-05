@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-05T03:54:32Z | 482 files | JavaScript, Python, Rust
+> Generated: 2026-05-05T04:01:37Z | 482 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1753,7 +1753,7 @@
 -  `get_dependency_metadata_sqlite` function L538-562 — `( &self, workflow_id: UniversalUuid, dependency_task_names: &[String], ) -> Resu...` — at runtime based on the database connection type.
 -  `get_dependency_metadata_with_contexts_postgres` function L590-626 — `( &self, workflow_id: UniversalUuid, dependency_task_namespaces: &[TaskNamespace...` — at runtime based on the database connection type.
 -  `get_dependency_metadata_with_contexts_sqlite` function L629-665 — `( &self, workflow_id: UniversalUuid, dependency_task_namespaces: &[TaskNamespace...` — at runtime based on the database connection type.
--  `tests` module L669-1159 — `-` — at runtime based on the database connection type.
+-  `tests` module L669-1158 — `-` — at runtime based on the database connection type.
 -  `unique_dal` function L678-688 — `() -> DAL` — at runtime based on the database connection type.
 -  `create_workflow_and_task` function L692-722 — `( dal: &DAL, task_name: &str, ) -> (UniversalUuid, UniversalUuid)` — Helper: create a workflow execution and a task, returning (workflow_id, task_id).
 -  `test_create_metadata` function L728-747 — `()` — at runtime based on the database connection type.
@@ -1768,7 +1768,7 @@
 -  `test_get_dependency_metadata` function L985-1035 — `()` — at runtime based on the database connection type.
 -  `test_get_dependency_metadata_empty` function L1039-1047 — `()` — at runtime based on the database connection type.
 -  `test_get_dependency_metadata_with_contexts_empty_input` function L1053-1061 — `()` — at runtime based on the database connection type.
--  `test_get_dependency_metadata_with_contexts` function L1066-1158 — `()` — at runtime based on the database connection type.
+-  `test_get_dependency_metadata_with_contexts` function L1065-1157 — `()` — at runtime based on the database connection type.
 
 #### crates/cloacina/src/dal/unified/task_outbox.rs
 
