@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-05T16:58:14Z | 482 files | JavaScript, Python, Rust
+> Generated: 2026-05-07T03:47:17Z | 483 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -311,20 +311,22 @@
 │   │       └── trigger_packaging.rs
 │   ├── cloacina-server/
 │   │   ├── build.rs
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── main.rs
-│   │       └── routes/
-│   │           ├── auth.rs
-│   │           ├── error.rs
-│   │           ├── executions.rs
-│   │           ├── health_graphs.rs
-│   │           ├── keys.rs
-│   │           ├── mod.rs
-│   │           ├── tenants.rs
-│   │           ├── triggers.rs
-│   │           ├── workflows.rs
-│   │           └── ws.rs
+│   │   ├── src/
+│   │   │   ├── lib.rs
+│   │   │   ├── main.rs
+│   │   │   └── routes/
+│   │   │       ├── auth.rs
+│   │   │       ├── error.rs
+│   │   │       ├── executions.rs
+│   │   │       ├── health_graphs.rs
+│   │   │       ├── keys.rs
+│   │   │       ├── mod.rs
+│   │   │       ├── tenants.rs
+│   │   │       ├── triggers.rs
+│   │   │       ├── workflows.rs
+│   │   │       └── ws.rs
+│   │   └── tests/
+│   │       └── cli_validation.rs
 │   ├── cloacina-testing/
 │   │   └── src/
 │   │       ├── assertions.rs
@@ -1666,44 +1668,44 @@
 - pub `NewUnifiedTrustedKey` struct L443-450 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `UnifiedKeyTrustAcl` struct L458-464 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `NewUnifiedKeyTrustAcl` struct L468-473 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L481-487 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L491-497 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedAccumulatorCheckpoint` struct L757-764 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedAccumulatorCheckpoint` struct L768-775 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedAccumulatorBoundary` struct L779-787 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedAccumulatorBoundary` struct L791-799 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedReactorState` struct L803-811 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedReactorState` struct L815-823 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedStateAccumulatorBuffer` struct L827-835 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedStateAccumulatorBuffer` struct L839-847 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
--  `DbContext` type L519-528 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L520-527 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowExecutionRecord` type L530-549 — `= WorkflowExecutionRecord` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L531-548 — `(u: UnifiedWorkflowExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L551-576 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L552-575 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L578-590 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L579-589 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L592-605 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L593-604 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L607-620 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L608-619 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L622-630 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L623-629 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L632-655 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L633-654 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L657-670 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L658-669 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L672-684 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L673-683 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L686-696 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L687-695 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L698-708 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L699-707 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `Schedule` type L710-732 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L711-731 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ScheduleExecution` type L734-749 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L735-748 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L481-488 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L492-499 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorCheckpoint` struct L760-767 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorCheckpoint` struct L771-778 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorBoundary` struct L782-790 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorBoundary` struct L794-802 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedReactorState` struct L806-814 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedReactorState` struct L818-826 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedStateAccumulatorBuffer` struct L830-838 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedStateAccumulatorBuffer` struct L842-850 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `DbContext` type L521-530 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L522-529 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowExecutionRecord` type L532-551 — `= WorkflowExecutionRecord` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L533-550 — `(u: UnifiedWorkflowExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L553-578 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L554-577 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L580-592 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L581-591 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L594-607 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L595-606 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L609-622 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L610-621 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L624-632 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L625-631 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L634-657 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L635-656 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L659-672 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L660-671 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L674-686 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L675-685 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L688-698 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L689-697 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L700-711 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L701-710 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `Schedule` type L713-735 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L714-734 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ScheduleExecution` type L737-752 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L738-751 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 
 #### crates/cloacina/src/dal/unified/recovery_event.rs
 
@@ -2211,12 +2213,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L1069-1071 — `-`
-- pub `postgres` module L1077-1079 — `-`
-- pub `sqlite` module L1082-1084 — `-`
--  `unified_schema` module L25-392 — `-`
--  `postgres_schema` module L401-771 — `-`
--  `sqlite_schema` module L774-1064 — `-`
+- pub `unified` module L1072-1074 — `-`
+- pub `postgres` module L1080-1082 — `-`
+- pub `sqlite` module L1085-1087 — `-`
+-  `unified_schema` module L25-393 — `-`
+-  `postgres_schema` module L402-773 — `-`
+-  `sqlite_schema` module L776-1067 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -2872,11 +2874,12 @@
 
 #### crates/cloacina/src/models/package_signature.rs
 
-- pub `PackageSignature` struct L28-37 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: V...` — Domain model for a package signature.
-- pub `NewPackageSignature` struct L41-45 — `{ package_hash: String, key_fingerprint: String, signature: Vec<u8> }` — Model for creating a new package signature.
-- pub `new` function L48-54 — `(package_hash: String, key_fingerprint: String, signature: Vec<u8>) -> Self` — the SHA256 hash of the package binary.
-- pub `SignatureVerification` struct L59-68 — `{ is_valid: bool, signer_fingerprint: String, signed_at: UniversalTimestamp, sig...` — Result of signature verification.
--  `NewPackageSignature` type L47-55 — `= NewPackageSignature` — the SHA256 hash of the package binary.
+- pub `PackageSignature` struct L28-41 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: V...` — Domain model for a package signature.
+- pub `NewPackageSignature` struct L45-50 — `{ package_hash: String, key_fingerprint: String, signature: Vec<u8>, org_id: Opt...` — Model for creating a new package signature.
+- pub `new` function L53-60 — `(package_hash: String, key_fingerprint: String, signature: Vec<u8>) -> Self` — the SHA256 hash of the package binary.
+- pub `with_org_id` function L62-65 — `(mut self, org_id: UniversalUuid) -> Self` — the SHA256 hash of the package binary.
+- pub `SignatureVerification` struct L70-79 — `{ is_valid: bool, signer_fingerprint: String, signed_at: UniversalTimestamp, sig...` — Result of signature verification.
+-  `NewPackageSignature` type L52-66 — `= NewPackageSignature` — the SHA256 hash of the package binary.
 
 #### crates/cloacina/src/models/recovery_event.rs
 
@@ -3908,57 +3911,57 @@
 -  `compute_file_hash` function L256-259 — `(path: &Path) -> Result<String, PackageSignError>` — Compute the SHA256 hash of a file.
 -  `compute_data_hash` function L262-266 — `(data: &[u8]) -> Result<String, PackageSignError>` — Compute the SHA256 hash of data.
 -  `to_signature_info` function L269-276 — `(sig: UnifiedPackageSignature) -> PackageSignatureInfo` — Convert database model to SignatureInfo.
--  `DbPackageSigner` type L280-509 — `impl PackageSigner for DbPackageSigner` — - [`DetachedSignature`] format for standalone signature files
+-  `DbPackageSigner` type L280-513 — `impl PackageSigner for DbPackageSigner` — - [`DetachedSignature`] format for standalone signature files
 -  `sign_package_with_db_key` function L281-329 — `( &self, package_path: &Path, key_id: UniversalUuid, master_key: &[u8], store_si...` — - [`DetachedSignature`] format for standalone signature files
 -  `sign_package_with_raw_key` function L331-339 — `( &self, package_path: &Path, private_key: &[u8], public_key: &[u8], ) -> Result...` — - [`DetachedSignature`] format for standalone signature files
 -  `sign_package_data` function L341-366 — `( &self, package_data: &[u8], private_key: &[u8], public_key: &[u8], ) -> Result...` — - [`DetachedSignature`] format for standalone signature files
--  `store_signature` function L368-403 — `( &self, signature: &PackageSignatureInfo, ) -> Result<UniversalUuid, PackageSig...` — - [`DetachedSignature`] format for standalone signature files
--  `find_signature` function L405-414 — `( &self, package_hash: &str, ) -> Result<Option<PackageSignatureInfo>, PackageSi...` — - [`DetachedSignature`] format for standalone signature files
--  `find_signatures` function L416-425 — `( &self, package_hash: &str, ) -> Result<Vec<PackageSignatureInfo>, PackageSignE...` — - [`DetachedSignature`] format for standalone signature files
--  `verify_package` function L427-465 — `( &self, package_path: &Path, org_id: UniversalUuid, ) -> Result<PackageSignatur...` — - [`DetachedSignature`] format for standalone signature files
--  `verify_package_with_detached_signature` function L467-508 — `( &self, package_path: &Path, signature: &DetachedSignature, public_key: &[u8], ...` — - [`DetachedSignature`] format for standalone signature files
--  `DbPackageSigner` type L513-589 — `= DbPackageSigner` — - [`DetachedSignature`] format for standalone signature files
--  `store_signature_postgres` function L514-535 — `( &self, new_sig: NewUnifiedPackageSignature, ) -> Result<(), PackageSignError>` — - [`DetachedSignature`] format for standalone signature files
--  `find_signature_postgres` function L537-562 — `( &self, package_hash: &str, ) -> Result<Option<PackageSignatureInfo>, PackageSi...` — - [`DetachedSignature`] format for standalone signature files
--  `find_signatures_postgres` function L564-588 — `( &self, package_hash: &str, ) -> Result<Vec<PackageSignatureInfo>, PackageSignE...` — - [`DetachedSignature`] format for standalone signature files
--  `DbPackageSigner` type L593-669 — `= DbPackageSigner` — - [`DetachedSignature`] format for standalone signature files
--  `store_signature_sqlite` function L594-615 — `( &self, new_sig: NewUnifiedPackageSignature, ) -> Result<(), PackageSignError>` — - [`DetachedSignature`] format for standalone signature files
--  `find_signature_sqlite` function L617-642 — `( &self, package_hash: &str, ) -> Result<Option<PackageSignatureInfo>, PackageSi...` — - [`DetachedSignature`] format for standalone signature files
--  `find_signatures_sqlite` function L644-668 — `( &self, package_hash: &str, ) -> Result<Vec<PackageSignatureInfo>, PackageSignE...` — - [`DetachedSignature`] format for standalone signature files
--  `tests` module L672-1253 — `-` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_and_verify_with_raw_key` function L678-698 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_detached_signature_roundtrip` function L701-720 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_detached_signature_file_io` function L723-740 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_compute_data_hash_deterministic` function L743-748 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_compute_data_hash_different_inputs` function L751-755 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_compute_data_hash_empty_input` function L758-762 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_compute_data_hash_large_payload` function L765-769 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_compute_file_hash_matches_data_hash` function L772-780 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_compute_file_hash_nonexistent_file` function L783-786 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_detached_signature_invalid_json` function L789-792 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_detached_signature_version_and_algorithm` function L795-805 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_detached_signature_corrupted_base64` function L808-819 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_verify_roundtrip_different_data` function L822-841 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_verify_wrong_key_fails` function L844-856 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_verify_tampered_data_fails` function L859-873 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `db_tests` module L878-1252 — `-` — - [`DetachedSignature`] format for standalone signature files
--  `unique_dal` function L885-895 — `() -> DAL` — - [`DetachedSignature`] format for standalone signature files
--  `master_key` function L897-899 — `() -> [u8; 32]` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_package_data_with_raw_key` function L902-915 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_package_with_raw_key_file` function L918-936 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_store_and_find_signature` function L939-956 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_find_signature_not_found` function L959-965 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_find_signatures_multiple` function L968-987 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_package_with_db_key` function L990-1012 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_package_with_db_key_and_store` function L1015-1038 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_package_with_db_key_revoked_fails` function L1041-1061 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_package_with_db_key_not_found` function L1064-1080 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_verify_package_with_detached_signature` function L1083-1108 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_verify_package_detached_tampered_fails` function L1111-1141 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_verify_package_detached_wrong_key_fails` function L1144-1171 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_verify_package_detached_wrong_algorithm` function L1174-1201 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_verify_package_trusted_key` function L1204-1235 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_verify_package_no_signature_fails` function L1238-1251 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `store_signature` function L368-407 — `( &self, signature: &PackageSignatureInfo, ) -> Result<UniversalUuid, PackageSig...` — - [`DetachedSignature`] format for standalone signature files
+-  `find_signature` function L409-418 — `( &self, package_hash: &str, ) -> Result<Option<PackageSignatureInfo>, PackageSi...` — - [`DetachedSignature`] format for standalone signature files
+-  `find_signatures` function L420-429 — `( &self, package_hash: &str, ) -> Result<Vec<PackageSignatureInfo>, PackageSignE...` — - [`DetachedSignature`] format for standalone signature files
+-  `verify_package` function L431-469 — `( &self, package_path: &Path, org_id: UniversalUuid, ) -> Result<PackageSignatur...` — - [`DetachedSignature`] format for standalone signature files
+-  `verify_package_with_detached_signature` function L471-512 — `( &self, package_path: &Path, signature: &DetachedSignature, public_key: &[u8], ...` — - [`DetachedSignature`] format for standalone signature files
+-  `DbPackageSigner` type L517-593 — `= DbPackageSigner` — - [`DetachedSignature`] format for standalone signature files
+-  `store_signature_postgres` function L518-539 — `( &self, new_sig: NewUnifiedPackageSignature, ) -> Result<(), PackageSignError>` — - [`DetachedSignature`] format for standalone signature files
+-  `find_signature_postgres` function L541-566 — `( &self, package_hash: &str, ) -> Result<Option<PackageSignatureInfo>, PackageSi...` — - [`DetachedSignature`] format for standalone signature files
+-  `find_signatures_postgres` function L568-592 — `( &self, package_hash: &str, ) -> Result<Vec<PackageSignatureInfo>, PackageSignE...` — - [`DetachedSignature`] format for standalone signature files
+-  `DbPackageSigner` type L597-673 — `= DbPackageSigner` — - [`DetachedSignature`] format for standalone signature files
+-  `store_signature_sqlite` function L598-619 — `( &self, new_sig: NewUnifiedPackageSignature, ) -> Result<(), PackageSignError>` — - [`DetachedSignature`] format for standalone signature files
+-  `find_signature_sqlite` function L621-646 — `( &self, package_hash: &str, ) -> Result<Option<PackageSignatureInfo>, PackageSi...` — - [`DetachedSignature`] format for standalone signature files
+-  `find_signatures_sqlite` function L648-672 — `( &self, package_hash: &str, ) -> Result<Vec<PackageSignatureInfo>, PackageSignE...` — - [`DetachedSignature`] format for standalone signature files
+-  `tests` module L676-1257 — `-` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_and_verify_with_raw_key` function L682-702 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_roundtrip` function L705-724 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_file_io` function L727-744 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash_deterministic` function L747-752 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash_different_inputs` function L755-759 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash_empty_input` function L762-766 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash_large_payload` function L769-773 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_file_hash_matches_data_hash` function L776-784 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_file_hash_nonexistent_file` function L787-790 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_invalid_json` function L793-796 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_version_and_algorithm` function L799-809 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_corrupted_base64` function L812-823 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_verify_roundtrip_different_data` function L826-845 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_verify_wrong_key_fails` function L848-860 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_verify_tampered_data_fails` function L863-877 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `db_tests` module L882-1256 — `-` — - [`DetachedSignature`] format for standalone signature files
+-  `unique_dal` function L889-899 — `() -> DAL` — - [`DetachedSignature`] format for standalone signature files
+-  `master_key` function L901-903 — `() -> [u8; 32]` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_package_data_with_raw_key` function L906-919 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_package_with_raw_key_file` function L922-940 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_store_and_find_signature` function L943-960 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_find_signature_not_found` function L963-969 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_find_signatures_multiple` function L972-991 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_package_with_db_key` function L994-1016 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_package_with_db_key_and_store` function L1019-1042 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_package_with_db_key_revoked_fails` function L1045-1065 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_package_with_db_key_not_found` function L1068-1084 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_verify_package_with_detached_signature` function L1087-1112 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_verify_package_detached_tampered_fails` function L1115-1145 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_verify_package_detached_wrong_key_fails` function L1148-1175 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_verify_package_detached_wrong_algorithm` function L1178-1205 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_verify_package_trusted_key` function L1208-1239 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_verify_package_no_signature_fails` function L1242-1255 — `()` — - [`DetachedSignature`] format for standalone signature files
 
 #### crates/cloacina/src/security/verification.rs
 
@@ -6168,25 +6171,25 @@
 
 #### crates/cloacina-python/tests/trigger_packaging.rs
 
--  `rust_manifest_with_triggers` function L33-77 — `() -> Manifest` — - Discovered for Python packages via `@cloaca.trigger`
--  `rust_manifest_no_triggers` function L80-107 — `() -> Manifest` — - Discovered for Python packages via `@cloaca.trigger`
--  `python_manifest_with_trigger` function L110-145 — `() -> Manifest` — - Discovered for Python packages via `@cloaca.trigger`
--  `TestTrigger` struct L149-151 — `{ name: String }` — A simple test trigger for registry round-trip tests.
--  `TestTrigger` type L154-167 — `impl Trigger for TestTrigger` — - Discovered for Python packages via `@cloaca.trigger`
--  `name` function L155-157 — `(&self) -> &str` — - Discovered for Python packages via `@cloaca.trigger`
--  `poll_interval` function L158-160 — `(&self) -> std::time::Duration` — - Discovered for Python packages via `@cloaca.trigger`
--  `allow_concurrent` function L161-163 — `(&self) -> bool` — - Discovered for Python packages via `@cloaca.trigger`
--  `poll` function L164-166 — `(&self) -> Result<TriggerResult, TriggerError>` — - Discovered for Python packages via `@cloaca.trigger`
--  `trigger_register_verify_deregister_roundtrip` function L175-200 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `multiple_triggers_register_and_deregister_independently` function L204-249 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `python_trigger_decorator_registers_and_wraps` function L257-307 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `python_trigger_poll_returns_result` function L311-341 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_with_triggers_validates_successfully` function L348-351 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_trigger_referencing_package_name_is_valid` function L354-358 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_trigger_referencing_task_id_is_valid` function L361-365 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_trigger_referencing_unknown_workflow_fails` function L368-372 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_duplicate_trigger_names_fails` function L375-379 — `()` — - Discovered for Python packages via `@cloaca.trigger`
--  `manifest_trigger_invalid_poll_interval_fails` function L382-386 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `rust_manifest_with_triggers` function L38-82 — `() -> Manifest` — - Discovered for Python packages via `@cloaca.trigger`
+-  `rust_manifest_no_triggers` function L85-112 — `() -> Manifest` — - Discovered for Python packages via `@cloaca.trigger`
+-  `python_manifest_with_trigger` function L115-150 — `() -> Manifest` — - Discovered for Python packages via `@cloaca.trigger`
+-  `TestTrigger` struct L154-156 — `{ name: String }` — A simple test trigger for registry round-trip tests.
+-  `TestTrigger` type L159-172 — `impl Trigger for TestTrigger` — - Discovered for Python packages via `@cloaca.trigger`
+-  `name` function L160-162 — `(&self) -> &str` — - Discovered for Python packages via `@cloaca.trigger`
+-  `poll_interval` function L163-165 — `(&self) -> std::time::Duration` — - Discovered for Python packages via `@cloaca.trigger`
+-  `allow_concurrent` function L166-168 — `(&self) -> bool` — - Discovered for Python packages via `@cloaca.trigger`
+-  `poll` function L169-171 — `(&self) -> Result<TriggerResult, TriggerError>` — - Discovered for Python packages via `@cloaca.trigger`
+-  `trigger_register_verify_deregister_roundtrip` function L180-205 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `multiple_triggers_register_and_deregister_independently` function L209-254 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `python_trigger_decorator_registers_and_wraps` function L262-312 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `python_trigger_poll_returns_result` function L316-346 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_with_triggers_validates_successfully` function L353-356 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_referencing_package_name_is_valid` function L359-363 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_referencing_task_id_is_valid` function L366-370 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_referencing_unknown_workflow_fails` function L373-377 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_duplicate_trigger_names_fails` function L380-384 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_invalid_poll_interval_fails` function L387-391 — `()` — - Discovered for Python packages via `@cloaca.trigger`
 
 ### crates/cloacina-server
 
@@ -6207,69 +6210,77 @@
 - pub `new` function L49-54 — `(database_url: String) -> Self` — management, workflow upload, and execution APIs.
 - pub `resolve` function L59-91 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
 - pub `AppState` struct L96-109 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::routes::...` — Shared application state accessible from all route handlers.
-- pub `run` function L112-345 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+- pub `run` function L137-375 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
 -  `TenantDatabaseCache` type L48-92 — `= TenantDatabaseCache` — management, workflow upload, and execution APIs.
--  `request_id_middleware` function L349-369 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L371-492 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
--  `api_request_metrics` function L496-518 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
--  `health` function L521-523 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L526-555 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L558-568 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
--  `fallback_404` function L571-576 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L579-601 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L607-655 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L659-661 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L664-1663 — `-` — management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L672 — `: &str` — management, workflow upload, and execution APIs.
--  `test_state` function L675-708 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `create_test_api_key` function L711-719 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L722-737 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L743-769 — `()` — management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L775-787 — `()` — management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L791-803 — `()` — management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L807-875 — `()` — management, workflow upload, and execution APIs.
--  `test_api_request_duration_histogram_emitted` function L879-923 — `()` — management, workflow upload, and execution APIs.
--  `test_unprefixed_auth_route_returns_404` function L936-951 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
--  `test_auth_no_token_returns_401` function L957-969 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L973-986 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L990-1003 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L1007-1020 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L1026-1044 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L1048-1064 — `()` — management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L1068-1083 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L1087-1112 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L1116-1131 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L1135-1149 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L1155-1181 — `()` — management, workflow upload, and execution APIs.
--  `test_list_tenants` function L1185-1199 — `()` — management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L1203-1219 — `()` — management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L1223-1260 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L1264-1279 — `()` — management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L1285-1299 — `()` — management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L1303-1316 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L1320-1344 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L1348-1372 — `()` — management, workflow upload, and execution APIs.
--  `fixture_path` function L1375-1380 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L1383-1394 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L1397-1410 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L1414-1440 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L1444-1470 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L1474-1494 — `()` — management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1500-1514 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1518-1531 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1535-1549 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1553-1566 — `()` — management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1570-1585 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1589-1607 — `()` — management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1613-1627 — `()` — management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1631-1644 — `()` — management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1650-1662 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args` function L117-129 — `( require_signatures: bool, verification_org_id: Option<&uuid::Uuid>, ) -> Resul...` — Validate security-related CLI args at server boot.
+-  `request_id_middleware` function L379-399 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
+-  `build_router` function L401-522 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
+-  `api_request_metrics` function L526-548 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
+-  `health` function L551-553 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L556-585 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L588-598 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
+-  `fallback_404` function L601-606 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L609-631 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L637-685 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L689-691 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L694-1889 — `-` — management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L702 — `: &str` — management, workflow upload, and execution APIs.
+-  `test_state` function L705-738 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `test_state_with_signature_required` function L743-753 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
+-  `create_test_api_key` function L756-764 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L767-782 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L788-814 — `()` — management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L820-832 — `()` — management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L836-848 — `()` — management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L852-920 — `()` — management, workflow upload, and execution APIs.
+-  `test_api_request_duration_histogram_emitted` function L924-968 — `()` — management, workflow upload, and execution APIs.
+-  `test_unprefixed_auth_route_returns_404` function L981-996 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
+-  `test_auth_no_token_returns_401` function L1002-1014 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L1018-1031 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L1035-1048 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L1052-1065 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L1071-1089 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L1093-1109 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L1113-1128 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L1132-1157 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L1161-1176 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L1180-1194 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L1200-1226 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L1230-1244 — `()` — management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L1248-1264 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L1268-1305 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L1309-1324 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L1330-1344 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L1348-1361 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L1365-1389 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L1393-1417 — `()` — management, workflow upload, and execution APIs.
+-  `fixture_path` function L1420-1425 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L1428-1439 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L1442-1455 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L1459-1485 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L1489-1515 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1519-1539 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1545-1559 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1563-1576 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1580-1594 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1598-1611 — `()` — management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1615-1630 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1634-1652 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1658-1672 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1676-1689 — `()` — management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1695-1707 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_unsigned_with_require_signatures_returns_403` function L1719-1752 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_signed_with_require_signatures_passes_verification` function L1756-1847 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_default_passes` function L1852-1855 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_org_without_require_passes` function L1858-1863 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_with_org_passes` function L1866-1870 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_without_org_fails` function L1873-1888 — `()` — management, workflow upload, and execution APIs.
 
 #### crates/cloacina-server/src/main.rs
 
--  `Cli` struct L29-59 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, bootstra...` — cloacina-server — HTTP API for Cloacina, backed by Postgres.
--  `default_home` function L61-65 — `() -> PathBuf` — command in T-0510 (CLOACI-I-0098).
--  `main` function L68-80 — `() -> Result<()>` — command in T-0510 (CLOACI-I-0098).
+-  `Cli` struct L30-66 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, bootstra...` — cloacina-server — HTTP API for Cloacina, backed by Postgres.
+-  `default_home` function L68-72 — `() -> PathBuf` — command in T-0510 (CLOACI-I-0098).
+-  `main` function L75-88 — `() -> Result<()>` — command in T-0510 (CLOACI-I-0098).
 
 ### crates/cloacina-server/src/routes
 
@@ -6377,11 +6388,11 @@
 
 #### crates/cloacina-server/src/routes/workflows.rs
 
-- pub `upload_workflow` function L36-174 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
-- pub `list_workflows` function L177-228 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows — list registered workflows.
-- pub `get_workflow` function L231-327 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
-- pub `delete_workflow` function L330-382 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
--  `extract_file_field` function L385-396 — `(multipart: &mut Multipart) -> Result<Vec<u8>, String>` — Extract the first file field from a multipart request.
+- pub `upload_workflow` function L37-189 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+- pub `list_workflows` function L192-243 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows — list registered workflows.
+- pub `get_workflow` function L246-342 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
+- pub `delete_workflow` function L345-397 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+-  `extract_file_field` function L400-411 — `(multipart: &mut Multipart) -> Result<Vec<u8>, String>` — Extract the first file field from a multipart request.
 
 #### crates/cloacina-server/src/routes/ws.rs
 
@@ -6395,6 +6406,16 @@
 -  `handle_reactor_socket` function L259-318 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
 -  `command_to_op` function L321-330 — `(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp` — Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
 -  `process_reactor_command` function L333-410 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
+
+### crates/cloacina-server/tests
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-server/tests/cli_validation.rs
+
+-  `SERVER_BIN` variable L12 — `: &str` — the full clap → run() path.
+-  `require_signatures_without_org_id_fails_fast` function L18-53 — `()` — `cloacina-server --require-signatures` without `--verification-org-id` must
+-  `require_signatures_with_env_var_passes_validation` function L60-94 — `()` — `cloacina-server --require-signatures` reads the org id from the env var
 
 ### crates/cloacina-testing/src
 

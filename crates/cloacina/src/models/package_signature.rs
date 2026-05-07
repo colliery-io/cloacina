@@ -34,6 +34,10 @@ pub struct PackageSignature {
     /// Ed25519 signature (64 bytes)
     pub signature: Vec<u8>,
     pub signed_at: UniversalTimestamp,
+    /// Organization id this signature is scoped to. NULL on rows that
+    /// pre-date the column (CLOACI-I-0103). Server-side verification rejects
+    /// NULL when `--require-signatures` is on.
+    pub org_id: Option<UniversalUuid>,
 }
 
 /// Model for creating a new package signature.
@@ -42,6 +46,7 @@ pub struct NewPackageSignature {
     pub package_hash: String,
     pub key_fingerprint: String,
     pub signature: Vec<u8>,
+    pub org_id: Option<UniversalUuid>,
 }
 
 impl NewPackageSignature {
@@ -50,7 +55,13 @@ impl NewPackageSignature {
             package_hash,
             key_fingerprint,
             signature,
+            org_id: None,
         }
+    }
+
+    pub fn with_org_id(mut self, org_id: UniversalUuid) -> Self {
+        self.org_id = Some(org_id);
+        self
     }
 }
 

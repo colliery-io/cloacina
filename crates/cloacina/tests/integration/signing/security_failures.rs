@@ -209,21 +209,10 @@ fn test_empty_package() {
     assert!(result.is_ok());
 }
 
-/// Database-based tests for revoked key rejection.
-///
-/// This test is marked as ignored because it requires database setup.
-#[tokio::test]
-#[ignore = "Requires database connection"]
-async fn test_revoked_key_rejected() {
-    // Expected workflow:
-    //
-    // 1. Create org, signing key, and trust the key
-    // 2. Sign a package
-    // 3. Verify succeeds
-    // 4. Revoke the trusted key
-    // 5. Verify should now FAIL (key is no longer trusted)
-    todo!("Implement with test database fixture")
-}
+// The DB-backed `test_revoked_key_rejected` placeholder was removed in
+// CLOACI-T-0569 — it was a `todo!()` stub. Revocation propagation is
+// adjacent to the per-tenant trust work deferred under CLOACI-I-0106;
+// re-introduce when that initiative makes revocation an explicit feature.
 
 /// Helper function to sign a package.
 fn sign_package_helper(

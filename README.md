@@ -30,7 +30,7 @@ Add Cloacina to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = "0.1.0"
+cloacina = "0.6.0"
 
 async-trait = "0.1"    # Required for async task definitions
 serde_json = "1.0"    # Required for context data serialization
@@ -44,10 +44,10 @@ For smaller binaries, you can compile with only the backend you need:
 
 ```toml
 # PostgreSQL only
-cloacina = { version = "0.1.0", default-features = false, features = ["postgres", "macros"] }
+cloacina = { version = "0.6.0", default-features = false, features = ["postgres", "macros"] }
 
 # SQLite only
-cloacina = { version = "0.1.0", default-features = false, features = ["sqlite", "macros"] }
+cloacina = { version = "0.6.0", default-features = false, features = ["sqlite", "macros"] }
 ```
 
 ## Quick Start

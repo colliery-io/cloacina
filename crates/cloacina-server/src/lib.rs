@@ -108,7 +108,32 @@ pub struct AppState {
     pub tenant_databases: Arc<TenantDatabaseCache>,
 }
 
+/// Validate security-related CLI args at server boot.
+///
+/// Extracted from `run()` so it's unit-testable without spinning up the
+/// full server. Currently enforces: `--require-signatures` is only meaningful
+/// paired with `--verification-org-id`; reject the combo at boot rather than
+/// surface a 403 on first upload (CLOACI-I-0103 / T-0567).
+fn validate_security_args(
+    require_signatures: bool,
+    verification_org_id: Option<&uuid::Uuid>,
+) -> Result<()> {
+    if require_signatures && verification_org_id.is_none() {
+        anyhow::bail!(
+            "--require-signatures requires --verification-org-id <UUID> \
+             (or set CLOACINA_VERIFICATION_ORG_ID env var). Without a trusted \
+             org_id the server has no way to verify uploaded signatures."
+        );
+    }
+    Ok(())
+}
+
 /// Run the API server.
+///
+/// Argument count is over clippy's default threshold; the right long-term fix
+/// is a `RunConfig` struct, tracked as a follow-up. T-0567 added the
+/// `verification_org_id` parameter and pushed us to 8.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     home: std::path::PathBuf,
     bind: SocketAddr,
@@ -116,8 +141,12 @@ pub async fn run(
     verbose: bool,
     bootstrap_key: Option<String>,
     require_signatures: bool,
+    verification_org_id: Option<uuid::Uuid>,
     reconcile_interval: Option<std::time::Duration>,
 ) -> Result<()> {
+    // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
+    validate_security_args(require_signatures, verification_org_id.as_ref())?;
+
     // Register the Python runtime in cloacina core's dispatch slot so the
     // reconciler can load uploaded Python-language packages. The compiler
     // service deliberately never does this — it has no business touching
@@ -262,6 +291,7 @@ pub async fn run(
         graph_scheduler,
         security_config: SecurityConfig {
             require_signatures,
+            verification_org_id: verification_org_id.map(cloacina::UniversalUuid::from),
             ..SecurityConfig::default()
         },
         ws_tickets: Arc::new(crate::routes::auth::WsTicketStore::new(
@@ -705,6 +735,21 @@ mod tests {
             metrics_handle: test_metrics_handle,
             tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
         }
+    }
+
+    /// Create a test AppState with `require_signatures = true` and a known
+    /// `verification_org_id`. Used by the T-0570 signature-contract tests
+    /// to drive the upload route through its verification gate.
+    async fn test_state_with_signature_required(
+        verification_org_id: cloacina::UniversalUuid,
+    ) -> AppState {
+        let mut state = test_state().await;
+        state.security_config = SecurityConfig {
+            require_signatures: true,
+            verification_org_id: Some(verification_org_id),
+            ..SecurityConfig::default()
+        };
+        state
     }
 
     /// Create a bootstrap API key and return the plaintext token.
@@ -1659,5 +1704,186 @@ mod tests {
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], "not found");
+    }
+
+    // ── Signature contract tests (CLOACI-I-0103 / T-0570) ─────────────────
+    //
+    // These exercise the full upload-route verification gate end-to-end:
+    // a signed payload must pass the gate; an unsigned payload must be
+    // rejected with `signature_not_found`. They depend on TEST_DB_URL
+    // being reachable (same constraint as the rest of this test module)
+    // and use random per-test org_ids to stay isolated.
+
+    #[tokio::test]
+    #[serial]
+    async fn test_upload_unsigned_with_require_signatures_returns_403() {
+        let org_id = cloacina::UniversalUuid::new_v4();
+        let state = test_state_with_signature_required(org_id).await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let pkg_bytes = b"unsigned bogus package bytes";
+        let (boundary, body) = multipart_file_body(pkg_bytes);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/default/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "expected 403 from verification gate; body: {:?}",
+            body
+        );
+        let code = body.get("code").and_then(|v| v.as_str()).unwrap_or("");
+        assert_eq!(
+            code, "signature_not_found",
+            "expected signature_not_found code; got: {} body: {:?}",
+            code, body
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_upload_signed_with_require_signatures_passes_verification() {
+        use cloacina::dal::DAL;
+        use cloacina::security::{DbKeyManager, DbPackageSigner, KeyManager, PackageSigner};
+        use std::io::Write as _;
+        use tempfile::NamedTempFile;
+
+        let org_id = cloacina::UniversalUuid::new_v4();
+        let state = test_state_with_signature_required(org_id).await;
+        let token = create_test_api_key(&state).await;
+
+        // Provision a signing key for the test org and self-trust it so the
+        // verifier accepts signatures from this key.
+        let dal = DAL::new(state.database.clone());
+        let km = DbKeyManager::new(dal.clone());
+        let signer = DbPackageSigner::new(dal);
+        let master_key = [0u8; 32];
+
+        let key_info = km
+            .create_signing_key(org_id, "contract-test-key", &master_key)
+            .await
+            .expect("create_signing_key");
+        km.trust_public_key(org_id, &key_info.public_key, Some("self"))
+            .await
+            .expect("trust_public_key");
+
+        // Sign the bytes and store the `package_signatures` row before upload.
+        // Make the payload unique per test run so prior runs' signatures don't
+        // collide on package_hash (the test DB persists across runs and
+        // `find_signature(hash)` returns one row — picking up a stale row from
+        // a previous run yields `untrusted_signer` because the old key
+        // fingerprint isn't trusted for *this* run's random org_id).
+        let pkg_bytes = format!(
+            "signed contract-test payload {}",
+            cloacina::UniversalUuid::new_v4()
+        )
+        .into_bytes();
+        let pkg_bytes = pkg_bytes.as_slice();
+        let tf = NamedTempFile::new().unwrap();
+        tf.as_file()
+            .write_all(pkg_bytes)
+            .expect("write tempfile bytes");
+        signer
+            .sign_package_with_db_key(
+                tf.path(),
+                key_info.id,
+                &master_key,
+                /* store_signature= */ true,
+            )
+            .await
+            .expect("sign_package_with_db_key");
+
+        // Upload the same bytes through the HTTP handler.
+        let app = build_router(state);
+        let (boundary, body) = multipart_file_body(pkg_bytes);
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/default/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+
+        // Contract: a valid signature must pass the verification gate.
+        // The bytes aren't a real .cloacina archive so the request will fail
+        // at the registration step downstream — that's fine; we're asserting
+        // verification specifically. If the response is 403, it must NOT be
+        // from a verification-related code.
+        if status == StatusCode::FORBIDDEN {
+            let code = body.get("code").and_then(|v| v.as_str()).unwrap_or("");
+            let verification_codes = [
+                "signature_not_found",
+                "package_tampered",
+                "untrusted_signer",
+                "invalid_signature",
+                "signature_verification_unconfigured",
+                "signature_verification_error",
+            ];
+            assert!(
+                !verification_codes.contains(&code),
+                "expected verification to pass; got 403 with verification code: {} body: {:?}",
+                code,
+                body
+            );
+        }
+        // If status is anything other than 403, the verification gate already
+        // accepted it (failure further downstream is out of scope here).
+    }
+
+    // ── Security args validation (CLOACI-I-0103 / T-0567) ─────────────────
+
+    #[test]
+    fn validate_security_args_default_passes() {
+        // Default config: no signature requirement, no org_id. Most common deployment.
+        assert!(validate_security_args(false, None).is_ok());
+    }
+
+    #[test]
+    fn validate_security_args_org_without_require_passes() {
+        // Configuring an org_id without enabling require_signatures is allowed
+        // (operator may want it pre-staged before flipping the flag).
+        let uuid = uuid::Uuid::new_v4();
+        assert!(validate_security_args(false, Some(&uuid)).is_ok());
+    }
+
+    #[test]
+    fn validate_security_args_require_with_org_passes() {
+        // The fully-configured opt-in posture.
+        let uuid = uuid::Uuid::new_v4();
+        assert!(validate_security_args(true, Some(&uuid)).is_ok());
+    }
+
+    #[test]
+    fn validate_security_args_require_without_org_fails() {
+        // The bad combo we want to catch at boot, not at first upload.
+        let result = validate_security_args(true, None);
+        let err = result.expect_err("expected validation failure");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("verification-org-id"),
+            "error must name the missing flag for the operator; got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("CLOACINA_VERIFICATION_ORG_ID"),
+            "error must also name the env var alternative; got: {}",
+            msg
+        );
     }
 }

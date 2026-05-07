@@ -289,6 +289,7 @@ mod unified_schema {
             key_fingerprint -> Text,
             signature -> DbBinary,
             signed_at -> DbTimestamp,
+            org_id -> Nullable<DbUuid>,
         }
     }
 
@@ -605,6 +606,7 @@ mod postgres_schema {
             key_fingerprint -> Varchar,
             signature -> Bytea,
             signed_at -> Timestamp,
+            org_id -> Nullable<Uuid>,
         }
     }
 
@@ -978,6 +980,7 @@ mod sqlite_schema {
             key_fingerprint -> Text,
             signature -> Binary,
             signed_at -> Text,
+            org_id -> Nullable<Binary>,
         }
     }
 

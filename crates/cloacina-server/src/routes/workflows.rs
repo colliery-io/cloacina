@@ -27,6 +27,7 @@ use tracing::{info, warn};
 use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
+use cloacina::security::audit;
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
@@ -86,6 +87,12 @@ pub async fn upload_workflow(
         let dal = cloacina::dal::DAL::new(state.database.clone());
         let package_signer = cloacina::security::DbPackageSigner::new(dal.clone());
         let key_manager = cloacina::security::DbKeyManager::new(dal);
+        // CLOACI-I-0103 / T-0568: route both success and failure through the
+        // structured audit log so deployments with a centralised log pipeline
+        // get a single, parseable record per upload. The human-readable
+        // info!/warn! lines stay because they carry message-level context
+        // operators tail in real time.
+        let audit_path = format!("upload:tenant={}", tenant_id);
         match cloacina::security::verify_package_bytes(
             &package_data,
             org_id,
@@ -99,6 +106,13 @@ pub async fn upload_workflow(
                 info!(
                     "Package signature verified: hash={} signer={}",
                     result.package_hash, result.signer_fingerprint
+                );
+                audit::log_package_load_success(
+                    org_id,
+                    &audit_path,
+                    &result.package_hash,
+                    Some(&result.signer_fingerprint),
+                    /* signature_verified */ true,
                 );
             }
             Err(e) => {
@@ -123,6 +137,7 @@ pub async fn upload_workflow(
                     ),
                     _ => ("signature_verification_error", format!("{}", e)),
                 };
+                audit::log_package_load_failure(org_id, &audit_path, &e.to_string(), code);
                 return ApiError::forbidden(code, msg).into_response();
             }
         }

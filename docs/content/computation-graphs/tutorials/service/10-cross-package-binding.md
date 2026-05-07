@@ -86,14 +86,14 @@ packaged = []
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina-macros = "0.5.0"
-cloacina-workflow = { version = "0.5.0", features = ["packaged"] }
-cloacina-workflow-plugin = "0.5.0"
+cloacina-macros = "0.6.0"
+cloacina-workflow = { version = "0.6.0", features = ["packaged"] }
+cloacina-workflow-plugin = "0.6.0"
 async-trait = "0.1"
 serde_json = "1.0"
 
 [build-dependencies]
-cloacina-build = "0.5.0"
+cloacina-build = "0.6.0"
 ```
 
 ### `build.rs`
