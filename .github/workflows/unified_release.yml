@@ -165,7 +165,7 @@ jobs:
         run: pip install maturin
 
       - name: Build wheel
-        run: maturin build --release --target ${{ matrix.target }} --manifest-path crates/cloacina/Cargo.toml
+        run: maturin build --release --target ${{ matrix.target }} --manifest-path crates/cloacina-python/Cargo.toml
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
@@ -192,7 +192,7 @@ jobs:
         run: pip install maturin
 
       - name: Build sdist
-        run: maturin sdist --manifest-path crates/cloacina/Cargo.toml
+        run: maturin sdist --manifest-path crates/cloacina-python/Cargo.toml
 
       - name: Upload sdist artifact
         uses: actions/upload-artifact@v4
