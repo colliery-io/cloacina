@@ -249,9 +249,20 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
 
         // T-0552: TriggerEntry inventory submission emits in BOTH
         // packaged and embedded modes so the unified `cloacina::package!()`
-        // shell can walk it from packaged cdylibs.
-        cloacina_workflow_plugin::inventory::submit! {
-            cloacina_workflow_plugin::TriggerEntry {
+        // shell can walk it from packaged cdylibs. Cfg-gated paths so the
+        // submission resolves through the right crate per build mode (library
+        // mode uses `cloacina::cloacina_workflow_plugin::*`; packaged mode
+        // uses `cloacina_workflow_plugin::*` direct).
+        #[cfg(not(feature = "packaged"))]
+        ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina::cloacina_workflow_plugin::TriggerEntry {
+                name: #trigger_name,
+                constructor: || std::sync::Arc::new(#struct_name) as std::sync::Arc<dyn cloacina_workflow::Trigger>,
+            }
+        }
+        #[cfg(feature = "packaged")]
+        ::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina_workflow_plugin::TriggerEntry {
                 name: #trigger_name,
                 constructor: || std::sync::Arc::new(#struct_name) as std::sync::Arc<dyn cloacina_workflow::Trigger>,
             }
@@ -359,8 +370,18 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
             }
         }
 
-        cloacina_workflow_plugin::inventory::submit! {
-            cloacina_workflow_plugin::TriggerEntry {
+        // Cfg-gated path so submission resolves correctly in both library
+        // mode (via cloacina re-export) and packaged mode (direct dep).
+        #[cfg(not(feature = "packaged"))]
+        ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina::cloacina_workflow_plugin::TriggerEntry {
+                name: #trigger_name,
+                constructor: || std::sync::Arc::new(#struct_name::new()) as std::sync::Arc<dyn cloacina_workflow::Trigger>,
+            }
+        }
+        #[cfg(feature = "packaged")]
+        ::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina_workflow_plugin::TriggerEntry {
                 name: #trigger_name,
                 constructor: || std::sync::Arc::new(#struct_name::new()) as std::sync::Arc<dyn cloacina_workflow::Trigger>,
             }

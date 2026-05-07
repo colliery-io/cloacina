@@ -63,7 +63,7 @@ pub struct BenchOutput {
 pub struct BenchGraphReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(BenchGraphReactor),
+    trigger = reactor("bench_graph_reactor"),
     graph = {
         process(source) -> output,
     }

@@ -123,7 +123,7 @@ pub struct AuditRecord {
 pub struct PerfMarketMakerReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(PerfMarketMakerReactor),
+    trigger = reactor("perf_market_maker_reactor"),
     graph = {
         decision(orderbook, pricing) => {
             Trade -> signal_handler,

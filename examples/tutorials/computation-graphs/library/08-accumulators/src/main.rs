@@ -76,7 +76,7 @@ pub struct SignalOutput {
 pub struct PricingGraphReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(PricingGraphReactor),
+    trigger = reactor("pricing_graph_reactor"),
     graph = {
         ingest(pricing) -> analyze,
         analyze -> format_signal,

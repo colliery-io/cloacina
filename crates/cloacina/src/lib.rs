@@ -434,6 +434,16 @@ pub extern crate cloacina_workflow;
 // Re-export cloacina_computation_graph for packaged CG plugins that use `cloacina::computation_graph::*` paths
 pub use cloacina_computation_graph;
 
+// Re-export cloacina_workflow_plugin so macros emitted into library-mode user
+// crates (which only depend on `cloacina`, not on `cloacina-workflow-plugin`
+// directly) can resolve inventory entry types and the `inventory` submit! /
+// iter! surface via `::cloacina::cloacina_workflow_plugin::*`. Packaged
+// cdylibs still address the crate directly as `::cloacina_workflow_plugin::*`
+// because they don't have `cloacina` in their dep graph (slim cdylib design).
+// The `#[workflow]` / `#[reactor]` / `#[trigger]` / `#[computation_graph]`
+// macros emit cfg-gated branches that pick whichever path resolves.
+pub extern crate cloacina_workflow_plugin;
+
 /// Prelude module for convenient imports.
 ///
 /// The prelude provides convenient access to the most commonly used types

@@ -288,10 +288,15 @@ fn reactor_impl(
     let cg_path = quote! { ::cloacina_computation_graph };
 
     // I-0102 / T-A: ReactorEntry lives in cloacina-workflow-plugin so
-    // packaged cdylibs can collect entries at link time. The submission
-    // path is now uniform across embedded + packaged builds.
-    let inventory_path = quote! { ::cloacina_workflow_plugin::inventory };
-    let reactor_entry_path = quote! { ::cloacina_workflow_plugin::ReactorEntry };
+    // packaged cdylibs can collect entries at link time. We emit two
+    // cfg-gated submissions below so library-mode users (only depend on
+    // `cloacina`) can resolve via `::cloacina::cloacina_workflow_plugin::*`
+    // and packaged cdylibs (slim crates with `cloacina-workflow-plugin`
+    // direct) can resolve via `::cloacina_workflow_plugin::*`.
+    let lib_inventory_path = quote! { ::cloacina::cloacina_workflow_plugin::inventory };
+    let lib_reactor_entry_path = quote! { ::cloacina::cloacina_workflow_plugin::ReactorEntry };
+    let pkg_inventory_path = quote! { ::cloacina_workflow_plugin::inventory };
+    let pkg_reactor_entry_path = quote! { ::cloacina_workflow_plugin::ReactorEntry };
 
     // Sanity: suppress an unused warning on `criteria_span` — it's kept for
     // future diagnostics use.
@@ -316,12 +321,25 @@ fn reactor_impl(
             const REACTION_MODE: #cg_path::ReactionMode = #cg_path::ReactionMode::#mode_variant;
         }
 
-        // I-0102 / T-A: submission is unconditional — packaged cdylibs
-        // need ReactorEntry in their inventory so the unified
-        // `cloacina::package!()` shell can walk it for `get_reactor_metadata`.
-        // Embedded mode also needs it (Runtime::new() seeds from inventory).
-        #inventory_path::submit! {
-            #reactor_entry_path {
+        // I-0102 / T-A: emitted in both modes so the unified
+        // `cloacina::package!()` shell (packaged cdylibs) and
+        // `Runtime::new()` (embedded) can walk inventory uniformly.
+        // Cfg-gated paths so the right crate path resolves per build mode.
+        #[cfg(not(feature = "packaged"))]
+        #lib_inventory_path::submit! {
+            #lib_reactor_entry_path {
+                name: #reactor_name_lit,
+                constructor: || #cg_path::ReactorRegistration {
+                    name: #reactor_name_lit.to_string(),
+                    accumulator_names: vec![#(#accumulator_strs.to_string()),*],
+                    reaction_mode: #cg_path::ReactionMode::#mode_variant,
+                },
+            }
+        }
+
+        #[cfg(feature = "packaged")]
+        #pkg_inventory_path::submit! {
+            #pkg_reactor_entry_path {
                 name: #reactor_name_lit,
                 constructor: || #cg_path::ReactorRegistration {
                     name: #reactor_name_lit.to_string(),

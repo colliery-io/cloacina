@@ -82,7 +82,7 @@ pub struct TradingSignal {
 pub struct MarketPipelineReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(MarketPipelineReactor),
+    trigger = reactor("market_pipeline_reactor"),
     graph = {
         combine(orderbook, pricing) -> evaluate,
         evaluate -> signal,

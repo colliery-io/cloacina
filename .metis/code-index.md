@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-07T03:47:17Z | 483 files | JavaScript, Python, Rust
+> Generated: 2026-05-07T12:14:58Z | 483 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1247,35 +1247,35 @@
 
 #### crates/cloacina/src/lib.rs
 
-- pub `prelude` module L453-486 — `-` — Prelude module for convenient imports.
-- pub `computation_graph` module L490 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `context` module L491 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_evaluator` module L492 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_recovery` module L493 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_trigger_scheduler` module L496 — `-` — Cron and event-trigger schedule management.
-- pub `crypto` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dal` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `database` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dispatcher` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `error` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `execution_planner` module L504 — `-` — Task readiness evaluation, workflow processing, and stale claim sweeping.
-- pub `executor` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `graph` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `inventory_entries` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `logging` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `models` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `packaging` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `python_runtime` module L511 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `registry` module L512 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `retry` module L513 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runner` module L514 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runtime` module L515 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `security` module L520 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task` module L521 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger` module L522 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `var` module L523 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `workflow` module L524 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `setup_test` function L533-535 — `()` — - [`retry`]: Retry policies and backoff strategies
+- pub `prelude` module L463-496 — `-` — Prelude module for convenient imports.
+- pub `computation_graph` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `context` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_evaluator` module L502 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_recovery` module L503 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_trigger_scheduler` module L506 — `-` — Cron and event-trigger schedule management.
+- pub `crypto` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dal` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `database` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dispatcher` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `error` module L511 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `execution_planner` module L514 — `-` — Task readiness evaluation, workflow processing, and stale claim sweeping.
+- pub `executor` module L515 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `graph` module L516 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `inventory_entries` module L517 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `logging` module L518 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `models` module L519 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `packaging` module L520 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `python_runtime` module L521 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `registry` module L522 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `retry` module L523 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runner` module L524 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runtime` module L525 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `security` module L530 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task` module L531 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger` module L532 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `var` module L533 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `workflow` module L534 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `setup_test` function L543-545 — `()` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -4991,8 +4991,7 @@
 
 -  `test_multiple_keys_sign_different_packages` function L33-80 — `()` — Test that multiple keys can sign different packages.
 -  `test_resign_package_with_new_key` function L84-119 — `()` — Test that re-signing a package with a new key works.
--  `test_key_rotation_database_workflow` function L126-145 — `()` — Test that database-based key rotation workflow works.
--  `sign_package_helper` function L148-174 — `( package_path: &std::path::Path, keypair: &cloacina::crypto::GeneratedKeypair, ...` — Helper function to sign a package and create a DetachedSignature.
+-  `sign_package_helper` function L127-153 — `( package_path: &std::path::Path, keypair: &cloacina::crypto::GeneratedKeypair, ...` — Helper function to sign a package and create a DetachedSignature.
 
 #### crates/cloacina/tests/integration/signing/mod.rs
 
@@ -5010,8 +5009,7 @@
 -  `test_malformed_signature_file_rejected` function L164-180 — `()` — Test that malformed signature JSON is rejected.
 -  `test_missing_signature_file` function L184-193 — `()` — Test that missing signature file is handled.
 -  `test_empty_package` function L197-210 — `()` — Test that empty package is handled correctly.
--  `test_revoked_key_rejected` function L217-226 — `()` — Database-based tests for revoked key rejection.
--  `sign_package_helper` function L229-255 — `( package_path: &std::path::Path, keypair: &cloacina::crypto::GeneratedKeypair, ...` — Helper function to sign a package.
+-  `sign_package_helper` function L218-244 — `( package_path: &std::path::Path, keypair: &cloacina::crypto::GeneratedKeypair, ...` — Helper function to sign a package.
 
 #### crates/cloacina/tests/integration/signing/sign_and_verify.rs
 
@@ -5022,12 +5020,8 @@
 
 #### crates/cloacina/tests/integration/signing/trust_chain.rs
 
--  `test_direct_trust` function L30-40 — `()` — Test that trust chain resolution includes directly trusted keys.
--  `test_trust_chain_acl` function L47-57 — `()` — Test that trust chain ACL allows parent org to trust child org's keys.
--  `test_trust_chain_isolation` function L64-73 — `()` — Test that trust chain does not leak to unrelated orgs.
--  `test_revoke_trust_acl` function L80-90 — `()` — Test that revoking trust ACL removes inherited keys.
--  `test_key_fingerprint_computation` function L94-104 — `()` — unless running with --include-ignored flag.
--  `test_different_keys_have_different_fingerprints` function L107-113 — `()` — unless running with --include-ignored flag.
+-  `test_key_fingerprint_computation` function L29-39 — `()` — per-tenant trust becomes a shipping feature.
+-  `test_different_keys_have_different_fingerprints` function L42-48 — `()` — per-tenant trust becomes a shipping feature.
 
 ### crates/cloacina/tests/integration/task
 
@@ -5427,21 +5421,21 @@
 -  `as_rust_variant` function L83-88 — `(&self) -> proc_macro2::TokenStream` — ```
 -  `ReactorArgs` type L91-239 — `impl Parse for ReactorArgs` — ```
 -  `parse` function L92-238 — `(input: ParseStream) -> syn::Result<Self>` — ```
--  `reactor_impl` function L250-339 — `( args: proc_macro2::TokenStream, input: proc_macro2::TokenStream, ) -> syn::Res...` — ```
--  `tests` module L342-496 — `-` — ```
--  `parse_minimal_reactor_args` function L347-357 — `()` — ```
--  `parse_when_all` function L360-368 — `()` — ```
--  `error_empty_name` function L371-379 — `()` — ```
--  `error_duplicate_accumulator` function L382-390 — `()` — ```
--  `error_criteria_accumulator_not_declared` function L393-401 — `()` — ```
--  `error_missing_name` function L404-411 — `()` — ```
--  `error_missing_accumulators` function L414-421 — `()` — ```
--  `error_missing_criteria` function L424-431 — `()` — ```
--  `error_unknown_field` function L434-443 — `()` — ```
--  `error_unknown_mode` function L446-454 — `()` — ```
--  `impl_emits_on_unit_struct` function L457-471 — `()` — ```
--  `rejects_non_unit_struct` function L474-483 — `()` — ```
--  `rejects_generic_struct` function L486-495 — `()` — ```
+-  `reactor_impl` function L250-357 — `( args: proc_macro2::TokenStream, input: proc_macro2::TokenStream, ) -> syn::Res...` — ```
+-  `tests` module L360-514 — `-` — ```
+-  `parse_minimal_reactor_args` function L365-375 — `()` — ```
+-  `parse_when_all` function L378-386 — `()` — ```
+-  `error_empty_name` function L389-397 — `()` — ```
+-  `error_duplicate_accumulator` function L400-408 — `()` — ```
+-  `error_criteria_accumulator_not_declared` function L411-419 — `()` — ```
+-  `error_missing_name` function L422-429 — `()` — ```
+-  `error_missing_accumulators` function L432-439 — `()` — ```
+-  `error_missing_criteria` function L442-449 — `()` — ```
+-  `error_unknown_field` function L452-461 — `()` — ```
+-  `error_unknown_mode` function L464-472 — `()` — ```
+-  `impl_emits_on_unit_struct` function L475-489 — `()` — ```
+-  `rejects_non_unit_struct` function L492-501 — `()` — ```
+-  `rejects_generic_struct` function L504-513 — `()` — ```
 
 #### crates/cloacina-macros/src/registry.rs
 
@@ -5465,8 +5459,8 @@
 - pub `generate_trigger_rules_code` function L343-366 — `(attrs: &TaskAttributes) -> TokenStream2` — Generate trigger rules JSON code based on task attributes
 - pub `parse_trigger_rules_expr` function L384-471 — `(expr: &Expr) -> Result<serde_json::Value, String>` — Parse trigger rule expressions into JSON at compile time
 - pub `to_pascal_case` function L617-627 — `(s: &str) -> String` — Convert snake_case to PascalCase
-- pub `generate_task_impl` function L642-964 — `(attrs: TaskAttributes, input: ItemFn) -> TokenStream2` — Generate the task implementation
-- pub `task` function L986-1047 — `(args: TokenStream, input: TokenStream) -> TokenStream` — The main task proc macro
+- pub `generate_task_impl` function L642-974 — `(attrs: TaskAttributes, input: ItemFn) -> TokenStream2` — Generate the task implementation
+- pub `task` function L996-1057 — `(args: TokenStream, input: TokenStream) -> TokenStream` — The main task proc macro
 -  `TaskAttributes` type L73-225 — `impl Parse for TaskAttributes`
 -  `parse` function L74-224 — `(input: ParseStream) -> SynResult<Self>`
 -  `parse_condition_list` function L474-482 — `( args: &syn::punctuated::Punctuated<Expr, syn::Token![,]>, ) -> Result<Vec<serd...` — Parse a list of trigger conditions from function arguments
@@ -5482,9 +5476,9 @@
 -  `TriggerAttributes` type L46-127 — `impl Parse for TriggerAttributes` — - **Cron**: `cron` parameter, no function body — framework provides poll logic (T-0305)
 -  `parse` function L47-126 — `(input: ParseStream) -> SynResult<Self>` — - **Cron**: `cron` parameter, no function body — framework provides poll logic (T-0305)
 -  `parse_duration_ms` function L171-194 — `(s: &str) -> Result<u64, String>` — Parse a duration string like "100ms", "5s", "2m", "1h" into milliseconds.
--  `generate_custom_trigger` function L197-274 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a custom poll trigger (function body provides poll logic).
--  `generate_cron_trigger` function L277-376 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a cron trigger (schedule expression provides the poll logic).
--  `validate_cron_expression` function L379-403 — `(expr: &str) -> Result<(), String>` — Validate a cron expression at compile time.
+-  `generate_custom_trigger` function L197-285 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a custom poll trigger (function body provides poll logic).
+-  `generate_cron_trigger` function L288-397 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a cron trigger (schedule expression provides the poll logic).
+-  `validate_cron_expression` function L400-424 — `(expr: &str) -> Result<(), String>` — Validate a cron expression at compile time.
 
 #### crates/cloacina-macros/src/workflow_attr.rs
 
@@ -5492,12 +5486,12 @@
 - pub `workflow_attr` function L133-152 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[workflow]` attribute macro.
 -  `UnifiedWorkflowAttributes` type L61-130 — `impl Parse for UnifiedWorkflowAttributes` — - With `packaged` feature: generates FFI exports (packaged mode)
 -  `parse` function L62-129 — `(input: ParseStream) -> SynResult<Self>` — - With `packaged` feature: generates FFI exports (packaged mode)
--  `generate_workflow_attr` function L161-313 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
--  `validate_dependencies` function L316-370 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
--  `generate_embedded_registration` function L377-501 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
--  `build_task_inventory_entries` function L508-608 — `( tenant: &str, workflow_name: &str, mod_name: &syn::Ident, detected_tasks: &Has...` — Build `inventory::submit!` blocks for each task in the workflow.
--  `generate_trigger_rules_rewrite` function L611-654 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
--  `generate_packaged_registration` function L661-830 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
+-  `generate_workflow_attr` function L161-332 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
+-  `validate_dependencies` function L335-389 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
+-  `generate_embedded_registration` function L396-520 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
+-  `build_task_inventory_entries` function L527-641 — `( tenant: &str, workflow_name: &str, mod_name: &syn::Ident, detected_tasks: &Has...` — Build `inventory::submit!` blocks for each task in the workflow.
+-  `generate_trigger_rules_rewrite` function L644-687 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
+-  `generate_packaged_registration` function L694-863 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
 
 ### crates/cloacina-python
 
@@ -6413,9 +6407,9 @@
 
 #### crates/cloacina-server/tests/cli_validation.rs
 
--  `SERVER_BIN` variable L12 — `: &str` — the full clap → run() path.
--  `require_signatures_without_org_id_fails_fast` function L18-53 — `()` — `cloacina-server --require-signatures` without `--verification-org-id` must
--  `require_signatures_with_env_var_passes_validation` function L60-94 — `()` — `cloacina-server --require-signatures` reads the org id from the env var
+-  `SERVER_BIN` variable L28 — `: &str` — the full clap → run() path.
+-  `require_signatures_without_org_id_fails_fast` function L34-69 — `()` — `cloacina-server --require-signatures` without `--verification-org-id` must
+-  `require_signatures_with_env_var_passes_validation` function L76-110 — `()` — `cloacina-server --require-signatures` reads the org id from the env var
 
 ### crates/cloacina-testing/src
 

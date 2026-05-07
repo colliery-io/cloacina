@@ -227,13 +227,31 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         let ctor = quote! {
             // T-0552: TriggerlessGraphEntry submission un-gated for both
             // packaged and embedded modes (was previously embedded-only).
-            // Targets cdylib-reachable types in cloacina-workflow-plugin.
-            cloacina_workflow_plugin::inventory::submit! {
-                cloacina_workflow_plugin::TriggerlessGraphEntry {
+            // Cfg-gated paths so the submission resolves through `cloacina`
+            // in library mode and `cloacina-workflow-plugin` direct in
+            // packaged mode (CLOACI-I-0103 follow-up).
+            #[cfg(not(feature = "packaged"))]
+            ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+                ::cloacina::cloacina_workflow_plugin::TriggerlessGraphEntry {
                     name: #mod_name_str,
-                    constructor: || cloacina_workflow_plugin::TriggerlessGraphRegistration {
+                    constructor: || ::cloacina::cloacina_workflow_plugin::TriggerlessGraphRegistration {
                         name: #mod_name_str.to_string(),
-                        graph_fn: ::std::sync::Arc::new(|context: cloacina_workflow::Context<::serde_json::Value>| {
+                        graph_fn: ::std::sync::Arc::new(|context: ::cloacina::cloacina_workflow::Context<::serde_json::Value>| {
+                            Box::pin(async move {
+                                #compiled_fn_name(&context).await
+                            })
+                        }),
+                        terminal_node_names: vec![#(#terminal_node_names.to_string()),*],
+                    },
+                }
+            }
+            #[cfg(feature = "packaged")]
+            ::cloacina_workflow_plugin::inventory::submit! {
+                ::cloacina_workflow_plugin::TriggerlessGraphEntry {
+                    name: #mod_name_str,
+                    constructor: || ::cloacina_workflow_plugin::TriggerlessGraphRegistration {
+                        name: #mod_name_str.to_string(),
+                        graph_fn: ::std::sync::Arc::new(|context: ::cloacina_workflow::Context<::serde_json::Value>| {
                             Box::pin(async move {
                                 #compiled_fn_name(&context).await
                             })
@@ -259,7 +277,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         let ctor = quote! {
             // I-0102 / T-C: ComputationGraphEntry submission emits in both
             // packaged and embedded modes so the unified
-            // `cloacina::package!()` shell can walk it.
+            // `cloacina::package!()` shell can walk it. (Inside cloacina.)
             cloacina_workflow_plugin::inventory::submit! {
                 cloacina_workflow_plugin::ComputationGraphEntry {
                     name: #mod_name_str,
@@ -291,9 +309,28 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         };
         let ctor = quote! {
             // I-0102 / T-C: ComputationGraphEntry submission emits in both
-            // packaged and embedded modes (external crate path).
-            cloacina_workflow_plugin::inventory::submit! {
-                cloacina_workflow_plugin::ComputationGraphEntry {
+            // packaged and embedded modes (external crate path). Cfg-gated
+            // so library users (only have `cloacina`) and packaged cdylibs
+            // (have `cloacina-workflow-plugin` direct) both resolve.
+            #[cfg(not(feature = "packaged"))]
+            ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+                ::cloacina::cloacina_workflow_plugin::ComputationGraphEntry {
+                    name: #mod_name_str,
+                    constructor: || cloacina_computation_graph::ComputationGraphRegistration {
+                        graph_fn: std::sync::Arc::new(|cache: cloacina_computation_graph::InputCache| {
+                            Box::pin(async move {
+                                #compiled_fn_name(&cache).await
+                            })
+                        }),
+                        trigger_reactor: #trigger_reactor_expr,
+                        accumulator_names: #legacy_acc_names_expr,
+                        reaction_mode: #legacy_reaction_mode_expr,
+                    },
+                }
+            }
+            #[cfg(feature = "packaged")]
+            ::cloacina_workflow_plugin::inventory::submit! {
+                ::cloacina_workflow_plugin::ComputationGraphEntry {
                     name: #mod_name_str,
                     constructor: || cloacina_computation_graph::ComputationGraphRegistration {
                         graph_fn: std::sync::Arc::new(|cache: cloacina_computation_graph::InputCache| {
@@ -323,11 +360,24 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // gate keeping tasks from invoking them.
     let triggerless_graph_impl = if is_triggerless {
         // T-0552: TriggerlessGraph trait + types relocated to
-        // cloacina-workflow-plugin. Use cdylib-reachable paths.
+        // cloacina-workflow-plugin. Cfg-gated path resolution per the same
+        // pattern as the inventory submissions above.
         quote! {
-            impl cloacina_workflow_plugin::TriggerlessGraph for #handle_ident {
-                fn compiled_fn() -> cloacina_workflow_plugin::TriggerlessGraphFn {
-                    ::std::sync::Arc::new(|context: cloacina_workflow::Context<::serde_json::Value>| {
+            #[cfg(not(feature = "packaged"))]
+            impl ::cloacina::cloacina_workflow_plugin::TriggerlessGraph for #handle_ident {
+                fn compiled_fn() -> ::cloacina::cloacina_workflow_plugin::TriggerlessGraphFn {
+                    ::std::sync::Arc::new(|context: ::cloacina::cloacina_workflow::Context<::serde_json::Value>| {
+                        Box::pin(async move { #compiled_fn_name(&context).await })
+                    })
+                }
+                fn terminal_node_names() -> &'static [&'static str] {
+                    &[#(#terminal_node_names),*]
+                }
+            }
+            #[cfg(feature = "packaged")]
+            impl ::cloacina_workflow_plugin::TriggerlessGraph for #handle_ident {
+                fn compiled_fn() -> ::cloacina_workflow_plugin::TriggerlessGraphFn {
+                    ::std::sync::Arc::new(|context: ::cloacina_workflow::Context<::serde_json::Value>| {
                         Box::pin(async move { #compiled_fn_name(&context).await })
                     })
                 }

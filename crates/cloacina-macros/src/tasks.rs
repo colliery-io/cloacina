@@ -799,6 +799,16 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                     // collision would still surface as "no triggerless graph
                     // named X" — the runtime equivalent of T-0540 M3's
                     // compile-time trait-bound check.
+                    //
+                    // Cfg-gated path resolution: library mode goes through
+                    // `cloacina::cloacina_workflow_plugin::*`, packaged
+                    // cdylibs through the direct dep.
+                    #[cfg(not(feature = "packaged"))]
+                    let __reg_opt = ::cloacina::cloacina_workflow_plugin::inventory::iter::<::cloacina::cloacina_workflow_plugin::TriggerlessGraphEntry>
+                        .into_iter()
+                        .find(|e| e.name == #graph_name_lit)
+                        .map(|e| (e.constructor)());
+                    #[cfg(feature = "packaged")]
                     let __reg_opt = ::cloacina_workflow_plugin::inventory::iter::<::cloacina_workflow_plugin::TriggerlessGraphEntry>
                         .into_iter()
                         .find(|e| e.name == #graph_name_lit)

@@ -80,7 +80,7 @@ pub struct FormattedOutput {
 pub struct PricingPipelineReactor;
 
 #[cloacina_macros::computation_graph(
-    trigger = reactor(PricingPipelineReactor),
+    trigger = reactor("pricing_pipeline_reactor"),
     graph = {
         ingest(orderbook) -> compute_spread,
         compute_spread -> format_output,
