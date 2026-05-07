@@ -178,14 +178,12 @@ impl TaskRegistrar {
 
             let plugin = plugin.clone();
             let task_name = task_id.to_string();
-            let pkg_name = package_name.to_string();
             let deps = dependency_namespaces.clone();
 
             let constructor = Box::new(move || {
                 Arc::new(DynamicLibraryTask::new(
                     plugin.clone(),
                     task_name.clone(),
-                    pkg_name.clone(),
                     deps.clone(),
                 )) as Arc<dyn Task>
             });
@@ -304,6 +302,7 @@ mod tests {
             graph_data: None,
             architecture: "x86_64".to_string(),
             symbols: vec!["fidius_get_registry".to_string()],
+            workflow_triggers: Vec::new(),
         }
     }
 

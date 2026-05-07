@@ -25,10 +25,22 @@ def pricing(event):
     return {"price": event["mid_price"], "change_pct": 0.0}
 
 
+# Declare the reactor that fires the graph (CLOACI-I-0101 split — the
+# bundled `react={...}` kwarg was removed in favour of first-class
+# `@cloaca.reactor` classes).
+@cloaca.reactor(
+    name="pricing_graph_reactor",
+    accumulators=["pricing"],
+    mode="when_any",
+)
+class PricingGraphReactor:
+    pass
+
+
 # Define the computation graph
 with cloaca.ComputationGraphBuilder(
     "pricing_graph",
-    react={"mode": "when_any", "accumulators": ["pricing"]},
+    reactor=PricingGraphReactor,
     graph={
         "ingest": {
             "inputs": ["pricing"],

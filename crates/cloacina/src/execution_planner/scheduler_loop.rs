@@ -58,25 +58,6 @@ pub struct SchedulerLoop<'a> {
 }
 
 impl<'a> SchedulerLoop<'a> {
-    /// Creates a new SchedulerLoop.
-    #[allow(dead_code)]
-    pub fn new(
-        dal: &'a DAL,
-        runtime: Arc<Runtime>,
-        instance_id: Uuid,
-        poll_interval: Duration,
-    ) -> Self {
-        Self {
-            dal,
-            runtime,
-            instance_id,
-            poll_interval,
-            dispatcher: None,
-            shutdown_rx: None,
-            consecutive_errors: 0,
-        }
-    }
-
     /// Creates a new SchedulerLoop with an optional dispatcher.
     pub fn with_dispatcher(
         dal: &'a DAL,
@@ -148,7 +129,7 @@ impl<'a> SchedulerLoop<'a> {
                             "Scheduler loop circuit open: {} consecutive errors — backing off (latest: {})",
                             self.consecutive_errors, e
                         );
-                    } else if self.consecutive_errors % 10 == 0 {
+                    } else if self.consecutive_errors.is_multiple_of(10) {
                         // Rate-limited logging: every 10th error after circuit opens
                         warn!(
                             "Scheduler loop still failing: {} consecutive errors (latest: {})",

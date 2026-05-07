@@ -16,10 +16,12 @@
 
 //! Topology parser for `#[computation_graph]`.
 //!
-//! Parses the macro attribute syntax:
+//! Parses the macro attribute syntax. Two top-level field shapes:
+//!
+//! Split form — graph subscribes to a standalone `#[reactor]`:
 //! ```text
 //! #[computation_graph(
-//!     react = when_any(alpha, beta, gamma),
+//!     trigger = reactor(MyReactor),
 //!     graph = {
 //!         decision_engine(alpha, beta, gamma) => {
 //!             Signal -> risk_check,
@@ -32,29 +34,53 @@
 //!     }
 //! )]
 //! ```
+//!
+//! Trigger-less form — graph is registered by name and invoked directly:
+//! ```text
+//! #[computation_graph(graph = { entry(alpha) -> output })]
+//! ```
+//!
+//! The bundled `react = when_any(...)` form was removed in CLOACI-I-0101.
+//! The parser still recognizes `react` as a key so it can emit a migration
+//! diagnostic; it does not parse a value.
 
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{braced, Ident, Token};
+use syn::{braced, Ident, LitStr, Token};
 
 /// The full parsed topology from the macro attribute.
-#[derive(Debug)]
+///
+/// Supports two shapes:
+/// - `trigger = reactor(TypePath)` + `graph = { ... }` — split form; the graph
+///   binds at runtime to the already-declared reactor whose struct is
+///   `TypePath`, and the graph macro emits a compile-time subset check
+///   between entry accumulators and `<TypePath as Reactor>::ACCUMULATORS`.
+/// - `graph = { ... }` only — trigger-less form; the graph is registered by
+///   name only and is invoked directly (T-02 workflow tasks, T-03 Python).
 pub struct ParsedTopology {
-    pub react: ReactionCriteria,
+    pub trigger: TriggerSpec,
     pub edges: Vec<ParsedEdge>,
 }
 
-/// Reaction criteria: when_any or when_all with accumulator names.
-#[derive(Debug, Clone)]
-pub struct ReactionCriteria {
-    pub mode: ReactionMode,
-    pub accumulators: Vec<Ident>,
+impl std::fmt::Debug for ParsedTopology {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParsedTopology")
+            .field("trigger", &self.trigger)
+            .field("edges", &self.edges)
+            .finish()
+    }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ReactionMode {
-    WhenAny,
-    WhenAll,
+/// Which form of trigger the user declared.
+#[derive(Debug)]
+pub enum TriggerSpec {
+    /// `trigger = reactor("name")` — split form referencing a standalone
+    /// reactor declaration by name. The compile-time accumulator-subset
+    /// check that the type-path form enabled is gone — runtime contract
+    /// validation at load time (T-B) is the replacement.
+    ByReactor(String),
+    /// No `trigger` — the graph is trigger-less.
+    None,
 }
 
 /// A parsed edge in the topology.
@@ -81,6 +107,10 @@ pub struct RoutingVariant {
     pub target: Ident,
 }
 
+// `from_name` and `from_inputs` are accessor methods that return the
+// `from` / `from_inputs` field of the parsed edge — they are not factory
+// methods, so the `from_*` lint about taking `self` doesn't apply.
+#[allow(clippy::wrong_self_convention)]
 impl ParsedEdge {
     pub fn from_name(&self) -> &Ident {
         match self {
@@ -101,21 +131,60 @@ impl ParsedEdge {
 
 impl Parse for ParsedTopology {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut react: Option<ReactionCriteria> = None;
+        let mut trigger_reactor: Option<String> = None;
         let mut edges: Option<Vec<ParsedEdge>> = None;
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
-            input.parse::<Token![=]>()?;
 
             match key.to_string().as_str() {
                 "react" => {
-                    if react.is_some() {
-                        return Err(syn::Error::new(key.span(), "duplicate 'react' field"));
+                    return Err(syn::Error::new(
+                        key.span(),
+                        "the bundled `#[computation_graph(react = ...)]` form has been \
+                         removed. Declare a standalone `#[reactor]` and reference it via \
+                         `#[computation_graph(trigger = reactor(\"name\"), ...)]` — see \
+                         initiative CLOACI-I-0101 for migration guidance.",
+                    ));
+                }
+                "trigger" => {
+                    input.parse::<Token![=]>()?;
+                    if trigger_reactor.is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate 'trigger' field"));
                     }
-                    react = Some(input.parse()?);
+                    // Expect: reactor("name")
+                    let kind: Ident = input.parse()?;
+                    if kind != "reactor" {
+                        return Err(syn::Error::new(
+                            kind.span(),
+                            format!(
+                                "unknown trigger kind '{}', expected 'reactor' \
+                                 (e.g. trigger = reactor(\"risk_signals\"))",
+                                kind
+                            ),
+                        ));
+                    }
+                    let paren;
+                    syn::parenthesized!(paren in input);
+                    let name: LitStr = paren.parse().map_err(|_| {
+                        syn::Error::new(
+                            paren.span(),
+                            "reactor(...) expects a string literal name \
+                             (e.g. reactor(\"risk_signals\")). The type-path form was \
+                             removed in CLOACI-I-0102 — cross-reference is now by name \
+                             with runtime contract validation.",
+                        )
+                    })?;
+                    if !paren.is_empty() {
+                        return Err(syn::Error::new(
+                            paren.span(),
+                            "reactor(...) takes exactly one string-literal argument",
+                        ));
+                    }
+                    trigger_reactor = Some(name.value());
                 }
                 "graph" => {
+                    input.parse::<Token![=]>()?;
                     if edges.is_some() {
                         return Err(syn::Error::new(key.span(), "duplicate 'graph' field"));
                     }
@@ -124,7 +193,7 @@ impl Parse for ParsedTopology {
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
-                        format!("unknown field '{}', expected 'react' or 'graph'", other),
+                        format!("unknown field '{}', expected 'trigger' or 'graph'", other),
                     ));
                 }
             }
@@ -133,43 +202,16 @@ impl Parse for ParsedTopology {
             let _ = input.parse::<Token![,]>();
         }
 
-        let react = react.ok_or_else(|| {
-            syn::Error::new(proc_macro2::Span::call_site(), "missing 'react' field")
-        })?;
         let edges = edges.ok_or_else(|| {
             syn::Error::new(proc_macro2::Span::call_site(), "missing 'graph' field")
         })?;
 
-        Ok(ParsedTopology { react, edges })
-    }
-}
-
-impl Parse for ReactionCriteria {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mode_ident: Ident = input.parse()?;
-        let mode = match mode_ident.to_string().as_str() {
-            "when_any" => ReactionMode::WhenAny,
-            "when_all" => ReactionMode::WhenAll,
-            other => {
-                return Err(syn::Error::new(
-                    mode_ident.span(),
-                    format!(
-                        "unknown reaction mode '{}', expected 'when_any' or 'when_all'",
-                        other
-                    ),
-                ));
-            }
+        let trigger = match trigger_reactor {
+            Some(name) => TriggerSpec::ByReactor(name),
+            None => TriggerSpec::None,
         };
 
-        let content;
-        syn::parenthesized!(content in input);
-        let accumulators: Punctuated<Ident, Token![,]> =
-            content.parse_terminated(Ident::parse, Token![,])?;
-
-        Ok(ReactionCriteria {
-            mode,
-            accumulators: accumulators.into_iter().collect(),
-        })
+        Ok(ParsedTopology { trigger, edges })
     }
 }
 
@@ -276,38 +318,85 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_when_any() {
+    fn test_error_react_form_removed() {
         let tokens = quote! {
-            react = when_any(alpha, beta, gamma),
+            react = when_any(alpha),
             graph = {
-                entry(alpha, beta) -> output,
+                entry(alpha) -> output,
             }
         };
-        let topology = parse_topology(tokens).unwrap();
-        assert_eq!(topology.react.mode, ReactionMode::WhenAny);
-        assert_eq!(topology.react.accumulators.len(), 3);
-        assert_eq!(topology.react.accumulators[0].to_string(), "alpha");
-        assert_eq!(topology.react.accumulators[1].to_string(), "beta");
-        assert_eq!(topology.react.accumulators[2].to_string(), "gamma");
+        let result = parse_topology(tokens);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("bundled") && err.contains("CLOACI-I-0101"),
+            "expected migration diagnostic pointing at CLOACI-I-0101, got: {}",
+            err
+        );
     }
 
     #[test]
-    fn test_parse_when_all() {
+    fn test_parse_split_form_trigger_reactor() {
         let tokens = quote! {
-            react = when_all(a, b),
+            trigger = reactor("risk_signals"),
             graph = {
-                entry(a, b) -> output,
+                entry(alpha) -> output,
             }
         };
         let topology = parse_topology(tokens).unwrap();
-        assert_eq!(topology.react.mode, ReactionMode::WhenAll);
-        assert_eq!(topology.react.accumulators.len(), 2);
+        match topology.trigger {
+            TriggerSpec::ByReactor(name) => {
+                assert_eq!(name, "risk_signals");
+            }
+            other => panic!("expected ByReactor, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_error_trigger_reactor_type_path_rejected() {
+        // The type-path form was removed in CLOACI-I-0102. A bare ident
+        // inside reactor(...) should now produce a friendly migration error.
+        let tokens = quote! {
+            trigger = reactor(MyReactor),
+            graph = { a -> b },
+        };
+        let result = parse_topology(tokens);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("string literal"),
+            "expected migration diagnostic, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_parse_triggerless_form() {
+        let tokens = quote! {
+            graph = {
+                entry(alpha) -> output,
+            }
+        };
+        let topology = parse_topology(tokens).unwrap();
+        assert!(matches!(topology.trigger, TriggerSpec::None));
+    }
+
+    #[test]
+    fn test_error_trigger_unknown_kind() {
+        let tokens = quote! {
+            trigger = schedule("0 * * * *"),
+            graph = { a -> b },
+        };
+        let result = parse_topology(tokens);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("unknown trigger kind"), "got: {}", err);
     }
 
     #[test]
     fn test_parse_linear_edge() {
         let tokens = quote! {
-            react = when_any(alpha),
+            trigger = reactor("r"),
             graph = {
                 entry(alpha) -> middle,
                 middle -> output,
@@ -347,7 +436,7 @@ mod tests {
     #[test]
     fn test_parse_routing_edge() {
         let tokens = quote! {
-            react = when_any(alpha),
+            trigger = reactor("r"),
             graph = {
                 decision(alpha) => {
                     Signal -> handler_a,
@@ -379,7 +468,7 @@ mod tests {
     #[test]
     fn test_parse_mixed_edges() {
         let tokens = quote! {
-            react = when_any(alpha, beta, gamma),
+            trigger = reactor("r"),
             graph = {
                 decision_engine(alpha, beta, gamma) => {
                     Signal -> risk_check,
@@ -424,7 +513,7 @@ mod tests {
     #[test]
     fn test_parse_fan_in() {
         let tokens = quote! {
-            react = when_any(a, b),
+            trigger = reactor("r"),
             graph = {
                 validate_a(a) -> merge,
                 validate_b(b) -> merge,
@@ -447,7 +536,7 @@ mod tests {
     #[test]
     fn test_parse_fan_out() {
         let tokens = quote! {
-            react = when_any(a),
+            trigger = reactor("r"),
             graph = {
                 compute(a) -> output_handler,
                 compute(a) -> audit_logger,
@@ -473,22 +562,9 @@ mod tests {
     }
 
     #[test]
-    fn test_error_missing_react() {
-        let tokens = quote! {
-            graph = {
-                a -> b,
-            }
-        };
-        let result = parse_topology(tokens);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("missing 'react' field"), "got: {}", err);
-    }
-
-    #[test]
     fn test_error_missing_graph() {
         let tokens = quote! {
-            react = when_any(a)
+            trigger = reactor("r")
         };
         let result = parse_topology(tokens);
         assert!(result.is_err());
@@ -499,7 +575,7 @@ mod tests {
     #[test]
     fn test_error_unknown_field() {
         let tokens = quote! {
-            react = when_any(a),
+            trigger = reactor("r"),
             graph = { a -> b },
             bogus = something,
         };
@@ -510,21 +586,9 @@ mod tests {
     }
 
     #[test]
-    fn test_error_unknown_reaction_mode() {
-        let tokens = quote! {
-            react = when_sometimes(a),
-            graph = { a -> b },
-        };
-        let result = parse_topology(tokens);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("unknown reaction mode"), "got: {}", err);
-    }
-
-    #[test]
     fn test_error_empty_routing() {
         let tokens = quote! {
-            react = when_any(a),
+            trigger = reactor("r"),
             graph = {
                 a(a) => {},
             }
@@ -536,15 +600,15 @@ mod tests {
     }
 
     #[test]
-    fn test_error_duplicate_react() {
+    fn test_error_duplicate_trigger() {
         let tokens = quote! {
-            react = when_any(a),
-            react = when_all(b),
+            trigger = reactor("r1"),
+            trigger = reactor("r2"),
             graph = { a -> b },
         };
         let result = parse_topology(tokens);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("duplicate 'react'"), "got: {}", err);
+        assert!(err.contains("duplicate 'trigger'"), "got: {}", err);
     }
 }

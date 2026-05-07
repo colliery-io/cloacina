@@ -127,6 +127,54 @@ pub(super) struct PackageState {
 
     /// Computation graph name loaded for this package (if any)
     pub(super) graph_name: Option<String>,
+
+    /// Reactor names this package owns (declared via `#[reactor]` or
+    /// `#[computation_graph]`'s bundled reactor). Used by the reverse-order
+    /// unload pipeline (T-0554 Phase 2): the package's own reactors are
+    /// torn down via `scheduler.unload_reactor` after subscribers have
+    /// been unbound. Cross-package subscribers (graphs that bind to a
+    /// reactor owned by another package) do NOT appear here.
+    pub(super) reactor_names: Vec<String>,
+
+    /// Cron schedule IDs created when the reconciler registered this
+    /// package's `#[trigger(cron = ...)]` declarations through an
+    /// attached `CronWorkflowRegistrar`. Empty when no registrar is
+    /// attached (e.g. the standalone daemon path runs cron registration
+    /// out-of-band). Used by `unload_package` to drop the schedules
+    /// when the package is removed.
+    pub(super) cron_schedule_ids: Vec<String>,
+
+    /// Trigger-less graph names registered through the FFI bridge for
+    /// this package (T-0553 follow-up — Trigger-less CG FFI bridge).
+    /// Populated by `step_load_triggerless_cgs` for cdylib packages;
+    /// empty for in-process / Python loads. `unload_package` drops
+    /// each name from the runtime.
+    pub(super) triggerless_graph_names: Vec<String>,
+}
+
+/// Trait the reconciler uses to register and unregister cron workflow
+/// schedules at package load/unload time. Implementations live on the
+/// runner side (the standalone daemon and the embedded
+/// `cloacina-server` runner both implement this against their cron
+/// scheduler / DAL). Decoupling this from the reconciler lets cron
+/// registration ride the same `reconcile()` lifecycle as every other
+/// primitive, instead of relying on the daemon's bespoke post-reconcile
+/// hook (which never fired in server mode).
+#[async_trait::async_trait]
+pub trait CronWorkflowRegistrar: Send + Sync {
+    /// Create a cron schedule for a workflow. Returns an opaque
+    /// schedule ID the reconciler hands back to
+    /// [`unregister_cron_workflow`] on unload.
+    async fn register_cron_workflow(
+        &self,
+        workflow_name: &str,
+        cron_expression: &str,
+        timezone: &str,
+    ) -> Result<String, String>;
+
+    /// Drop a cron schedule by the ID returned from
+    /// [`register_cron_workflow`].
+    async fn unregister_cron_workflow(&self, schedule_id: &str) -> Result<(), String>;
 }
 
 /// Status information about the reconciler
@@ -187,6 +235,14 @@ pub struct RegistryReconciler {
     /// Optional graph scheduler for computation graph packages.
     /// Shared reference so it can be set after construction.
     graph_scheduler: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>>>>,
+
+    /// Optional cron registrar. When attached, the reconciler registers
+    /// each `#[trigger(cron = ...)]` declaration in the package at load
+    /// time and deregisters at unload. Without it, cron triggers are a
+    /// no-op (the standalone daemon historically did this out-of-band;
+    /// server mode had no cron registration at all). Closes the gap
+    /// where packaged cron triggers never fired under cloacina-server.
+    pub(super) cron_registrar: Option<Arc<dyn CronWorkflowRegistrar>>,
 }
 
 impl RegistryReconciler {
@@ -214,6 +270,7 @@ impl RegistryReconciler {
             shutdown_rx,
             interval,
             graph_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
+            cron_registrar: None,
         })
     }
 
@@ -241,6 +298,25 @@ impl RegistryReconciler {
         slot: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>>>>,
     ) {
         self.graph_scheduler = slot;
+    }
+
+    /// Attach a cron registrar that the reconciler will use to install
+    /// cron schedules for each `#[trigger(cron = ...)]` declaration in
+    /// loaded packages, and to drop them on unload. Builder-style
+    /// counterpart for callers that wire the reconciler in one chained
+    /// expression.
+    pub fn with_cron_registrar(mut self, registrar: Arc<dyn CronWorkflowRegistrar>) -> Self {
+        self.cron_registrar = Some(registrar);
+        self
+    }
+
+    /// Inject a cron registrar after construction (mirrors
+    /// `set_graph_scheduler_slot`). Used by `DefaultRunner` setup
+    /// because the runner needs to construct the reconciler before it
+    /// can build the cron registrar (the registrar holds runner-owned
+    /// resources).
+    pub fn set_cron_registrar(&mut self, registrar: Arc<dyn CronWorkflowRegistrar>) {
+        self.cron_registrar = Some(registrar);
     }
 
     /// Start the background reconciliation loop
@@ -333,16 +409,44 @@ impl RegistryReconciler {
             loaded_packages.keys().cloned().collect();
         drop(loaded_packages);
 
-        // Determine what needs to be loaded and unloaded
-        let packages_to_load: Vec<_> = db_package_ids
+        // Determine what needs to be loaded and unloaded.
+        //
+        // T-0553 follow-up: sort `packages_to_load` by registration
+        // timestamp (`created_at`) so cross-package binding order is
+        // deterministic. The HashSet difference produces an arbitrary
+        // iteration order, which broke cross-package fan-out (subscriber
+        // loading before publisher → "no such reactor is loaded"). For
+        // unloads, sort REVERSE by created_at so dependents tear down
+        // before publishers — this complements the per-package reverse
+        // step pipeline (workflows → CGs → reactors → triggers → tasks)
+        // by also reversing across packages.
+        let mut packages_to_load: Vec<_> = db_package_ids
             .difference(&loaded_package_ids)
             .cloned()
             .collect();
+        packages_to_load.sort_by_key(|id| {
+            db_packages
+                .iter()
+                .find(|p| p.id == *id)
+                .map(|p| p.created_at)
+                .unwrap_or_else(chrono::Utc::now)
+        });
 
-        let packages_to_unload: Vec<_> = loaded_package_ids
+        let mut packages_to_unload: Vec<_> = loaded_package_ids
             .difference(&db_package_ids)
             .cloned()
             .collect();
+        // Best-effort reverse-creation-order unload using whatever metadata
+        // the loaded_packages map still holds; fall back to package_id as
+        // a stable tiebreaker.
+        {
+            let snapshot = self.loaded_packages.read().await;
+            packages_to_unload.sort_by(|a, b| {
+                let a_t = snapshot.get(a).map(|s| s.metadata.created_at);
+                let b_t = snapshot.get(b).map(|s| s.metadata.created_at);
+                b_t.cmp(&a_t).then_with(|| b.cmp(a))
+            });
+        }
 
         debug!(
             "Reconciliation: {} packages to load, {} to unload",

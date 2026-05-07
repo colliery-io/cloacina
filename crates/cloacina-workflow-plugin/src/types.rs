@@ -59,6 +59,11 @@ pub struct PackageTasksMetadata {
     pub graph_data_json: Option<String>,
     /// All tasks in this workflow
     pub tasks: Vec<TaskMetadataEntry>,
+    /// Names of triggers this workflow subscribes to. Sourced from the
+    /// `#[workflow(triggers = [...])]` macro arg. The reconciler binds
+    /// each named trigger → this workflow at load time. (T-A)
+    #[serde(default)]
+    pub triggers: Vec<String>,
 }
 
 /// Request to execute a task within a workflow package.
@@ -99,6 +104,14 @@ pub struct GraphPackageMetadata {
     pub input_strategy: String,
     /// Accumulator declarations
     pub accumulators: Vec<AccumulatorDeclarationEntry>,
+    /// Name of the reactor this graph is bound to. `Some(name)` opts into
+    /// shared-reactor binding — multiple graph packages naming the same
+    /// reactor share a single reactor instance in the runtime (T-0544
+    /// fan-out). `None` (today's bundled-form default) gets a per-graph
+    /// synthesized reactor name with 1:1 lifecycle. `#[serde(default)]`
+    /// keeps this backward compatible with packages built before T-0544 M5.
+    #[serde(default)]
+    pub trigger_reactor: Option<String>,
 }
 
 fn default_input_strategy() -> String {
@@ -124,6 +137,132 @@ pub struct GraphExecutionRequest {
     pub cache: std::collections::HashMap<String, String>,
 }
 
+/// Metadata for a single reactor declared by this package, returned by
+/// `get_reactor_metadata()`. Mirrors `GraphPackageMetadata` shape: the
+/// reactor publishes accumulators and a reaction mode that downstream
+/// computation graphs (in this or other packages) can subscribe to by name.
+/// (T-A — I-0102)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReactorPackageMetadata {
+    /// Reactor name (used as the reactor's identity in the runtime registry
+    /// and as the binding target for `trigger = reactor("name")` graph refs).
+    pub name: String,
+    /// Cargo package name (sourcing context for diagnostics).
+    pub package_name: String,
+    /// Reaction mode: "when_any" or "when_all".
+    pub reaction_mode: String,
+    /// Accumulator declarations.
+    pub accumulators: Vec<AccumulatorDeclarationEntry>,
+}
+
+/// Metadata entry for a single trigger-less computation graph declared
+/// by this package, returned by `get_triggerless_graph_metadata()`.
+/// `terminal_node_names` mirrors the field on
+/// `TriggerlessGraphRegistration` so the host's
+/// `register_triggerless_graph` registration carries the same
+/// ordering — workflow tasks invoke the graph and write each terminal
+/// output into context under the corresponding name. (T-0553 follow-up
+/// — Trigger-less CG FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerlessGraphMetadataEntry {
+    /// Graph name (the `#[computation_graph]` mod name).
+    pub name: String,
+    /// Cargo package name (sourcing context for diagnostics).
+    pub package_name: String,
+    /// Terminal node names in declaration order. The host adapter uses
+    /// this when registering the graph into the scoped Runtime so
+    /// `#[task(invokes = computation_graph(...))]` writes the right
+    /// keys back into context after invocation.
+    pub terminal_node_names: Vec<String>,
+}
+
+/// Request to invoke a trigger-less computation graph from the host
+/// across the FFI boundary. The host's `FfiTriggerlessGraph` adapter
+/// sends one of these per workflow-task invocation. (T-0553 follow-up
+/// — Trigger-less CG FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerlessGraphInvokeRequest {
+    /// Inventory-registered graph name to invoke.
+    pub graph_name: String,
+    /// Serialized `Context<serde_json::Value>` carrying inputs.
+    pub context_json: String,
+}
+
+/// Result of a cross-FFI trigger-less graph invocation. Mirrors
+/// `GraphResult::Completed { outputs }` / `GraphResult::Error(...)` in
+/// a wire-format-friendly shape: terminal outputs ride as a serialized
+/// `Vec<serde_json::Value>` ordered to match the metadata's
+/// `terminal_node_names`. The host's `FfiTriggerlessGraph` reconstructs
+/// `GraphResult` from this. (T-0553 follow-up — Trigger-less CG FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerlessGraphInvokeResult {
+    /// `true` if the cdylib's graph_fn returned `Completed { .. }`,
+    /// `false` if it returned `Error(_)`. When `error` is set, this
+    /// field is meaningless.
+    pub success: bool,
+    /// Serialized `Vec<serde_json::Value>` of terminal outputs, indexed
+    /// by `terminal_node_names`. `None` for graphs that don't return
+    /// any terminal output values (the typical packaged shape).
+    pub terminal_outputs_json: Option<String>,
+    /// When the cdylib's graph_fn returned `Error(_)` or the named
+    /// graph wasn't found in inventory, this carries a description.
+    pub error: Option<String>,
+}
+
+/// Request to invoke a trigger's `poll()` from the host across the FFI
+/// boundary. Used by the reconciler to drive trigger polling without
+/// relying on `inventory` crossing the cdylib linker boundary (which
+/// fails when fixtures/example crates are independently-compiled
+/// workspaces). The host's `FfiTriggerImpl` adapter sends one of these
+/// per scheduled poll. (T-0553 follow-up — Trigger FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerInvokeRequest {
+    /// Inventory-registered trigger name to poll.
+    pub trigger_name: String,
+}
+
+/// Result of a cross-FFI trigger poll. Mirrors `cloacina_workflow::TriggerResult`
+/// but in a wire-format-friendly shape: the `Context` becomes a JSON
+/// string so it can travel through the bincode boundary. The host's
+/// `FfiTriggerImpl::poll` reconstructs `TriggerResult` from this. (T-0553
+/// follow-up — Trigger FFI bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerInvokeResult {
+    /// `true` if the trigger returned `Fire(_)`, `false` if it returned
+    /// `Skip`. When `error` is set, this field is meaningless.
+    pub fire: bool,
+    /// Serialized `Context<serde_json::Value>` for the `Fire(Some(ctx))`
+    /// case. `None` for `Fire(None)` and `Skip`.
+    pub context_json: Option<String>,
+    /// When the cdylib's `poll()` returned `Err(_)` or could not find the
+    /// requested trigger by name, this carries a description. The host
+    /// converts it to `TriggerError::PollError` so the polling supervisor
+    /// can log + back off.
+    pub error: Option<String>,
+}
+
+/// Metadata for a single trigger declared by this package, returned by
+/// `get_trigger_metadata()`. The reconciler routes cron-shaped triggers
+/// (`cron_expression.is_some()`) to the cron scheduler and custom-poll
+/// triggers to the runtime trigger registry. (T-A — I-0102)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerPackageMetadata {
+    /// Trigger name.
+    pub name: String,
+    /// Cargo package name (sourcing context for diagnostics).
+    pub package_name: String,
+    /// Polling interval as a humantime-parseable string (e.g., "5s", "1m").
+    /// Ignored when `cron_expression.is_some()`.
+    pub poll_interval: String,
+    /// Cron expression (e.g., "*/10 * * * *"). When present, the reconciler
+    /// routes this trigger to the cron scheduler.
+    #[serde(default)]
+    pub cron_expression: Option<String>,
+    /// Whether concurrent executions are allowed.
+    #[serde(default)]
+    pub allow_concurrent: bool,
+}
+
 /// Result of a computation graph execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphExecutionResult {
@@ -145,15 +284,15 @@ pub struct GraphExecutionResult {
 /// section of a package's `package.toml`. Validated at load time
 /// via `PackageManifest<CloacinaMetadata>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CloacinaMetadata {
-    /// What this package contains: ["workflow"], ["computation_graph"], or both.
-    /// Defaults to ["workflow"] for backward compatibility with existing packages.
-    #[serde(default = "default_package_type")]
-    pub package_type: Vec<String>,
-    /// Name of the workflow (required if package_type includes "workflow")
+    /// Name of the workflow. Optional — Rust packages source this from
+    /// `#[workflow(name = "...")]`; Python packages still set it here.
     #[serde(default)]
     pub workflow_name: Option<String>,
-    /// Name of the computation graph (required if package_type includes "computation_graph")
+    /// Name of the computation graph. Used by Python CG packages and as
+    /// the signal that distinguishes CG from workflow packages on the
+    /// Python load path. (T-E: replaces the old `package_type` field.)
     #[serde(default)]
     pub graph_name: Option<String>,
     /// Package language: "rust" or "python"
@@ -170,9 +309,6 @@ pub struct CloacinaMetadata {
     /// Python entry module (Python packages only, e.g., "workflow.tasks")
     #[serde(default)]
     pub entry_module: Option<String>,
-    /// Trigger definitions for this package
-    #[serde(default)]
-    pub triggers: Vec<TriggerDefinition>,
     /// Reaction mode for computation graphs: "when_any" or "when_all"
     #[serde(default)]
     pub reaction_mode: Option<String>,
@@ -201,44 +337,26 @@ fn default_accumulator_type() -> String {
     "passthrough".to_string()
 }
 
-fn default_package_type() -> Vec<String> {
-    vec!["workflow".to_string()]
-}
-
 impl CloacinaMetadata {
     /// Check if this package contains a workflow.
+    /// (T-E: post-removal of `package_type`, "is workflow" is "not CG-only".)
     pub fn has_workflow(&self) -> bool {
-        self.package_type.iter().any(|t| t == "workflow")
+        self.graph_name.is_none() || self.workflow_name.is_some()
     }
 
     /// Check if this package contains a computation graph.
+    /// (T-E: post-removal of `package_type`, presence of `graph_name`
+    /// signals a CG package on the Python load path. Rust packages get
+    /// the actual signal from FFI metadata extraction.)
     pub fn has_computation_graph(&self) -> bool {
-        self.package_type.iter().any(|t| t == "computation_graph")
+        self.graph_name.is_some()
     }
 
-    /// Get the workflow name, falling back for backward compatibility.
-    /// Old packages had `workflow_name` as required — now it's optional
-    /// but we still need it for workflow packages.
+    /// Get the workflow name as a `&str`. Used by the cloacina-python
+    /// loader to derive the workflow registry key from the manifest.
     pub fn effective_workflow_name(&self) -> Option<&str> {
         self.workflow_name.as_deref()
     }
-}
-
-/// A trigger definition within a workflow package manifest.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TriggerDefinition {
-    /// Trigger name
-    pub name: String,
-    /// Workflow to fire when trigger activates
-    pub workflow: String,
-    /// Poll interval for custom poll triggers (e.g., "5s", "1m")
-    pub poll_interval: String,
-    /// Cron expression (e.g., "*/10 * * * *"). If present, this is a cron trigger.
-    #[serde(default)]
-    pub cron_expression: Option<String>,
-    /// Whether concurrent executions are allowed
-    #[serde(default)]
-    pub allow_concurrent: bool,
 }
 
 #[cfg(test)]
@@ -279,6 +397,7 @@ mod tests {
                 description: "First step".to_string(),
                 source_location: "src/lib.rs".to_string(),
             }],
+            triggers: Vec::new(),
         };
 
         let json = serde_json::to_string(&metadata).unwrap();
@@ -335,12 +454,6 @@ mod tests {
             language = "rust"
             description = "Data analytics workflow"
             author = "Analytics Team"
-
-            [[triggers]]
-            name = "file_watcher"
-            workflow = "analytics_pipeline"
-            poll_interval = "5s"
-            allow_concurrent = false
         "#;
 
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
@@ -355,9 +468,6 @@ mod tests {
         );
         assert!(metadata.requires_python.is_none());
         assert!(metadata.entry_module.is_none());
-        assert_eq!(metadata.triggers.len(), 1);
-        assert_eq!(metadata.triggers[0].name, "file_watcher");
-        assert!(!metadata.triggers[0].allow_concurrent);
     }
 
     #[test]
@@ -375,7 +485,6 @@ mod tests {
         assert_eq!(metadata.language, "python");
         assert_eq!(metadata.requires_python.as_deref(), Some(">=3.11"));
         assert_eq!(metadata.entry_module.as_deref(), Some("workflow.tasks"));
-        assert!(metadata.triggers.is_empty());
     }
 
     #[test]
@@ -389,7 +498,6 @@ mod tests {
         assert_eq!(metadata.workflow_name.as_deref(), Some("simple_workflow"));
         assert_eq!(metadata.language, "rust");
         assert!(metadata.description.is_none());
-        assert!(metadata.triggers.is_empty());
     }
 
     #[test]
@@ -403,14 +511,17 @@ mod tests {
     }
 
     #[test]
-    fn test_cloacina_metadata_defaults_to_workflow_package_type() {
+    fn test_cloacina_metadata_workflow_classification() {
+        // T-E / I-0102: post-removal of `package_type`, has_workflow() /
+        // has_computation_graph() are derived from the presence of
+        // workflow_name / graph_name. A package with only workflow_name is
+        // a workflow; one with only graph_name is a CG; one with both is
+        // both.
         let toml_str = r#"
             workflow_name = "legacy_workflow"
             language = "rust"
         "#;
-
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
-        assert_eq!(metadata.package_type, vec!["workflow"]);
         assert!(metadata.has_workflow());
         assert!(!metadata.has_computation_graph());
     }
@@ -418,7 +529,6 @@ mod tests {
     #[test]
     fn test_cloacina_metadata_computation_graph_from_toml() {
         let toml_str = r#"
-            package_type = ["computation_graph"]
             graph_name = "market_maker"
             language = "rust"
             reaction_mode = "when_any"
@@ -426,8 +536,6 @@ mod tests {
         "#;
 
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
-        assert_eq!(metadata.package_type, vec!["computation_graph"]);
-        assert!(!metadata.has_workflow());
         assert!(metadata.has_computation_graph());
         assert_eq!(metadata.graph_name.as_deref(), Some("market_maker"));
         assert_eq!(metadata.reaction_mode.as_deref(), Some("when_any"));
@@ -435,17 +543,41 @@ mod tests {
     }
 
     #[test]
-    fn test_cloacina_metadata_both_types() {
+    fn test_cloacina_metadata_legacy_package_type_rejected() {
+        // T-E / I-0102: deny_unknown_fields makes legacy `package_type` a
+        // hard error at the deserializer; the reconciler rewraps with a
+        // friendly migration message.
         let toml_str = r#"
-            package_type = ["workflow", "computation_graph"]
-            workflow_name = "analytics"
-            graph_name = "market_maker"
+            package_type = ["computation_graph"]
+            workflow_name = "x"
             language = "rust"
         "#;
+        let err = toml::from_str::<CloacinaMetadata>(toml_str).unwrap_err();
+        assert!(
+            err.to_string().contains("package_type"),
+            "expected error to name `package_type`, got: {}",
+            err
+        );
+    }
 
-        let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
-        assert!(metadata.has_workflow());
-        assert!(metadata.has_computation_graph());
+    #[test]
+    fn test_cloacina_metadata_legacy_triggers_rejected() {
+        let toml_str = r#"
+            workflow_name = "x"
+            language = "rust"
+
+            [[triggers]]
+            name = "t"
+            workflow = "x"
+            poll_interval = "5s"
+            allow_concurrent = false
+        "#;
+        let err = toml::from_str::<CloacinaMetadata>(toml_str).unwrap_err();
+        assert!(
+            err.to_string().contains("triggers"),
+            "expected error to name `triggers`, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -469,6 +601,7 @@ mod tests {
                     config: std::collections::HashMap::new(),
                 },
             ],
+            trigger_reactor: None,
         };
 
         let json = serde_json::to_string(&metadata).unwrap();

@@ -1,0 +1,24 @@
+[package]
+name = "reactor-subscriber-rust"
+version = "0.1.0"
+edition = "2021"
+description = "Subscriber CG referencing the reactor declared in reactor-only-rust by string name"
+publish = false
+
+[workspace]
+
+[features]
+default = ["packaged"]
+packaged = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cloacina-macros = { path = "../../../crates/cloacina-macros" }
+cloacina-computation-graph = { path = "../../../crates/cloacina-computation-graph" }
+cloacina-workflow = { path = "../../../crates/cloacina-workflow", features = ["packaged"] }
+cloacina-workflow-plugin = { path = "../../../crates/cloacina-workflow-plugin" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"

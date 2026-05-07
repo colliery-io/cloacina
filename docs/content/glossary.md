@@ -98,9 +98,17 @@ The output of a computation graph execution. It is an enum with two variants: `C
 
 A map from SourceName to serialized bytes that feeds entry nodes in computation graphs. The reactor updates the InputCache each time an accumulator pushes a new boundary value. When the graph fires, entry nodes deserialize their input from this cache.
 
+### Inventory (registration)
+
+The registration mechanism Cloacina uses to surface tasks, workflows, triggers, reactors, and computation graphs to the runtime. Macros emit `inventory::submit!` entries (e.g., `TaskEntry`, `WorkflowDescriptorEntry`, `ReactorEntry`, `ComputationGraphEntry`, `TriggerlessGraphEntry`) into a per-binary inventory section. At startup, `cloacina::Runtime::seed_from_inventory()` walks every entry in the local section and registers a constructor per entry. Replaces the pre-I-0096 `#[ctor]`-based path; no `ctor` dependency is required. Inventory entries do **not** span shared-library boundaries — that's why packaged cdylibs use the FFI vtable rather than relying on cross-cdylib inventory iteration. See [Inventory and Runtime Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}}).
+
 ### Ledger
 
 A persistent record of execution events used by the continuous scheduling system. The ledger tracks boundaries received, graph completions, and failures, enabling the reactor to make informed decisions about when to fire and providing an audit trail.
+
+### Method-Index Vtable
+
+The positional dispatch table that the host uses to call into a packaged cdylib over the FFI boundary. The `CloacinaPlugin` trait declares nine methods (indices 0–8); `cloacina-workflow-plugin` exports canonical constants (`METHOD_GET_TASK_METADATA = 0` through `METHOD_INVOKE_TRIGGERLESS_GRAPH = 8`) so call sites and trait declarations cannot drift. Methods 4–8 are marked `#[optional(since = 2)]`, so plugins built against trait v1 return `CallError::NotImplemented` for those slots — the host treats that as "package declares no reactors / triggers / trigger-less graphs." See [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}}).
 
 ### Multi-tenancy
 
@@ -118,6 +126,10 @@ In some code paths, metric names (e.g., `cloacina_pipelines_total`), and interna
 
 A distributable workflow artifact containing compiled code (as a platform-specific shared library — .so on Linux, .dylib on macOS) and metadata. Packages are uploaded to the runner's registry and loaded at runtime by the reconciler. They enable shipping workflows independently of the host application. See [Package Format]({{< ref "/platform/explanation/package-format" >}}).
 
+### `package!()` Macro
+
+The unified plugin shell macro `cloacina::package!()` that goes at the crate root of a packaged cdylib (gated on `feature = "packaged"`). It emits the full `CloacinaPlugin` trait implementation — all nine FFI methods (indices 0–8) — by walking the cdylib's local `inventory::iter::<TaskEntry>`, `<TriggerEntry>`, `<ReactorEntry>`, `<ComputationGraphEntry>`, and `<TriggerlessGraphEntry>` sections at FFI call time. Replaces the per-macro `_ffi` emission path that pre-I-0102 packages used. A duplicate-invocation guard prevents accidentally calling `package!()` twice in the same crate. See [Package Shell Macro Reference]({{< ref "/platform/reference/package-shell-macro" >}}).
+
 ### Reactor
 
 The runtime orchestrator for computation graphs. The reactor owns the InputCache, evaluates reaction criteria after each accumulator update, and fires the compiled graph function when criteria are met. It manages the lifecycle of all computation graphs registered with a runner.
@@ -125,6 +137,15 @@ The runtime orchestrator for computation graphs. The reactor owns the InputCache
 ### Reconciler
 
 A background service that periodically scans the package registry, loads newly registered packages, and makes their workflows available for execution. The reconciler handles the FFI loading of dynamic libraries and wires up the packaged workflows into the runner. See [Packaging & FFI]({{< ref "/computation-graphs/explanation/packaging" >}}).
+
+### Reconciler Pipeline
+
+The six-step ordered load sequence the reconciler executes per package:
+(1) cron triggers, (2) custom-poll triggers, (3) reactors, (4) trigger-less computation graphs, (5) reactor-bound computation graphs, (6) workflows. Unload runs the same six steps in reverse. The ordering matters: workflows reference triggers, computation graphs reference reactors, and reactor-bound CGs require their reactor to be present in the scheduler before binding. Failures are isolated per step — a partially-loaded package can still be cleanly unwound. See [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}).
+
+### Reactor Unload
+
+The teardown half of a reactor's lifecycle. It runs at two layers: (1) scheduler-side, where the running reactor task is stopped, accumulators are torn down, and endpoint-registry keys are deregistered (`ComputationGraphScheduler::unload_reactor`); and (2) runtime-side, where the reactor *constructor* is removed from the host `Runtime` registry (`Runtime::unregister_reactor`). Without the second arm, hot-reloading the same package leaves a stale constructor entry. The bound-subscriber guard rejects unload if any cross-package CG is still subscribed, so subscribers must be unloaded first. See [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}}).
 
 ### Recovery
 
@@ -185,6 +206,10 @@ A polling-based mechanism that fires workflows when external conditions are met.
 ### Trigger Rule
 
 Conditional execution criteria for individual tasks within a workflow. Trigger rules override the default behavior (run when all dependencies succeed) with alternatives such as `task_success` (specific task succeeded), `task_failed` (run on failure), or `context_value` (run when context contains a specific key/value). See [Trigger Rules]({{< ref "/workflows/explanation/trigger-rules" >}}).
+
+### Trigger-Less Computation Graph
+
+A computation graph that is *not* bound to a reactor and is not driven by accumulator boundaries. Instead of being fired by upstream events, it is invoked directly by a workflow task (via `#[task(invokes = "graph_name")]`) or by a Python task. The graph's entry nodes receive workflow context as input rather than `InputCache` boundaries, and terminal outputs are written back into the post-invocation context by name. Surfaced over the FFI vtable via `METHOD_GET_TRIGGERLESS_GRAPH_METADATA` (index 7) and `METHOD_INVOKE_TRIGGERLESS_GRAPH` (index 8). See [Trigger-less Computation Graphs]({{< ref "/computation-graphs/explanation/trigger-less-graphs" >}}).
 
 ### UniversalUuid
 

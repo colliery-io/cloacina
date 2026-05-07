@@ -1,0 +1,12 @@
+[package]
+name = "reactor-only-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "reactor_only"
+language = "rust"
+description = "Reactor-only fixture: standalone publishing reactor with no workflow tasks"
+author = "Cloacina Test Fixtures"

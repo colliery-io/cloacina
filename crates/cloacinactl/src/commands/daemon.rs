@@ -17,8 +17,11 @@
 //! Daemon mode — lightweight local scheduler.
 //!
 //! Watches directories for `.cloacina` packages, loads them via the reconciler,
-//! and runs cron + trigger schedules. Uses SQLite for state, filesystem for
-//! package storage.
+//! and registers polling-scheduler entries for FFI-declared custom-poll
+//! triggers. Cron-shaped triggers are registered by
+//! `RegistryReconciler::step_load_cron_triggers` at load time (T-0553), so
+//! this module only handles the non-cron arm. Uses SQLite for state and the
+//! filesystem for package storage.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -434,7 +437,9 @@ async fn register_triggers_from_reconcile(
             None => continue,
         };
 
-        // Load the package data to read the manifest for trigger definitions
+        // Pull the loaded package's compiled cdylib bytes so we can call
+        // `get_trigger_metadata` over FFI. Python packages have no cdylib;
+        // their triggers register through the import-time path.
         let loaded = match registry
             .get_workflow(&metadata.package_name, &metadata.version)
             .await
@@ -442,81 +447,110 @@ async fn register_triggers_from_reconcile(
             Ok(Some(l)) => l,
             _ => continue,
         };
+        let library_data = match &loaded.compiled_data {
+            Some(bytes) => bytes,
+            None => continue,
+        };
 
-        // Unpack the source archive to a temp dir and read package.toml
-        let tmp = match tempfile::TempDir::new() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        let archive_path = tmp.path().join("pkg.cloacina");
-        if std::fs::write(&archive_path, &loaded.package_data).is_err() {
-            continue;
-        }
-        let extract_dir = tmp.path().join("source");
-        if std::fs::create_dir_all(&extract_dir).is_err() {
-            continue;
-        }
-        let source_dir = match fidius_core::package::unpack_package(&archive_path, &extract_dir) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-        let cloacina_manifest = match fidius_core::package::load_manifest::<
-            cloacina_workflow_plugin::CloacinaMetadata,
-        >(&source_dir)
-        {
+        // T-0553 / I-0102: read trigger metadata from the cdylib's
+        // `get_trigger_metadata` FFI method (T-0552 made this real).
+        // Cron-shaped entries route to the cron scheduler (already
+        // registered by the reconciler at load time); non-cron entries
+        // route to the polling scheduler here.
+        let trigger_metadata = match load_trigger_metadata(library_data) {
             Ok(m) => m,
-            Err(_) => continue,
+            Err(e) => {
+                debug!(
+                    "Failed to extract trigger metadata for {}: {}",
+                    metadata.package_name, e
+                );
+                continue;
+            }
         };
 
-        for trigger_def in &cloacina_manifest.metadata.triggers {
-            if let Some(cron_expr) = &trigger_def.cron_expression {
-                // Cron trigger — register via the unified schedule API
-                match runner
-                    .register_cron_workflow(&trigger_def.workflow, cron_expr, "UTC")
-                    .await
-                {
-                    Ok(schedule_id) => {
+        if trigger_metadata.is_empty() {
+            continue;
+        }
+
+        // If every trigger is cron-shaped, the reconciler already handled
+        // them via `CronWorkflowRegistrar`. Skip the per-entry walk.
+        if trigger_metadata.iter().all(|t| t.cron_expression.is_some()) {
+            continue;
+        }
+
+        for trigger in &trigger_metadata {
+            if trigger.cron_expression.is_some() {
+                // Cron trigger registration moved into the reconciler
+                // via `CronWorkflowRegistrar` (T-0553 follow-up). The
+                // DefaultRunner injects a `DalCronRegistrar` at startup,
+                // so the schedule was already created by the time this
+                // post-reconcile hook fires. Skip to avoid double-
+                // registration.
+                continue;
+            }
+            // Custom-poll trigger — register against the cron-style
+            // scheduler so it polls on its declared interval. The
+            // `runtime.get_trigger` lookup succeeds for both in-process
+            // triggers (compiled in) and packaged cdylib triggers (the
+            // reconciler's `step_load_custom_triggers` registers an
+            // FfiTriggerImpl per declared trigger via the FFI bridge).
+            match runner.runtime().get_trigger(&trigger.name) {
+                Some(t) => match scheduler.register_trigger(t.as_ref(), &trigger.name).await {
+                    Ok(_) => {
                         info!(
-                            "Registered cron schedule: '{}' -> workflow '{}' (cron: {}, id: {})",
-                            trigger_def.name, trigger_def.workflow, cron_expr, schedule_id
+                            "Registered trigger schedule from package {}: '{}' (poll: {})",
+                            metadata.package_name, trigger.name, trigger.poll_interval
                         );
                     }
                     Err(e) => {
                         warn!(
-                            "Failed to create cron schedule for '{}': {}",
-                            trigger_def.name, e
+                            "Failed to register trigger schedule for '{}' in package {}: {}",
+                            trigger.name, metadata.package_name, e
                         );
                     }
-                }
-            } else {
-                // Custom poll trigger — look for registered Trigger impl
-                if let Some(trigger) = runner.runtime().get_trigger(&trigger_def.name) {
-                    match scheduler
-                        .register_trigger(trigger.as_ref(), &trigger_def.workflow)
-                        .await
-                    {
-                        Ok(_schedule) => {
-                            info!(
-                                "Registered trigger schedule: '{}' -> workflow '{}' (poll: {})",
-                                trigger_def.name, trigger_def.workflow, trigger_def.poll_interval
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to register trigger schedule for '{}': {}",
-                                trigger_def.name, e
-                            );
-                        }
-                    }
-                } else {
+                },
+                None => {
                     warn!(
-                        "Trigger '{}' declared in package.toml but no Trigger impl found in registry",
-                        trigger_def.name
+                        "Trigger '{}' declared in FFI metadata for package {} but no Trigger \
+                         impl found in runtime — was the cdylib loaded?",
+                        trigger.name, metadata.package_name
                     );
                 }
             }
         }
     }
+}
+
+/// T-0553: load a fidius cdylib and pull `get_trigger_metadata` (method
+/// index 5). Used by the daemon's post-load auto-registration hook.
+fn load_trigger_metadata(
+    library_data: &[u8],
+) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, String> {
+    let library_extension = if cfg!(target_os = "macos") {
+        "dylib"
+    } else if cfg!(target_os = "windows") {
+        "dll"
+    } else {
+        "so"
+    };
+    let temp_dir = tempfile::TempDir::new().map_err(|e| format!("temp dir: {}", e))?;
+    let temp_path = temp_dir.path().join(format!(
+        "trigger_{}.{}",
+        uuid::Uuid::new_v4(),
+        library_extension
+    ));
+    std::fs::write(&temp_path, library_data).map_err(|e| format!("write dylib: {}", e))?;
+
+    let loaded =
+        fidius_host::loader::load_library(&temp_path).map_err(|e| format!("load dylib: {}", e))?;
+    let plugin = loaded
+        .plugins
+        .into_iter()
+        .next()
+        .ok_or_else(|| "no plugins in library".to_string())?;
+    let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+    cloacina::computation_graph::packaging_bridge::call_get_trigger_metadata(&handle)
 }
 
 #[cfg(test)]

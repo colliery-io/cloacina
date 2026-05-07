@@ -115,30 +115,14 @@ pub struct TaskHandle {
 }
 
 impl TaskHandle {
-    /// Creates a new TaskHandle.
-    ///
-    /// This is called internally by the executor — tasks receive it as a parameter.
-    #[allow(dead_code)]
-    pub(crate) fn new(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self {
+    /// Creates a new TaskHandle for unit tests. Production code uses
+    /// [`with_dal_and_cancel`](Self::with_dal_and_cancel).
+    #[cfg(test)]
+    fn new(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self {
         Self {
             slot_token,
             task_execution_id,
             dal: None,
-            cancel_rx: None,
-        }
-    }
-
-    /// Creates a new TaskHandle with DAL for sub_status persistence.
-    #[allow(dead_code)]
-    pub(crate) fn with_dal(
-        slot_token: SlotToken,
-        task_execution_id: UniversalUuid,
-        dal: DAL,
-    ) -> Self {
-        Self {
-            slot_token,
-            task_execution_id,
-            dal: Some(dal),
             cancel_rx: None,
         }
     }
@@ -295,15 +279,6 @@ impl TaskHandle {
             }
             None => std::future::pending::<()>().await,
         }
-    }
-
-    /// Consumes the handle, returning the inner SlotToken.
-    ///
-    /// Used by the executor to reclaim ownership of the permit after
-    /// task execution completes.
-    #[allow(dead_code)]
-    pub(crate) fn into_slot_token(self) -> SlotToken {
-        self.slot_token
     }
 }
 

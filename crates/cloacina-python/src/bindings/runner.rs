@@ -1149,8 +1149,6 @@ mod tests {
     use super::*;
     use serial_test::serial;
 
-    const TEST_PG_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
-
     fn unique_sqlite_url() -> String {
         format!(
             "file:cloacina_runner_test_{}?mode=memory&cache=shared",

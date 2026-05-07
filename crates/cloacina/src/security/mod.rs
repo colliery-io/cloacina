@@ -35,6 +35,6 @@ pub use package_signer::{
     DbPackageSigner, DetachedSignature, PackageSignError, PackageSignatureInfo, PackageSigner,
 };
 pub use verification::{
-    verify_package, verify_package_offline, SecurityConfig, SignatureSource, VerificationError,
-    VerificationResult,
+    verify_package, verify_package_bytes, verify_package_offline, SecurityConfig, SignatureSource,
+    VerificationError, VerificationResult,
 };

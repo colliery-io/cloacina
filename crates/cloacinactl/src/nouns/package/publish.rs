@@ -35,7 +35,8 @@ pub async fn run(
 
     if let Some(key_path) = sign {
         eprintln!(
-            "note: signing via {} — detached sig side-car not yet wired in T-0514.",
+            "note: --sign {} accepted but ignored — detached signature side-car generation is \
+             not implemented in the CLI yet.",
             key_path.display()
         );
     }

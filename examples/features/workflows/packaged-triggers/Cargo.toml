@@ -15,6 +15,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 cloacina-macros = { path = "../../../../crates/cloacina-macros" }
+cloacina-computation-graph = { path = "../../../../crates/cloacina-computation-graph" }
 cloacina-workflow = { path = "../../../../crates/cloacina-workflow", features = ["packaged"] }
 cloacina-workflow-plugin = { path = "../../../../crates/cloacina-workflow-plugin" }
 serde_json = "1.0"

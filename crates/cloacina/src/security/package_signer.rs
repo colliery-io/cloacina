@@ -377,6 +377,10 @@ impl PackageSigner for DbPackageSigner {
             key_fingerprint: signature.key_fingerprint.clone(),
             signature: UniversalBinary::new(signature.signature.clone()),
             signed_at: signature.signed_at,
+            // org_id populated by upload-handler verification path in T-0568.
+            // T-0566 plumbs the column; T1 leaves construction sites at None
+            // so the existing signing flow continues to work unchanged.
+            org_id: None,
         };
 
         #[cfg(all(feature = "postgres", feature = "sqlite"))]

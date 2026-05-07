@@ -1,23 +1,37 @@
 # SIGSEGV Troubleshooting for PostgreSQL Integration Tests
 
-## Current Fix (as of 2024-12-02)
+> **Historical document.** The `#[ctor]`-based OpenSSL early-init
+> workaround described below was removed during the I-0096 ctor →
+> inventory flip (the `connection.rs` single-file referenced no longer
+> exists; `crates/cloacina/src/database/connection/` is now a directory
+> with no `#[ctor]` calls and no `ctor` dependency). The historical
+> root-cause notes are preserved here in case the failure mode resurfaces
+> in CI or with a different libpq/OpenSSL combination.
 
-### Root Cause
+## Historical Root Cause
+
 Tests that call `package_workflow()` spawn cargo subprocesses via `fork()`. When this happens after the database connection pool has initialized OpenSSL/libpq, the fork can cause SIGSEGV on Linux due to OpenSSL's unsafe atexit handler.
 
 See: https://github.com/diesel-rs/diesel/issues/3441
 
-### Applied Fixes
+## Historical Mitigations (no longer present in code)
 
-1. **OpenSSL early initialization via #[ctor]** (`cloacina/src/database/connection.rs`)
-   - Uses `#[ctor]` to call `openssl::init()` at program startup, before main()
-   - This runs before ANY other code including test setup and async runtime init
-   - Uses system OpenSSL (NOT vendored) to match libpq
+The following were the mitigations applied at the time the bug was
+diagnosed. They have since been removed; the bug has not recurred,
+likely thanks to upstream diesel + libpq updates. Document them here
+in case the symptom returns:
 
-2. **Test package caching** (`cloacina/tests/integration/dal/workflow_registry*.rs`)
-   - Cache test packages with `OnceLock`
-   - Ensures package building (which forks) happens before any DB init
-   - Package is built once and reused across all tests
+1. **OpenSSL early initialization via #[ctor]** — Pre-I-0096 the
+   `cloacina/src/database/connection.rs` module used `#[ctor]` to call
+   `openssl::init()` before `main()`, ahead of any async runtime or
+   test setup. Removed when `connection.rs` was reorganized into the
+   `connection/` directory and the `ctor` dependency was dropped.
+
+2. **Test package caching** with `OnceLock` to ensure the forking
+   `package_workflow()` call ran once before any DB init. Currently
+   integration tests rely on a different caching path; if the SIGSEGV
+   resurfaces, restoring the `OnceLock` pattern is a known-good
+   mitigation.
 
 ## Alternative Approaches to Try if Fix Doesn't Work
 

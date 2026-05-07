@@ -19,15 +19,16 @@
 //! Transforms `ParsedTopology` into a validated, sorted graph structure
 //! suitable for code generation. Independent of `syn` types.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
-use super::parser::{ParsedEdge, ParsedTopology, ReactionCriteria};
+use super::parser::{ParsedEdge, ParsedTopology, TriggerSpec};
 
 /// The complete validated graph, ready for code generation.
 #[derive(Debug)]
 pub struct GraphIR {
-    /// Reaction criteria (when_any / when_all + accumulator names)
-    pub react: ReactionCriteria,
+    /// How this graph is triggered — bundled reactor, named reactor, or
+    /// trigger-less.
+    pub trigger: TriggerSpec,
     /// Nodes in topological order (entry nodes first, terminal nodes last)
     pub sorted_nodes: Vec<String>,
     /// Node details keyed by name
@@ -79,12 +80,6 @@ pub struct IncomingEdge {
 pub enum GraphIRError {
     #[error("cycle detected in graph: {0}")]
     Cycle(String),
-
-    #[error("node '{0}' referenced in graph but not defined as a function in the module")]
-    DanglingReference(String),
-
-    #[error("duplicate edge: node '{from}' has multiple edges to '{to}'")]
-    DuplicateEdge { from: String, to: String },
 }
 
 impl GraphIR {
@@ -210,13 +205,16 @@ impl GraphIR {
         let sorted_nodes = topological_sort(&nodes)?;
 
         Ok(GraphIR {
-            react: parsed.react,
+            trigger: parsed.trigger,
             sorted_nodes,
             nodes,
         })
     }
 
-    /// Get all terminal nodes (leaves of the graph).
+    /// Get all terminal nodes (leaves of the graph). Test-only helper;
+    /// production code derives terminal-node names directly from
+    /// `GraphNode::is_terminal`.
+    #[cfg(test)]
     pub fn terminal_nodes(&self) -> Vec<&GraphNode> {
         self.nodes.values().filter(|n| n.is_terminal).collect()
     }
@@ -232,14 +230,6 @@ impl GraphIR {
     /// Get a node by name.
     pub fn get_node(&self, name: &str) -> Option<&GraphNode> {
         self.nodes.get(name)
-    }
-
-    /// Get all node names that feed into a given node.
-    pub fn incoming_sources(&self, name: &str) -> Vec<&IncomingEdge> {
-        self.nodes
-            .get(name)
-            .map(|n| n.edges_in.iter().collect())
-            .unwrap_or_default()
     }
 }
 
@@ -329,7 +319,8 @@ fn topological_sort(nodes: &HashMap<String, GraphNode>) -> Result<Vec<String>, G
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::computation_graph::parser::{ReactionMode, RoutingVariant};
+    use crate::computation_graph::parser::RoutingVariant;
+    use std::collections::HashSet;
     use syn::Ident;
 
     fn ident(name: &str) -> Ident {
@@ -337,11 +328,10 @@ mod tests {
     }
 
     fn make_topology(edges: Vec<ParsedEdge>) -> ParsedTopology {
+        // The trigger field doesn't affect IR construction; use the
+        // trigger-less variant as a placeholder.
         ParsedTopology {
-            react: ReactionCriteria {
-                mode: ReactionMode::WhenAny,
-                accumulators: vec![ident("alpha")],
-            },
+            trigger: TriggerSpec::None,
             edges,
         }
     }

@@ -4,7 +4,7 @@ level: task
 title: "Reorganize angreal test harness for clearer hierarchy and ergonomics"
 short_code: "CLOACI-T-0538"
 created_at: 2026-04-23T14:21:24.903964+00:00
-updated_at: 2026-04-23T16:43:59.717783+00:00
+updated_at: 2026-05-03T21:44:09.519456+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -175,6 +175,8 @@ angreal tree
 | `demos multi-tenant`, etc. | `demos features *` |
 | `purge` (top-level) | `services purge` |
 | (new) | `lint *`, `ci fast`, `ci full` |
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

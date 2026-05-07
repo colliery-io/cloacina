@@ -45,7 +45,7 @@ cd my-price-signal
 
 ## Step 2: Write `package.toml`
 
-`package.toml` is the Cloacina package manifest. It tells the reconciler that this is a computation graph, not a workflow.
+`package.toml` is the Cloacina package manifest. Identity metadata only — package shape (workflow vs computation graph vs reactor) is now derived from the FFI metadata the cdylib produces, not from manifest keys.
 
 ```toml
 [package]
@@ -56,23 +56,20 @@ interface_version = 1
 extension = "cloacina"
 
 [metadata]
-package_type = ["computation_graph"]
 graph_name = "price_signal"
 language = "rust"
 description = "Compute a mid-price signal from order book snapshots"
-reaction_mode = "when_any"
-input_strategy = "latest"
 ```
 
-The required `[metadata]` fields for computation graphs:
+The `[metadata]` fields for computation graph packages:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `package_type` | Yes | Must include `"computation_graph"` |
 | `graph_name` | Yes | Identifier used for accumulator and reactor names |
 | `language` | Yes | `"rust"` — tells the reconciler how to compile |
-| `reaction_mode` | Yes | `"when_any"` or `"when_all"` |
-| `input_strategy` | Yes | `"latest"` (use most recent value per source) or `"sequential"` |
+| `description` | No | Human-readable package description |
+
+**Note**: Earlier versions accepted `package_type = ["computation_graph"]` and `[[triggers]]` stanzas in `[metadata]`. Both are now hard-rejected at load time — package classification flows through FFI metadata (`get_graph_metadata`, `get_reactor_metadata`, `get_trigger_metadata`) and trigger declarations live on `#[trigger]` macros in the cdylib. Reaction mode and input strategy are read from the `#[computation_graph(reaction = ..., strategy = ...)]` attributes on the macro itself.
 
 ## Step 3: Write `Cargo.toml`
 
@@ -94,6 +91,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 cloacina-computation-graph = "0.3"
 cloacina-macros = "0.3"
+cloacina-workflow = { version = "0.3", features = ["packaged"] }
 cloacina-workflow-plugin = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -123,7 +121,15 @@ fn main() {
 Create a minimal graph: a single `orderbook` accumulator drives a `compute_signal` entry node which produces a `PriceSignal` terminal output.
 
 ```rust
+use cloacina_macros::reactor;
 use serde::{Deserialize, Serialize};
+
+// One invocation per cdylib — emits the unified FFI plugin shell that
+// the reconciler calls (`get_task_metadata`, `get_graph_metadata`,
+// `get_reactor_metadata`, `get_trigger_metadata`,
+// `invoke_trigger_poll`, `get_triggerless_graph_metadata`,
+// `invoke_triggerless_graph`).
+cloacina_workflow_plugin::package!();
 
 // --- Boundary types ---
 
@@ -141,10 +147,19 @@ pub struct PriceSignal {
     pub spread: f64,
 }
 
-// --- Computation graph ---
+// --- Reactor: publishes the orderbook accumulator ---
+
+#[reactor(
+    name = "price_signal_rx",
+    accumulators = [orderbook],
+    criteria = when_any(orderbook),
+)]
+pub struct PriceSignalReactor;
+
+// --- Computation graph (reactor-bound) ---
 
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook),
+    trigger = reactor("price_signal_rx"),
     graph = {
         compute_signal(orderbook) -> emit,
     }
@@ -327,7 +342,7 @@ If the accumulator is `"healthy"` and the reactor is `"running"`, your packaged 
 
 ## How the reconciler compiles your package
 
-When the server receives a `.cloacina` source package with `package_type = ["computation_graph"]`, the reconciler:
+When the server receives a `.cloacina` source package, the reconciler:
 
 1. Extracts the archive to a temporary build directory
 2. Injects a `[patch.crates-io]` section into `Cargo.toml` so path dependencies resolve to the server's bundled Cloacina version

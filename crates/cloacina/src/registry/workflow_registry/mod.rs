@@ -30,7 +30,7 @@ use uuid::Uuid;
 
 use crate::database::Database;
 use crate::registry::error::RegistryError;
-use crate::registry::loader::{PackageLoader, PackageValidator, TaskRegistrar};
+use crate::registry::loader::{PackageLoader, TaskRegistrar};
 use crate::registry::traits::{RegistryStorage, WorkflowRegistry};
 use crate::registry::types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackageId};
 use crate::task::TaskNamespace;
@@ -45,14 +45,12 @@ pub struct WorkflowRegistryImpl<S: RegistryStorage> {
     pub(super) storage: S,
     /// Database for metadata storage
     pub(super) database: Database,
-    /// Package loader for metadata extraction
+    /// Package loader for metadata extraction (FFI-driven; the
+    /// reconciler reads metadata via fidius directly).
     #[allow(dead_code)]
     loader: PackageLoader,
     /// Task registrar for global registry integration
     registrar: TaskRegistrar,
-    /// Package validator for safety checks
-    #[allow(dead_code)]
-    validator: PackageValidator,
     /// Map of package IDs to registered task namespaces for cleanup tracking
     pub(super) loaded_packages: HashMap<Uuid, Vec<TaskNamespace>>,
 }
@@ -72,30 +70,12 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     pub fn new(storage: S, database: Database) -> Result<Self, RegistryError> {
         let loader = PackageLoader::new().map_err(RegistryError::Loader)?;
         let registrar = TaskRegistrar::new().map_err(RegistryError::Loader)?;
-        let validator = PackageValidator::new().map_err(RegistryError::Loader)?;
 
         Ok(Self {
             storage,
             database,
             loader,
             registrar,
-            validator,
-            loaded_packages: HashMap::new(),
-        })
-    }
-
-    /// Create a registry with strict validation enabled.
-    pub fn with_strict_validation(storage: S, database: Database) -> Result<Self, RegistryError> {
-        let loader = PackageLoader::new().map_err(RegistryError::Loader)?;
-        let registrar = TaskRegistrar::new().map_err(RegistryError::Loader)?;
-        let validator = PackageValidator::strict().map_err(RegistryError::Loader)?;
-
-        Ok(Self {
-            storage,
-            database,
-            loader,
-            registrar,
-            validator,
             loaded_packages: HashMap::new(),
         })
     }
@@ -334,6 +314,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             graph_data: None,
             architecture: std::env::consts::ARCH.to_string(),
             symbols: vec![],
+            workflow_triggers: vec![],
         };
 
         let registry_id = self.storage.store_binary(package_data).await?;

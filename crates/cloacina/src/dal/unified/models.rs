@@ -484,6 +484,7 @@ pub struct UnifiedPackageSignature {
     pub key_fingerprint: String,
     pub signature: UniversalBinary,
     pub signed_at: UniversalTimestamp,
+    pub org_id: Option<UniversalUuid>,
 }
 
 #[derive(Debug, Insertable)]
@@ -494,6 +495,7 @@ pub struct NewUnifiedPackageSignature {
     pub key_fingerprint: String,
     pub signature: UniversalBinary,
     pub signed_at: UniversalTimestamp,
+    pub org_id: Option<UniversalUuid>,
 }
 
 // ============================================================================
@@ -703,6 +705,7 @@ impl From<UnifiedPackageSignature> for PackageSignature {
             key_fingerprint: u.key_fingerprint,
             signature: u.signature.into_inner(),
             signed_at: u.signed_at,
+            org_id: u.org_id,
         }
     }
 }

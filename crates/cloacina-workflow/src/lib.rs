@@ -66,6 +66,7 @@
 //! ```
 
 pub mod context;
+pub mod cron_evaluator;
 pub mod error;
 pub mod namespace;
 pub mod retry;
@@ -78,7 +79,7 @@ pub use error::{CheckpointError, ContextError, TaskError};
 pub use namespace::{parse_namespace, TaskNamespace};
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use task::{Task, TaskState};
-pub use trigger::{TriggerError, TriggerResult};
+pub use trigger::{Trigger, TriggerError, TriggerResult};
 
 // Re-export macros when the feature is enabled
 #[cfg(feature = "macros")]

@@ -41,6 +41,10 @@ cargo run --example end_to_end_demo
 
 use cloacina_workflow::{task, workflow, Context, TaskError};
 
+// I-0102 / T-C: unified plugin shell. Replaces the per-macro `_ffi`
+// emission that `#[workflow]` previously generated.
+cloacina_workflow_plugin::package!();
+
 /// Simple Data Processing Workflow
 ///
 /// A minimal workflow that demonstrates the complete packaged workflow lifecycle

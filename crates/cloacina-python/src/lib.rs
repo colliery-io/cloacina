@@ -16,34 +16,26 @@
 
 //! Python integration for Cloacina.
 //!
-//! This module provides:
-//! - Abstract [`PythonTaskExecutor`] trait for executing Python tasks from packages
-//! - Concrete PyO3 bindings: [`PyContext`], [`PyWorkflowBuilder`], [`PyTaskHandle`],
-//!   [`TaskDecorator`] (`@task`), and [`PythonTaskWrapper`] (implements [`cloacina::Task`])
-//!
-//! The `@task` decorator machinery and `WorkflowBuilder` context manager are compiled
-//! into the cloacina binary. The `cloaca` Python wheel re-exports these types via its
-//! `#[pymodule]` definition.
+//! This module provides PyO3 bindings: [`PyContext`], [`PyWorkflowBuilder`],
+//! [`PyTaskHandle`], [`TaskDecorator`] (`@task`), and [`PythonTaskWrapper`]
+//! (implements [`cloacina::Task`]). The `@task` decorator machinery and
+//! `WorkflowBuilder` context manager live in this crate; the `cloaca` Python
+//! wheel re-exports them via its `#[pymodule]` definition.
 
 // Computation graph bindings
 pub mod computation_graph;
 #[cfg(test)]
 mod computation_graph_tests;
 
-// Abstract executor interface (no PyO3 dependency)
-pub mod executor;
-
 // Concrete PyO3 bindings
 pub mod context;
 pub mod loader;
 pub mod namespace;
+pub mod reactor;
 pub mod task;
 pub mod trigger;
 pub mod workflow;
 pub mod workflow_context;
-
-// Re-exports: abstract executor
-pub use executor::{PythonExecutionError, PythonTaskExecutor, PythonTaskResult};
 
 // Re-exports: PyO3 bindings
 pub use context::PyContext;
@@ -52,10 +44,14 @@ pub use task::{task as task_decorator, PyTaskHandle, PythonTaskWrapper, TaskDeco
 pub use workflow::{py_register_workflow, PyWorkflow, PyWorkflowBuilder};
 pub use workflow_context::PyWorkflowContext;
 
-// Re-exports: trigger bindings
+// Re-exports: trigger bindings.
+// `PyTriggerResult` is the canonical `skip/fire` API from
+// `bindings::trigger`; the older `should_fire/context` shape was
+// removed in T-0557 Bug 5 / T-0555 T1 consolidation.
+pub use bindings::trigger::PyTriggerResult;
 pub use trigger::{
-    drain_python_triggers, trigger as trigger_decorator, PyTriggerResult, PythonTriggerDef,
-    PythonTriggerWrapper, TriggerDecorator,
+    drain_python_triggers, trigger as trigger_decorator, PythonTriggerDef, PythonTriggerWrapper,
+    TriggerDecorator,
 };
 
 // Re-exports: loader
@@ -111,6 +107,8 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(trigger::trigger, m)?)?;
     m.add_class::<bindings::trigger::PyTriggerResult>()?;
+
+    m.add_function(wrap_pyfunction!(reactor::reactor, m)?)?;
 
     m.add_class::<workflow::PyWorkflowBuilder>()?;
     m.add_class::<workflow::PyWorkflow>()?;
@@ -190,6 +188,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .unwrap();
 
@@ -230,6 +230,8 @@ mod tests {
             assert!(cloaca_mod.hasattr("TriggerResult").unwrap());
             assert!(cloaca_mod.hasattr("WorkflowBuilder").unwrap());
             assert!(cloaca_mod.hasattr("Context").unwrap());
+            // Reactor class decorator (mirrors Rust #[reactor])
+            assert!(cloaca_mod.hasattr("reactor").unwrap());
             // Computation graph decorators
             assert!(cloaca_mod.hasattr("passthrough_accumulator").unwrap());
             assert!(cloaca_mod.hasattr("stream_accumulator").unwrap());

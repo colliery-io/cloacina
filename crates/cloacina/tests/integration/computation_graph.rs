@@ -44,8 +44,15 @@ pub struct OutputConfirmation {
 // Test 1: Linear chain (A -> B -> C)
 // =============================================================================
 
+#[cloacina_macros::reactor(
+    name = "linear_chain_reactor",
+    accumulators = [alpha],
+    criteria = when_any(alpha),
+)]
+pub struct LinearChainReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(alpha),
+    trigger = reactor("linear_chain_reactor"),
     graph = {
         entry(alpha) -> process,
         process -> output,
@@ -96,8 +103,15 @@ pub struct BetaData {
     pub estimate: f64,
 }
 
+#[cloacina_macros::reactor(
+    name = "routing_decision_reactor",
+    accumulators = [alpha, beta],
+    criteria = when_any(alpha, beta),
+)]
+pub struct RoutingDecisionReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(alpha, beta),
+    trigger = reactor("routing_decision_reactor"),
     graph = {
         decision(alpha, beta) => {
             Signal -> signal_handler,
@@ -406,6 +420,7 @@ async fn test_computation_graph_scheduler_end_to_end() {
             graph_fn,
         },
         tenant_id: None,
+        reactor_name: None,
     };
 
     scheduler.load_graph(decl).await.unwrap();
@@ -684,8 +699,15 @@ async fn test_batch_accumulator_to_reactor() {
 // Test 8: WhenAll reaction criteria — waits until all sources emit
 // =============================================================================
 
+#[cloacina_macros::reactor(
+    name = "when_all_graph_reactor",
+    accumulators = [alpha, beta],
+    criteria = when_all(alpha, beta),
+)]
+pub struct WhenAllGraphReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_all(alpha, beta),
+    trigger = reactor("when_all_graph_reactor"),
     graph = {
         combine(alpha, beta) -> output,
     }
@@ -1372,7 +1394,7 @@ mod resilience_tests {
     /// Live when all accumulators report healthy.
     #[tokio::test]
     async fn test_reactor_health_warming_to_live() {
-        let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
+        let (_boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
         let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
 
@@ -1862,6 +1884,7 @@ mod resilience_tests {
                 graph_fn,
             },
             tenant_id: None,
+            reactor_name: None,
         };
 
         scheduler.load_graph(decl).await.unwrap();
@@ -1948,3 +1971,1100 @@ mod resilience_tests {
         scheduler.shutdown_all().await;
     }
 } // mod resilience_tests
+
+// =============================================================================
+// Split-form and trigger-less macros (CLOACI-T-0538)
+// =============================================================================
+//
+// These exercise the `#[reactor]` macro and the new `trigger = reactor(T)` /
+// no-trigger forms of `#[computation_graph]`. End-to-end scheduler wiring
+// for the split form is covered elsewhere (M5); these tests verify that the
+// macros expand, type-bind at compile time, and land in the expected
+// Runtime registries via inventory.
+
+#[cloacina_macros::reactor(
+    name = "cloaci_t_0538_reactor_split",
+    accumulators = [alpha],
+    criteria = when_any(alpha),
+)]
+pub struct CloaciT0538SplitReactor;
+
+#[cloacina_macros::computation_graph(
+    trigger = reactor("cloaci_t_0538_reactor_split"),
+    graph = {
+        entry(alpha) -> output,
+    }
+)]
+pub mod cloaci_t_0538_split_graph {
+    use super::*;
+
+    pub async fn entry(alpha: Option<&AlphaData>) -> ProcessedData {
+        ProcessedData {
+            result: alpha.map(|a| a.value).unwrap_or(0.0) * 3.0,
+        }
+    }
+
+    pub async fn output(input: &ProcessedData) -> OutputConfirmation {
+        OutputConfirmation {
+            published: true,
+            value: input.result,
+        }
+    }
+}
+
+#[cloacina_macros::computation_graph(graph = {
+    entry -> output,
+})]
+pub mod cloaci_t_0538_triggerless_graph {
+    use super::*;
+    use cloacina::Context;
+    use serde_json::Value;
+
+    /// Entry node receives the workflow context directly. Pulls the
+    /// `alpha_value` key out and feeds the rest of the graph.
+    pub async fn entry(ctx: &Context<Value>) -> ProcessedData {
+        let value = ctx
+            .get("alpha_value")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        ProcessedData {
+            result: value + 1.0,
+        }
+    }
+
+    pub async fn output(input: &ProcessedData) -> OutputConfirmation {
+        OutputConfirmation {
+            published: true,
+            value: input.result,
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_reactor_trait_constants() {
+    use cloacina::{ComputationReactionMode, Reactor};
+    assert_eq!(
+        <CloaciT0538SplitReactor as Reactor>::NAME,
+        "cloaci_t_0538_reactor_split"
+    );
+    assert_eq!(
+        <CloaciT0538SplitReactor as Reactor>::ACCUMULATORS,
+        &["alpha"]
+    );
+    assert_eq!(
+        <CloaciT0538SplitReactor as Reactor>::REACTION_MODE,
+        ComputationReactionMode::WhenAny
+    );
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0540_triggerless_graph_trait() {
+    // T-0540 M2.5: trigger-less graphs implement `TriggerlessGraph`,
+    // exposing both the compiled fn and terminal node names through a single
+    // type-path-addressable surface. Reactor-triggered graphs do NOT
+    // implement this trait — that omission is the compile-time gate that
+    // keeps `#[task(invokes = computation_graph(H))]` from binding to a
+    // reactor-driven graph.
+    use cloacina::{Context, TriggerlessGraph};
+    use serde_json::Value;
+
+    type Handle = __CGHandle_cloaci_t_0538_triggerless_graph;
+
+    assert_eq!(Handle::terminal_node_names(), &["output"]);
+
+    let graph_fn = Handle::compiled_fn();
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(7.0)).unwrap();
+    let result = graph_fn(ctx).await;
+
+    match result {
+        cloacina::computation_graph::GraphResult::Completed { outputs } => {
+            assert_eq!(outputs.len(), 1, "single terminal node");
+            // Macro pre-serializes terminal outputs to Value for trigger-less.
+            let v: &Value = outputs[0]
+                .downcast_ref::<Value>()
+                .expect("trigger-less terminal output should be a serde_json::Value");
+            // entry: 7.0 + 1.0 = 8.0; output passes through as
+            // OutputConfirmation { published: true, value: 8.0 }.
+            assert_eq!(v["published"], true);
+            assert_eq!(v["value"], 8.0);
+        }
+        other => panic!("expected Completed, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0540_graph_handle_consts() {
+    // T-0540 M1: every #[computation_graph] emits a __CGHandle_<mod> unit
+    // struct that implements `Graph` with NAME + IS_TRIGGERLESS consts.
+    use cloacina::Graph;
+    assert_eq!(
+        <__CGHandle_cloaci_t_0538_split_graph as Graph>::NAME,
+        "cloaci_t_0538_split_graph"
+    );
+    // The IS_TRIGGERLESS asserts below check macro-emitted const values.
+    // Clippy flags them as "constant assertion"; that's the point — these
+    // are runtime sanity checks for what the macro should produce.
+    #[allow(clippy::assertions_on_constants)]
+    {
+        assert!(!<__CGHandle_cloaci_t_0538_split_graph as Graph>::IS_TRIGGERLESS);
+        assert_eq!(
+            <__CGHandle_cloaci_t_0538_triggerless_graph as Graph>::NAME,
+            "cloaci_t_0538_triggerless_graph"
+        );
+        assert!(<__CGHandle_cloaci_t_0538_triggerless_graph as Graph>::IS_TRIGGERLESS);
+    }
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_split_form_compiled_fn_runs() {
+    // Split-form graph: compiled fn is present and runs against an
+    // InputCache identically to a bundled-form graph with the same
+    // topology. This proves the macro expansion produced valid Rust
+    // (including the compile-time subset-check const block referencing
+    // `<CloaciT0538SplitReactor as Reactor>::ACCUMULATORS`).
+    let mut cache = InputCache::new();
+    cache.update(
+        SourceName::new("alpha"),
+        serialize(&AlphaData { value: 2.0 }).unwrap(),
+    );
+    let result = cloaci_t_0538_split_graph_compiled(&cache).await;
+    assert!(result.is_completed(), "split-form graph should complete");
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_triggerless_form_compiled_fn_runs() {
+    // Trigger-less compiled fn now takes a `&Context<Value>` and pulls inputs
+    // out of it. The test seeds a context with the data the entry node
+    // expects, then invokes the compiled fn directly.
+    use cloacina::Context;
+    use serde_json::Value;
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(4.0)).unwrap();
+    let result = cloaci_t_0538_triggerless_graph_compiled(&ctx).await;
+    assert!(result.is_completed(), "trigger-less graph should complete");
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_split_form_scheduler_end_to_end() {
+    // Exercise the new `ComputationGraphScheduler::load_graph_split` path
+    // against a reactor registration (what `#[reactor]` emits) and a graph
+    // compiled function (what the split-form `#[computation_graph]` emits).
+    // Push an event through the accumulator registry and assert the graph
+    // fires.
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    let fire_count = Arc::new(AtomicU32::new(0));
+    let fire_count_inner = fire_count.clone();
+    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = fire_count_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0538_reactor_split".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+
+    scheduler
+        .load_graph_split(
+            "cloaci_t_0538_split_scheduler".to_string(),
+            graph_fn,
+            &reactor_reg,
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            None,
+        )
+        .await
+        .expect("load_graph_split should succeed");
+
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 7.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Poll for the fire rather than a fixed sleep.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && fire_count.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        fire_count.load(Ordering::SeqCst),
+        1,
+        "split-form graph should have fired via the reactor"
+    );
+
+    scheduler
+        .unload_graph("cloaci_t_0538_split_scheduler")
+        .await
+        .expect("unload should succeed");
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0540_triggerless_runtime_registry() {
+    // T-0540 M2: trigger-less graphs are registered into the Runtime
+    // `triggerless_graphs` registry (Context-shaped fn), not into the
+    // ComputationGraphScheduler (which only handles reactor-driven graphs).
+    use cloacina::{Context, Runtime, TriggerlessGraphRegistration};
+    use serde_json::Value;
+
+    let rt = Runtime::empty();
+    rt.register_triggerless_graph("cloaci_t_0540_demo".to_string(), || {
+        TriggerlessGraphRegistration {
+            name: "cloaci_t_0540_demo".to_string(),
+            graph_fn: std::sync::Arc::new(|ctx: Context<Value>| {
+                Box::pin(async move { cloaci_t_0538_triggerless_graph_compiled(&ctx).await })
+            }),
+            terminal_node_names: vec!["output".to_string()],
+        }
+    });
+
+    let names = rt.triggerless_graph_names();
+    assert_eq!(names, vec!["cloaci_t_0540_demo".to_string()]);
+
+    let reg = rt.get_triggerless_graph("cloaci_t_0540_demo").unwrap();
+    assert_eq!(reg.terminal_node_names, vec!["output".to_string()]);
+
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(11.0)).unwrap();
+    let result = (reg.graph_fn)(ctx).await;
+    assert!(result.is_completed());
+
+    assert!(rt.unregister_triggerless_graph("cloaci_t_0540_demo"));
+    assert!(rt.get_triggerless_graph("cloaci_t_0540_demo").is_none());
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_split_missing_accumulator_fails() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry);
+
+    let graph_fn: CompiledGraphFn =
+        Arc::new(|_cache: InputCache| Box::pin(async { unreachable!() }));
+
+    // Reactor declares `alpha` but we supply no accumulators.
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0538_broken_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+
+    let result = scheduler
+        .load_graph_split(
+            "cloaci_t_0538_broken".to_string(),
+            graph_fn,
+            &reactor_reg,
+            vec![],
+            None,
+        )
+        .await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("accumulator 'alpha'"));
+}
+
+// =============================================================================
+// T-0544 M2: cross-graph fan-out via shared reactor (single scheduler API)
+// =============================================================================
+
+/// Two graphs declaring `trigger = reactor(R)` share a single reactor
+/// instance: one event into R's accumulator fires both graphs. This is the
+/// runtime fan-out promise locked in T-0544 — same scheduler, two
+/// `load_graph_split` calls naming the same reactor, both subscribers
+/// receive the same firing.
+#[tokio::test]
+async fn test_cloaci_t_0544_two_graphs_share_one_reactor_via_split_form() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    // Two independent fire counters — one per subscribed graph.
+    let g1_fires = Arc::new(AtomicU32::new(0));
+    let g2_fires = Arc::new(AtomicU32::new(0));
+
+    let g1_inner = g1_fires.clone();
+    let g1_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = g1_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+    let g2_inner = g2_fires.clone();
+    let g2_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = g2_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0544_shared_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+
+    let accs = || {
+        vec![AccumulatorDeclaration {
+            name: "alpha".to_string(),
+            factory: Arc::new(TestAccumulatorFactory),
+        }]
+    };
+
+    scheduler
+        .load_graph_split("g1".to_string(), g1_fn, &reactor_reg, accs(), None)
+        .await
+        .expect("g1 load");
+    scheduler
+        .load_graph_split("g2".to_string(), g2_fn, &reactor_reg, accs(), None)
+        .await
+        .expect("g2 binds to existing reactor");
+
+    // One event into alpha — both subscribers should fire on the same firing.
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 4.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline
+        && (g1_fires.load(Ordering::SeqCst) == 0 || g2_fires.load(Ordering::SeqCst) == 0)
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(g1_fires.load(Ordering::SeqCst), 1, "g1 should have fired");
+    assert_eq!(g2_fires.load(Ordering::SeqCst), 1, "g2 should have fired");
+
+    // list_graphs reports both bindings.
+    let mut listed: Vec<String> = scheduler
+        .list_graphs()
+        .await
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    listed.sort();
+    assert_eq!(listed, vec!["g1".to_string(), "g2".to_string()]);
+
+    // Unloading g1 leaves the reactor running for g2; another event still
+    // fires g2.
+    scheduler.unload_graph("g1").await.unwrap();
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 5.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && g2_fires.load(Ordering::SeqCst) < 2 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        g1_fires.load(Ordering::SeqCst),
+        1,
+        "g1 should not fire after unbind"
+    );
+    assert_eq!(
+        g2_fires.load(Ordering::SeqCst),
+        2,
+        "g2 should fire again after g1 unbinds"
+    );
+
+    // Unloading g2 (the last subscriber) tears down the reactor.
+    scheduler.unload_graph("g2").await.unwrap();
+    assert!(scheduler.list_graphs().await.is_empty());
+}
+
+/// A second graph naming the same reactor with a different contract is
+/// rejected — silently binding would drop the second package's
+/// accumulator/criteria expectations.
+#[tokio::test]
+async fn test_cloaci_t_0544_contract_mismatch_rejected() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry);
+
+    let nop: CompiledGraphFn = Arc::new(|_cache: InputCache| {
+        Box::pin(async { cloacina::computation_graph::GraphResult::completed(vec![]) })
+    });
+
+    let reactor_v1 = ReactorRegistration {
+        name: "cloaci_t_0544_clash".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+    scheduler
+        .load_graph_split(
+            "first".to_string(),
+            nop.clone(),
+            &reactor_v1,
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            None,
+        )
+        .await
+        .expect("first load");
+
+    // Second declaration names the same reactor but with a different mode.
+    let reactor_v2 = ReactorRegistration {
+        name: "cloaci_t_0544_clash".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAll,
+    };
+    let err = scheduler
+        .load_graph_split(
+            "second".to_string(),
+            nop,
+            &reactor_v2,
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            None,
+        )
+        .await
+        .expect_err("contract mismatch should reject");
+    assert!(
+        err.contains("reaction criteria differ"),
+        "error should pinpoint the criteria mismatch: {err}"
+    );
+
+    scheduler.unload_graph("first").await.unwrap();
+}
+
+/// Dispatch is concurrent: a slow subscriber doesn't push out the fast one's
+/// completion. With sequential dispatch, the fast subscriber would have to
+/// wait for the slow one's `.await` to return before its own future was even
+/// polled. With `join_all`, both run at once and the fast one finishes well
+/// before the slow one.
+#[tokio::test]
+async fn test_cloaci_t_0544_dispatch_is_concurrent() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    // Capture each subscriber's completion timestamp (millis since the first
+    // subscriber started). The slow one sleeps 200ms; the fast one finishes
+    // immediately. Under concurrent dispatch the fast subscriber's
+    // completion timestamp is well below 200ms; under sequential dispatch
+    // it would be 200ms+ since join_all polls in order.
+    let fast_completed_ms = Arc::new(AtomicI64::new(-1));
+    let slow_completed_ms = Arc::new(AtomicI64::new(-1));
+    let started = Arc::new(std::sync::Mutex::new(None::<std::time::Instant>));
+
+    let started_fast = started.clone();
+    let fast_done = fast_completed_ms.clone();
+    let fast_fn: CompiledGraphFn = Arc::new(move |_cache: InputCache| {
+        let started = started_fast.clone();
+        let done = fast_done.clone();
+        Box::pin(async move {
+            {
+                let mut g = started.lock().unwrap();
+                if g.is_none() {
+                    *g = Some(std::time::Instant::now());
+                }
+            }
+            let start = started.lock().unwrap().unwrap();
+            done.store(start.elapsed().as_millis() as i64, Ordering::SeqCst);
+            cloacina::computation_graph::GraphResult::completed(vec![])
+        })
+    });
+
+    let started_slow = started.clone();
+    let slow_done = slow_completed_ms.clone();
+    let slow_fn: CompiledGraphFn = Arc::new(move |_cache: InputCache| {
+        let started = started_slow.clone();
+        let done = slow_done.clone();
+        Box::pin(async move {
+            {
+                let mut g = started.lock().unwrap();
+                if g.is_none() {
+                    *g = Some(std::time::Instant::now());
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let start = started.lock().unwrap().unwrap();
+            done.store(start.elapsed().as_millis() as i64, Ordering::SeqCst);
+            cloacina::computation_graph::GraphResult::completed(vec![])
+        })
+    });
+
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0544_concurrent_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+    let accs = || {
+        vec![AccumulatorDeclaration {
+            name: "alpha".to_string(),
+            factory: Arc::new(TestAccumulatorFactory),
+        }]
+    };
+    scheduler
+        .load_graph_split("fast".to_string(), fast_fn, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+    scheduler
+        .load_graph_split("slow".to_string(), slow_fn, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 1.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline
+        && (fast_completed_ms.load(Ordering::SeqCst) < 0
+            || slow_completed_ms.load(Ordering::SeqCst) < 0)
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let fast_ms = fast_completed_ms.load(Ordering::SeqCst);
+    let slow_ms = slow_completed_ms.load(Ordering::SeqCst);
+    assert!(
+        fast_ms >= 0 && slow_ms >= 0,
+        "both subscribers should complete (fast={fast_ms}ms, slow={slow_ms}ms)"
+    );
+    assert!(
+        fast_ms < 100,
+        "fast subscriber should not be blocked by slow subscriber (fast={fast_ms}ms, slow={slow_ms}ms)"
+    );
+    assert!(
+        slow_ms >= 180,
+        "slow subscriber should still take ~200ms (slow={slow_ms}ms)"
+    );
+
+    scheduler.unload_graph("fast").await.unwrap();
+    scheduler.unload_graph("slow").await.unwrap();
+}
+
+/// T-0545 M1: the new public `load_reactor` + `bind_graph_to_reactor` API
+/// can spawn a reactor with no subscribers and then attach a graph to it.
+/// Proves the explicit pair the reconciler will call (T-0545 M2/M3) works
+/// independently of `load_graph`.
+#[tokio::test]
+async fn test_cloaci_t_0545_load_reactor_then_bind_graph() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    // Step 1: load the reactor with no subscribers.
+    scheduler
+        .load_reactor(
+            "cloaci_t_0545_standalone_reactor".to_string(),
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            cloacina::computation_graph::reactor::ReactionCriteria::WhenAny,
+            cloacina::computation_graph::reactor::InputStrategy::Latest,
+            None,
+            vec![],
+        )
+        .await
+        .expect("load_reactor should spawn the reactor with empty subscribers");
+
+    // The reactor is addressable in the registry under its own name (no
+    // aliasing because we passed `register_aliases: vec![]`).
+    assert!(
+        registry
+            .get_reactor_handle("cloaci_t_0545_standalone_reactor")
+            .await
+            .is_some(),
+        "reactor should be in the endpoint registry under its name"
+    );
+
+    // No subscribers yet → list_graphs is empty.
+    assert!(scheduler.list_graphs().await.is_empty());
+
+    // Step 2: idempotent re-load with the same contract is a no-op.
+    scheduler
+        .load_reactor(
+            "cloaci_t_0545_standalone_reactor".to_string(),
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            cloacina::computation_graph::reactor::ReactionCriteria::WhenAny,
+            cloacina::computation_graph::reactor::InputStrategy::Latest,
+            None,
+            vec![],
+        )
+        .await
+        .expect("idempotent load_reactor should succeed when contract matches");
+
+    // Step 3: idempotent re-load with a different contract is rejected.
+    let err = scheduler
+        .load_reactor(
+            "cloaci_t_0545_standalone_reactor".to_string(),
+            vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(TestAccumulatorFactory),
+            }],
+            cloacina::computation_graph::reactor::ReactionCriteria::WhenAll,
+            cloacina::computation_graph::reactor::InputStrategy::Latest,
+            None,
+            vec![],
+        )
+        .await
+        .expect_err("contract mismatch should reject");
+    assert!(
+        err.contains("reaction criteria differ"),
+        "error should pinpoint criteria mismatch: {err}"
+    );
+
+    // Step 4: bind a graph to the existing reactor.
+    let fires = Arc::new(AtomicU32::new(0));
+    let fires_inner = fires.clone();
+    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = fires_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+    scheduler
+        .bind_graph_to_reactor(
+            "g1".to_string(),
+            "cloaci_t_0545_standalone_reactor".to_string(),
+            graph_fn,
+        )
+        .await
+        .expect("bind should succeed against the loaded reactor");
+
+    // Push event → graph fires.
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 1.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && fires.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(fires.load(Ordering::SeqCst), 1);
+
+    // Step 5: bind_graph_to_reactor against an unloaded reactor errors.
+    let dummy: CompiledGraphFn = Arc::new(|_cache: InputCache| {
+        Box::pin(async { cloacina::computation_graph::GraphResult::completed(vec![]) })
+    });
+    let err = scheduler
+        .bind_graph_to_reactor("g2".to_string(), "no_such_reactor".to_string(), dummy)
+        .await
+        .expect_err("bind to missing reactor should error");
+    assert!(err.contains("not loaded"));
+
+    // Cleanup via M4 primitives.
+    scheduler.unbind_graph_from_reactor("g1").await.unwrap();
+    scheduler
+        .unload_reactor("cloaci_t_0545_standalone_reactor")
+        .await
+        .unwrap();
+}
+
+/// `unbind_graph_from_reactor` removes a subscriber but leaves the reactor
+/// running, so a new subscriber can attach later and start receiving
+/// firings from the same reactor instance.
+#[tokio::test]
+async fn test_cloaci_t_0544_unbind_keeps_reactor_running() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+    let g_fires = Arc::new(AtomicU32::new(0));
+    let later_fires = Arc::new(AtomicU32::new(0));
+    let g_inner = g_fires.clone();
+    let g_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = g_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+    let later_inner = later_fires.clone();
+    let later_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = later_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, Ordering::SeqCst);
+            cloaci_t_0538_split_graph_compiled(&cache).await
+        })
+    });
+
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0544_unbind_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+    let accs = || {
+        vec![AccumulatorDeclaration {
+            name: "alpha".to_string(),
+            factory: Arc::new(TestAccumulatorFactory),
+        }]
+    };
+    scheduler
+        .load_graph_split("g".to_string(), g_fn, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+
+    // Unbind: subscriber removed, reactor still alive.
+    let reactor = scheduler.unbind_graph_from_reactor("g").await.unwrap();
+    assert_eq!(reactor, "cloaci_t_0544_unbind_reactor");
+    assert!(scheduler.list_graphs().await.is_empty());
+
+    // Attach a new subscriber to the same reactor — should bind to the
+    // already-running instance via the M2 idempotent path.
+    scheduler
+        .load_graph_split("later".to_string(), later_fn, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+
+    // Push an event; only `later` should fire (g was unbound).
+    registry
+        .send_to_accumulator(
+            "alpha",
+            serde_json::to_vec(&AlphaData { value: 9.0 }).unwrap(),
+        )
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && later_fires.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(later_fires.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        g_fires.load(Ordering::SeqCst),
+        0,
+        "unbound g should not fire"
+    );
+
+    // Cleanup: explicit reactor teardown after unbinding the last subscriber.
+    scheduler.unbind_graph_from_reactor("later").await.unwrap();
+    scheduler
+        .unload_reactor("cloaci_t_0544_unbind_reactor")
+        .await
+        .expect("unload_reactor with no subscribers should succeed");
+}
+
+/// `unload_reactor` rejects when subscribers are still bound — operators
+/// must unbind first. The error message lists the offending subscribers so
+/// the operator can act on it.
+#[tokio::test]
+async fn test_cloaci_t_0544_unload_reactor_rejects_with_subscribers() {
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::{
+        AccumulatorDeclaration, ComputationGraphScheduler,
+    };
+    use cloacina::{ComputationReactionMode, ReactorRegistration};
+    use cloacina_computation_graph::CompiledGraphFn;
+
+    let registry = EndpointRegistry::new();
+    let scheduler = ComputationGraphScheduler::new(registry);
+
+    let nop: CompiledGraphFn = Arc::new(|_cache: InputCache| {
+        Box::pin(async { cloacina::computation_graph::GraphResult::completed(vec![]) })
+    });
+    let reactor_reg = ReactorRegistration {
+        name: "cloaci_t_0544_busy_reactor".to_string(),
+        accumulator_names: vec!["alpha".to_string()],
+        reaction_mode: ComputationReactionMode::WhenAny,
+    };
+    let accs = || {
+        vec![AccumulatorDeclaration {
+            name: "alpha".to_string(),
+            factory: Arc::new(TestAccumulatorFactory),
+        }]
+    };
+    scheduler
+        .load_graph_split(
+            "subscriber_a".to_string(),
+            nop.clone(),
+            &reactor_reg,
+            accs(),
+            None,
+        )
+        .await
+        .unwrap();
+    scheduler
+        .load_graph_split("subscriber_b".to_string(), nop, &reactor_reg, accs(), None)
+        .await
+        .unwrap();
+
+    let err = scheduler
+        .unload_reactor("cloaci_t_0544_busy_reactor")
+        .await
+        .expect_err("unload_reactor with bound subscribers should reject");
+    assert!(
+        err.contains("subscriber_a") && err.contains("subscriber_b"),
+        "error should list bound subscribers, got: {err}"
+    );
+    assert!(
+        err.contains("unbind them first"),
+        "error should hint at the recovery action, got: {err}"
+    );
+
+    // Reactor still running — unbind both subscribers explicitly, then
+    // unload_reactor succeeds.
+    scheduler
+        .unbind_graph_from_reactor("subscriber_a")
+        .await
+        .unwrap();
+    scheduler
+        .unbind_graph_from_reactor("subscriber_b")
+        .await
+        .unwrap();
+    scheduler
+        .unload_reactor("cloaci_t_0544_busy_reactor")
+        .await
+        .expect("unload_reactor should succeed once subscribers are unbound");
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0538_runtime_reactor_registry_shape() {
+    // The `#[computation_graph]` and `#[reactor]` macros gate their
+    // `inventory::submit!` entries with `#[cfg(not(test))]` for test
+    // isolation, so we can't observe the emitted registrations here by
+    // seeding from inventory. Instead, simulate what the macros would emit
+    // and verify the Runtime registry surface.
+    let rt = cloacina::Runtime::empty();
+
+    rt.register_reactor("cloaci_t_0538_reactor_split".to_string(), || {
+        cloacina::ReactorRegistration {
+            name: "cloaci_t_0538_reactor_split".to_string(),
+            accumulator_names: vec!["alpha".to_string()],
+            reaction_mode: cloacina::ComputationReactionMode::WhenAny,
+        }
+    });
+
+    assert_eq!(
+        rt.reactor_names(),
+        vec!["cloaci_t_0538_reactor_split".to_string()]
+    );
+
+    let reactor = rt.get_reactor("cloaci_t_0538_reactor_split").unwrap();
+    assert_eq!(reactor.accumulator_names, vec!["alpha".to_string()]);
+    assert_eq!(
+        reactor.reaction_mode,
+        cloacina::ComputationReactionMode::WhenAny
+    );
+}
+
+// =============================================================================
+// T-0540 M3: #[task(invokes = computation_graph(H))] end-to-end
+// =============================================================================
+
+/// Workflow task that invokes the trigger-less CG defined above.
+/// User body is the pre-work (asserts the seeded input is present); the
+/// macro-generated invocation runs after, and terminal outputs are routed
+/// back into the task's output context under each terminal-node name.
+#[cloacina_macros::task(
+    id = "cloaci_t_0540_invoke_demo",
+    invokes = computation_graph("cloaci_t_0538_triggerless_graph")
+)]
+async fn cloaci_t_0540_invoke_demo(
+    context: &mut ::cloacina_workflow::Context<serde_json::Value>,
+) -> Result<(), ::cloacina_workflow::TaskError> {
+    // Pre-work: assert the seeded input is what we expect, and record that
+    // the user body ran.
+    assert_eq!(
+        context.get("alpha_value").and_then(|v| v.as_f64()),
+        Some(5.0)
+    );
+    let _ = context.insert("user_body_ran", serde_json::json!(true));
+    Ok(())
+}
+
+async fn cloaci_t_0540_post_hook(
+    context: &mut ::cloacina_workflow::Context<serde_json::Value>,
+) -> Result<(), ::cloacina_workflow::TaskError> {
+    // Inspect the merged context after the graph fired and tag the
+    // post-hook ran.
+    assert!(
+        context.get("output").is_some(),
+        "graph terminal must be present"
+    );
+    let _ = context.insert("post_hook_ran", serde_json::json!(true));
+    Ok(())
+}
+
+#[cloacina_macros::task(
+    id = "cloaci_t_0540_invoke_with_post",
+    invokes = computation_graph("cloaci_t_0538_triggerless_graph"),
+    post_invocation = cloaci_t_0540_post_hook,
+)]
+async fn cloaci_t_0540_invoke_with_post(
+    context: &mut ::cloacina_workflow::Context<serde_json::Value>,
+) -> Result<(), ::cloacina_workflow::TaskError> {
+    let _ = context.insert("user_body_ran", serde_json::json!(true));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0540_task_post_invocation() {
+    // Pre-body → graph invocation → post-invocation hook all run in order;
+    // the post hook sees the merged context (graph terminal + pre-body
+    // additions) and can append further state.
+    use ::cloacina_workflow::{Context, Task};
+    use serde_json::Value;
+
+    let task = cloaci_t_0540_invoke_with_post_task();
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(2.0)).unwrap();
+
+    let out = task.execute(ctx).await.expect("task should succeed");
+
+    assert_eq!(out.get("user_body_ran"), Some(&serde_json::json!(true)));
+    assert_eq!(out.get("post_hook_ran"), Some(&serde_json::json!(true)));
+    assert_eq!(out.get("output").unwrap()["value"], 3.0);
+}
+
+// A trigger-less graph whose terminal node panics. With the macro's
+// `to_value(&result_var).unwrap_or_else(|_| panic!(...))` contract on
+// trigger-less terminals, a panicking node propagates as a panic from the
+// async task and surfaces as a TaskError::ExecutionFailed at the workflow
+// boundary (executor catches panic in real workflows; in this isolated test
+// we use catch_unwind on the Future).
+#[cloacina_macros::computation_graph(graph = { entry -> boom })]
+pub mod cloaci_t_0540_panicking_graph {
+    use super::*;
+    use cloacina::Context;
+    use serde_json::Value;
+
+    pub async fn entry(_ctx: &Context<Value>) -> ProcessedData {
+        ProcessedData { result: 0.0 }
+    }
+
+    pub async fn boom(_input: &ProcessedData) -> ProcessedData {
+        panic!("intentional graph node panic for T-0540 error-path test");
+    }
+}
+
+#[cloacina_macros::task(
+    id = "cloaci_t_0540_panicking_invoker",
+    invokes = computation_graph("cloaci_t_0540_panicking_graph"),
+)]
+async fn cloaci_t_0540_panicking_invoker(
+    _context: &mut ::cloacina_workflow::Context<serde_json::Value>,
+) -> Result<(), ::cloacina_workflow::TaskError> {
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0540_task_invokes_panicking_graph() {
+    // Catch the panic from the graph node so the test asserts the failure
+    // mode (panic propagation) without taking down the test harness. Real
+    // workflow executors wrap task execution in `AssertUnwindSafe::catch_unwind`
+    // and convert panics into TaskError::ExecutionFailed.
+    use ::cloacina_workflow::{Context, Task};
+    use futures::FutureExt;
+    use serde_json::Value;
+    use std::panic::AssertUnwindSafe;
+
+    let task = cloaci_t_0540_panicking_invoker_task();
+    let ctx: Context<Value> = Context::new();
+    let result = AssertUnwindSafe(task.execute(ctx)).catch_unwind().await;
+    assert!(
+        result.is_err(),
+        "task body that invokes a panicking graph should propagate the panic"
+    );
+}
+
+#[tokio::test]
+async fn test_cloaci_t_0540_task_invokes_trigger_less_graph() {
+    // T-0540 M3: a workflow task whose `invokes = computation_graph(H)` clause
+    // points at a trigger-less graph. After execute():
+    //  - the user body ran (left a marker in the context),
+    //  - the graph fired against the same context and produced one terminal
+    //    output, which the macro-generated invocation routed back into the
+    //    output context under the terminal node's name (`output`).
+    use ::cloacina_workflow::{Context, Task};
+    use serde_json::Value;
+
+    let task = cloaci_t_0540_invoke_demo_task();
+    let mut ctx: Context<Value> = Context::new();
+    ctx.insert("alpha_value", serde_json::json!(5.0)).unwrap();
+
+    let out = task
+        .execute(ctx)
+        .await
+        .expect("task with CG invocation should succeed");
+
+    // User body ran first.
+    assert_eq!(out.get("user_body_ran"), Some(&serde_json::json!(true)));
+
+    // Graph terminal output landed under its node name.
+    // entry: 5.0 + 1.0 = 6.0; output passes through as
+    // OutputConfirmation { published: true, value: 6.0 }.
+    let terminal = out
+        .get("output")
+        .expect("terminal node 'output' should be inserted into context");
+    assert_eq!(terminal["published"], true);
+    assert_eq!(terminal["value"], 6.0);
+}

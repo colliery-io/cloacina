@@ -29,7 +29,9 @@ use std::fmt;
 use std::time::Duration;
 
 use cloacina::packaging::manifest_schema::parse_duration_str;
-use cloacina::trigger::{Trigger, TriggerError, TriggerResult as RustTriggerResult};
+// T-0552: Trigger trait + TriggerError relocated to cloacina-workflow.
+use cloacina::Trigger;
+use cloacina_workflow::{TriggerError, TriggerResult as RustTriggerResult};
 
 /// Global registry of Python trigger definitions collected during module import.
 /// These are picked up by the reconciler when loading Python packages with
@@ -50,53 +52,13 @@ pub fn drain_python_triggers() -> Vec<PythonTriggerDef> {
     std::mem::take(&mut *registry)
 }
 
-/// Python-side trigger result returned from poll functions.
-///
-/// Usage from Python:
-/// ```python
-/// from cloaca import TriggerResult
-///
-/// @cloaca.trigger(name="my_trigger", poll_interval="10s")
-/// def my_trigger():
-///     if some_condition():
-///         return TriggerResult(should_fire=True, context={"key": "value"})
-///     return TriggerResult(should_fire=False)
-/// ```
-#[pyclass(name = "TriggerResult")]
-pub struct PyTriggerResult {
-    #[pyo3(get, set)]
-    pub should_fire: bool,
-    #[pyo3(get, set)]
-    pub context: Option<PyObject>,
-}
-
-#[pymethods]
-impl PyTriggerResult {
-    #[new]
-    #[pyo3(signature = (should_fire = false, context = None))]
-    fn new(should_fire: bool, context: Option<PyObject>) -> Self {
-        Self {
-            should_fire,
-            context,
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        if self.should_fire {
-            "TriggerResult(should_fire=True)".to_string()
-        } else {
-            "TriggerResult(should_fire=False)".to_string()
-        }
-    }
-}
-
 /// Decorator for defining Python triggers.
 ///
 /// ```python
 /// @cloaca.trigger(name="check_inbox", poll_interval="30s")
 /// def check_inbox():
-///     # Return TriggerResult(should_fire=True, context={...}) to fire
-///     return TriggerResult(should_fire=False)
+///     # Return TriggerResult.fire(context) to fire, .skip() otherwise
+///     return TriggerResult.skip()
 /// ```
 #[pyclass(name = "TriggerDecorator")]
 pub struct TriggerDecorator {
@@ -208,45 +170,15 @@ impl Trigger for PythonTriggerWrapper {
                     message: format!("Python trigger '{}' raised exception: {}", trigger_name, e),
                 })?;
 
-                // Accept either a TriggerResult object (with should_fire/context attrs) or a plain bool
+                // Accept either a TriggerResult object (skip/fire API) or a plain bool.
+                // T-0557 Bug 5: the older `should_fire`/`context` attribute shape
+                // was removed in favor of `TriggerResult.skip()` / `.fire(ctx)`.
                 let bound = call_result.bind(py);
-                if bound.hasattr("should_fire").unwrap_or(false) {
-                    let should_fire: bool = bound
-                        .getattr("should_fire")
-                        .and_then(|v| v.extract())
-                        .unwrap_or(false);
-
-                    if should_fire {
-                        let ctx = if let Ok(py_ctx) = bound.getattr("context") {
-                            if py_ctx.is_none() {
-                                None
-                            } else {
-                                let dict_value: serde_json::Value = pythonize::depythonize(&py_ctx)
-                                    .map_err(|e| TriggerError::PollError {
-                                        message: format!(
-                                            "Failed to serialize trigger context: {}",
-                                            e
-                                        ),
-                                    })?;
-                                let mut context = cloacina::Context::new();
-                                if let serde_json::Value::Object(map) = dict_value {
-                                    for (k, v) in map {
-                                        context.insert(k, v).map_err(|e| {
-                                            TriggerError::PollError {
-                                                message: format!("Context insert error: {}", e),
-                                            }
-                                        })?;
-                                    }
-                                }
-                                Some(context)
-                            }
-                        } else {
-                            None
-                        };
-                        Ok(RustTriggerResult::Fire(ctx))
-                    } else {
-                        Ok(RustTriggerResult::Skip)
-                    }
+                if let Ok(py_result_bound) =
+                    bound.downcast::<crate::bindings::trigger::PyTriggerResult>()
+                {
+                    let py_result = py_result_bound.borrow();
+                    Ok(py_result.clone_into_rust())
                 } else if let Ok(should_fire) = call_result.extract::<bool>(py) {
                     // Shorthand: return True/False
                     if should_fire {
@@ -316,19 +248,6 @@ mod tests {
             let triggers = drain_python_triggers();
             assert_eq!(triggers.len(), 1);
             assert_eq!(triggers[0].name, "check_status");
-        });
-    }
-
-    #[test]
-    fn test_py_trigger_result_creation() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|_py| {
-            let result = PyTriggerResult::new(true, None);
-            assert!(result.should_fire);
-            assert!(result.context.is_none());
-
-            let result = PyTriggerResult::new(false, None);
-            assert!(!result.should_fire);
         });
     }
 

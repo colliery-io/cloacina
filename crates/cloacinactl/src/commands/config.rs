@@ -31,7 +31,7 @@ use tracing::{info, warn};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct CloacinaConfig {
-    /// Database URL for commands that need it (admin, serve).
+    /// Database URL for commands that need it (admin, `server start`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub database_url: Option<String>,
 

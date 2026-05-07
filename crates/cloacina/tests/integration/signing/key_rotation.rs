@@ -118,31 +118,10 @@ fn test_resign_package_with_new_key() {
     assert_ne!(old_sig.key_fingerprint, new_sig.key_fingerprint);
 }
 
-/// Test that database-based key rotation workflow works.
-///
-/// This test is marked as ignored because it requires database setup.
-#[tokio::test]
-#[ignore = "Requires database connection"]
-async fn test_key_rotation_database_workflow() {
-    // Expected workflow:
-    //
-    // 1. Create org and old signing key
-    // 2. Trust old key's public key
-    // 3. Sign package A with old key
-    //
-    // 4. Generate new signing key
-    // 5. Trust new key's public key
-    // 6. Sign package B with new key
-    //
-    // 7. Both packages should verify (transition period)
-    //
-    // 8. Revoke old trusted key
-    // 9. Package A should NO LONGER verify
-    // 10. Package B should STILL verify
-    //
-    // 11. Optionally revoke old signing key to prevent new signatures
-    todo!("Implement with test database fixture")
-}
+// The DB-backed `test_key_rotation_database_workflow` placeholder was removed
+// in CLOACI-T-0569 — it was a `todo!()` stub. Re-introduce when key rotation
+// becomes an explicitly-tested operator workflow (likely paired with the
+// per-tenant trust work deferred under CLOACI-I-0106).
 
 /// Helper function to sign a package and create a DetachedSignature.
 fn sign_package_helper(

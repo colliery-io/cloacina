@@ -568,20 +568,12 @@ pub trait BatchAccumulator: Send + 'static {
 }
 
 /// Configuration for the batch accumulator runtime.
+#[derive(Default)]
 pub struct BatchAccumulatorConfig {
     /// Optional timer-based flush interval. If None, only flushes on signal or size threshold.
     pub flush_interval: Option<std::time::Duration>,
     /// Optional: flush when buffer reaches this size.
     pub max_buffer_size: Option<usize>,
-}
-
-impl Default for BatchAccumulatorConfig {
-    fn default() -> Self {
-        Self {
-            flush_interval: None,
-            max_buffer_size: None,
-        }
-    }
 }
 
 /// Create a flush signal pair for batch accumulators.

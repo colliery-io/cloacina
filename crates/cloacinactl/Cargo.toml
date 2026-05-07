@@ -22,11 +22,12 @@ kafka = ["cloacina/kafka"]
 
 [dependencies]
 cloacina = { path = "../cloacina", default-features = false }
-cloacina-workflow-plugin = { version = "0.5.1", path = "../cloacina-workflow-plugin" }
+cloacina-workflow-plugin = { version = "0.6.0", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
 clap_complete = "4"
 anyhow.workspace = true
-fidius-core = "0.0.5"
+fidius-core = "0.2.1"
+fidius-host = "0.2.1"
 tempfile = "3.2"
 dirs = "6"
 serde = { version = "1.0", features = ["derive"] }

@@ -31,7 +31,7 @@ cloacina = { path = "../cloacina", default-features = false }
 # Python-language packages can be loaded by the reconciler. Compiler
 # service intentionally does not depend on this (T-0529).
 cloacina-python = { path = "../cloacina-python", default-features = false }
-cloacina-workflow-plugin = { version = "0.5.1", path = "../cloacina-workflow-plugin" }
+cloacina-workflow-plugin = { version = "0.6.0", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
 anyhow.workspace = true
 dirs = "6"
@@ -61,6 +61,9 @@ opentelemetry_sdk = { version = "0.31", optional = true, features = ["rt-tokio"]
 
 [dev-dependencies]
 serial_test = "3"
+# T-0570 contract test signs a temp-file payload before driving the upload
+# handler. Used in tests only.
+tempfile = "3"
 
 [build-dependencies]
-cloacina-build = { version = "0.5.1", path = "../cloacina-build" }
+cloacina-build = { version = "0.6.0", path = "../cloacina-build" }

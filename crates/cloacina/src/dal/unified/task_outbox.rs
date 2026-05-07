@@ -302,10 +302,10 @@ impl<'a> TaskOutboxDAL<'a> {
     }
 
     /// Deletes stale outbox entries older than the specified timestamp.
-    ///
-    /// This is used for cleanup of orphaned entries that were never claimed
-    /// (e.g., due to task failures or system crashes).
-    pub async fn delete_older_than(
+    /// Currently exercised only by tests in this file; production code
+    /// uses `claim_ready_tasks` which has its own age handling.
+    #[cfg(test)]
+    pub(crate) async fn delete_older_than(
         &self,
         cutoff: UniversalTimestamp,
     ) -> Result<i64, ValidationError> {
@@ -316,7 +316,7 @@ impl<'a> TaskOutboxDAL<'a> {
         )
     }
 
-    #[cfg(feature = "postgres")]
+    #[cfg(all(feature = "postgres", test))]
     async fn delete_older_than_postgres(
         &self,
         cutoff: UniversalTimestamp,
@@ -339,7 +339,7 @@ impl<'a> TaskOutboxDAL<'a> {
         Ok(deleted as i64)
     }
 
-    #[cfg(feature = "sqlite")]
+    #[cfg(all(feature = "sqlite", test))]
     async fn delete_older_than_sqlite(
         &self,
         cutoff: UniversalTimestamp,

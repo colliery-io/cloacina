@@ -37,6 +37,13 @@ pub struct RecoveryEventDAL<'a> {
     dal: &'a DAL,
 }
 
+// Several methods on this impl block are kept as future admin/ops
+// surface (per T-0565): `get_by_workflow`, `get_by_task`, `get_by_type`,
+// `get_workflow_unavailable_events`, `get_recent`. They have zero
+// in-tree callers today but are preserved as the "deliberately complete
+// CRUD surface" the audit flagged. Re-promote to `pub` if a real
+// consumer arrives.
+#[allow(dead_code)]
 impl<'a> RecoveryEventDAL<'a> {
     /// Creates a new RecoveryEventDAL instance.
     pub fn new(dal: &'a DAL) -> Self {
@@ -140,7 +147,7 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets all recovery events for a specific workflow execution.
-    pub async fn get_by_workflow(
+    pub(crate) async fn get_by_workflow(
         &self,
         workflow_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
@@ -202,7 +209,7 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets all recovery events for a specific task execution.
-    pub async fn get_by_task(
+    pub(crate) async fn get_by_task(
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
@@ -264,7 +271,7 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets recovery events by type for monitoring and analysis.
-    pub async fn get_by_type(
+    pub(crate) async fn get_by_type(
         &self,
         recovery_type: &str,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
@@ -328,7 +335,7 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets all workflow unavailability events for monitoring unknown workflow cleanup.
-    pub async fn get_workflow_unavailable_events(
+    pub(crate) async fn get_workflow_unavailable_events(
         &self,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         self.get_by_type(RecoveryType::WorkflowUnavailable.as_str())
@@ -336,7 +343,10 @@ impl<'a> RecoveryEventDAL<'a> {
     }
 
     /// Gets recent recovery events for monitoring purposes.
-    pub async fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
+    pub(crate) async fn get_recent(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
             self.get_recent_postgres(limit).await,

@@ -17,6 +17,7 @@
 pub mod api_keys;
 pub mod context;
 pub mod execution_events;
+pub mod reconciler_e2e_load;
 pub mod sub_status;
 pub mod task_claiming;
 pub mod workflow_packages;

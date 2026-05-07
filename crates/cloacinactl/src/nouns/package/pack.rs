@@ -30,11 +30,12 @@ pub fn run(dir: &Path, out: Option<&Path>, sign: Option<&Path>) -> Result<(), Cl
         .map_err(|e| CliError::UserError(format!("pack_package failed: {e}")))?;
 
     if let Some(key_path) = sign {
-        // Signature support lives behind cloacina::security::package_signer. It
-        // produces a sidecar .sig file at <archive>.sig.
+        // Signature infrastructure exists at cloacina::security::package_signer
+        // (produces a sidecar .sig file at <archive>.sig), but the CLI is not
+        // yet wired to invoke it.
         eprintln!(
-            "note: signing via {} — detached sig side-car not yet wired in T-0514 (tracked under \
-             spec Open Items).",
+            "note: --sign {} accepted but ignored — detached signature side-car generation is \
+             not implemented in the CLI yet.",
             key_path.display()
         );
     }

@@ -21,7 +21,6 @@
 //! `workflow`, etc.) land in later tasks of I-0098. `status` at the top level
 //! is a documented exception — a composite view over daemon + server.
 
-use anyhow::Result;
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 use std::path::PathBuf;
@@ -57,7 +56,7 @@ pub struct GlobalOpts {
     #[arg(long, global = true, default_value_os_t = default_home())]
     pub home: PathBuf,
 
-    /// Named profile from `~/.cloacina/config.toml` (profile resolution lands in T-0512).
+    /// Named profile from `~/.cloacina/config.toml`.
     #[arg(long, global = true)]
     pub profile: Option<String>,
 

@@ -20,8 +20,6 @@
 //! into distributable fidius source archives. These functions can be used by CLI
 //! tools, tests, or other applications that need to package workflows.
 
-pub mod debug;
-pub mod manifest;
 pub mod manifest_schema;
 pub mod platform;
 pub mod types;
@@ -29,9 +27,6 @@ pub mod validation;
 
 #[cfg(test)]
 mod tests;
-
-pub use debug::{debug_package, extract_manifest_from_package, DebugResult, TaskDebugInfo};
-pub use manifest::generate_manifest;
 pub use manifest_schema::{
     Manifest, ManifestValidationError, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime,
     TaskDefinition, TriggerDefinition,

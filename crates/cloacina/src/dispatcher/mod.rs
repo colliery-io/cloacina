@@ -59,7 +59,6 @@ pub mod default;
 pub mod router;
 pub mod traits;
 pub mod types;
-pub mod work_distributor;
 
 pub use default::DefaultDispatcher;
 pub use router::Router;
@@ -68,10 +67,3 @@ pub use types::{
     DispatchError, ExecutionResult, ExecutionStatus, ExecutorMetrics, RoutingConfig, RoutingRule,
     TaskReadyEvent,
 };
-pub use work_distributor::{create_work_distributor, WorkDistributor};
-
-#[cfg(feature = "postgres")]
-pub use work_distributor::PostgresDistributor;
-
-#[cfg(feature = "sqlite")]
-pub use work_distributor::SqliteDistributor;

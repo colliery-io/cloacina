@@ -30,46 +30,24 @@
 //! Nothing in this file reads inventory yet. That wiring lands in T-0506
 //! together with the removal of the global static registries.
 
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-
-use crate::computation_graph::stream_backend::{StreamBackend, StreamConfig, StreamError};
-use crate::task::{Task, TaskNamespace};
-use crate::trigger::Trigger;
+use crate::computation_graph::stream_backend::{StreamBackendFuture, StreamConfig};
 use crate::workflow::Workflow;
-use cloacina_computation_graph::ComputationGraphRegistration;
 
-/// Task entry emitted by `#[task]`.
-pub struct TaskEntry {
-    /// Deferred construction of the task namespace (cannot be const because
-    /// `TaskNamespace` contains `String`).
-    pub namespace: fn() -> TaskNamespace,
-    /// Task constructor — instantiates a fresh task object on each call.
-    pub constructor: fn() -> Arc<dyn Task>,
-}
-inventory::collect!(TaskEntry);
+// I-0102 + T-0552: inventory entries reachable from packaged cdylibs all
+// live in `cloacina-workflow-plugin` (a leaf crate). Re-exported here so
+// existing engine paths (`crate::ReactorEntry`, `cloacina::TaskEntry`, …)
+// keep resolving.
+pub use cloacina_workflow_plugin::{
+    ComputationGraphEntry, ReactorEntry, TaskEntry, TriggerEntry, TriggerlessGraphEntry,
+};
 
-/// Workflow entry emitted by `#[workflow]`.
+/// Workflow entry emitted by `#[workflow]`. Stays in cloacina because
+/// `Workflow` is an engine-only runtime type.
 pub struct WorkflowEntry {
     pub name: &'static str,
     pub constructor: fn() -> Workflow,
 }
 inventory::collect!(WorkflowEntry);
-
-/// Trigger entry emitted by `#[trigger]`.
-pub struct TriggerEntry {
-    pub name: &'static str,
-    pub constructor: fn() -> Arc<dyn Trigger>,
-}
-inventory::collect!(TriggerEntry);
-
-/// Computation graph entry emitted by `#[computation_graph]`.
-pub struct ComputationGraphEntry {
-    pub name: &'static str,
-    pub constructor: fn() -> ComputationGraphRegistration,
-}
-inventory::collect!(ComputationGraphEntry);
 
 /// Stream-backend entry emitted by the stream-backend registration helper.
 ///
@@ -77,10 +55,7 @@ inventory::collect!(ComputationGraphEntry);
 /// returns a heap-allocated future; at seed time the runtime wraps the
 /// pointer into a `Box<dyn Fn(StreamConfig) -> Pin<Box<Future<..>>> + Send + Sync>`
 /// to match the shape of dynamically-registered backends.
-pub type StreamBackendFactoryFn =
-    fn(
-        StreamConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>;
+pub type StreamBackendFactoryFn = fn(StreamConfig) -> StreamBackendFuture;
 
 pub struct StreamBackendEntry {
     pub type_name: &'static str,

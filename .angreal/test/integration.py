@@ -51,6 +51,21 @@ def build_test_packages(backend=None):
         cwd="examples/features/workflows/simple-packaged"
     )
 
+    # T-0550 / I-0102 T-D — primitive-only fixtures exercised by
+    # primitive_only_packaging.rs integration tests.
+    for fixture in (
+        "reactor-only-rust",
+        "reactor-subscriber-rust",
+        "trigger-only-rust",
+        "mixed-rust",
+    ):
+        print(f"Building {fixture}...")
+        subprocess.run(
+            ["cargo", "build", "-p", fixture],
+            check=True,
+            cwd=f"examples/fixtures/{fixture}",
+        )
+
     print("Test packages built successfully.")
 
 test = angreal.command_group(name="test", about="Cloacina test suites (unit, integration, e2e, soak)")

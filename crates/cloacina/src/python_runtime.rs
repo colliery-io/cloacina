@@ -66,6 +66,7 @@ pub trait PythonRuntime: Send + Sync {
     /// `None` if the imported module registered no executor for
     /// `graph_name` — matches the prior behavior where the caller silently
     /// moves on.
+    #[allow(clippy::too_many_arguments)]
     fn load_cg_package(
         &self,
         archive_data: &[u8],

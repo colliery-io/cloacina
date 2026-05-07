@@ -26,11 +26,6 @@ documentation.workspace = true
 readme.workspace = true
 edition = "2021"
 
-# TODO: remove continuous feature flag — continuous scheduling is always on
-[features]
-default = []
-continuous = ["chrono"]
-
 [dependencies]
 # Local dependencies
 cloacina-workflow = { workspace = true }
@@ -41,10 +36,7 @@ serde_json = { workspace = true }
 indexmap = "2.0"
 petgraph = "0.6"
 thiserror = "1.0"
-
-# TODO: make chrono non-optional when continuous feature flag is removed
-chrono = { version = "0.4", features = ["serde"], optional = true }
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
-chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

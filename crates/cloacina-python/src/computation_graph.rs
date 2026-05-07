@@ -16,7 +16,32 @@
 
 //! Python computation graph bindings.
 //!
-//! Mirrors the WorkflowBuilder + @task pattern:
+//! Mirrors the WorkflowBuilder + @task pattern. Two flavors:
+//!
+//! 1. **Reactor-triggered** — the graph is bound to a `@cloaca.reactor` class.
+//!    Entry nodes consume the reactor's accumulator payloads.
+//!
+//!    ```python
+//!    @cloaca.reactor(name="market_maker",
+//!                    accumulators=["alpha", "beta"],
+//!                    mode="when_any")
+//!    class MarketMaker: pass
+//!
+//!    with cloaca.ComputationGraphBuilder("market_maker",
+//!        reactor=MarketMaker,
+//!        graph={...}) as builder: ...
+//!    ```
+//!
+//! 2. **Trigger-less** — the graph is invoked by a workflow task via
+//!    `@cloaca.task(invokes=...)`. Entry nodes take only the task context;
+//!    no accumulator/cache inputs are permitted.
+//!
+//!    ```python
+//!    with cloaca.ComputationGraphBuilder("score_transactions",
+//!        graph={"score": {}}) as score_graph: ...
+//!    ```
+//!
+//! Pre-split (bundled) form:
 //! ```python
 //! with cloaca.ComputationGraphBuilder("market_maker",
 //!     react={"mode": "when_any", "accumulators": ["alpha", "beta"]},
@@ -49,7 +74,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
-use pyo3::exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyAttributeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyCFunction, PyDict, PyList, PyString, PyTuple};
 
@@ -169,7 +194,7 @@ pub fn stream_accumulator_decorator(
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
               -> PyResult<PyObject> {
-            let py = args.py();
+            let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
 
@@ -210,7 +235,7 @@ pub fn polling_accumulator_decorator(py: Python<'_>, interval: String) -> PyResu
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
               -> PyResult<PyObject> {
-            let py = args.py();
+            let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
 
@@ -252,7 +277,7 @@ pub fn batch_accumulator_decorator(
         move |args: &Bound<'_, PyTuple>,
               _kwargs: Option<&Bound<'_, PyDict>>|
               -> PyResult<PyObject> {
-            let py = args.py();
+            let _py = args.py();
             let func = args.get_item(0)?;
             let func_name: String = func.getattr("__name__")?.extract()?;
 
@@ -301,7 +326,7 @@ enum PyEdgeDecl {
 /// current ComputationGraphBuilder context.
 #[pyfunction]
 pub fn node(py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
-    let ctx = current_graph_context().ok_or_else(|| {
+    let _ctx = current_graph_context().ok_or_else(|| {
         PyValueError::new_err(
             "@cloaca.node must be used inside a ComputationGraphBuilder context manager",
         )
@@ -321,43 +346,61 @@ pub fn node(py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
 #[pyclass(name = "ComputationGraphBuilder")]
 pub struct PyComputationGraphBuilder {
     name: String,
-    react_mode: String,
-    accumulators: Vec<String>,
+    /// Reactor binding for the split form; `None` means trigger-less.
+    reactor_binding: Option<ReactorBinding>,
     nodes_decl: Vec<PyNodeDecl>,
+}
+
+#[derive(Debug, Clone)]
+struct ReactorBinding {
+    name: String,
+    accumulators: Vec<String>,
+    /// `"when_any"` | `"when_all"`.
+    mode: String,
 }
 
 #[pymethods]
 impl PyComputationGraphBuilder {
     #[new]
-    #[pyo3(signature = (name, *, react, graph))]
+    #[pyo3(signature = (name, *, graph, reactor = None, react = None))]
     pub fn new(
         _py: Python<'_>,
         name: &str,
-        react: &Bound<'_, PyDict>,
         graph: &Bound<'_, PyDict>,
+        reactor: Option<&Bound<'_, PyAny>>,
+        react: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let react_mode: String = react
-            .get_item("mode")?
-            .ok_or_else(|| PyKeyError::new_err("react dict missing 'mode'"))?
-            .extract()?;
+        // Hard-break migration: bundled `react={...}` form is gone — point users
+        // at I-0101 with a clear error.
+        if react.is_some() {
+            return Err(PyValueError::new_err(
+                "ComputationGraphBuilder no longer accepts the bundled `react={...}` kwarg. \
+                 Declare a `@cloaca.reactor` class and pass `reactor=YourReactor`, \
+                 or omit `reactor` entirely for a trigger-less graph invoked by \
+                 `@cloaca.task(invokes=...)`. See initiative CLOACI-I-0101.",
+            ));
+        }
 
-        let accumulators: Vec<String> = react
-            .get_item("accumulators")?
-            .ok_or_else(|| PyKeyError::new_err("react dict missing 'accumulators'"))?
-            .downcast::<PyList>()
-            .map_err(|_| PyTypeError::new_err("'accumulators' must be a list"))?
-            .iter()
-            .map(|item| item.extract::<String>())
-            .collect::<PyResult<_>>()?;
+        let reactor_binding = match reactor {
+            None => None,
+            Some(r) => Some(extract_reactor_binding(r)?),
+        };
 
         let nodes_decl = parse_graph_dict(graph)?;
 
         Ok(PyComputationGraphBuilder {
             name: name.to_string(),
-            react_mode,
-            accumulators,
+            reactor_binding,
             nodes_decl,
         })
+    }
+
+    /// The graph's declared name. Mirrors Rust's `Graph::NAME` so this
+    /// instance can serve as the handle referenced by `@cloaca.task(invokes=...)`.
+    #[getter]
+    #[allow(non_snake_case)]
+    pub fn NAME(&self) -> String {
+        self.name.clone()
     }
 
     /// Context manager entry — establish graph context for @node decorators
@@ -398,6 +441,39 @@ impl PyComputationGraphBuilder {
             }
         }
 
+        // Trigger-less entry contract: in trigger-less form, no node may
+        // declare cache `inputs=[...]` — those inputs only exist when a
+        // reactor is feeding the graph. Trigger-less graphs receive their
+        // input via the task `Context` passed by `@cloaca.task(invokes=...)`.
+        if self.reactor_binding.is_none() {
+            for decl in &self.nodes_decl {
+                if !decl.cache_inputs.is_empty() {
+                    return Err(PyValueError::new_err(format!(
+                        "trigger-less computation graph '{}': node '{}' declares cache \
+                         inputs={:?}, but trigger-less graphs have no accumulator inputs. \
+                         Either remove the inputs (graph receives data through the task \
+                         context) or bind a reactor with `reactor=YourReactor`.",
+                        self.name, decl.name, decl.cache_inputs
+                    )));
+                }
+            }
+        } else if let Some(ref binding) = self.reactor_binding {
+            // Split-form sanity: every cache input declared by a node must be
+            // one of the reactor's accumulators. Catches typos at registration
+            // time rather than producing silent `None`s at execution time.
+            for decl in &self.nodes_decl {
+                for input in &decl.cache_inputs {
+                    if !binding.accumulators.contains(input) {
+                        return Err(PyValueError::new_err(format!(
+                            "computation graph '{}': node '{}' references cache input \
+                             '{}' which is not in reactor '{}' accumulators {:?}",
+                            self.name, decl.name, input, binding.name, binding.accumulators
+                        )));
+                    }
+                }
+            }
+        }
+
         // Build the executor
         let node_map: HashMap<String, PyNodeDecl> = self
             .nodes_decl
@@ -407,13 +483,20 @@ impl PyComputationGraphBuilder {
             .collect();
         let execution_order = compute_execution_order(&self.nodes_decl);
 
+        let (react_mode, accumulators, reactor_name) = match &self.reactor_binding {
+            Some(b) => (b.mode.clone(), b.accumulators.clone(), Some(b.name.clone())),
+            None => (String::new(), Vec::new(), None),
+        };
+
         let executor = PythonGraphExecutor {
             name: self.name.clone(),
             node_functions: registered_nodes,
             node_map,
             execution_order,
-            react_mode: self.react_mode.clone(),
-            accumulators: self.accumulators.clone(),
+            react_mode,
+            accumulators,
+            has_reactor: self.reactor_binding.is_some(),
+            reactor_name,
         };
 
         // Register the executor globally (similar to workflow registration)
@@ -485,6 +568,14 @@ pub struct PythonGraphExecutor {
     execution_order: Vec<String>,
     react_mode: String,
     accumulators: Vec<String>,
+    /// `true` when the graph is bound to a reactor. Trigger-less graphs
+    /// (`false`) cannot be turned into a `ComputationGraphDeclaration`.
+    pub has_reactor: bool,
+    /// Reactor name from the `@cloaca.reactor`-decorated class. Threaded
+    /// into the resulting `ComputationGraphDeclaration.reactor_name` so
+    /// two packages declaring the same reactor share a single runtime
+    /// instance (T-0544 M5 cross-package fan-out).
+    pub reactor_name: Option<String>,
 }
 
 // SAFETY: All PyObject access goes through Python::with_gil() inside spawn_blocking.
@@ -504,6 +595,8 @@ impl Clone for PythonGraphExecutor {
             execution_order: self.execution_order.clone(),
             react_mode: self.react_mode.clone(),
             accumulators: self.accumulators.clone(),
+            has_reactor: self.has_reactor,
+            reactor_name: self.reactor_name.clone(),
         })
     }
 }
@@ -520,7 +613,7 @@ impl PythonGraphExecutor {
         // Convert PyObject inputs to serde_json::Value for the executor
         let mut cache_values: HashMap<String, serde_json::Value> = HashMap::new();
         for (name, obj) in inputs {
-            let val = pythonize::depythonize::<serde_json::Value>(&obj.bind(py))?;
+            let val = pythonize::depythonize::<serde_json::Value>(obj.bind(py))?;
             cache_values.insert(name.clone(), val);
         }
 
@@ -542,10 +635,10 @@ impl PythonGraphExecutor {
                         })?;
                         Ok(py_obj.unbind())
                     } else {
-                        Ok(py.None().into())
+                        Ok(py.None())
                     }
                 } else {
-                    Ok(py.None().into())
+                    Ok(py.None())
                 }
             }
             Err(e) => Err(PyValueError::new_err(format!(
@@ -592,6 +685,58 @@ impl PythonGraphExecutor {
             ))),
         }
     }
+
+    /// Terminal node names in `execution_order`, in the order their outputs
+    /// will be appended to the result vector. Used by `@cloaca.task(invokes=...)`
+    /// to route outputs back into the task context under their terminal name.
+    pub fn terminal_names(&self) -> Vec<String> {
+        self.execution_order
+            .iter()
+            .filter(|n| {
+                matches!(
+                    self.node_map.get(*n).map(|d| &d.edge),
+                    Some(PyEdgeDecl::Terminal)
+                )
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Execute a trigger-less graph with a Python `Context` object.
+    ///
+    /// Each "root" node — one with no upstream edges and no cache inputs —
+    /// receives the context as its single argument. Downstream nodes get
+    /// their predecessor's output as before. Returns `(terminal_name, value)`
+    /// pairs in the order each terminal *actually fired* — so routing
+    /// branches that were skipped do not appear in the output. The task
+    /// wrapper routes each pair into the task context under its terminal
+    /// node name.
+    pub async fn execute_trigger_less(
+        &self,
+        ctx: PyObject,
+    ) -> Result<Vec<(String, serde_json::Value)>, GraphError> {
+        let executor = self.clone();
+        match tokio::task::spawn_blocking(move || {
+            Python::with_gil(|py| {
+                execute_graph_sync_named_terminals(
+                    py,
+                    &executor.node_functions,
+                    &executor.execution_order,
+                    &executor.node_map,
+                    &ctx,
+                )
+            })
+        })
+        .await
+        {
+            Ok(Ok(pairs)) => Ok(pairs),
+            Ok(Err(e)) => Err(e),
+            Err(join_err) => Err(GraphError::NodeExecution(format!(
+                "trigger-less graph execution panicked: {}",
+                join_err
+            ))),
+        }
+    }
 }
 
 /// Build a [`ComputationGraphDeclaration`] from a registered Python graph executor.
@@ -615,12 +760,21 @@ pub fn build_python_graph_declaration(
 
     let executor = get_graph_executor(graph_name)?;
 
+    // Trigger-less graphs aren't reactor-driven and therefore have no
+    // ComputationGraphDeclaration to publish. Callers that need the graph
+    // (e.g. a `@cloaca.task(invokes=...)` body) look it up through
+    // `get_graph_executor` directly.
+    if !executor.has_reactor {
+        return None;
+    }
+
     let criteria = match executor.react_mode.as_str() {
         "when_all" => ReactionCriteria::WhenAll,
         _ => ReactionCriteria::WhenAny,
     };
 
     let accumulator_names = executor.accumulators.clone();
+    let reactor_name = executor.reactor_name.clone();
 
     // Build CompiledGraphFn from the Python executor
     let graph_fn: cloacina_computation_graph::CompiledGraphFn =
@@ -660,6 +814,11 @@ pub fn build_python_graph_declaration(
             graph_fn,
         },
         tenant_id,
+        // T-0544 M5: thread the reactor name from the `@cloaca.reactor`
+        // class through to the scheduler so Python packages naming the
+        // same reactor as a Rust (or Python) package share a runtime
+        // instance via M2's idempotent registration path.
+        reactor_name,
     })
 }
 
@@ -667,12 +826,181 @@ pub fn build_python_graph_declaration(
 // Graph execution (synchronous, inside GIL)
 // ---------------------------------------------------------------------------
 
+/// Sync helper used by both reactor-triggered and trigger-less paths.
+/// `trigger_less_ctx`, when `Some`, is passed as the sole argument to every
+/// "root" node (one with no incoming edges and no cache inputs). The
+/// reactor-triggered path leaves this `None`.
 fn execute_graph_sync(
     py: Python<'_>,
     node_functions: &HashMap<String, PyObject>,
     execution_order: &[String],
     node_map: &HashMap<String, PyNodeDecl>,
     cache_values: &HashMap<String, serde_json::Value>,
+) -> Result<Vec<Box<dyn std::any::Any + Send>>, GraphError> {
+    execute_graph_sync_inner(
+        py,
+        node_functions,
+        execution_order,
+        node_map,
+        cache_values,
+        None,
+    )
+}
+
+/// Trigger-less variant that returns `(terminal_name, value)` pairs in the
+/// order each terminal fired. Routing branches that aren't selected emit no
+/// pair, so consumers (e.g. `@cloaca.task(invokes=...)`) can route outputs
+/// to context keys without misalignment.
+fn execute_graph_sync_named_terminals(
+    py: Python<'_>,
+    node_functions: &HashMap<String, PyObject>,
+    execution_order: &[String],
+    node_map: &HashMap<String, PyNodeDecl>,
+    ctx: &PyObject,
+) -> Result<Vec<(String, serde_json::Value)>, GraphError> {
+    let cache_values: HashMap<String, serde_json::Value> = HashMap::new();
+    let trigger_less_ctx = Some(ctx);
+
+    let mut pairs: Vec<(String, serde_json::Value)> = Vec::new();
+    let mut node_results: HashMap<String, PyObject> = HashMap::new();
+
+    let mut incoming: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
+    for node in node_map.values() {
+        match &node.edge {
+            PyEdgeDecl::Linear { target } => {
+                incoming
+                    .entry(target.clone())
+                    .or_default()
+                    .push((node.name.clone(), None));
+            }
+            PyEdgeDecl::Routing { variants } => {
+                for (variant_name, target) in variants {
+                    incoming
+                        .entry(target.clone())
+                        .or_default()
+                        .push((node.name.clone(), Some(variant_name.clone())));
+                }
+            }
+            PyEdgeDecl::Terminal => {}
+        }
+    }
+
+    let mut skipped_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for node_name in execution_order {
+        if skipped_nodes.contains(node_name) {
+            continue;
+        }
+
+        let node_decl = node_map.get(node_name).ok_or_else(|| {
+            GraphError::Execution(format!("node '{}' not found in topology", node_name))
+        })?;
+
+        if let Some(sources) = incoming.get(node_name) {
+            let mut should_skip = false;
+            for (from_node, variant) in sources {
+                if let Some(v) = variant {
+                    let selected_key = format!("{}:__selected_variant", from_node);
+                    if let Some(selected) = node_results.get(&selected_key) {
+                        let selected_str: String = selected.extract(py).unwrap_or_default();
+                        if selected_str != *v {
+                            should_skip = true;
+                        }
+                    }
+                }
+            }
+            if should_skip {
+                skipped_nodes.insert(node_name.clone());
+                continue;
+            }
+        }
+
+        let args = build_node_args(
+            py,
+            node_name,
+            node_decl,
+            &cache_values,
+            &node_results,
+            &incoming,
+            trigger_less_ctx,
+        )?;
+
+        let func = node_functions.get(node_name).ok_or_else(|| {
+            GraphError::NodeExecution(format!("function '{}' not registered", node_name))
+        })?;
+
+        let result = func.call1(py, args).map_err(|e| {
+            GraphError::NodeExecution(format!("node '{}' failed: {}", node_name, e))
+        })?;
+
+        match &node_decl.edge {
+            PyEdgeDecl::Terminal => {
+                let json_val: serde_json::Value =
+                    pythonize::depythonize(result.bind(py)).map_err(|e| {
+                        GraphError::Serialization(format!(
+                            "terminal '{}' result conversion failed: {}",
+                            node_name, e
+                        ))
+                    })?;
+                pairs.push((node_name.clone(), json_val));
+            }
+            PyEdgeDecl::Linear { .. } => {
+                node_results.insert(node_name.clone(), result);
+            }
+            PyEdgeDecl::Routing { .. } => {
+                let tuple = result.downcast_bound::<PyTuple>(py).map_err(|_| {
+                    GraphError::NodeExecution(format!(
+                        "routing node '{}' must return a (variant_name, value) tuple",
+                        node_name
+                    ))
+                })?;
+
+                if tuple.len() != 2 {
+                    return Err(GraphError::NodeExecution(format!(
+                        "routing node '{}' returned tuple of length {}, expected 2",
+                        node_name,
+                        tuple.len()
+                    )));
+                }
+
+                let variant_name = tuple
+                    .get_item(0)
+                    .map_err(|e| GraphError::NodeExecution(format!("tuple index error: {}", e)))?
+                    .downcast::<PyString>()
+                    .map_err(|_| {
+                        GraphError::NodeExecution(format!(
+                            "routing node '{}': first element must be a string",
+                            node_name
+                        ))
+                    })?
+                    .to_string();
+
+                let variant_value = tuple
+                    .get_item(1)
+                    .map_err(|e| GraphError::NodeExecution(format!("tuple index error: {}", e)))?
+                    .unbind();
+
+                node_results.insert(format!("{}:{}", node_name, variant_name), variant_value);
+
+                let variant_py = PyString::new(py, &variant_name);
+                node_results.insert(
+                    format!("{}:__selected_variant", node_name),
+                    variant_py.unbind().into(),
+                );
+            }
+        }
+    }
+
+    Ok(pairs)
+}
+
+fn execute_graph_sync_inner(
+    py: Python<'_>,
+    node_functions: &HashMap<String, PyObject>,
+    execution_order: &[String],
+    node_map: &HashMap<String, PyNodeDecl>,
+    cache_values: &HashMap<String, serde_json::Value>,
+    trigger_less_ctx: Option<&PyObject>,
 ) -> Result<Vec<Box<dyn std::any::Any + Send>>, GraphError> {
     let mut terminal_results: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     let mut node_results: HashMap<String, PyObject> = HashMap::new();
@@ -730,7 +1058,8 @@ fn execute_graph_sync(
             }
         }
 
-        // Build arguments
+        // Build arguments. In trigger-less mode, root nodes (no incoming
+        // edges, no cache inputs) take the task `Context` as their sole arg.
         let args = build_node_args(
             py,
             node_name,
@@ -738,6 +1067,7 @@ fn execute_graph_sync(
             cache_values,
             &node_results,
             &incoming,
+            trigger_less_ctx,
         )?;
 
         // Call the function
@@ -818,8 +1148,24 @@ fn build_node_args<'py>(
     cache_values: &HashMap<String, serde_json::Value>,
     node_results: &HashMap<String, PyObject>,
     incoming: &HashMap<String, Vec<(String, Option<String>)>>,
+    trigger_less_ctx: Option<&PyObject>,
 ) -> Result<Bound<'py, PyTuple>, GraphError> {
     let mut args: Vec<PyObject> = Vec::new();
+
+    // Trigger-less root: a node with no incoming edges and no cache inputs
+    // gets the task Context as its sole arg.
+    let has_incoming = incoming
+        .get(node_name)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    if let Some(ctx) = trigger_less_ctx {
+        if !has_incoming && node_decl.cache_inputs.is_empty() {
+            args.push(ctx.clone_ref(py));
+            return PyTuple::new(py, &args).map_err(|e| {
+                GraphError::NodeExecution(format!("args tuple creation failed: {}", e))
+            });
+        }
+    }
 
     // Cache inputs
     for input_name in &node_decl.cache_inputs {
@@ -852,6 +1198,30 @@ fn build_node_args<'py>(
 
     PyTuple::new(py, &args)
         .map_err(|e| GraphError::NodeExecution(format!("args tuple creation failed: {}", e)))
+}
+
+// ---------------------------------------------------------------------------
+// Reactor handle extraction
+// ---------------------------------------------------------------------------
+
+/// Pull `NAME`, `ACCUMULATORS`, and `REACTION_MODE` off a `@cloaca.reactor`-
+/// decorated class. Anything else (string, dict, instance) is rejected here so
+/// the user gets a precise error rather than a downstream `AttributeError`.
+fn extract_reactor_binding(obj: &Bound<'_, PyAny>) -> PyResult<ReactorBinding> {
+    if !obj.hasattr("NAME")? || !obj.hasattr("ACCUMULATORS")? || !obj.hasattr("REACTION_MODE")? {
+        return Err(PyTypeError::new_err(
+            "ComputationGraphBuilder(reactor=...) expects a class decorated with \
+             @cloaca.reactor (must expose NAME / ACCUMULATORS / REACTION_MODE)",
+        ));
+    }
+    let name: String = obj.getattr("NAME")?.extract()?;
+    let accumulators: Vec<String> = obj.getattr("ACCUMULATORS")?.extract()?;
+    let mode: String = obj.getattr("REACTION_MODE")?.extract()?;
+    Ok(ReactorBinding {
+        name,
+        accumulators,
+        mode,
+    })
 }
 
 // ---------------------------------------------------------------------------

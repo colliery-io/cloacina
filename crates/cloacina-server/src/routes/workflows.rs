@@ -27,6 +27,7 @@ use tracing::{info, warn};
 use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
+use cloacina::security::audit;
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
@@ -56,22 +57,90 @@ pub async fn upload_workflow(
         return ApiError::bad_request("invalid_request", "empty package file").into_response();
     }
 
-    // Signature verification gate: when require_signatures is enabled,
-    // reject uploads. The package must be signed and uploaded with its
-    // signature via the package signing workflow before it can be loaded.
-    // This prevents unsigned native code from being dlopen'd by the reconciler.
+    // T-0557 Bug 2: signature verification at upload time.
+    //
+    // When `require_signatures` is enabled AND a `verification_org_id`
+    // is configured, run real verification against the trusted-key list
+    // for that org. The signature is looked up by package hash from the
+    // `package_signatures` table (`SignatureSource::Database`); the
+    // signing flow (`cloacinactl pack`/`publish` + the future T-0514
+    // sidecar) is responsible for inserting the row before upload.
+    //
+    // When `require_signatures` is enabled but no org is configured
+    // we fail-safe with a clearer error than the old "TODO" stub —
+    // the operator knows verification is enabled but unwired, not
+    // that signing is required for the upload itself.
     if state.security_config.require_signatures {
-        // TODO: implement full signature verification at upload time.
-        // For now, reject all uploads when signatures are required —
-        // packages must be pre-signed and loaded through the signing pipeline.
-        warn!(
-            "Package upload rejected: signature verification is required (require_signatures=true)"
-        );
-        return ApiError::forbidden(
-            "signature_required",
-            "package signature verification is required — sign the package before uploading",
+        let Some(org_id) = state.security_config.verification_org_id else {
+            warn!(
+                "Package upload rejected: require_signatures=true but no \
+                 verification_org_id configured. Set SecurityConfig::verification_org_id \
+                 before enabling signature requirements."
+            );
+            return ApiError::forbidden(
+                "signature_verification_unconfigured",
+                "signature verification is required but server is not configured \
+                 with a verification_org_id; contact the server operator",
+            )
+            .into_response();
+        };
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        let package_signer = cloacina::security::DbPackageSigner::new(dal.clone());
+        let key_manager = cloacina::security::DbKeyManager::new(dal);
+        // CLOACI-I-0103 / T-0568: route both success and failure through the
+        // structured audit log so deployments with a centralised log pipeline
+        // get a single, parseable record per upload. The human-readable
+        // info!/warn! lines stay because they carry message-level context
+        // operators tail in real time.
+        let audit_path = format!("upload:tenant={}", tenant_id);
+        match cloacina::security::verify_package_bytes(
+            &package_data,
+            org_id,
+            cloacina::security::SignatureSource::Database,
+            &package_signer,
+            &key_manager,
         )
-        .into_response();
+        .await
+        {
+            Ok(result) => {
+                info!(
+                    "Package signature verified: hash={} signer={}",
+                    result.package_hash, result.signer_fingerprint
+                );
+                audit::log_package_load_success(
+                    org_id,
+                    &audit_path,
+                    &result.package_hash,
+                    Some(&result.signer_fingerprint),
+                    /* signature_verified */ true,
+                );
+            }
+            Err(e) => {
+                warn!("Package signature verification failed: {}", e);
+                let (code, msg) = match &e {
+                    cloacina::security::VerificationError::TamperedPackage { .. } => (
+                        "package_tampered",
+                        "package contents do not match the signed hash".to_string(),
+                    ),
+                    cloacina::security::VerificationError::UntrustedSigner { fingerprint } => (
+                        "untrusted_signer",
+                        format!("package signed by untrusted key: {}", fingerprint),
+                    ),
+                    cloacina::security::VerificationError::InvalidSignature => (
+                        "invalid_signature",
+                        "cryptographic signature verification failed".to_string(),
+                    ),
+                    cloacina::security::VerificationError::SignatureNotFound { .. } => (
+                        "signature_not_found",
+                        "no signature row found for this package; sign before uploading"
+                            .to_string(),
+                    ),
+                    _ => ("signature_verification_error", format!("{}", e)),
+                };
+                audit::log_package_load_failure(org_id, &audit_path, &e.to_string(), code);
+                return ApiError::forbidden(code, msg).into_response();
+            }
+        }
     }
 
     // Register via WorkflowRegistry
@@ -233,17 +302,34 @@ pub async fn get_workflow(
         Ok(workflows) => {
             let found = workflows.into_iter().find(|w| w.package_name == name);
             match found {
-                Some(w) => Json(serde_json::json!({
-                    "tenant_id": tenant_id,
-                    "id": w.id.to_string(),
-                    "package_name": w.package_name,
-                    "version": w.version,
-                    "description": w.description,
-                    "tasks": w.tasks,
-                    "created_at": w.created_at.to_rfc3339(),
-                    "build_status": "success",
-                }))
-                .into_response(),
+                Some(w) => {
+                    // T-0557 Bug 4: previously hard-coded
+                    // build_status: "success" here. Route the
+                    // name-lookup path through the same inspector the
+                    // UUID-lookup path uses so the response reflects
+                    // real build state (pending/building/failed in
+                    // addition to success).
+                    match registry.inspect_package_by_id(w.id).await {
+                        Ok(Some(ins)) => Json(serde_json::json!({
+                            "tenant_id": tenant_id,
+                            "id": ins.metadata.id.to_string(),
+                            "package_name": ins.metadata.package_name,
+                            "version": ins.metadata.version,
+                            "description": ins.metadata.description,
+                            "tasks": ins.metadata.tasks,
+                            "created_at": ins.metadata.created_at.to_rfc3339(),
+                            "build_status": ins.build_status,
+                            "build_error": ins.build_error,
+                        }))
+                        .into_response(),
+                        Ok(None) => ApiError::not_found(
+                            "workflow_not_found",
+                            format!("workflow '{}' not found", name),
+                        )
+                        .into_response(),
+                        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+                    }
+                }
                 None => ApiError::not_found(
                     "workflow_not_found",
                     format!("workflow '{}' not found", name),

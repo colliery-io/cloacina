@@ -20,10 +20,10 @@
 //! extract metadata, validate package integrity, and register tasks with the
 //! global task registry.
 
+pub mod ffi_trigger;
+pub mod ffi_triggerless_graph;
 pub mod package_loader;
 pub mod task_registrar;
-pub mod validator;
 
 pub use package_loader::PackageLoader;
 pub use task_registrar::TaskRegistrar;
-pub use validator::PackageValidator;

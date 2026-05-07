@@ -34,28 +34,34 @@
 //! ```
 
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 
 use crate::computation_graph::stream_backend::{
-    StreamBackend, StreamBackendFactory, StreamConfig, StreamError,
+    StreamBackendFactory, StreamBackendFuture, StreamConfig,
 };
+use crate::computation_graph::triggerless::TriggerlessGraphRegistration;
 use crate::task::{Task, TaskNamespace};
 use crate::trigger::Trigger;
 use crate::workflow::Workflow;
-use cloacina_computation_graph::{ComputationGraphConstructor, ComputationGraphRegistration};
+use cloacina_computation_graph::{
+    ComputationGraphConstructor, ComputationGraphRegistration, ReactorConstructor,
+    ReactorRegistration,
+};
+
+/// Type alias for trigger-less graph constructor functions.
+pub(crate) type TriggerlessGraphConstructor =
+    Box<dyn Fn() -> TriggerlessGraphRegistration + Send + Sync>;
 
 /// Type alias for task constructor functions.
-pub type TaskConstructorFn = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
+pub(crate) type TaskConstructorFn = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
 
 /// Type alias for workflow constructor functions.
-pub type WorkflowConstructorFn = Box<dyn Fn() -> Workflow + Send + Sync>;
+pub(crate) type WorkflowConstructorFn = Box<dyn Fn() -> Workflow + Send + Sync>;
 
 /// Type alias for trigger constructor functions.
-pub type TriggerConstructorFn = Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>;
+pub(crate) type TriggerConstructorFn = Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>;
 
 /// A scoped runtime holding the registries for every cloacina extension point.
 ///
@@ -72,6 +78,8 @@ struct RuntimeInner {
     workflows: RwLock<HashMap<String, WorkflowConstructorFn>>,
     triggers: RwLock<HashMap<String, TriggerConstructorFn>>,
     computation_graphs: RwLock<HashMap<String, ComputationGraphConstructor>>,
+    triggerless_graphs: RwLock<HashMap<String, TriggerlessGraphConstructor>>,
+    reactors: RwLock<HashMap<String, ReactorConstructor>>,
     stream_backends: RwLock<HashMap<String, StreamBackendFactory>>,
 }
 
@@ -103,6 +111,8 @@ impl Runtime {
                 workflows: RwLock::new(HashMap::new()),
                 triggers: RwLock::new(HashMap::new()),
                 computation_graphs: RwLock::new(HashMap::new()),
+                triggerless_graphs: RwLock::new(HashMap::new()),
+                reactors: RwLock::new(HashMap::new()),
                 stream_backends: RwLock::new(HashMap::new()),
             }),
         }
@@ -116,7 +126,8 @@ impl Runtime {
     /// workflow package to pick up the entries emitted by that cdylib.
     pub fn seed_from_inventory(&self) {
         use crate::inventory_entries::{
-            ComputationGraphEntry, StreamBackendEntry, TaskEntry, TriggerEntry, WorkflowEntry,
+            ComputationGraphEntry, ReactorEntry, StreamBackendEntry, TaskEntry, TriggerEntry,
+            TriggerlessGraphEntry, WorkflowEntry,
         };
 
         for entry in inventory::iter::<TaskEntry> {
@@ -126,18 +137,23 @@ impl Runtime {
         }
 
         for entry in inventory::iter::<WorkflowEntry> {
-            let ctor = entry.constructor;
-            self.register_workflow(entry.name.to_string(), move || ctor());
+            self.register_workflow(entry.name.to_string(), entry.constructor);
         }
 
         for entry in inventory::iter::<TriggerEntry> {
-            let ctor = entry.constructor;
-            self.register_trigger(entry.name.to_string(), move || ctor());
+            self.register_trigger(entry.name.to_string(), entry.constructor);
         }
 
         for entry in inventory::iter::<ComputationGraphEntry> {
-            let ctor = entry.constructor;
-            self.register_computation_graph(entry.name.to_string(), move || ctor());
+            self.register_computation_graph(entry.name.to_string(), entry.constructor);
+        }
+
+        for entry in inventory::iter::<TriggerlessGraphEntry> {
+            self.register_triggerless_graph(entry.name.to_string(), entry.constructor);
+        }
+
+        for entry in inventory::iter::<ReactorEntry> {
+            self.register_reactor(entry.name.to_string(), entry.constructor);
         }
 
         for entry in inventory::iter::<StreamBackendEntry> {
@@ -175,7 +191,8 @@ impl Runtime {
     }
 
     /// Check if a task is registered for the given namespace.
-    pub fn has_task(&self, namespace: &TaskNamespace) -> bool {
+    #[cfg(test)]
+    pub(crate) fn has_task(&self, namespace: &TaskNamespace) -> bool {
         self.inner.tasks.read().contains_key(namespace)
     }
 
@@ -216,16 +233,6 @@ impl Runtime {
         self.inner.workflows.read().keys().cloned().collect()
     }
 
-    /// Get all registered workflows (instantiated).
-    pub fn all_workflows(&self) -> Vec<Workflow> {
-        self.inner
-            .workflows
-            .read()
-            .values()
-            .map(|ctor| ctor())
-            .collect()
-    }
-
     // -----------------------------------------------------------------------
     // Trigger registry
     // -----------------------------------------------------------------------
@@ -254,16 +261,6 @@ impl Runtime {
     /// Get all registered trigger names.
     pub fn trigger_names(&self) -> Vec<String> {
         self.inner.triggers.read().keys().cloned().collect()
-    }
-
-    /// Get all registered triggers (instantiated).
-    pub fn all_triggers(&self) -> HashMap<String, Arc<dyn Trigger>> {
-        self.inner
-            .triggers
-            .read()
-            .iter()
-            .map(|(name, ctor)| (name.clone(), ctor()))
-            .collect()
     }
 
     // -----------------------------------------------------------------------
@@ -306,6 +303,84 @@ impl Runtime {
     }
 
     // -----------------------------------------------------------------------
+    // Trigger-less computation graph registry
+    // -----------------------------------------------------------------------
+
+    /// Register a trigger-less computation graph constructor by graph name.
+    ///
+    /// Trigger-less graphs are declared with `#[computation_graph(graph =
+    /// { ... })]` (no `trigger = reactor(...)` clause) and operate on a
+    /// `Context<Value>`. They are invoked directly by workflow tasks
+    /// (T-02) and Python decorators (T-03).
+    pub fn register_triggerless_graph<F>(&self, name: String, constructor: F)
+    where
+        F: Fn() -> TriggerlessGraphRegistration + Send + Sync + 'static,
+    {
+        self.inner
+            .triggerless_graphs
+            .write()
+            .insert(name, Box::new(constructor));
+    }
+
+    /// Remove a trigger-less graph constructor. Returns true if the entry existed.
+    pub fn unregister_triggerless_graph(&self, name: &str) -> bool {
+        self.inner.triggerless_graphs.write().remove(name).is_some()
+    }
+
+    /// Look up and instantiate a trigger-less graph registration by name.
+    pub fn get_triggerless_graph(&self, name: &str) -> Option<TriggerlessGraphRegistration> {
+        self.inner
+            .triggerless_graphs
+            .read()
+            .get(name)
+            .map(|ctor| ctor())
+    }
+
+    /// Get every registered trigger-less graph name.
+    pub fn triggerless_graph_names(&self) -> Vec<String> {
+        self.inner
+            .triggerless_graphs
+            .read()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    // -----------------------------------------------------------------------
+    // Reactor registry
+    // -----------------------------------------------------------------------
+
+    /// Register a reactor constructor by name.
+    ///
+    /// Reactors declared via `#[reactor]` or synthesized by the bundled form
+    /// of `#[computation_graph]` land here. Graphs that declare
+    /// `trigger = reactor(X)` bind to the named reactor at load time.
+    pub fn register_reactor<F>(&self, name: String, constructor: F)
+    where
+        F: Fn() -> ReactorRegistration + Send + Sync + 'static,
+    {
+        self.inner
+            .reactors
+            .write()
+            .insert(name, Box::new(constructor));
+    }
+
+    /// Remove a reactor constructor. Returns true if the entry existed.
+    pub fn unregister_reactor(&self, name: &str) -> bool {
+        self.inner.reactors.write().remove(name).is_some()
+    }
+
+    /// Look up and instantiate a reactor registration by name.
+    pub fn get_reactor(&self, name: &str) -> Option<ReactorRegistration> {
+        self.inner.reactors.read().get(name).map(|ctor| ctor())
+    }
+
+    /// Get every registered reactor name.
+    pub fn reactor_names(&self) -> Vec<String> {
+        self.inner.reactors.read().keys().cloned().collect()
+    }
+
+    // -----------------------------------------------------------------------
     // Stream backend registry
     // -----------------------------------------------------------------------
 
@@ -327,7 +402,8 @@ impl Runtime {
     }
 
     /// Check if a stream backend is registered for the given type name.
-    pub fn has_stream_backend(&self, type_name: &str) -> bool {
+    #[cfg(test)]
+    pub(crate) fn has_stream_backend(&self, type_name: &str) -> bool {
         self.inner.stream_backends.read().contains_key(type_name)
     }
 
@@ -337,15 +413,15 @@ impl Runtime {
         &self,
         type_name: &str,
         config: StreamConfig,
-    ) -> Option<Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>>
-    {
+    ) -> Option<StreamBackendFuture> {
         let guard = self.inner.stream_backends.read();
         let factory = guard.get(type_name)?;
         Some(factory(config))
     }
 
     /// Get all registered stream backend type names.
-    pub fn stream_backend_names(&self) -> Vec<String> {
+    #[cfg(test)]
+    pub(crate) fn stream_backend_names(&self) -> Vec<String> {
         self.inner.stream_backends.read().keys().cloned().collect()
     }
 }

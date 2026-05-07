@@ -182,15 +182,10 @@ pub async fn get_execution(
 
     match dal.workflow_execution().get_by_id(universal_id).await {
         Ok(execution) => {
-            let status = match execution.status.as_str() {
-                "Pending" => "Pending",
-                "Running" => "Running",
-                "Completed" => "Completed",
-                "Failed" => "Failed",
-                "Cancelled" => "Cancelled",
-                "Paused" => "Paused",
-                other => other,
-            };
+            // Pass through the stored status string verbatim. Earlier code
+            // had a per-variant match that returned the same value, which
+            // was redundant. Trust the producer to write a valid status.
+            let status = execution.status.as_str();
             Json(serde_json::json!({
                 "tenant_id": tenant_id,
                 "execution_id": exec_id,

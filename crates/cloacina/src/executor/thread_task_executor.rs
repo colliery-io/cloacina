@@ -55,7 +55,10 @@ use async_trait::async_trait;
 /// Bounded reason value for `cloacina_tasks_total{status="failed", reason=...}`.
 ///
 /// Cardinality is closed: the set of returned values is fixed here so label
-/// explosion is impossible.
+/// explosion is impossible. Currently used only by the test that pins the
+/// label set; production code path that emitted these labels was removed
+/// in T-0563. Kept as a behavioral spec test.
+#[cfg(test)]
 fn failure_reason(err: &ExecutorError) -> &'static str {
     match err {
         ExecutorError::TaskTimeout => "timeout",
@@ -424,68 +427,6 @@ impl ThreadTaskExecutor {
     ///
     /// # Returns
     /// Result indicating success or failure of result handling
-    #[allow(dead_code)]
-    async fn handle_task_result(
-        &self,
-        claimed_task: ClaimedTask,
-        result: Result<Context<serde_json::Value>, ExecutorError>,
-    ) -> Result<(), ExecutorError> {
-        match result {
-            Ok(result_context) => {
-                // Complete task in a single transaction (save context + mark completed)
-                self.complete_task_transaction(&claimed_task, result_context)
-                    .await?;
-
-                metrics::counter!(
-                    "cloacina_tasks_total",
-                    "status" => "completed",
-                    "reason" => "ok",
-                )
-                .increment(1);
-                info!("Task completed successfully: {}", claimed_task.task_name);
-            }
-            Err(error) => {
-                // Get task retry policy to determine if we should retry.
-                // If the task namespace can't be parsed or the task isn't found
-                // in the registry, default to no retries (mark as permanently failed).
-                let retry_policy = parse_namespace(&claimed_task.task_name)
-                    .ok()
-                    .and_then(|ns| self.runtime.get_task(&ns))
-                    .map(|task| task.retry_policy())
-                    .unwrap_or_default();
-
-                // Check if we should retry this task
-                if self
-                    .should_retry_task(&claimed_task, &error, &retry_policy)
-                    .await?
-                {
-                    self.schedule_task_retry(&claimed_task, &retry_policy)
-                        .await?;
-                    warn!(
-                        "Task failed, scheduled for retry: {} (attempt {})",
-                        claimed_task.task_name, claimed_task.attempt
-                    );
-                } else {
-                    // Mark task as permanently failed
-                    self.mark_task_failed(claimed_task.task_execution_id, &error)
-                        .await?;
-                    metrics::counter!(
-                        "cloacina_tasks_total",
-                        "status" => "failed",
-                        "reason" => failure_reason(&error),
-                    )
-                    .increment(1);
-                    error!(
-                        "Task failed permanently: {} - {}",
-                        claimed_task.task_name, error
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Saves the task's execution context to the database.
     ///
     /// # Arguments
@@ -581,54 +522,6 @@ impl ThreadTaskExecutor {
                 "CRITICAL: mark_completed succeeded but context save failed"
             );
             return Err(e);
-        }
-
-        Ok(())
-    }
-
-    /// Marks a task as failed in the database.
-    ///
-    /// # Arguments
-    /// * `task_execution_id` - ID of the task to mark as failed
-    /// * `error` - The error that caused the failure
-    ///
-    /// # Returns
-    /// Result indicating success or failure of the operation
-    #[allow(dead_code)]
-    async fn mark_task_failed(
-        &self,
-        task_execution_id: UniversalUuid,
-        error: &ExecutorError,
-    ) -> Result<(), ExecutorError> {
-        let runner_id = if self.config.enable_claiming {
-            Some(self.instance_id)
-        } else {
-            None
-        };
-
-        // Get task info for logging before updating
-        let task = self
-            .dal
-            .task_execution()
-            .get_by_id(task_execution_id)
-            .await?;
-
-        let applied = self
-            .dal
-            .task_execution()
-            .mark_failed(task_execution_id, &error.to_string(), runner_id)
-            .await?;
-
-        if applied {
-            error!(
-                "Task state change: {} -> Failed (task: {}, workflow: {}, error: {})",
-                task.status, task.task_name, task.workflow_execution_id, error
-            );
-        } else {
-            warn!(
-                task_id = %task_execution_id,
-                "Claim lost — mark_failed skipped, another runner owns this task"
-            );
         }
 
         Ok(())

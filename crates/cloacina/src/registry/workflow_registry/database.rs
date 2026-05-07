@@ -33,7 +33,10 @@ pub struct InspectedPackage {
 }
 
 impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
-    /// Store package metadata in the database.
+    /// Store package metadata in the database. Test-only helper; the
+    /// production write path is `supersede_and_insert_with_prebuilt`,
+    /// which deals with the active/superseded transition correctly.
+    #[cfg(test)]
     pub(super) async fn store_package_metadata(
         &self,
         registry_id: &str,
@@ -63,7 +66,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         )
     }
 
-    #[cfg(feature = "postgres")]
+    #[cfg(all(feature = "postgres", test))]
     async fn store_package_metadata_postgres(
         &self,
         registry_uuid: Uuid,
@@ -128,7 +131,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(id.0)
     }
 
-    #[cfg(feature = "sqlite")]
+    #[cfg(all(feature = "sqlite", test))]
     async fn store_package_metadata_sqlite(
         &self,
         registry_uuid: Uuid,
@@ -716,10 +719,13 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     /// Supersede the current active row for `old_id` (if provided) and insert a new
     /// active row in the same transaction. Returns the new package UUID.
     ///
-    /// Used by the upload handler to atomically replace a package version: the old
-    /// row is flagged `superseded = true` and a fresh row with the new content is
-    /// inserted. The partial unique index `(package_name) WHERE NOT superseded`
-    /// guarantees at most one active row per name even under concurrent uploads.
+    /// Used by tests to exercise the supersede-and-insert flow without the
+    /// prebuilt-artifact path. Production code calls
+    /// `supersede_and_insert_with_prebuilt` directly with a `None` artifact.
+    /// The partial unique index `(package_name) WHERE NOT superseded`
+    /// guarantees at most one active row per name even under concurrent
+    /// uploads.
+    #[cfg(test)]
     pub(super) async fn supersede_and_insert(
         &self,
         old_id: Option<Uuid>,
@@ -1628,6 +1634,7 @@ mod tests {
             graph_data: None,
             architecture: "x86_64".to_string(),
             symbols: vec![],
+            workflow_triggers: vec![],
         }
     }
 

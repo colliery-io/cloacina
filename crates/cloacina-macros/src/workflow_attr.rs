@@ -19,8 +19,9 @@
 //! Applied to a `pub mod` containing `#[task]` functions. Auto-discovers tasks,
 //! validates dependencies, and generates registration code.
 //!
-//! - Without `packaged` feature: generates `#[ctor]` auto-registration (embedded mode)
-//! - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
+//! - Without `packaged` feature: emits `inventory::submit!` entries that
+//!   `cloacina::Runtime::seed_from_inventory` walks at runtime (embedded mode)
+//! - With `packaged` feature: generates FFI exports (packaged mode)
 
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -51,6 +52,10 @@ pub struct UnifiedWorkflowAttributes {
     pub tenant: String,
     pub description: Option<String>,
     pub author: Option<String>,
+    /// I-0102 / T-A: trigger names this workflow subscribes to. The
+    /// reconciler binds each named trigger → this workflow at load time
+    /// (replaces the manifest-side `[[triggers]]` table that T-E removes).
+    pub triggers: Vec<String>,
 }
 
 impl Parse for UnifiedWorkflowAttributes {
@@ -59,6 +64,7 @@ impl Parse for UnifiedWorkflowAttributes {
         let mut tenant = None;
         let mut description = None;
         let mut author = None;
+        let mut triggers: Vec<String> = Vec::new();
 
         while !input.is_empty() {
             let field_name: Ident = input.parse()?;
@@ -81,11 +87,23 @@ impl Parse for UnifiedWorkflowAttributes {
                     let lit: LitStr = input.parse()?;
                     author = Some(lit.value());
                 }
+                "triggers" => {
+                    // Array of string literals: triggers = ["t1", "t2"]
+                    let content;
+                    syn::bracketed!(content in input);
+                    while !content.is_empty() {
+                        let lit: LitStr = content.parse()?;
+                        triggers.push(lit.value());
+                        if !content.is_empty() {
+                            content.parse::<Token![,]>()?;
+                        }
+                    }
+                }
                 _ => {
                     return Err(syn::Error::new(
                         field_name.span(),
                         format!(
-                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author",
+                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author, triggers",
                             field_name
                         ),
                     ));
@@ -106,6 +124,7 @@ impl Parse for UnifiedWorkflowAttributes {
             tenant: tenant.unwrap_or_else(|| "public".to_string()),
             description,
             author,
+            triggers,
         })
     }
 }
@@ -137,7 +156,8 @@ pub fn workflow_attr(args: TokenStream, input: TokenStream) -> TokenStream {
 /// In embedded mode (no `packaged` feature), generates:
 /// - The original module with all task functions
 /// - A workflow constructor function
-/// - `#[ctor]` auto-registration for workflow + tasks
+/// - `inventory::submit!` entries for workflow + tasks (consumed by
+///   `Runtime::seed_from_inventory` at runtime)
 fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2 {
     let mod_name = &input.ident;
     let mod_vis = &input.vis;
@@ -217,6 +237,49 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         quote! {}
     };
 
+    // I-0102 / T-C: TaskEntry inventory submissions emitted unconditionally
+    // so the unified `cloacina::package!()` shell can walk them in packaged
+    // cdylib builds. Embedded mode also needs them (Runtime::new() seeds
+    // tasks from inventory).
+    let task_inventory_entries =
+        build_task_inventory_entries(tenant, workflow_name, mod_name, &detected_tasks);
+
+    // I-0102 / T-C: WorkflowDescriptorEntry carries metadata the shell
+    // can't derive from TaskEntry alone (description, author, fingerprint,
+    // graph_data, triggers).
+    //
+    // Emitted in both modes (library `cargo run` and packaged cdylib) so
+    // `Runtime::new()` and `package!()` both pick it up. The cfg-gated paths
+    // resolve through whichever crate the user actually depends on:
+    // `cloacina` re-exports `cloacina_workflow_plugin` for library mode;
+    // packaged cdylibs depend on `cloacina-workflow-plugin` directly.
+    let triggers_vec: Vec<String> = attrs.triggers.clone();
+    let workflow_descriptor_entry = quote! {
+        #[cfg(not(feature = "packaged"))]
+        ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina::cloacina_workflow_plugin::WorkflowDescriptorEntry {
+                name: #workflow_name,
+                description: #description,
+                author: #author,
+                fingerprint: #fingerprint,
+                graph_data_json: #graph_data_json,
+                triggers: || vec![#(#triggers_vec.to_string()),*],
+            }
+        }
+
+        #[cfg(feature = "packaged")]
+        ::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina_workflow_plugin::WorkflowDescriptorEntry {
+                name: #workflow_name,
+                description: #description,
+                author: #author,
+                fingerprint: #fingerprint,
+                graph_data_json: #graph_data_json,
+                triggers: || vec![#(#triggers_vec.to_string()),*],
+            }
+        }
+    };
+
     // Generate embedded registration (when `packaged` feature is NOT active)
     let embedded_registration = generate_embedded_registration(
         mod_name,
@@ -239,26 +302,27 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         &graph_data_json,
         &detected_tasks,
         &task_dependencies,
+        &attrs.triggers,
     );
 
-    let _packaged_mod_name = syn::Ident::new(
-        &format!("_packaged_ffi_{}", workflow_name.replace(['-', ' '], "_")),
-        Span::call_site(),
-    );
+    // I-0102 / T-C: per-macro `_ffi` plugin emission stripped. The unified
+    // `cloacina::package!()` shell at the crate root is now the sole path
+    // that produces a CloacinaPlugin export. Packaged cdylibs MUST declare
+    // `cloacina::package!();` at the crate root for fidius to find them.
+    let _ = packaged_registration;
 
     quote! {
         #(#mod_attrs)*
         #mod_vis mod #mod_name {
             #module_items
-
-            // Packaged FFI code lives inside the module (same scope as task functions)
-            // Wrapped in cfg-gated sub-module to exclude all items when not packaged
-            #[cfg(feature = "packaged")]
-            pub mod _ffi {
-                use super::*;
-                #packaged_registration
-            }
         }
+
+        // I-0102 / T-C: TaskEntry + WorkflowDescriptorEntry inventory
+        // submissions fire in BOTH packaged and embedded modes. The unified
+        // `cloacina::package!()` shell walks these from packaged cdylibs.
+        #(#task_inventory_entries)*
+
+        #workflow_descriptor_entry
 
         #[cfg(not(feature = "packaged"))]
         const _: () = {
@@ -327,7 +391,7 @@ fn validate_dependencies(
 /// Generate embedded mode registration code.
 ///
 /// Creates task constructors, workflow constructor, namespace registration,
-/// and `#[ctor]` auto-registration.
+/// and `inventory::submit!` entries for runtime seeding.
 #[allow(clippy::too_many_arguments)]
 fn generate_embedded_registration(
     mod_name: &syn::Ident,
@@ -372,8 +436,8 @@ fn generate_embedded_registration(
                     };
                     let dep_ids = #mod_path_prefix::#struct_name::dependency_task_ids();
                     let pkg_name = env!("CARGO_PKG_NAME");
-                    let dep_namespaces: Vec<cloacina::TaskNamespace> = dep_ids.iter()
-                        .map(|dep_id| cloacina::TaskNamespace::new(
+                    let dep_namespaces: Vec<cloacina_workflow::TaskNamespace> = dep_ids.iter()
+                        .map(|dep_id| cloacina_workflow::TaskNamespace::new(
                             #tenant,
                             pkg_name,
                             #workflow_name,
@@ -389,14 +453,14 @@ fn generate_embedded_registration(
                     }
 
                     #[async_trait::async_trait]
-                    impl<T: cloacina::Task> cloacina::Task for TaskWithNamespacedTriggers<T> {
-                        async fn execute(&self, context: cloacina::Context<serde_json::Value>)
-                            -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
+                    impl<T: cloacina_workflow::Task> cloacina_workflow::Task for TaskWithNamespacedTriggers<T> {
+                        async fn execute(&self, context: cloacina_workflow::Context<serde_json::Value>)
+                            -> Result<cloacina_workflow::Context<serde_json::Value>, cloacina_workflow::TaskError> {
                             self.inner.execute(context).await
                         }
                         fn id(&self) -> &str { self.inner.id() }
-                        fn dependencies(&self) -> &[cloacina::TaskNamespace] { self.inner.dependencies() }
-                        fn retry_policy(&self) -> cloacina::retry::RetryPolicy { self.inner.retry_policy() }
+                        fn dependencies(&self) -> &[cloacina_workflow::TaskNamespace] { self.inner.dependencies() }
+                        fn retry_policy(&self) -> cloacina_workflow::retry::RetryPolicy { self.inner.retry_policy() }
                         fn trigger_rules(&self) -> serde_json::Value { self.rewritten_trigger_rules.clone() }
                         fn code_fingerprint(&self) -> Option<String> { self.inner.code_fingerprint() }
                         fn requires_handle(&self) -> bool { self.inner.requires_handle() }
@@ -429,103 +493,6 @@ fn generate_embedded_registration(
         quote! {}
     };
 
-    // Inventory entries for the workflow itself and each contained task.
-    // The TaskEntry constructor wraps each task with trigger-rule rewriting,
-    // dep-namespace resolution, and the TaskWithNamespacedTriggers wrapper so
-    // `Runtime::new()` can seed tasks directly from inventory.
-    let rewrite_trigger_rules_for_inventory = generate_trigger_rules_rewrite(tenant, workflow_name);
-    let task_inventory_entries: Vec<TokenStream2> = detected_tasks
-        .iter()
-        .map(|(task_id, fn_name)| {
-            let constructor_name = syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
-            let task_str = fn_name.to_string();
-            let parts: Vec<&str> = task_str.split('_').collect();
-            let pascal_case = parts
-                .iter()
-                .map(|part| {
-                    let mut chars = part.chars();
-                    match chars.next() {
-                        None => String::new(),
-                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                    }
-                })
-                .collect::<String>();
-            let struct_name = syn::Ident::new(&format!("{}Task", pascal_case), fn_name.span());
-            let rewrite_body = rewrite_trigger_rules_for_inventory.clone();
-            quote! {
-                cloacina::inventory::submit! {
-                    cloacina::TaskEntry {
-                        namespace: || cloacina::TaskNamespace::new(
-                            #tenant,
-                            env!("CARGO_PKG_NAME"),
-                            #workflow_name,
-                            #task_id,
-                        ),
-                        constructor: || {
-                            let task = #mod_path_prefix::#constructor_name();
-                            let rewritten_trigger_rules = {
-                                let task_ref = &task;
-                                #rewrite_body
-                            };
-
-                            let dep_ids = #mod_path_prefix::#struct_name::dependency_task_ids();
-                            let pkg_name = env!("CARGO_PKG_NAME");
-                            let dep_namespaces: Vec<cloacina::TaskNamespace> = dep_ids
-                                .iter()
-                                .map(|dep_id| cloacina::TaskNamespace::new(
-                                    #tenant,
-                                    pkg_name,
-                                    #workflow_name,
-                                    dep_id,
-                                ))
-                                .collect();
-
-                            let task_with_deps = task.with_dependencies(dep_namespaces);
-
-                            struct TaskWithNamespacedTriggers<T> {
-                                inner: T,
-                                rewritten_trigger_rules: serde_json::Value,
-                            }
-
-                            #[async_trait::async_trait]
-                            impl<T: cloacina::Task> cloacina::Task for TaskWithNamespacedTriggers<T> {
-                                async fn execute(
-                                    &self,
-                                    context: cloacina::Context<serde_json::Value>,
-                                ) -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError>
-                                {
-                                    self.inner.execute(context).await
-                                }
-                                fn id(&self) -> &str { self.inner.id() }
-                                fn dependencies(&self) -> &[cloacina::TaskNamespace] {
-                                    self.inner.dependencies()
-                                }
-                                fn retry_policy(&self) -> cloacina::retry::RetryPolicy {
-                                    self.inner.retry_policy()
-                                }
-                                fn trigger_rules(&self) -> serde_json::Value {
-                                    self.rewritten_trigger_rules.clone()
-                                }
-                                fn code_fingerprint(&self) -> Option<String> {
-                                    self.inner.code_fingerprint()
-                                }
-                                fn requires_handle(&self) -> bool {
-                                    self.inner.requires_handle()
-                                }
-                            }
-
-                            std::sync::Arc::new(TaskWithNamespacedTriggers {
-                                inner: task_with_deps,
-                                rewritten_trigger_rules,
-                            })
-                                as std::sync::Arc<dyn cloacina::Task>
-                        },
-                    }
-                }
-            }
-        })
-        .collect();
-
     quote! {
         fn #workflow_constructor_name() -> cloacina::Workflow {
             let pkg_name = env!("CARGO_PKG_NAME");
@@ -549,9 +516,128 @@ fn generate_embedded_registration(
                 constructor: #workflow_constructor_name,
             }
         }
-
-        #(#task_inventory_entries)*
     }
+}
+
+/// Build `inventory::submit!` blocks for each task in the workflow.
+///
+/// Emitted unconditionally (both `feature = "packaged"` and not) so the
+/// unified `cloacina::package!()` shell can walk
+/// `inventory::iter::<TaskEntry>` from packaged cdylib builds. (T-C / I-0102)
+fn build_task_inventory_entries(
+    tenant: &str,
+    workflow_name: &str,
+    mod_name: &syn::Ident,
+    detected_tasks: &HashMap<String, syn::Ident>,
+) -> Vec<TokenStream2> {
+    let mod_path_prefix = quote! { #mod_name };
+    let rewrite_trigger_rules_for_inventory = generate_trigger_rules_rewrite(tenant, workflow_name);
+
+    detected_tasks
+        .iter()
+        .map(|(task_id, fn_name)| {
+            let constructor_name = syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
+            let task_str = fn_name.to_string();
+            let parts: Vec<&str> = task_str.split('_').collect();
+            let pascal_case = parts
+                .iter()
+                .map(|part| {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                })
+                .collect::<String>();
+            let struct_name = syn::Ident::new(&format!("{}Task", pascal_case), fn_name.span());
+            let rewrite_body = rewrite_trigger_rules_for_inventory.clone();
+            // The TaskEntry struct-literal body. References to
+            // `cloacina_workflow::*` resolve via the leaf authoring crate
+            // (always a direct dep). The outer `cloacina_workflow_plugin`
+            // path is cfg-conditional below so it resolves through
+            // `::cloacina::*` in library mode and directly in packaged mode.
+            let task_entry_body = quote! {
+                {
+                    namespace: || cloacina_workflow::TaskNamespace::new(
+                        #tenant,
+                        env!("CARGO_PKG_NAME"),
+                        #workflow_name,
+                        #task_id,
+                    ),
+                    constructor: || {
+                        let task = #mod_path_prefix::#constructor_name();
+                        let rewritten_trigger_rules = {
+                            let task_ref = &task;
+                            #rewrite_body
+                        };
+
+                        let dep_ids = #mod_path_prefix::#struct_name::dependency_task_ids();
+                        let pkg_name = env!("CARGO_PKG_NAME");
+                        let dep_namespaces: Vec<cloacina_workflow::TaskNamespace> = dep_ids
+                            .iter()
+                            .map(|dep_id| cloacina_workflow::TaskNamespace::new(
+                                #tenant,
+                                pkg_name,
+                                #workflow_name,
+                                dep_id,
+                            ))
+                            .collect();
+
+                        let task_with_deps = task.with_dependencies(dep_namespaces);
+
+                        struct TaskWithNamespacedTriggers<T> {
+                            inner: T,
+                            rewritten_trigger_rules: serde_json::Value,
+                        }
+
+                        #[async_trait::async_trait]
+                        impl<T: cloacina_workflow::Task> cloacina_workflow::Task for TaskWithNamespacedTriggers<T> {
+                            async fn execute(
+                                &self,
+                                context: cloacina_workflow::Context<serde_json::Value>,
+                            ) -> Result<cloacina_workflow::Context<serde_json::Value>, cloacina_workflow::TaskError>
+                            {
+                                self.inner.execute(context).await
+                            }
+                            fn id(&self) -> &str { self.inner.id() }
+                            fn dependencies(&self) -> &[cloacina_workflow::TaskNamespace] {
+                                self.inner.dependencies()
+                            }
+                            fn retry_policy(&self) -> cloacina_workflow::retry::RetryPolicy {
+                                self.inner.retry_policy()
+                            }
+                            fn trigger_rules(&self) -> serde_json::Value {
+                                self.rewritten_trigger_rules.clone()
+                            }
+                            fn code_fingerprint(&self) -> Option<String> {
+                                self.inner.code_fingerprint()
+                            }
+                            fn requires_handle(&self) -> bool {
+                                self.inner.requires_handle()
+                            }
+                        }
+
+                        std::sync::Arc::new(TaskWithNamespacedTriggers {
+                            inner: task_with_deps,
+                            rewritten_trigger_rules,
+                        })
+                            as std::sync::Arc<dyn cloacina_workflow::Task>
+                    },
+                }
+            };
+            quote! {
+                #[cfg(not(feature = "packaged"))]
+                ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+                    ::cloacina::cloacina_workflow_plugin::TaskEntry #task_entry_body
+                }
+
+                #[cfg(feature = "packaged")]
+                ::cloacina_workflow_plugin::inventory::submit! {
+                    ::cloacina_workflow_plugin::TaskEntry #task_entry_body
+                }
+            }
+        })
+        .collect()
 }
 
 /// Generate trigger rules rewrite code (namespace task names in trigger conditions).
@@ -614,6 +700,7 @@ fn generate_packaged_registration(
     graph_data_json: &str,
     detected_tasks: &HashMap<String, syn::Ident>,
     task_dependencies: &HashMap<String, Vec<String>>,
+    triggers: &[String],
 ) -> TokenStream2 {
     let package_description = if description.is_empty() {
         format!("Workflow: {}", workflow_name)
@@ -625,6 +712,11 @@ fn generate_packaged_registration(
     } else {
         author.to_string()
     };
+
+    // I-0102 / T-A: Workflow's trigger subscriptions (string names) flow
+    // through to PackageTasksMetadata.triggers; the reconciler binds each
+    // named trigger to this workflow at load time.
+    let triggers_lits: Vec<String> = triggers.to_vec();
 
     // Generate task execution match arms
     let mut task_execution_cases = Vec::new();
@@ -684,6 +776,7 @@ fn generate_packaged_registration(
                     tasks: vec![
                         #(#metadata_entries),*
                     ],
+                    triggers: vec![#(#triggers_lits.to_string()),*],
                 })
             }
 
@@ -748,6 +841,20 @@ fn generate_packaged_registration(
                     message: "This is a workflow package, not a computation graph package".to_string(),
                     details: None,
                 })
+            }
+
+            // T-A / I-0102: per-macro `_ffi` blocks predate the unified
+            // `cloacina::package!()` shell. They report "no reactors" /
+            // "no triggers" — packages built against the new shell expose
+            // reactor + trigger metadata directly via the shell instead.
+            // Method order in the impl block must match trait declaration
+            // order (fidius's vtable is positional).
+            fn get_reactor_metadata(&self) -> Result<Vec<cloacina_workflow_plugin::ReactorPackageMetadata>, cloacina_workflow_plugin::PluginError> {
+                Ok(Vec::new())
+            }
+
+            fn get_trigger_metadata(&self) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, cloacina_workflow_plugin::PluginError> {
+                Ok(Vec::new())
             }
         }
 

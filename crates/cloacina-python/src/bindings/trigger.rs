@@ -21,8 +21,10 @@
 
 use crate::context::PyContext;
 use async_trait::async_trait;
-use cloacina::trigger::{Trigger, TriggerError, TriggerResult};
+// T-0552: Trigger trait + TriggerError relocated to cloacina-workflow.
 use cloacina::Context;
+use cloacina::Trigger;
+use cloacina_workflow::{TriggerError, TriggerResult};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde_json::Value;
@@ -86,12 +88,29 @@ impl PyTriggerResult {
 }
 
 impl PyTriggerResult {
-    /// Convert to Rust TriggerResult
+    /// Convert to Rust TriggerResult by consuming self.
     pub fn into_rust(self) -> TriggerResult {
         if !self.is_fire {
             TriggerResult::Skip
         } else {
             let ctx = self.data.map(|d| {
+                let mut context = Context::new();
+                for (key, value) in d {
+                    context.insert(key, value).ok();
+                }
+                context
+            });
+            TriggerResult::Fire(ctx)
+        }
+    }
+
+    /// Convert to Rust TriggerResult by cloning self (for &self callers
+    /// such as the cross-API loader-side `PythonTriggerWrapper.poll`).
+    pub fn clone_into_rust(&self) -> TriggerResult {
+        if !self.is_fire {
+            TriggerResult::Skip
+        } else {
+            let ctx = self.data.clone().map(|d| {
                 let mut context = Context::new();
                 for (key, value) in d {
                     context.insert(key, value).ok();

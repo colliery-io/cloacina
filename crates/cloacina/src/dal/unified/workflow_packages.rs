@@ -595,6 +595,7 @@ mod tests {
             graph_data: None,
             architecture: "x86_64".to_string(),
             symbols: vec![],
+            workflow_triggers: vec![],
         }
     }
 

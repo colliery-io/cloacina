@@ -1,0 +1,12 @@
+[package]
+name = "mixed-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "mixed_workflow"
+language = "rust"
+description = "Mixed primitive fixture: reactor + trigger + reactor-bound CG + workflow"
+author = "Cloacina Test Fixtures"

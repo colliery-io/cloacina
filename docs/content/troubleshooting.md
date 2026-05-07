@@ -852,9 +852,19 @@ This is typically caused by:
    cargo build --features extension-module
    ```
 
-5. **Applied fixes in Cloacina's codebase:**
-   - OpenSSL is initialized early via `#[ctor]` in `cloacina/src/database/connection.rs` to run before any async runtime or test setup.
-   - Test packages are cached with `OnceLock` to ensure package building (which forks) happens before DB initialization.
+5. **Historical mitigations** (kept here for reference; not in the
+   current codebase):
+   - The pre-I-0096 codebase initialized OpenSSL early via `#[ctor]` in
+     `cloacina/src/database/connection.rs`. That file no longer exists
+     (`connection/` is now a directory) and the `ctor` dependency has
+     been dropped. The crash has not recurred; if it does, this
+     pattern is the known-good mitigation. See
+     [docs/SIGSEGV_TROUBLESHOOTING.md](https://github.com/colliery-io/cloacina/blob/main/docs/SIGSEGV_TROUBLESHOOTING.md)
+     for the historical record.
+   - Test packages were cached with `OnceLock` to force the forking
+     `package_workflow()` build to run before any DB connection init.
+     If the crash returns, restoring this caching pattern is a quick
+     workaround.
 
 6. **Debugging tips:**
    - GDB slows execution enough to mask race conditions — if tests pass under GDB, suspect a timing issue.

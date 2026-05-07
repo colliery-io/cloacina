@@ -21,6 +21,7 @@ use anyhow::Result;
 use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use uuid::Uuid;
 
 /// cloacina-server — HTTP API for Cloacina, backed by Postgres.
 #[derive(Parser)]
@@ -51,6 +52,12 @@ struct Cli {
     #[arg(long, env = "CLOACINA_REQUIRE_SIGNATURES")]
     require_signatures: bool,
 
+    /// Trusted organization id (UUID) used to verify package signatures.
+    /// Required when `--require-signatures` is set; otherwise startup fails fast.
+    /// CLOACI-I-0103 / T-0567.
+    #[arg(long, env = "CLOACINA_VERIFICATION_ORG_ID")]
+    verification_org_id: Option<Uuid>,
+
     /// Interval (seconds) between reconciler passes that sync the in-runner
     /// workflow registry with the DB. Default matches the cloacina runtime
     /// default; override upward for quiet prod, downward for fast e2e.
@@ -74,6 +81,7 @@ async fn main() -> Result<()> {
         cli.verbose,
         cli.bootstrap_key,
         cli.require_signatures,
+        cli.verification_org_id,
         cli.reconcile_interval_s.map(std::time::Duration::from_secs),
     )
     .await

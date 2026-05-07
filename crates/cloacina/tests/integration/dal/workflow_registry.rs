@@ -15,7 +15,6 @@
  */
 
 use crate::fixtures::get_or_init_fixture;
-use cloacina::registry::error::RegistryError;
 use cloacina::registry::traits::RegistryStorage;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use serial_test::serial;

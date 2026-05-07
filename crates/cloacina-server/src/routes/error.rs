@@ -31,10 +31,12 @@ use axum::{
 /// ```json
 /// {
 ///   "error": "human-readable message",
-///   "code": "machine_readable_code",
-///   "request_id": "optional-uuid"
+///   "code": "machine_readable_code"
 /// }
 /// ```
+///
+/// The request ID is propagated via the `x-request-id` response header
+/// (set by the request_id_middleware), not via the response body.
 #[derive(Debug)]
 pub struct ApiError {
     pub status: StatusCode,

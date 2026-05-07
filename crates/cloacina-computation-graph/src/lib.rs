@@ -85,19 +85,6 @@ pub fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, GraphError> {
     bincode::deserialize(bytes).map_err(|e| GraphError::Deserialization(e.to_string()))
 }
 
-/// Convert a JSON string to bincode bytes for a given type.
-///
-/// Convenience for external producers pushing events via WebSocket.
-/// The WebSocket handler calls this to convert incoming JSON to the
-/// internal bincode wire format before forwarding to accumulators.
-pub fn json_to_wire<T: Serialize + DeserializeOwned>(
-    json_str: &str,
-) -> Result<Vec<u8>, GraphError> {
-    let value: T =
-        serde_json::from_str(json_str).map_err(|e| GraphError::Serialization(e.to_string()))?;
-    serialize(&value)
-}
-
 // ---------------------------------------------------------------------------
 // InputCache
 // ---------------------------------------------------------------------------
@@ -220,12 +207,6 @@ impl GraphResult {
         Self::Completed { outputs }
     }
 
-    pub fn completed_empty() -> Self {
-        Self::Completed {
-            outputs: Vec::new(),
-        }
-    }
-
     pub fn error(err: GraphError) -> Self {
         Self::Error(err)
     }
@@ -275,16 +256,107 @@ pub type CompiledGraphFn =
 // `inventory` entries emitted by the `#[computation_graph]` macro.
 
 /// Metadata about a registered computation graph.
+///
+/// `accumulator_names` and `reaction_mode` are the canonical fields consumed
+/// by the packaging FFI and the reconciler. Bundled-form graphs populate
+/// these from the local declaration; split-form graphs mirror the
+/// referenced reactor's declaration. Trigger-less graphs carry empty
+/// `accumulator_names` and `trigger_reactor = None`.
 pub struct ComputationGraphRegistration {
     /// The compiled graph function.
     pub graph_fn: CompiledGraphFn,
-    /// Accumulator names declared in the graph topology.
+    /// Name of the reactor this graph is bound to, if any. `None` for
+    /// trigger-less graphs (T-02/T-03 invoke these directly from workflow
+    /// tasks or Python tasks).
+    pub trigger_reactor: Option<String>,
+    /// Accumulator names. For split-form graphs this mirrors the reactor's
+    /// accumulators; for trigger-less graphs it is empty.
     pub accumulator_names: Vec<String>,
-    /// Reaction mode: "when_any" or "when_all".
+    /// Reaction mode: `"when_any"`, `"when_all"`, or `"none"` for
+    /// trigger-less graphs.
     pub reaction_mode: String,
 }
 
 pub type ComputationGraphConstructor = Box<dyn Fn() -> ComputationGraphRegistration + Send + Sync>;
+
+// ---------------------------------------------------------------------------
+// Reactor
+// ---------------------------------------------------------------------------
+//
+// A reactor is a named bundle of accumulators + firing criteria. It fires an
+// `InputCache` whenever its criteria are met and publishes to any graph bound
+// to it by name.
+//
+// The `#[reactor]` attribute macro emits a unit struct + `impl Reactor for X`.
+// The struct is a compile-time handle: `#[computation_graph(trigger =
+// reactor(X))]` references it by type path so the graph macro can const-check
+// that its entry accumulators are a subset of `<X as Reactor>::ACCUMULATORS`.
+
+/// How a reactor decides when to fire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReactionMode {
+    /// Fire as soon as any one accumulator has new input.
+    WhenAny,
+    /// Fire only when every accumulator has new input since the last firing.
+    WhenAll,
+}
+
+impl ReactionMode {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            ReactionMode::WhenAny => "when_any",
+            ReactionMode::WhenAll => "when_all",
+        }
+    }
+}
+
+impl fmt::Display for ReactionMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Compile-time handle for a reactor declaration.
+///
+/// Implemented by the unit struct emitted by `#[reactor]`. The constants are
+/// readable at `const` context, which the `#[computation_graph]` macro uses to
+/// const-check the graph's entry accumulators against the reactor's
+/// accumulator set.
+pub trait Reactor {
+    /// Reactor name as declared in `#[reactor(name = "...")]`.
+    const NAME: &'static str;
+    /// Declared accumulator names. Order matches the `accumulators = [...]`
+    /// clause; uniqueness is enforced at macro expansion.
+    const ACCUMULATORS: &'static [&'static str];
+    /// Firing criteria.
+    const REACTION_MODE: ReactionMode;
+}
+
+/// Runtime-side description of a reactor.
+///
+/// Populated by the `#[reactor]` macro's emitted inventory entry.
+#[derive(Debug, Clone)]
+pub struct ReactorRegistration {
+    pub name: String,
+    pub accumulator_names: Vec<String>,
+    pub reaction_mode: ReactionMode,
+}
+
+pub type ReactorConstructor = Box<dyn Fn() -> ReactorRegistration + Send + Sync>;
+
+/// Compile-time handle for a computation graph declaration.
+///
+/// Implemented by the `__CGHandle_<modname>` unit struct emitted by
+/// `#[computation_graph]`. Lets other macros (notably `#[task(invokes =
+/// computation_graph(H))]`) reference a graph by type path and const-check
+/// invariants like trigger-less-ness at compile time.
+pub trait Graph {
+    /// Graph name (the macro's `mod` name).
+    const NAME: &'static str;
+    /// True if the graph was declared without `trigger = reactor(...)` and is
+    /// therefore invocable directly by a workflow task.
+    const IS_TRIGGERLESS: bool;
+}
 
 // Re-export types module for backward compat path: `cloacina_computation_graph::types::serialize`
 pub mod types {

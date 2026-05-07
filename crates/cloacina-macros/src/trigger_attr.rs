@@ -217,18 +217,15 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
         fn_name.span(),
     );
 
-    let auto_register_name = syn::Ident::new(
-        &format!("_auto_register_trigger_{}", fn_name),
-        Span::call_site(),
-    );
-
-    // Embedded mode: generate Trigger trait impl + ctor registration
+    // Trigger emission targets cdylib-reachable paths.
+    // `cloacina_workflow::Trigger` is the (relocated) trait; its `poll()`
+    // returns leaf-crate `TriggerResult` / `TriggerError`.
     let embedded_code = quote! {
         #[derive(Debug, Clone)]
         struct #struct_name;
 
         #[async_trait::async_trait]
-        impl cloacina::trigger::Trigger for #struct_name {
+        impl cloacina_workflow::Trigger for #struct_name {
             fn name(&self) -> &str {
                 #trigger_name
             }
@@ -241,11 +238,8 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
                 #allow_concurrent
             }
 
-            async fn poll(&self) -> Result<cloacina::trigger::TriggerResult, cloacina::trigger::TriggerError> {
-                // Call the user's poll function, converting both Result and Error types
+            async fn poll(&self) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
                 _trigger_poll_impl().await
-                    .map(|r| r.into())
-                    .map_err(|e| e.into())
             }
         }
 
@@ -253,20 +247,26 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
             #fn_block
         }
 
-        cloacina::inventory::submit! {
-            cloacina::TriggerEntry {
+        // T-0552: TriggerEntry inventory submission emits in BOTH
+        // packaged and embedded modes so the unified `cloacina::package!()`
+        // shell can walk it from packaged cdylibs. Cfg-gated paths so the
+        // submission resolves through the right crate per build mode (library
+        // mode uses `cloacina::cloacina_workflow_plugin::*`; packaged mode
+        // uses `cloacina_workflow_plugin::*` direct).
+        #[cfg(not(feature = "packaged"))]
+        ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina::cloacina_workflow_plugin::TriggerEntry {
                 name: #trigger_name,
-                constructor: || std::sync::Arc::new(#struct_name) as std::sync::Arc<dyn cloacina::trigger::Trigger>,
+                constructor: || std::sync::Arc::new(#struct_name) as std::sync::Arc<dyn cloacina_workflow::Trigger>,
             }
         }
-    };
-
-    // Packaged mode: just record metadata (trigger goes into manifest)
-    let _packaged_code = quote! {
-        // In packaged mode, trigger metadata is included in the manifest.
-        // The poll function is preserved for FFI execution.
-        #fn_vis async fn #fn_name() -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError>
-            #fn_block
+        #[cfg(feature = "packaged")]
+        ::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina_workflow_plugin::TriggerEntry {
+                name: #trigger_name,
+                constructor: || std::sync::Arc::new(#struct_name) as std::sync::Arc<dyn cloacina_workflow::Trigger>,
+            }
+        }
     };
 
     quote! {
@@ -274,13 +274,13 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
         #fn_vis async fn #fn_name() -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError>
             #fn_block
 
-        #[cfg(not(feature = "packaged"))]
+        // T-0552: emission un-gated — fires in both packaged and embedded
+        // modes. The unified shell macro consumes inventory in packaged
+        // builds; the engine's Runtime::new() seeds from inventory in
+        // embedded builds.
         const _: () = {
             #embedded_code
         };
-
-        // In packaged mode, trigger metadata goes into the manifest (handled by #[workflow])
-        // No runtime registration needed
     }
 }
 
@@ -305,24 +305,19 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
         fn_name.span(),
     );
 
-    let auto_register_name = syn::Ident::new(
-        &format!("_auto_register_cron_trigger_{}", fn_name),
-        Span::call_site(),
-    );
-
     // Poll interval for cron: check every 30 seconds
     let cron_poll_ms: u64 = 30_000;
 
     let embedded_code = quote! {
         #[derive(Debug, Clone)]
         struct #struct_name {
-            evaluator: cloacina::cron_evaluator::CronEvaluator,
+            evaluator: cloacina_workflow::cron_evaluator::CronEvaluator,
             last_fire: std::sync::Arc<std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>>>,
         }
 
         impl #struct_name {
             fn new() -> Self {
-                let evaluator = cloacina::cron_evaluator::CronEvaluator::new(
+                let evaluator = cloacina_workflow::cron_evaluator::CronEvaluator::new(
                     #cron_expression,
                     #timezone,
                 ).expect("Invalid cron expression — this should have been caught at compile time");
@@ -335,7 +330,7 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
         }
 
         #[async_trait::async_trait]
-        impl cloacina::trigger::Trigger for #struct_name {
+        impl cloacina_workflow::Trigger for #struct_name {
             fn name(&self) -> &str {
                 #trigger_name
             }
@@ -348,23 +343,26 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
                 #allow_concurrent
             }
 
-            async fn poll(&self) -> Result<cloacina::trigger::TriggerResult, cloacina::trigger::TriggerError> {
+            fn cron_expression(&self) -> Option<String> {
+                Some(#cron_expression.to_string())
+            }
+
+            async fn poll(&self) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
                 let now = chrono::Utc::now();
                 let mut last_fire = self.last_fire.lock().unwrap();
 
-                // Check if we're past the next scheduled time
                 let check_from = last_fire.unwrap_or(now - chrono::Duration::seconds(1));
                 match self.evaluator.next_execution(check_from) {
                     Ok(next_run) => {
                         if next_run <= now {
                             *last_fire = Some(now);
-                            Ok(cloacina::trigger::TriggerResult::Fire(None))
+                            Ok(cloacina_workflow::TriggerResult::Fire(None))
                         } else {
-                            Ok(cloacina::trigger::TriggerResult::Skip)
+                            Ok(cloacina_workflow::TriggerResult::Skip)
                         }
                     }
                     Err(e) => {
-                        Err(cloacina::trigger::TriggerError::PollError {
+                        Err(cloacina_workflow::TriggerError::PollError {
                             message: format!("Cron evaluation error: {}", e),
                         })
                     }
@@ -372,23 +370,29 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
             }
         }
 
-        cloacina::inventory::submit! {
-            cloacina::TriggerEntry {
+        // Cfg-gated path so submission resolves correctly in both library
+        // mode (via cloacina re-export) and packaged mode (direct dep).
+        #[cfg(not(feature = "packaged"))]
+        ::cloacina::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina::cloacina_workflow_plugin::TriggerEntry {
                 name: #trigger_name,
-                constructor: || std::sync::Arc::new(#struct_name::new()) as std::sync::Arc<dyn cloacina::trigger::Trigger>,
+                constructor: || std::sync::Arc::new(#struct_name::new()) as std::sync::Arc<dyn cloacina_workflow::Trigger>,
+            }
+        }
+        #[cfg(feature = "packaged")]
+        ::cloacina_workflow_plugin::inventory::submit! {
+            ::cloacina_workflow_plugin::TriggerEntry {
+                name: #trigger_name,
+                constructor: || std::sync::Arc::new(#struct_name::new()) as std::sync::Arc<dyn cloacina_workflow::Trigger>,
             }
         }
     };
 
     quote! {
-        // The original function is consumed — cron triggers don't need a user-defined body
-
-        #[cfg(not(feature = "packaged"))]
+        // T-0552: emission un-gated for both packaged and embedded modes.
         const _: () = {
             #embedded_code
         };
-
-        // In packaged mode, cron metadata goes into the manifest
     }
 }
 

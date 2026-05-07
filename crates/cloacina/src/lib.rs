@@ -434,6 +434,16 @@ pub extern crate cloacina_workflow;
 // Re-export cloacina_computation_graph for packaged CG plugins that use `cloacina::computation_graph::*` paths
 pub use cloacina_computation_graph;
 
+// Re-export cloacina_workflow_plugin so macros emitted into library-mode user
+// crates (which only depend on `cloacina`, not on `cloacina-workflow-plugin`
+// directly) can resolve inventory entry types and the `inventory` submit! /
+// iter! surface via `::cloacina::cloacina_workflow_plugin::*`. Packaged
+// cdylibs still address the crate directly as `::cloacina_workflow_plugin::*`
+// because they don't have `cloacina` in their dep graph (slim cdylib design).
+// The `#[workflow]` / `#[reactor]` / `#[trigger]` / `#[computation_graph]`
+// macros emit cfg-gated branches that pick whichever path resolves.
+pub extern crate cloacina_workflow_plugin;
+
 /// Prelude module for convenient imports.
 ///
 /// The prelude provides convenient access to the most commonly used types
@@ -537,7 +547,12 @@ pub fn setup_test() {
 pub use database::connection::Database;
 
 // Re-export key types for convenience
+pub use cloacina_computation_graph::{
+    Graph, ReactionMode as ComputationReactionMode, Reactor, ReactorConstructor,
+    ReactorRegistration,
+};
 pub use computation_graph::ComputationGraphRegistration;
+pub use computation_graph::{TriggerlessGraph, TriggerlessGraphFn, TriggerlessGraphRegistration};
 pub use context::Context;
 pub use cron_evaluator::{CronError, CronEvaluator};
 pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};
@@ -563,8 +578,8 @@ pub use graph::{
     DependencyEdge, GraphEdge, GraphMetadata, GraphNode, TaskNode, WorkflowGraph, WorkflowGraphData,
 };
 pub use inventory_entries::{
-    ComputationGraphEntry, StreamBackendEntry, StreamBackendFactoryFn, TaskEntry, TriggerEntry,
-    WorkflowEntry,
+    ComputationGraphEntry, ReactorEntry, StreamBackendEntry, StreamBackendFactoryFn, TaskEntry,
+    TriggerEntry, TriggerlessGraphEntry, WorkflowEntry,
 };
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use runner::DefaultRunnerBuilder;
@@ -578,7 +593,7 @@ pub use workflow::{DependencyGraph, Workflow, WorkflowBuilder, WorkflowMetadata}
 // Re-export the macros from cloacina-macros
 #[cfg(feature = "macros")]
 pub use cloacina_macros::{
-    batch_accumulator, computation_graph, passthrough_accumulator, polling_accumulator,
+    batch_accumulator, computation_graph, passthrough_accumulator, polling_accumulator, reactor,
     stream_accumulator, task, trigger, workflow,
 };
 

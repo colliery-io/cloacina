@@ -19,10 +19,22 @@ Prerequisites:
 import cloaca
 
 
+# Declare the reactor that fires the graph (CLOACI-I-0101 split — the
+# bundled `react={...}` kwarg was removed; reactors are now first-class
+# `@cloaca.reactor` classes referenced by the builder via `reactor=`).
+@cloaca.reactor(
+    name="pricing_pipeline_reactor",
+    accumulators=["orderbook"],
+    mode="when_any",
+)
+class PricingPipelineReactor:
+    pass
+
+
 # Define the computation graph
 with cloaca.ComputationGraphBuilder(
     "pricing_pipeline",
-    react={"mode": "when_any", "accumulators": ["orderbook"]},
+    reactor=PricingPipelineReactor,
     graph={
         "ingest": {
             "inputs": ["orderbook"],

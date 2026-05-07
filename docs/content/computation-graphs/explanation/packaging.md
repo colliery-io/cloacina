@@ -20,20 +20,32 @@ A packaged computation graph compiles into a shared library that the host loads 
 - `SourceName`, `InputCache`, `GraphResult`, `GraphError` — the data types
 - `CompiledGraphFn` — the type alias for the compiled graph function
 - `serialize` / `deserialize` — the profile-aware wire format helpers
-- The global computation graph registry — for embedded-mode auto-registration via `#[ctor]`
+- `ComputationGraphEntry` — the inventory entry type that the
+  `#[computation_graph]` macro submits in embedded mode; the host's
+  `cloacina::Runtime::seed_from_inventory()` walks these at startup.
+  In packaged mode the entries live inside the cdylib's own inventory
+  section and are read across the FFI boundary by the
+  [`cloacina::package!()`]({{< ref "/platform/reference/package-shell-macro" >}}) shell.
 
 The `#[computation_graph]` macro expands into code that references types from this crate. Packaged graph authors depend on `cloacina-computation-graph`. Embedded-mode users get the same types re-exported from `cloacina` directly — there is no difference in API.
 
 ## The FFI Boundary: fidius
 
-Cloacina uses [fidius](https://github.com/colliery-software/fidius) as its plugin system. fidius provides a stable ABI for calling methods on loaded plugins by index. Graph plugins expose three methods:
+Cloacina uses [fidius](https://github.com/colliery-software/fidius) as its plugin system. fidius provides a stable ABI for calling methods on loaded plugins by positional index. The unified `cloacina::package!()` shell exposes nine methods on the `CloacinaPlugin` trait; the canonical mapping (defined as constants in `cloacina-workflow-plugin`) is:
 
-| Method index | Name | What it does |
+| Method index | Constant | What it does |
 |---|---|---|
-| 0 | `get_task_metadata` | Returns task metadata (for workflow packages) |
-| 1 | `get_workflow_metadata` | Returns workflow metadata (for workflow packages) |
-| 2 | `get_graph_metadata` | Returns `GraphPackageMetadata` — graph name, reaction mode, input strategy, accumulator list |
-| 3 | `execute_graph` | Executes the computation graph with a provided `GraphExecutionRequest` (serialized cache) |
+| 0 | `METHOD_GET_TASK_METADATA` | Returns task metadata (for workflow packages) |
+| 1 | `METHOD_EXECUTE_TASK` | Executes a task by name with a provided context |
+| 2 | `METHOD_GET_GRAPH_METADATA` | Returns `GraphPackageMetadata` — graph name, reaction mode, input strategy, accumulator list |
+| 3 | `METHOD_EXECUTE_GRAPH` | Executes the computation graph with a provided `GraphExecutionRequest` (serialized cache) |
+| 4 | `METHOD_GET_REACTOR_METADATA` | Returns reactors declared by the package (split-form CG support) |
+| 5 | `METHOD_GET_TRIGGER_METADATA` | Returns triggers declared by the package |
+| 6 | `METHOD_INVOKE_TRIGGER_POLL` | Polls a named trigger across the FFI boundary |
+| 7 | `METHOD_GET_TRIGGERLESS_GRAPH_METADATA` | Returns trigger-less computation graphs declared by the package |
+| 8 | `METHOD_INVOKE_TRIGGERLESS_GRAPH` | Invokes a named trigger-less computation graph |
+
+Methods 4–8 are marked `#[optional(since = 2)]` on the trait — older plugins that pre-date these methods return `CallError::NotImplemented`, which the host treats as "package declares no reactors / triggers / trigger-less graphs." See the [FFI vtable reference]({{< ref "/platform/reference/ffi-vtable" >}}) for the full surface.
 
 `GraphPackageMetadata` is the FFI handshake. It tells the host everything needed to wire up the graph without the host knowing anything about the graph's internal types:
 
