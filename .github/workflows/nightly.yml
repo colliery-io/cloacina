@@ -68,6 +68,18 @@ jobs:
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin
 
+      # Pre-build the primitive-only cdylib fixtures (T-0550 / I-0102 T-D).
+      # `crates/cloacina/tests/integration/dal/reconciler_e2e_load.rs::read_fixture_dylib`
+      # panics when these aren't on disk; the integration angreal task does
+      # this pre-build but tarpaulin invokes cargo directly and bypasses it.
+      # Mirrors `.angreal/test/integration.py::build_test_packages`.
+      - name: Pre-build test fixtures
+        run: |
+          for fixture in reactor-only-rust reactor-subscriber-rust trigger-only-rust mixed-rust; do
+            echo "Building $fixture..."
+            (cd "examples/fixtures/$fixture" && cargo build -p "$fixture")
+          done
+
       - name: Run coverage (cloacina core)
         run: |
           cargo tarpaulin \
