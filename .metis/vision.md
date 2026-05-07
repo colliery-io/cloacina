@@ -111,6 +111,7 @@ A mature workflow orchestration platform offering both embedded and service depl
 ## Principles
 
 - **Flexibility in Deployment**: Support both embedded library and service deployment - let users choose
+- **Trust by Deployment Mode**: Embedded/daemon mode is high-trust (single-user, hobbyist, operator-controlled inputs). Service/server mode is low-trust (multi-tenant, untrusted authors, enterprise platform). Sandboxing, signature verification, and multi-tenant abstractions target the server. The server is Linux-only by deployment posture; the daemon is portable. (See CLOACI-A-0005.)
 - **Reliability Over Speed**: Guaranteed execution matters more than raw throughput
 - **Safety First**: Rust's type system and ownership model should prevent entire classes of bugs
 - **Database as Coordination**: All state and coordination through the database - no external services required
