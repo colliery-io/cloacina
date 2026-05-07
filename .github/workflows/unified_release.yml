@@ -69,20 +69,53 @@ jobs:
 
       - name: Publish to crates.io
         run: |
-          # Publish in dependency order, allowing already-published versions to pass
-          cargo publish -p cloacina-macros || echo "cloacina-macros may already be published"
-          sleep 30  # Wait for crates.io to propagate
-          cargo publish -p cloacina-workflow || echo "cloacina-workflow may already be published"
-          sleep 30  # Wait for crates.io to propagate
-          cargo publish -p cloacina-build || echo "cloacina-build may already be published"
-          sleep 30  # Wait for crates.io to propagate
-          cargo publish -p cloacina-computation-graph || echo "cloacina-computation-graph may already be published"
-          sleep 30  # Wait for crates.io to propagate
-          cargo publish -p cloacina-workflow-plugin || echo "cloacina-workflow-plugin may already be published"
-          sleep 30  # Wait for crates.io to propagate
-          cargo publish -p cloacina-testing || echo "cloacina-testing may already be published"
-          sleep 30  # Wait for crates.io to propagate
-          cargo publish -p cloacina || echo "cloacina may already be published"
+          # Publish in dependency order. Treat "already published" as success
+          # (idempotent re-runs); fail loud on any other error so silent publish
+          # failures can't silently produce a partial release like cloacina@0.5.1
+          # did under the previous `|| echo` mask.
+          publish() {
+            local crate="$1"
+            if cargo publish -p "$crate" 2>&1 | tee /tmp/publish.log; then
+              echo "✓ $crate published"
+            elif grep -q "already exists\|already uploaded" /tmp/publish.log; then
+              echo "○ $crate already published (skipping)"
+            else
+              echo "✗ $crate publish failed"
+              exit 1
+            fi
+          }
+
+          # Tier 1: leaf authoring + types (no internal deps).
+          publish cloacina-macros
+          sleep 30
+          publish cloacina-workflow
+          sleep 30
+          publish cloacina-build
+          sleep 30
+          publish cloacina-computation-graph
+          sleep 30
+          publish cloacina-workflow-plugin
+          sleep 30
+          publish cloacina-testing
+          sleep 30
+
+          # Tier 2: engine.
+          publish cloacina
+          sleep 30
+
+          # Tier 3: Python runtime crate (depends on cloacina + cloacina-computation-graph).
+          # Published to crates.io so cloacina-server (which depends on it) can resolve.
+          # The `cloaca` Python wheel is a separate artifact built via maturin and
+          # published to PyPI in a later job; this is the Rust-side crate.
+          publish cloacina-python
+          sleep 30
+
+          # Tier 4: binaries (depend on cloacina + workflow-plugin + python).
+          publish cloacinactl
+          sleep 30
+          publish cloacina-compiler
+          sleep 30
+          publish cloacina-server
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 

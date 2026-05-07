@@ -27,8 +27,8 @@ auth = ["cloacina/auth"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-cloacina = { path = "../cloacina", default-features = false }
-cloacina-computation-graph = { path = "../cloacina-computation-graph" }
+cloacina = { version = "0.6.0", path = "../cloacina", default-features = false }
+cloacina-computation-graph = { version = "0.6.0", path = "../cloacina-computation-graph" }
 cloacina-workflow = { workspace = true }
 cloacina-workflow-plugin = { version = "0.6.0", path = "../cloacina-workflow-plugin" }
 
