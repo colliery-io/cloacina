@@ -18,10 +18,22 @@ Prerequisites:
 import cloaca
 
 
+# Declare the reactor that fires the graph (CLOACI-I-0101 split — the
+# bundled `react={...}` kwarg was removed in favour of first-class
+# `@cloaca.reactor` classes).
+@cloaca.reactor(
+    name="market_maker_reactor",
+    accumulators=["orderbook", "pricing"],
+    mode="when_any",
+)
+class MarketMakerReactor:
+    pass
+
+
 # Define the computation graph with routing
 with cloaca.ComputationGraphBuilder(
     "market_maker",
-    react={"mode": "when_any", "accumulators": ["orderbook", "pricing"]},
+    reactor=MarketMakerReactor,
     graph={
         "decision": {
             "inputs": ["orderbook", "pricing"],
