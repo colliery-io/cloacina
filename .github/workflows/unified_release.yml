@@ -75,12 +75,19 @@ jobs:
           # did under the previous `|| echo` mask.
           publish() {
             local crate="$1"
-            if cargo publish -p "$crate" 2>&1 | tee /tmp/publish.log; then
+            # Capture cargo publish's own exit code via PIPESTATUS so pipefail
+            # quirks (e.g., tee succeeding while cargo publish silently failed
+            # in some edge cases) can't mask a real failure. cloacina@0.5.1 was
+            # never published despite the prior `|| echo` mask reporting OK —
+            # that's the failure mode this guards against.
+            cargo publish -p "$crate" 2>&1 | tee /tmp/publish.log
+            local rc=${PIPESTATUS[0]}
+            if [ "$rc" -eq 0 ]; then
               echo "✓ $crate published"
-            elif grep -q "already exists\|already uploaded" /tmp/publish.log; then
+            elif grep -qE "already (exists|uploaded)" /tmp/publish.log; then
               echo "○ $crate already published (skipping)"
             else
-              echo "✗ $crate publish failed"
+              echo "✗ $crate publish failed (exit $rc)"
               exit 1
             fi
           }
