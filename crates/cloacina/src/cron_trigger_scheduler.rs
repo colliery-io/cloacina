@@ -341,6 +341,20 @@ impl Scheduler {
                         );
                     }
 
+                    // Step 4: Mark execution complete so cron_recovery does not
+                    // treat it as lost and reschedule it on every tick.
+                    if let Err(e) = self
+                        .dal
+                        .schedule_execution()
+                        .complete(audit_record_id, Utc::now())
+                        .await
+                    {
+                        warn!(
+                            "Failed to mark cron schedule execution {} complete: {}",
+                            audit_record_id, e
+                        );
+                    }
+
                     info!(
                         "Successfully executed and audited workflow {} for cron schedule {} (scheduled: {})",
                         schedule.workflow_name, schedule.id, scheduled_time
@@ -351,10 +365,19 @@ impl Scheduler {
                         "Failed to execute workflow {} for cron schedule {} (scheduled: {}): {}",
                         schedule.workflow_name, schedule.id, scheduled_time, e
                     );
-                    error!(
-                        "Execution lost: audit record {} exists but workflow execution failed",
-                        audit_record_id
-                    );
+                    // Mark execution complete (failed) so cron_recovery does not
+                    // treat it as lost and retry it indefinitely.
+                    if let Err(e) = self
+                        .dal
+                        .schedule_execution()
+                        .complete(audit_record_id, Utc::now())
+                        .await
+                    {
+                        warn!(
+                            "Failed to mark cron schedule execution {} complete after failure: {}",
+                            audit_record_id, e
+                        );
+                    }
                 }
             }
         }

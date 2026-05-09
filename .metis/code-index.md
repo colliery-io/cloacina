@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-07T17:10:11Z | 483 files | JavaScript, Python, Rust
+> Generated: 2026-05-09T12:30:50Z | 483 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1142,46 +1142,46 @@
 - pub `new` function L136-152 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, config: SchedulerConfig, s...` — Creates a new unified scheduler.
 - pub `with_defaults` function L155-162 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, shutdown: watch::Receiver<...` — Creates a new unified scheduler with default configuration.
 - pub `run_polling_loop` function L176-218 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Runs the main polling loop.
-- pub `register_trigger` function L788-801 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<Schedule, Valid...` — Registers a trigger with the scheduler.
-- pub `disable_trigger` function L804-815 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
-- pub `enable_trigger` function L818-829 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
+- pub `register_trigger` function L811-824 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<Schedule, Valid...` — Registers a trigger with the scheduler.
+- pub `disable_trigger` function L827-838 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
+- pub `enable_trigger` function L841-852 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
 -  `SchedulerConfig` type L78-88 — `impl Default for SchedulerConfig` — ```
 -  `default` function L79-87 — `() -> Self` — ```
--  `Scheduler` type L128-830 — `= Scheduler` — ```
+-  `Scheduler` type L128-853 — `= Scheduler` — ```
 -  `check_and_execute_cron_schedules` function L225-252 — `(&self) -> Result<(), WorkflowExecutionError>` — Checks for due cron schedules and executes them.
--  `process_cron_schedule` function L255-363 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<(), WorkflowExecut...` — Processes a single cron schedule using the saga pattern.
--  `is_cron_schedule_active` function L366-378 — `(&self, schedule: &Schedule, now: DateTime<Utc>) -> bool` — Checks if a cron schedule is within its active time window.
--  `calculate_execution_times` function L381-426 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<Utc>>...` — Calculates execution times based on the schedule's catchup policy.
--  `calculate_next_run` function L429-448 — `( &self, schedule: &Schedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc>, W...` — Calculates the next run time for a cron schedule.
--  `execute_cron_workflow` function L451-503 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the workflow executor.
--  `create_cron_execution_audit` function L506-527 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Creates an audit record for a cron execution.
--  `check_and_process_triggers` function L534-585 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Checks all enabled triggers and processes those that are due.
--  `process_trigger` function L588-712 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
--  `create_trigger_execution_audit` function L715-741 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
--  `execute_trigger_workflow` function L744-773 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the workflow executor.
--  `tests` module L833-1121 — `-` — ```
--  `create_test_cron_schedule` function L837-858 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
--  `create_test_trigger_schedule` function L860-881 — `(trigger_name: &str) -> Schedule` — ```
--  `test_scheduler_config_default` function L884-891 — `()` — ```
--  `test_is_cron_schedule_active_no_window` function L894-914 — `()` — ```
--  `test_is_cron_schedule_active_with_start_date_future` function L917-927 — `()` — ```
--  `test_is_cron_schedule_active_with_end_date_past` function L930-940 — `()` — ```
--  `test_catchup_policy_from_schedule` function L943-948 — `()` — ```
--  `test_catchup_policy_run_all` function L951-957 — `()` — ```
--  `test_trigger_schedule_helpers` function L960-967 — `()` — ```
--  `test_trigger_schedule_trigger_name_fallback` function L970-982 — `()` — ```
--  `test_scheduler_config_custom` function L989-1002 — `()` — ```
--  `test_scheduler_config_clone` function L1005-1016 — `()` — ```
--  `test_scheduler_config_debug` function L1019-1024 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_containing_now` function L1031-1042 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1045-1057 — `()` — ```
--  `test_catchup_policy_unknown_defaults_to_skip` function L1064-1067 — `()` — ```
--  `test_catchup_policy_none_defaults_to_skip` function L1070-1075 — `()` — ```
--  `test_catchup_policy_missing_defaults_correctly` function L1078-1084 — `()` — ```
--  `test_cron_schedule_helpers` function L1091-1098 — `()` — ```
--  `test_trigger_schedule_no_poll_interval` function L1101-1106 — `()` — ```
--  `test_trigger_schedule_allows_concurrent` function L1109-1113 — `()` — ```
--  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1116-1120 — `()` — ```
+-  `process_cron_schedule` function L255-386 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<(), WorkflowExecut...` — Processes a single cron schedule using the saga pattern.
+-  `is_cron_schedule_active` function L389-401 — `(&self, schedule: &Schedule, now: DateTime<Utc>) -> bool` — Checks if a cron schedule is within its active time window.
+-  `calculate_execution_times` function L404-449 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<Utc>>...` — Calculates execution times based on the schedule's catchup policy.
+-  `calculate_next_run` function L452-471 — `( &self, schedule: &Schedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc>, W...` — Calculates the next run time for a cron schedule.
+-  `execute_cron_workflow` function L474-526 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the workflow executor.
+-  `create_cron_execution_audit` function L529-550 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Creates an audit record for a cron execution.
+-  `check_and_process_triggers` function L557-608 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Checks all enabled triggers and processes those that are due.
+-  `process_trigger` function L611-735 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
+-  `create_trigger_execution_audit` function L738-764 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
+-  `execute_trigger_workflow` function L767-796 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the workflow executor.
+-  `tests` module L856-1144 — `-` — ```
+-  `create_test_cron_schedule` function L860-881 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
+-  `create_test_trigger_schedule` function L883-904 — `(trigger_name: &str) -> Schedule` — ```
+-  `test_scheduler_config_default` function L907-914 — `()` — ```
+-  `test_is_cron_schedule_active_no_window` function L917-937 — `()` — ```
+-  `test_is_cron_schedule_active_with_start_date_future` function L940-950 — `()` — ```
+-  `test_is_cron_schedule_active_with_end_date_past` function L953-963 — `()` — ```
+-  `test_catchup_policy_from_schedule` function L966-971 — `()` — ```
+-  `test_catchup_policy_run_all` function L974-980 — `()` — ```
+-  `test_trigger_schedule_helpers` function L983-990 — `()` — ```
+-  `test_trigger_schedule_trigger_name_fallback` function L993-1005 — `()` — ```
+-  `test_scheduler_config_custom` function L1012-1025 — `()` — ```
+-  `test_scheduler_config_clone` function L1028-1039 — `()` — ```
+-  `test_scheduler_config_debug` function L1042-1047 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_containing_now` function L1054-1065 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1068-1080 — `()` — ```
+-  `test_catchup_policy_unknown_defaults_to_skip` function L1087-1090 — `()` — ```
+-  `test_catchup_policy_none_defaults_to_skip` function L1093-1098 — `()` — ```
+-  `test_catchup_policy_missing_defaults_correctly` function L1101-1107 — `()` — ```
+-  `test_cron_schedule_helpers` function L1114-1121 — `()` — ```
+-  `test_trigger_schedule_no_poll_interval` function L1124-1129 — `()` — ```
+-  `test_trigger_schedule_allows_concurrent` function L1132-1136 — `()` — ```
+-  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1139-1143 — `()` — ```
 
 #### crates/cloacina/src/error.rs
 
@@ -4917,13 +4917,14 @@
 
 #### crates/cloacina/tests/integration/scheduler/cron_basic.rs
 
--  `test_cron_evaluator_basic` function L28-40 — `()`
--  `test_cron_schedule_creation` function L44-58 — `()`
--  `test_default_runner_cron_integration` function L62-105 — `()`
--  `test_cron_scheduler_startup_shutdown` function L109-130 — `()`
--  `test_cron_missed_executions_catchup_count` function L134-149 — `()`
--  `test_cron_catchup_respects_max_limit` function L153-162 — `()`
--  `test_cron_schedule_with_recovery_config` function L166-202 — `()`
+-  `test_cron_evaluator_basic` function L29-41 — `()`
+-  `test_cron_schedule_creation` function L45-59 — `()`
+-  `test_default_runner_cron_integration` function L63-106 — `()`
+-  `test_cron_scheduler_startup_shutdown` function L110-131 — `()`
+-  `test_cron_missed_executions_catchup_count` function L135-150 — `()`
+-  `test_cron_catchup_respects_max_limit` function L154-163 — `()`
+-  `test_cron_schedule_with_recovery_config` function L167-203 — `()`
+-  `test_completed_schedule_executions_excluded_from_lost_recovery` function L218-291 — `()` — Regression test for CLOACI-T-0572.
 
 #### crates/cloacina/tests/integration/scheduler/dependency_resolution.rs
 
