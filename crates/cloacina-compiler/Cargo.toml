@@ -24,7 +24,7 @@ postgres = ["cloacina/postgres"]
 sqlite = ["cloacina/sqlite"]
 
 [dependencies]
-cloacina = { version = "0.6.0", path = "../cloacina", default-features = false }
+cloacina = { version = "0.6.1", path = "../cloacina", default-features = false }
 clap.workspace = true
 anyhow.workspace = true
 dirs = "6"

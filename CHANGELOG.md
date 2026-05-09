@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-05-09
+
+### Fixed
+
+- **Cron `schedule_executions` never marked complete → cron_recovery infinite loop** (CLOACI-T-0572) — `process_cron_schedule` created the audit row with `started_at` populated but never called `.complete()`. `cron_recovery::find_lost_executions` selects rows where `completed_at IS NULL` and `started_at < threshold`, so every successful firing was rescheduled on every recovery tick. Workloads with `cron_enable_recovery(true)` (the default) saw ~37x execution amplification (e.g. 906 firings in 6 hours instead of 24). Both the success and failure branches now call `schedule_execution().complete(audit_record_id, Utc::now())`, mirroring the existing trigger-failure pattern. Workaround for older versions: `.cron_enable_recovery(false)` on the runner config.
+
 ## [0.6.0] - 2026-05-07
 
 ### Added

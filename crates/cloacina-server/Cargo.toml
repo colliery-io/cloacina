@@ -26,12 +26,12 @@ kafka = ["cloacina/kafka"]
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 
 [dependencies]
-cloacina = { version = "0.6.0", path = "../cloacina", default-features = false }
+cloacina = { version = "0.6.1", path = "../cloacina", default-features = false }
 # Python runtime — server registers the impl at startup so uploaded
 # Python-language packages can be loaded by the reconciler. Compiler
 # service intentionally does not depend on this (T-0529).
-cloacina-python = { version = "0.6.0", path = "../cloacina-python", default-features = false }
-cloacina-workflow-plugin = { version = "0.6.0", path = "../cloacina-workflow-plugin" }
+cloacina-python = { version = "0.6.1", path = "../cloacina-python", default-features = false }
+cloacina-workflow-plugin = { version = "0.6.1", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
 anyhow.workspace = true
 dirs = "6"
@@ -66,4 +66,4 @@ serial_test = "3"
 tempfile = "3"
 
 [build-dependencies]
-cloacina-build = { version = "0.6.0", path = "../cloacina-build" }
+cloacina-build = { version = "0.6.1", path = "../cloacina-build" }

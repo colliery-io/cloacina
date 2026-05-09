@@ -27,10 +27,10 @@ auth = ["cloacina/auth"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-cloacina = { version = "0.6.0", path = "../cloacina", default-features = false }
-cloacina-computation-graph = { version = "0.6.0", path = "../cloacina-computation-graph" }
+cloacina = { version = "0.6.1", path = "../cloacina", default-features = false }
+cloacina-computation-graph = { version = "0.6.1", path = "../cloacina-computation-graph" }
 cloacina-workflow = { workspace = true }
-cloacina-workflow-plugin = { version = "0.6.0", path = "../cloacina-workflow-plugin" }
+cloacina-workflow-plugin = { version = "0.6.1", path = "../cloacina-workflow-plugin" }
 
 async-trait.workspace = true
 serde_json.workspace = true
@@ -50,7 +50,7 @@ url = { version = "2.5" }
 uuid = { version = "1.0", features = ["serde", "v4", "v5"] }
 
 [build-dependencies]
-cloacina-build = { version = "0.6.0", path = "../cloacina-build" }
+cloacina-build = { version = "0.6.1", path = "../cloacina-build" }
 
 [dev-dependencies]
 fidius-core = "0.2.1"

@@ -21,8 +21,8 @@ sqlite = ["cloacina/sqlite"]
 kafka = ["cloacina/kafka"]
 
 [dependencies]
-cloacina = { version = "0.6.0", path = "../cloacina", default-features = false }
-cloacina-workflow-plugin = { version = "0.6.0", path = "../cloacina-workflow-plugin" }
+cloacina = { version = "0.6.1", path = "../cloacina", default-features = false }
+cloacina-workflow-plugin = { version = "0.6.1", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
 clap_complete = "4"
 anyhow.workspace = true
