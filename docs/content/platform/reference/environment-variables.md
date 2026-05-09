@@ -190,7 +190,7 @@ The Python wheel (`cloaca`) is built using [maturin](https://github.com/PyO3/mat
 
 | Variable | Purpose | Default | Example | Context |
 |----------|---------|---------|---------|---------|
-| `CARGO_PKG_VERSION` | Embedded at compile time as `CLOACINA_VERSION` in the built binary. Set automatically by Cargo. | From `Cargo.toml` | `0.6.0` | Build-time (Cargo) |
+| `CARGO_PKG_VERSION` | Embedded at compile time as `CLOACINA_VERSION` in the built binary. Set automatically by Cargo. | From `Cargo.toml` | `0.6.1` | Build-time (Cargo) |
 
 ### Build Commands
 
