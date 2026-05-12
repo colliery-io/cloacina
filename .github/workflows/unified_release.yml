@@ -244,3 +244,42 @@ jobs:
           packages-dir: dist/
           verbose: true
           password: ${{ secrets.PYPI_TOKEN }}
+
+  # -----------------------------------------------------------------------
+  # Step 6: Cache hygiene
+  #
+  # Tag-scoped caches are write-once: they're only re-used if you re-run
+  # the release workflow on the same tag, which is a degenerate case. Drop
+  # them once publish has succeeded so they don't accumulate per release
+  # (each tag was producing ~3 GB of GHA cache).
+  # -----------------------------------------------------------------------
+
+  prune-tag-caches:
+    name: Prune Tag-Scoped Caches
+    needs: [publish-cargo, publish-pypi]
+    if: always() && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete caches for this tag ref
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          # The /caches list endpoint expects a normalized ref. Tag-scoped
+          # caches are stored under the literal "refs/heads/<tag-ref>" path
+          # GH actions cache writes them to — strip the leading "refs/" so
+          # we match both representations seen in the cache list.
+          ids=$(gh api --paginate "repos/${REPO}/actions/caches?per_page=100" \
+            --jq ".actions_caches[] | select(.ref == \"${TAG_REF}\" or .ref == \"refs/heads/${TAG_REF}\") | .id")
+          if [ -z "${ids}" ]; then
+            echo "no tag-scoped caches for ${TAG_REF}"
+            exit 0
+          fi
+          echo "${ids}" | while read id; do
+            echo "deleting cache ${id}"
+            gh api -X DELETE "repos/${REPO}/actions/caches/${id}" || true
+          done

@@ -289,3 +289,54 @@ jobs:
                 state: 'closed',
               });
             }
+
+  # -----------------------------------------------------------------------
+  # Cache hygiene — keep storage usage down by pruning superseded caches
+  #
+  # Strategy:
+  #   - Drop every cache scoped to a closed PR's ref (refs/pull/N/merge that
+  #     no longer maps to an open PR — GH already does this after 7 days
+  #     untouched, but we accelerate it).
+  #   - On main, keep only the most recent cache per (key prefix, ref). Older
+  #     caches for the same scope are superseded by the run that just
+  #     finished and cost storage with no upside.
+  #   - Never touch caches on refs/tags/*; the release workflow handles those.
+  # -----------------------------------------------------------------------
+
+  prune-caches:
+    name: Prune Stale Caches
+    needs: [cloacina-tests, examples-docs, coverage, macos-integration, cargo-audit]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete superseded caches on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # List caches on main, group by key prefix (drop the trailing
+          # restore-key hash component), keep the newest id per prefix,
+          # delete the rest.
+          gh api --paginate "repos/${REPO}/actions/caches?per_page=100&ref=refs/heads/main" \
+            --jq '.actions_caches[] | [.id, .created_at, .key] | @tsv' \
+              > caches.tsv || { echo "no caches"; exit 0; }
+          if [ ! -s caches.tsv ]; then
+            echo "no caches on main"
+            exit 0
+          fi
+          # Strip the last "-<hash>" component to form a stable prefix.
+          awk -F'\t' '{ n=split($3, a, "-"); prefix=""; for (i=1;i<n;i++) prefix = prefix (i>1 ? "-" : "") a[i]; print $1"\t"$2"\t"prefix }' caches.tsv \
+            | sort -t$'\t' -k3,3 -k2,2r \
+            | awk -F'\t' '!seen[$3]++ { keep[$1]=1; next } { print $1 }' > to_delete.txt
+          if [ ! -s to_delete.txt ]; then
+            echo "nothing superseded"
+            exit 0
+          fi
+          echo "Deleting $(wc -l < to_delete.txt) superseded caches:"
+          cat to_delete.txt
+          while read id; do
+            gh api -X DELETE "repos/${REPO}/actions/caches/${id}" || true
+          done < to_delete.txt
