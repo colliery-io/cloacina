@@ -4,14 +4,14 @@ level: task
 title: "T-03: TenantRunnerCache — per-tenant DefaultRunner with LRU eviction"
 short_code: "CLOACI-T-0580"
 created_at: 2026-05-13T19:38:43.181516+00:00
-updated_at: 2026-05-13T19:38:43.181516+00:00
+updated_at: 2026-05-13T22:37:15.573795+00:00
 parent: CLOACI-I-0106
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,10 @@ initiative_id: CLOACI-I-0106
 Introduce `TenantRunnerCache` — a per-tenant `DefaultRunner` cache with LRU eviction — and route `WorkflowExecutor::execute_async` through it so workflow execution writes land in the correct tenant schema. Each cached entry is a fully constructed runner (scheduler loop, heartbeat, executor pool), sharing inventory-seeded registries via `Arc`. Closes EVO-04 and the structural half of COR-01.
 
 This is **the load-bearing task** of CLOACI-I-0106. T-04 (`remove_tenant`) depends on the eviction surface this creates.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -79,4 +83,38 @@ This is **the load-bearing task** of CLOACI-I-0106. T-04 (`remove_tenant`) depen
 
 ## Status Updates
 
-*To be added during implementation.*
+**2026-05-13** — Architectural core landed. 3 new cache unit tests pass; clippy clean. Live multi-tenant stress + full harness migration deferred to follow-ups.
+
+### What changed
+
+- **`crates/cloacina/src/runner/default_runner/mod.rs`**: new `DefaultRunner::with_database(database, config, shared_runtime)` constructor. Takes a pre-built tenant `Database` + optional shared `Arc<Runtime>` so inventory isn't duplicated per tenant. `with_config` refactored to delegate.
+- **`crates/cloacina-server/src/tenant_runner_cache.rs`** (new): `TenantRunnerCache` — `lru::LruCache`-backed map of `tenant_id -> Arc<DefaultRunner>`. Surface: `get_or_create`, `evict` (graceful shutdown), `shutdown_all`, `shared_runtime`, `len`, `is_empty`. Eviction triggers a backgrounded `shutdown()` on the evicted runner so the lookup path stays fast.
+- **`crates/cloacina-server/src/lib.rs`**: `AppState` gained `tenant_runners: Arc<TenantRunnerCache>`. `run()` signature added `tenant_runner_cache_size: usize`; constructs the cache + threads it through. Graceful-shutdown calls `tenant_runners.shutdown_all()` after the admin runner shuts down. New `runner_config_for_tenant_cache` helper.
+- **`crates/cloacina-server/src/main.rs`**: `--tenant-runner-cache-size` CLI flag + `CLOACINA_TENANT_RUNNER_CACHE_SIZE` env; default 256.
+- **`crates/cloacina-server/src/routes/executions.rs::execute_workflow`**: replaced `state.runner.execute_async(...)` with the tenant-cache path. Execution rows + events now land in the tenant schema.
+
+### Tests landed (3 new)
+
+- `empty_cache_is_empty`, `evict_missing_tenant_returns_false`, `shared_runtime_is_stable_arc`.
+
+### Design decisions
+
+- **Shared `Arc<Runtime>` across per-tenant runners** — inventory registries are post-T-0506 inventory-seeded with no per-tenant state. Makes 256-tenant caches affordable.
+- **Backgrounded eviction shutdown** — `shutdown_all` (graceful exit) is sequential; LRU eviction during normal operation is fire-and-forget so the next lookup doesn't block.
+- **Operator-tunable cap** with `max(1)` floor so misconfigured 0 doesn't panic LruCache.
+- **Admin `state.runner` still exists** — handles non-tenant-scoped paths (reconciler, admin-context routes). Per-tenant routing only flips the workflow `/execute` path; minimal diff, gives T-0581 a single well-known global surface.
+
+### Outstanding (follow-ups, not blocking close)
+
+- Stress test for 300+ tenant FD/thread bounds and LRU shutdown latency.
+- Per-tenant graph scheduler wiring (needed for CG packages submitted under a tenant). Deferred to T-0581.
+- Live multi-tenant schema-assertion test.
+- Inventory `Arc` pointer-equality assertion across two constructed tenant runners.
+- Existing live-DB tests (currently 39 fail without Postgres) need fixtures updated for per-tenant routing.
+
+### Verification (local)
+
+- `cargo check -p cloacina --features postgres` → clean.
+- `cargo check -p cloacina-server --features postgres` → clean.
+- `cargo test --lib -p cloacina-server --features postgres tenant_runner` → 3 new pass.
+- `cargo clippy --lib -p cloacina-server --features postgres` → clean.

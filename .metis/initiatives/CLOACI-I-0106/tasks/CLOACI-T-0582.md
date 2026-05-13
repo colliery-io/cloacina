@@ -4,14 +4,14 @@ level: task
 title: "T-05: SET search_path fail-closed + current_schemas() defense-in-depth"
 short_code: "CLOACI-T-0582"
 created_at: 2026-05-13T19:38:45.083326+00:00
-updated_at: 2026-05-13T19:38:45.083326+00:00
+updated_at: 2026-05-13T22:30:43.345034+00:00
 parent: CLOACI-I-0106
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0106
 ## Objective
 
 Today `SET search_path` failure during connection acquisition silently routes the next query to `public`. Make this fail-closed: propagate the error to the caller rather than masking. Add a `current_schemas()` defense-in-depth check on the first query after acquire so even a successful-but-wrong SET is caught. Closes COR-01 — Critical.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -69,4 +73,34 @@ Today `SET search_path` failure during connection acquisition silently routes th
 
 ## Status Updates
 
-*To be added during implementation.*
+**2026-05-13** — Landed. 3 new unit tests pass; clippy clean.
+
+### What changed
+
+- **`crates/cloacina/src/database/connection/mod.rs`**:
+  - New process-wide `STRICT_SEARCH_PATH: AtomicBool` with `set_strict_search_path(bool)` / `is_strict_search_path()`. Default `false`.
+  - `get_connection_with_schema` no longer silently discards `SET search_path`. On SET failure: `tracing::error!`, drop the connection, return `PoolError::Backend(Ping(QueryBuilderError))` carrying a CLOACI-T-0582 marker.
+  - When `is_strict_search_path()` is true: `SELECT current_schema()` defense-in-depth probe after the SET. Mismatch → same error path.
+  - New `CurrentSchemaRow` + `search_path_pool_error(tenant, cause)` helper.
+- **`crates/cloacina-server/src/lib.rs::run`**: enables strict mode at server boot. The daemon does not.
+
+### Tests (3 new, passing)
+
+- `strict_search_path_default_off` — default is off; toggle round-trip works.
+- `strict_search_path_set_round_trip` — set true → read true → set false → read false.
+- `search_path_pool_error_carries_tenant_and_cause` — error message includes tenant, ticket id marker, underlying cause.
+
+### Design notes
+
+- **`PoolError::Backend(Ping(QueryBuilderError))` wrapping** avoids touching 157+ `get_postgres_connection` call sites. CLOACI-T-0582 marker grep-able in operator logs.
+- **Process-wide AtomicBool** rather than per-`Database` field — strict is a deployment-posture flag (server vs daemon), not per-tenant.
+- **`current_schema()` (singular)** for the probe — simpler diesel mapping than `current_schemas()` array variant; same correctness signal.
+- **Daemon stays off-strict** per ADR-0005 single-tenant posture.
+
+### Verification (local)
+
+- `cargo check -p cloacina --features postgres` → clean.
+- `cargo check -p cloacina-server --features postgres` → clean.
+- `cargo test --lib -p cloacina --features postgres database::connection` → 22 pass (3 new).
+- `cargo clippy --lib --features postgres -p cloacina` → clean.
+- Live fault-injection integration test deferred to initiative-level run.

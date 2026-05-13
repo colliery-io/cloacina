@@ -29,6 +29,8 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use cloacina::database::{DatabaseAdmin, TenantConfig};
+use cloacina::security::audit;
+use std::time::Instant;
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
@@ -87,8 +89,24 @@ pub async fn create_tenant(
     }
 }
 
-/// DELETE /tenants/:schema_name — remove a tenant (drop schema + user).
-/// Admin-only: only is_admin keys can remove tenants.
+/// DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
+///
+/// CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with
+/// the four-step top-down order:
+///   1. Revoke every still-active API key for the tenant (close the auth
+///      surface so new requests fail).
+///   2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,
+///      awaiting its graceful shutdown (drains in-flight executions,
+///      stops scheduler loop, closes per-tenant DB pool).
+///   3. Evict the tenant's `Database` from `TenantDatabaseCache`.
+///   4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
+///
+/// Each step emits a structured audit event with duration. Per-step
+/// failures bail out — but earlier steps stay committed, so a retry
+/// picks up where the failure occurred. Each step is idempotent.
+///
+/// Closes SEC-14 (stale state after delete) and SEC-17 (unbounded
+/// caches surviving delete).
 pub async fn remove_tenant(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -98,17 +116,112 @@ pub async fn remove_tenant(
         return AuthenticatedKey::admin_required_response().into_response();
     }
 
-    let admin = DatabaseAdmin::new(state.database.clone());
+    let teardown_started = Instant::now();
 
-    // Use schema_name as both schema and username (convention)
+    // Step 1: revoke keys.
+    let step_started = Instant::now();
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let revoked_count = match dal.api_keys().revoke_keys_for_tenant(&schema_name).await {
+        Ok(n) => n,
+        Err(e) => {
+            warn!(
+                tenant_id = %schema_name,
+                error = %e,
+                "tenant teardown step 1 (revoke keys) failed"
+            );
+            audit::log_tenant_teardown_outcome(
+                &schema_name,
+                false,
+                teardown_started.elapsed().as_millis() as u64,
+            );
+            return ApiError::internal(format!("revoke keys failed: {}", e)).into_response();
+        }
+    };
+    audit::log_tenant_teardown_step(
+        audit::events::TENANT_TEARDOWN_KEYS_REVOKED,
+        &schema_name,
+        revoked_count,
+        step_started.elapsed().as_millis() as u64,
+    );
+
+    // Step 2: evict the tenant runner from cache.
+    let step_started = Instant::now();
+    let runner_evicted = match state.tenant_runners.evict(&schema_name).await {
+        Ok(b) => b,
+        Err(e) => {
+            warn!(
+                tenant_id = %schema_name,
+                error = %e,
+                "tenant teardown step 2 (runner eviction) failed"
+            );
+            audit::log_tenant_teardown_outcome(
+                &schema_name,
+                false,
+                teardown_started.elapsed().as_millis() as u64,
+            );
+            return ApiError::internal(format!("runner eviction failed: {}", e)).into_response();
+        }
+    };
+    audit::log_tenant_teardown_step(
+        audit::events::TENANT_TEARDOWN_RUNNER_EVICTED,
+        &schema_name,
+        if runner_evicted { 1 } else { 0 },
+        step_started.elapsed().as_millis() as u64,
+    );
+
+    // Step 3: evict the tenant database from cache.
+    let step_started = Instant::now();
+    let db_evicted = state.tenant_databases.evict(&schema_name).await;
+    audit::log_tenant_teardown_step(
+        audit::events::TENANT_TEARDOWN_DB_CACHE_EVICTED,
+        &schema_name,
+        if db_evicted { 1 } else { 0 },
+        step_started.elapsed().as_millis() as u64,
+    );
+
+    // Step 4: drop schema + user.
+    let step_started = Instant::now();
+    let admin = DatabaseAdmin::new(state.database.clone());
     match admin.remove_tenant(&schema_name, &schema_name).await {
         Ok(()) => {
-            info!("Removed tenant: {}", schema_name);
-            Json(serde_json::json!({"status": "removed", "schema_name": schema_name}))
-                .into_response()
+            audit::log_tenant_teardown_step(
+                audit::events::TENANT_TEARDOWN_SCHEMA_DROPPED,
+                &schema_name,
+                1,
+                step_started.elapsed().as_millis() as u64,
+            );
+            audit::log_tenant_teardown_outcome(
+                &schema_name,
+                true,
+                teardown_started.elapsed().as_millis() as u64,
+            );
+            info!(
+                tenant_id = %schema_name,
+                revoked_keys = revoked_count,
+                runner_evicted = runner_evicted,
+                db_cache_evicted = db_evicted,
+                "tenant teardown complete"
+            );
+            Json(serde_json::json!({
+                "status": "removed",
+                "schema_name": schema_name,
+                "revoked_keys": revoked_count,
+                "runner_evicted": runner_evicted,
+                "db_cache_evicted": db_evicted,
+            }))
+            .into_response()
         }
         Err(e) => {
-            warn!("Failed to remove tenant '{}': {}", schema_name, e);
+            warn!(
+                tenant_id = %schema_name,
+                error = %e,
+                "tenant teardown step 4 (drop schema) failed"
+            );
+            audit::log_tenant_teardown_outcome(
+                &schema_name,
+                false,
+                teardown_started.elapsed().as_millis() as u64,
+            );
             ApiError::bad_request("tenant_removal_failed", format!("{}", e)).into_response()
         }
     }

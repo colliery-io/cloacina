@@ -105,6 +105,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         event_data: None,
                         worker_id: None,
                         created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
                     diesel::insert_into(execution_events::table)
                         .values(&event)
@@ -168,6 +171,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         event_data: None,
                         worker_id: None,
                         created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
                     diesel::insert_into(execution_events::table)
                         .values(&event)
@@ -410,6 +416,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         event_data: None,
                         worker_id: None,
                         created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
                     diesel::insert_into(execution_events::table)
                         .values(&event)
@@ -464,6 +473,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         event_data: None,
                         worker_id: None,
                         created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
                     diesel::insert_into(execution_events::table)
                         .values(&event)
@@ -608,6 +620,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         event_data: Some(event_data),
                         worker_id: None,
                         created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
                     diesel::insert_into(execution_events::table)
                         .values(&event)
@@ -669,6 +684,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                         event_data: Some(event_data),
                         worker_id: None,
                         created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
                     diesel::insert_into(execution_events::table)
                         .values(&event)
@@ -751,6 +769,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     event_data,
                     worker_id: None,
                     created_at: now,
+                    request_id: None,
+                    runner_id: None,
+                    tenant_id: None,
                 };
                 diesel::insert_into(execution_events::table)
                     .values(&event)
@@ -805,6 +826,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     event_data,
                     worker_id: None,
                     created_at: now,
+                    request_id: None,
+                    runner_id: None,
+                    tenant_id: None,
                 };
                 diesel::insert_into(execution_events::table)
                     .values(&event)
@@ -867,6 +891,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     event_data: None,
                     worker_id: None,
                     created_at: now,
+                    request_id: None,
+                    runner_id: None,
+                    tenant_id: None,
                 };
                 diesel::insert_into(execution_events::table)
                     .values(&event)
@@ -915,6 +942,9 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     event_data: None,
                     worker_id: None,
                     created_at: now,
+                    request_id: None,
+                    runner_id: None,
+                    tenant_id: None,
                 };
                 diesel::insert_into(execution_events::table)
                     .values(&event)

@@ -164,6 +164,34 @@ pub async fn list_keys(dal: &DAL) -> Result<Vec<ApiKeyInfo>, ValidationError> {
     Ok(results.into_iter().map(to_info).collect())
 }
 
+/// CLOACI-T-0581: bulk-revoke every still-active key bound to `tenant_id`.
+/// Returns the number of rows updated. Used by tenant teardown to close
+/// out the auth surface before the schema is dropped.
+pub async fn revoke_keys_for_tenant(dal: &DAL, tenant_id: &str) -> Result<usize, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let now = Utc::now().naive_utc();
+    let tenant_owned = tenant_id.to_string();
+    let rows: usize = conn
+        .interact(move |conn| {
+            diesel::update(
+                api_keys::table
+                    .filter(api_keys::tenant_id.eq(Some(tenant_owned)))
+                    .filter(api_keys::revoked_at.is_null()),
+            )
+            .set(api_keys::revoked_at.eq(Some(now)))
+            .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(rows)
+}
+
 pub async fn revoke_key(dal: &DAL, id: Uuid) -> Result<bool, ValidationError> {
     let conn = dal
         .database

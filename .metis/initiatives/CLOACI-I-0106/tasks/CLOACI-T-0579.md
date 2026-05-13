@@ -4,14 +4,14 @@ level: task
 title: "T-02: Tenant-scoped routes — triggers list/get + health endpoints"
 short_code: "CLOACI-T-0579"
 created_at: 2026-05-13T19:38:42.038123+00:00
-updated_at: 2026-05-13T19:38:42.038123+00:00
+updated_at: 2026-05-13T21:36:25.844553+00:00
 parent: CLOACI-I-0106
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0106
 ## Objective
 
 Three handlers leak cross-tenant data today by querying admin-schema state instead of the caller's tenant: `list_triggers`, `get_trigger`, and `/v1/health/{accumulators,graphs}`. Scope each to the caller's authorized tenant set (admin bypass for `is_admin=true`). Closes SEC-02 and SEC-05.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -70,4 +74,35 @@ Three handlers leak cross-tenant data today by querying admin-schema state inste
 
 ## Status Updates
 
-*To be added during implementation.*
+**2026-05-13** — Landed. 3 new unit tests pass; clippy clean.
+
+### What changed
+
+- **`crates/cloacina-server/src/routes/triggers.rs`** — `list_triggers` + `get_trigger` resolve a tenant-scoped `Database` via `state.tenant_databases.resolve(&tenant_id, &state.database)` before constructing the DAL. Each tenant has its own schema, so `SELECT FROM schedules` naturally returns only that tenant's rows. Cross-tenant `get_trigger` 404s without info-disclosure.
+- **`crates/cloacina/src/computation_graph/scheduler.rs`** — `GraphStatus` gained `tenant_id: Option<String>` populated from `RunningGraph::declaration.tenant_id`.
+- **`crates/cloacina/src/computation_graph/registry.rs`** — new `EndpointRegistry::list_accumulators_with_health_for_key(&KeyContext)` filters by each accumulator's `AccumulatorAuthPolicy::is_authorized`. Accumulators without a policy entry fall through to `allow_all_authenticated` (single-tenant compat).
+- **`crates/cloacina-server/src/routes/health_graphs.rs`** —
+  - All three handlers take `Extension<AuthenticatedKey>`.
+  - `list_accumulators` uses the new `_for_key` registry method.
+  - `list_graphs` filters via `graph_visible(&auth, g.tenant_id)`.
+  - `get_graph` 404s on cross-tenant access (not 403).
+  - `graph_visible` helper: admin sees all; tenant-scoped keys see own + untagged; global non-admin sees only untagged.
+
+### Tests landed (3 new)
+
+- `graph_visible_admin_sees_all` — admin path.
+- `graph_visible_tenant_scoped` — own + untagged visible, other-tenant not.
+- `graph_visible_global_key_cannot_see_tenant_graphs` — global non-admin.
+
+### Design notes
+
+- **Untagged graphs visible to all authenticated callers** — single-tenant compat.
+- **404 over 403 for cross-tenant `get_graph`** — prevents tenant-name probing.
+- **Accumulator filtering reuses existing policy** rather than introducing a new tenant field on the registry.
+
+### Verification (local)
+
+- `cargo test --lib -p cloacina-server --features postgres graph_visible` → 3 new pass.
+- `cargo check --features postgres -p cloacina-server` → clean.
+- `cargo clippy --lib -p cloacina --features postgres` + `cloacina-server` → clean.
+- 17 pre-existing tests pass; 39 fail due to no live Postgres locally (pre-existing infra dependency).

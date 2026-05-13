@@ -93,6 +93,9 @@ impl<'a> TaskExecutionDAL<'a> {
                         event_data: None,
                         worker_id: None,
                         created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
                     diesel::insert_into(execution_events::table)
                         .values(&event)
@@ -154,6 +157,9 @@ impl<'a> TaskExecutionDAL<'a> {
                         event_data: None,
                         worker_id: None,
                         created_at: now,
+                        request_id: None,
+                        runner_id: None,
+                        tenant_id: None,
                     };
                     diesel::insert_into(execution_events::table)
                         .values(&event)

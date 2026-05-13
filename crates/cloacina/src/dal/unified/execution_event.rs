@@ -90,6 +90,9 @@ impl<'a> ExecutionEventDAL<'a> {
             event_data: new_event.event_data,
             worker_id: new_event.worker_id,
             created_at: now,
+            request_id: new_event.request_id,
+            runner_id: new_event.runner_id,
+            tenant_id: new_event.tenant_id,
         };
 
         let result: UnifiedExecutionEvent = conn
@@ -127,6 +130,9 @@ impl<'a> ExecutionEventDAL<'a> {
             event_data: new_event.event_data,
             worker_id: new_event.worker_id,
             created_at: now,
+            request_id: new_event.request_id,
+            runner_id: new_event.runner_id,
+            tenant_id: new_event.tenant_id,
         };
 
         conn.interact(move |conn| {

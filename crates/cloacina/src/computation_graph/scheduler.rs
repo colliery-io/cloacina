@@ -113,6 +113,10 @@ pub struct GraphStatus {
     pub running: bool,
     /// Reactor health state machine value. None if health tracking is not configured.
     pub health: Option<super::reactor::ReactorHealth>,
+    /// Tenant scope of the graph at load time. `None` for single-tenant or
+    /// admin-owned graphs. CLOACI-T-0579: surfaced so per-tenant health
+    /// endpoints can filter by caller authorization.
+    pub tenant_id: Option<String>,
 }
 
 /// Validate that two declarations targeting the same reactor name agree on
@@ -819,6 +823,7 @@ impl ComputationGraphScheduler {
                         .reactor_health_rx
                         .as_ref()
                         .map(|rx| rx.borrow().clone()),
+                    tenant_id: running.declaration.tenant_id.clone(),
                 })
             })
             .collect()

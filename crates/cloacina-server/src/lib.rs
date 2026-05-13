@@ -21,6 +21,7 @@
 //! management, workflow upload, and execution APIs.
 
 pub mod routes;
+pub mod tenant_runner_cache;
 
 use anyhow::{Context, Result};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
@@ -89,6 +90,15 @@ impl TenantDatabaseCache {
         cache.insert(tenant_id.to_string(), db.clone());
         Ok(db)
     }
+
+    /// CLOACI-T-0581: drop the cached `Database` for a tenant. Used by
+    /// tenant teardown — once the schema is dropped, the cached
+    /// connection pool is stale and must not be reused. Returns `true`
+    /// if an entry was evicted.
+    pub async fn evict(&self, tenant_id: &str) -> bool {
+        let mut cache = self.databases.write().await;
+        cache.remove(tenant_id).is_some()
+    }
 }
 
 /// Shared application state accessible from all route handlers.
@@ -106,6 +116,28 @@ pub struct AppState {
     pub metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
     /// Per-tenant database connection cache for schema isolation.
     pub tenant_databases: Arc<TenantDatabaseCache>,
+    /// CLOACI-T-0580: per-tenant `DefaultRunner` cache for tenant-scoped
+    /// workflow execution. Each cached runner shares the same inventory
+    /// `Runtime` via `Arc`; per-tenant runners differ only in their
+    /// underlying `Database` (schema scope) and lifecycle state.
+    pub tenant_runners: Arc<crate::tenant_runner_cache::TenantRunnerCache>,
+}
+
+/// CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
+/// per-tenant runner in `TenantRunnerCache`. Mirrors the admin runner
+/// config (`registry_storage_backend` is the same; reconcile interval
+/// honors the operator override).
+fn runner_config_for_tenant_cache(
+    reconcile_interval: Option<std::time::Duration>,
+) -> cloacina::DefaultRunnerConfig {
+    let mut builder = cloacina::DefaultRunnerConfig::builder();
+    builder = builder.registry_storage_backend("database");
+    if let Some(interval) = reconcile_interval {
+        builder = builder.registry_reconcile_interval(interval);
+    }
+    builder
+        .build()
+        .expect("default tenant runner config builds cleanly")
 }
 
 /// Validate security-related CLI args at server boot.
@@ -143,9 +175,16 @@ pub async fn run(
     require_signatures: bool,
     verification_org_id: Option<uuid::Uuid>,
     reconcile_interval: Option<std::time::Duration>,
+    tenant_runner_cache_size: usize,
 ) -> Result<()> {
     // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
     validate_security_args(require_signatures, verification_org_id.as_ref())?;
+
+    // CLOACI-T-0582: enable strict search_path checking on the server.
+    // Adds a `current_schema()` round-trip on every tenant-scoped
+    // connection acquire, catching silent search_path drift. The daemon
+    // (single-tenant per ADR-0005) leaves this off to avoid the cost.
+    cloacina::database::connection::set_strict_search_path(true);
 
     // Register the Python runtime in cloacina core's dispatch slot so the
     // reconciler can load uploaded Python-language packages. The compiler
@@ -299,6 +338,15 @@ pub async fn run(
         )),
         metrics_handle,
         tenant_databases: Arc::new(TenantDatabaseCache::new(database_url.clone())),
+        // CLOACI-T-0580: per-tenant runner cache. Capacity is operator-
+        // tunable; 256 default. If the configured cap is zero we fall
+        // back to 1 (LruCache requires NonZeroUsize) so misconfiguration
+        // doesn't panic the server at boot.
+        tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
+            std::num::NonZeroUsize::new(tenant_runner_cache_size.max(1))
+                .expect("max(1) is non-zero"),
+            runner_config_for_tenant_cache(reconcile_interval),
+        )),
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -307,6 +355,7 @@ pub async fn run(
     // Keep references for shutdown
     let scheduler_for_shutdown = state.graph_scheduler.clone();
     let runner_for_shutdown = state.runner.clone();
+    let tenant_runners_for_shutdown = state.tenant_runners.clone();
 
     // Build router
     let app = build_router(state);
@@ -366,6 +415,27 @@ pub async fn run(
             Ok(Err(e)) => warn!("Workflow runner shutdown error: {}", e),
             Err(_) => warn!("Workflow runner shutdown timed out after 30s"),
         }
+        // CLOACI-T-0580: shut down every cached per-tenant runner.
+        info!("Shutting down tenant runner cache...");
+        let results = tenant_runners_for_shutdown.shutdown_all().await;
+        let total = results.len();
+        let failed = results.values().filter(|r| r.is_err()).count();
+        if failed == 0 {
+            info!(
+                tenant_runners = total,
+                "Tenant runner cache shutdown complete"
+            );
+        } else {
+            warn!(
+                tenant_runners = total,
+                failed, "Tenant runner cache shutdown completed with errors"
+            );
+            for (tenant, result) in results {
+                if let Err(e) = result {
+                    warn!(tenant_id = %tenant, error = %e, "tenant runner shutdown failed");
+                }
+            }
+        }
     })
     .await
     .context("Server error")?;
@@ -382,11 +452,19 @@ async fn request_id_middleware(
 ) -> axum::response::Response {
     let id = uuid::Uuid::new_v4().to_string();
 
+    // CLOACI-T-0578: pre-declare auth-derived fields as Empty so the auth
+    // middleware can `record(...)` them onto this span after extraction.
+    // `tracing::field::Empty` reserves the field; a recording call later
+    // attaches the actual value, and the JSON/OTLP subscriber renders it
+    // in every event nested under this span (handler logs, audit emits).
     let span = tracing::info_span!(
         "request",
         request_id = %id,
         method = %request.method(),
         path = %request.uri().path(),
+        tenant_id = tracing::field::Empty,
+        key_id = tracing::field::Empty,
+        role = tracing::field::Empty,
     );
     let mut response = {
         use tracing::Instrument;
@@ -734,6 +812,10 @@ mod tests {
             )),
             metrics_handle: test_metrics_handle,
             tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
+            tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
+                std::num::NonZeroUsize::new(8).expect("test cap"),
+                runner_config_for_tenant_cache(None),
+            )),
         }
     }
 

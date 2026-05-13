@@ -209,6 +209,12 @@ pub struct UnifiedExecutionEvent {
     pub worker_id: Option<String>,
     pub created_at: UniversalTimestamp,
     pub sequence_num: i64,
+    // CLOACI-T-0583 correlation columns. Nullable on the DB side; populated
+    // when the calling context has them (server request handlers, per-tenant
+    // runners) and left None on transitional paths.
+    pub request_id: Option<UniversalUuid>,
+    pub runner_id: Option<UniversalUuid>,
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -221,6 +227,17 @@ pub struct NewUnifiedExecutionEvent {
     pub event_data: Option<String>,
     pub worker_id: Option<String>,
     pub created_at: UniversalTimestamp,
+    /// CLOACI-T-0583: id of the originating request (from the tracing span,
+    /// after T-0578 lands). `None` on transitional paths.
+    pub request_id: Option<UniversalUuid>,
+    /// CLOACI-T-0583: id of the runner instance that emitted the event.
+    /// Populated for per-tenant runner emissions (after T-0580), `None` for
+    /// the single-runner daemon path.
+    pub runner_id: Option<UniversalUuid>,
+    /// CLOACI-T-0583: tenant scope. Populated from `AuthenticatedKey`
+    /// (server) or the current tenant context. `None` on the daemon path
+    /// and on background-scheduler emissions that don't have a tenant.
+    pub tenant_id: Option<String>,
 }
 
 // ============================================================================
@@ -617,6 +634,9 @@ impl From<UnifiedExecutionEvent> for ExecutionEvent {
             worker_id: u.worker_id,
             created_at: u.created_at,
             sequence_num: u.sequence_num,
+            request_id: u.request_id,
+            runner_id: u.runner_id,
+            tenant_id: u.tenant_id,
         }
     }
 }

@@ -112,8 +112,27 @@ impl DefaultRunner {
             .await
             .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
 
-        // Fresh inventory-seeded runtime.
-        let runtime = Arc::new(Runtime::new());
+        Self::with_database(database, config, None).await
+    }
+
+    /// CLOACI-T-0580: construct a runner around a pre-built `Database`,
+    /// optionally sharing an inventory-seeded `Runtime` across runners.
+    ///
+    /// Used by `TenantRunnerCache` to spin up per-tenant `DefaultRunner`
+    /// instances: each tenant has its own `Database` (from
+    /// `TenantDatabaseCache`) but they all share the same `Runtime`
+    /// `Arc` so inventory (TaskRegistry, WorkflowRegistry, etc.) isn't
+    /// duplicated per-tenant.
+    ///
+    /// Migrations are NOT run by this path — the caller must have
+    /// already migrated the schema (the tenant-creation flow does this
+    /// in `DatabaseAdmin::create_tenant`).
+    pub async fn with_database(
+        database: Database,
+        config: DefaultRunnerConfig,
+        shared_runtime: Option<Arc<Runtime>>,
+    ) -> Result<Self, WorkflowExecutionError> {
+        let runtime = shared_runtime.unwrap_or_else(|| Arc::new(Runtime::new()));
 
         // Create scheduler with the scoped runtime
         let scheduler =

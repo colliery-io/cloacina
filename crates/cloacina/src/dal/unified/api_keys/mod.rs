@@ -88,4 +88,11 @@ impl<'a> ApiKeyDAL<'a> {
     pub async fn revoke_key(&self, id: uuid::Uuid) -> Result<bool, ValidationError> {
         crud::revoke_key(self.dal, id).await
     }
+
+    /// CLOACI-T-0581: bulk-revoke every still-active key bound to the
+    /// tenant. Returns the number of rows updated.
+    #[cfg(feature = "postgres")]
+    pub async fn revoke_keys_for_tenant(&self, tenant_id: &str) -> Result<usize, ValidationError> {
+        crud::revoke_keys_for_tenant(self.dal, tenant_id).await
+    }
 }

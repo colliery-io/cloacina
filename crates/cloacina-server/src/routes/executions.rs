@@ -42,11 +42,10 @@ pub struct ExecuteRequest {
 
 /// POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
 ///
-/// NOTE: Execution is scheduled through the shared DefaultRunner, which uses
-/// its own database connection. In per-tenant deployments (recommended), the
-/// runner IS scoped to the tenant. In multi-tenant deployments, executions
-/// land in the runner's schema. Full multi-tenant execute_workflow requires
-/// per-tenant runners or a runner that accepts a Database override.
+/// CLOACI-T-0580: execution is routed through `TenantRunnerCache`, which
+/// returns (or constructs) a `DefaultRunner` bound to the tenant's
+/// `Database`. The execution row + every event lands in the tenant's
+/// schema, never the admin schema.
 pub async fn execute_workflow(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -71,7 +70,36 @@ pub async fn execute_workflow(
         }
     }
 
-    match state.runner.execute_async(&name, context).await {
+    // CLOACI-T-0580: resolve the tenant-scoped Database, then look up
+    // (or construct) the per-tenant DefaultRunner from the LRU cache.
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            warn!(
+                "Failed to resolve tenant database for '{}': {}",
+                tenant_id, e
+            );
+            return ApiError::internal(format!("tenant database unavailable: {}", e))
+                .into_response();
+        }
+    };
+    let tenant_runner = match state
+        .tenant_runners
+        .get_or_create(&tenant_id, tenant_db)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("Failed to acquire tenant runner for '{}': {}", tenant_id, e);
+            return ApiError::internal(format!("tenant runner unavailable: {}", e)).into_response();
+        }
+    };
+
+    match tenant_runner.execute_async(&name, context).await {
         Ok(execution) => {
             info!(
                 "Executed workflow '{}' for tenant '{}': {}",

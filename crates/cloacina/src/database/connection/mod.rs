@@ -102,6 +102,62 @@ pub enum DatabaseError {
     Migration(String),
 }
 
+/// Process-wide strict-search-path flag. CLOACI-T-0582.
+///
+/// When `true`, `Database::get_connection_with_schema` runs a
+/// `SELECT current_schemas(false)` defense-in-depth check after the
+/// `SET search_path` — even a successful SET that somehow landed in
+/// the wrong schema is caught.
+///
+/// Set by `cloacina-server` at boot; the daemon (single-tenant per
+/// ADR-0005) leaves it `false` to avoid the per-acquire round-trip.
+/// SET-failure propagation is unconditional and does not depend on
+/// this flag — strict-mode only gates the defense-in-depth check.
+static STRICT_SEARCH_PATH: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Set the process-wide strict-search-path flag. Idempotent; safe to call
+/// at any point during process startup. CLOACI-T-0582.
+pub fn set_strict_search_path(enabled: bool) {
+    STRICT_SEARCH_PATH.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Read the process-wide strict-search-path flag. CLOACI-T-0582.
+pub fn is_strict_search_path() -> bool {
+    STRICT_SEARCH_PATH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Row shape for the `SELECT current_schema()` defense-in-depth probe.
+/// `current_schema()` returns NULL when no schema is set; we model
+/// that as `Option<String>`. CLOACI-T-0582.
+#[cfg(feature = "postgres")]
+#[derive(diesel::QueryableByName, Debug)]
+struct CurrentSchemaRow {
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    s: Option<String>,
+}
+
+/// Construct a `PoolError::Backend` carrying a CLOACI-T-0582 search_path
+/// failure so callers see a typed error rather than a silent fallback.
+/// The error message names the tenant schema and the underlying cause.
+#[cfg(feature = "postgres")]
+fn search_path_pool_error(
+    tenant_schema: &str,
+    cause: &str,
+) -> deadpool::managed::PoolError<deadpool_diesel::Error> {
+    // Encode as `Ping(QueryBuilderError)` so the public PoolError surface
+    // stays unchanged while still surfacing our message. `QueryBuilderError`
+    // takes `Box<dyn Error + Send + Sync>` which gives us free-form text.
+    let inner = diesel::result::Error::QueryBuilderError(
+        format!(
+            "search_path setup failed for tenant '{}': {} (CLOACI-T-0582)",
+            tenant_schema, cause
+        )
+        .into(),
+    );
+    deadpool::managed::PoolError::Backend(deadpool_diesel::Error::Ping(inner))
+}
+
 /// Represents a pool of database connections.
 ///
 /// This struct provides a thread-safe wrapper around a connection pool,
@@ -542,18 +598,115 @@ impl Database {
         let conn = pool.get().await?;
 
         if let Some(ref schema) = self.schema {
-            // Validate schema name to prevent SQL injection
-            // This should already be validated at construction time, but we validate
-            // again here for defense in depth
-            if let Ok(validated) = validate_schema_name(schema) {
-                let schema_name = validated.to_string();
-                let _ = conn
+            // Validate schema name to prevent SQL injection.
+            // Already validated at construction; re-validate as defense in depth.
+            let validated_schema = match validate_schema_name(schema) {
+                Ok(v) => v.to_string(),
+                Err(e) => {
+                    // CLOACI-T-0582: a re-validation failure means the
+                    // tenant schema name was tampered with after pool
+                    // construction. Fail closed, do not return the conn.
+                    drop(conn);
+                    return Err(search_path_pool_error(schema, &format!("{}", e)));
+                }
+            };
+
+            // CLOACI-T-0582: previously this was `let _ = conn.interact(...)`
+            // which silently masked SET failures and routed subsequent
+            // queries to the default search_path (typically `public` +
+            // admin schema). Fail closed instead: propagate the error and
+            // discard the connection so it isn't reused with an unknown
+            // search_path state.
+            let schema_name = validated_schema.clone();
+            let set_result: Result<Result<usize, diesel::result::Error>, _> = conn
+                .interact(move |conn| {
+                    let set_search_path_sql = format!("SET search_path TO {}, public", schema_name);
+                    diesel::sql_query(&set_search_path_sql).execute(conn)
+                })
+                .await;
+            match set_result {
+                Ok(Ok(_)) => { /* SET succeeded */ }
+                Ok(Err(diesel_err)) => {
+                    tracing::error!(
+                        tenant_schema = %validated_schema,
+                        error = %diesel_err,
+                        "SET search_path failed; rejecting tenant-scoped connection (CLOACI-T-0582)"
+                    );
+                    drop(conn);
+                    return Err(search_path_pool_error(
+                        &validated_schema,
+                        &format!("{}", diesel_err),
+                    ));
+                }
+                Err(interact_err) => {
+                    tracing::error!(
+                        tenant_schema = %validated_schema,
+                        error = %interact_err,
+                        "SET search_path interact failed; rejecting connection (CLOACI-T-0582)"
+                    );
+                    drop(conn);
+                    return Err(search_path_pool_error(
+                        &validated_schema,
+                        &format!("{}", interact_err),
+                    ));
+                }
+            }
+
+            // CLOACI-T-0582: defense-in-depth check, gated by the
+            // process-wide strict-search-path flag. Verifies the SET
+            // actually landed in the expected schema by reading
+            // `current_schema()` (the first schema in the path).
+            if is_strict_search_path() {
+                let expected_schema = validated_schema.clone();
+                let probe: Result<Result<CurrentSchemaRow, diesel::result::Error>, _> = conn
                     .interact(move |conn| {
-                        let set_search_path_sql =
-                            format!("SET search_path TO {}, public", schema_name);
-                        diesel::sql_query(&set_search_path_sql).execute(conn)
+                        diesel::sql_query("SELECT current_schema() AS s").get_result(conn)
                     })
                     .await;
+                match probe {
+                    Ok(Ok(row)) if row.s.as_deref() == Some(expected_schema.as_str()) => {
+                        // Match — connection is good.
+                    }
+                    Ok(Ok(row)) => {
+                        tracing::error!(
+                            tenant_schema = %expected_schema,
+                            actual = ?row.s,
+                            "current_schema() mismatch — connection search_path is not the expected tenant schema (CLOACI-T-0582)"
+                        );
+                        drop(conn);
+                        return Err(search_path_pool_error(
+                            &expected_schema,
+                            &format!(
+                                "search_path mismatch: expected '{}', got {:?}",
+                                expected_schema, row.s
+                            ),
+                        ));
+                    }
+                    Ok(Err(diesel_err)) => {
+                        tracing::error!(
+                            tenant_schema = %expected_schema,
+                            error = %diesel_err,
+                            "current_schema() probe failed; rejecting connection (CLOACI-T-0582)"
+                        );
+                        drop(conn);
+                        return Err(search_path_pool_error(
+                            &expected_schema,
+                            &format!("{}", diesel_err),
+                        ));
+                    }
+                    Err(interact_err) => {
+                        tracing::error!(
+                            tenant_schema = %expected_schema,
+                            error = %interact_err,
+                            "current_schema() interact failed; rejecting connection (CLOACI-T-0582)"
+                        );
+                        drop(conn);
+                        return Err(search_path_pool_error(
+                            &expected_schema,
+                            &format!("{}", interact_err),
+                        ));
+                    }
+                }
             }
         }
 
@@ -611,6 +764,55 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0582: strict-search-path flag toggle
+    // -----------------------------------------------------------------------
+    //
+    // The flag is a process-wide AtomicBool; tests for it must not run in
+    // parallel with anything else that reads `is_strict_search_path()`.
+    // We don't have a serial-test gate here since this is the only writer
+    // surface, but document the constraint for future maintainers.
+
+    #[test]
+    fn strict_search_path_default_off() {
+        // Snapshot then restore so we don't perturb other tests running
+        // serially after this one.
+        let prev = is_strict_search_path();
+        set_strict_search_path(false);
+        assert!(!is_strict_search_path());
+        set_strict_search_path(prev);
+    }
+
+    #[test]
+    fn strict_search_path_set_round_trip() {
+        let prev = is_strict_search_path();
+        set_strict_search_path(true);
+        assert!(is_strict_search_path());
+        set_strict_search_path(false);
+        assert!(!is_strict_search_path());
+        set_strict_search_path(prev);
+    }
+
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn search_path_pool_error_carries_tenant_and_cause() {
+        let err = search_path_pool_error("tenant_acme", "SET failed: permission denied");
+        // PoolError doesn't impl PartialEq; assert via the Display impl.
+        let s = format!("{}", err);
+        assert!(
+            s.contains("tenant_acme"),
+            "error should name the tenant: {s}"
+        );
+        assert!(
+            s.contains("CLOACI-T-0582"),
+            "error should be marked with the ticket id: {s}"
+        );
+        assert!(
+            s.contains("permission denied"),
+            "error should carry the underlying cause: {s}"
+        );
+    }
 
     #[test]
     fn test_postgres_url_parsing_scenarios() {

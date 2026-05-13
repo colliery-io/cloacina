@@ -187,11 +187,46 @@ pub async fn require_auth(
 
     match validate_token(&state, &token).await {
         Ok(auth) => {
+            record_auth_span_fields(&tracing::Span::current(), &auth);
             request.extensions_mut().insert(auth);
             next.run(request).await
         }
         Err(resp) => resp.into_response(),
     }
+}
+
+/// CLOACI-T-0578: attach `tenant_id`, `key_id`, `role` to the current
+/// request span after authentication. Every downstream `tracing::info!`,
+/// every `audit::log_*` emit, and every OTLP span attribute under this
+/// request inherits the values.
+///
+/// The fields must have been pre-declared as `tracing::field::Empty` on
+/// the span by `request_id_middleware`; recording an unknown field is a
+/// silent no-op (a known footgun called out in T-0578's risk section).
+///
+/// Field mapping:
+/// - `key_id`: the API key's UUID (high cardinality but bounded by total
+///   key count; not used as a Prom label).
+/// - `tenant_id`: the key's tenant scope. `None` + `is_admin = true`
+///   renders as the `<admin>` sentinel so admin actions are still
+///   distinguishable in logs.
+/// - `role`: the `permissions` string (`admin` | `write` | `read`). God
+///   mode (`is_admin = true`) keeps its underlying `permissions` value
+///   here, with admin-ness implied by the sentinel `tenant_id`.
+pub(crate) fn record_auth_span_fields(span: &tracing::Span, auth: &AuthenticatedKey) {
+    span.record("key_id", tracing::field::display(&auth.key_id));
+    match &auth.tenant_id {
+        Some(t) => {
+            span.record("tenant_id", tracing::field::display(t));
+        }
+        None if auth.is_admin => {
+            span.record("tenant_id", "<admin>");
+        }
+        None => {
+            span.record("tenant_id", "<none>");
+        }
+    }
+    span.record("role", auth.permissions.as_str());
 }
 
 /// Extract the Bearer token from the Authorization header.
@@ -416,6 +451,145 @@ mod tests {
         assert!(
             result.is_some(),
             "most recent ticket should survive eviction"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0578: span field recording
+    // -----------------------------------------------------------------------
+
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone)]
+    struct StringWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for StringWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for StringWriter {
+        type Writer = StringWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Run `f` under a `tracing` subscriber that pre-declares the three
+    /// CLOACI-T-0578 fields as Empty, then captures and returns the
+    /// subscriber output. Inside `f`, the current span is the pre-declared
+    /// one — so `record(...)` calls actually attach values.
+    fn capture_under_request_span<F>(f: F) -> String
+    where
+        F: FnOnce(&tracing::Span),
+    {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let writer = StringWriter(buffer.clone());
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(writer)
+            .with_ansi(false)
+            .with_target(false)
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tenant_id = tracing::field::Empty,
+                key_id = tracing::field::Empty,
+                role = tracing::field::Empty,
+            );
+            let _guard = span.enter();
+            f(&span);
+            // Emit one event inside the span to force a subscriber flush
+            // that includes the recorded fields.
+            tracing::info!("span fields probe");
+        });
+
+        let bytes = buffer.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    fn make_auth_with(tenant: Option<&str>, is_admin: bool, permissions: &str) -> AuthenticatedKey {
+        AuthenticatedKey {
+            key_id: uuid::Uuid::new_v4(),
+            name: "test".to_string(),
+            permissions: permissions.to_string(),
+            tenant_id: tenant.map(str::to_string),
+            is_admin,
+        }
+    }
+
+    #[test]
+    fn record_auth_span_fields_tenant_scoped() {
+        let auth = make_auth_with(Some("acme"), false, "write");
+        let key_id_str = auth.key_id.to_string();
+        let output = capture_under_request_span(|span| {
+            record_auth_span_fields(span, &auth);
+        });
+        assert!(
+            output.contains("tenant_id=\"acme\"") || output.contains("tenant_id=acme"),
+            "expected tenant_id=acme in: {output}"
+        );
+        assert!(
+            output.contains(&key_id_str),
+            "expected key_id {key_id_str} in: {output}"
+        );
+        assert!(
+            output.contains("role=\"write\"") || output.contains("role=write"),
+            "expected role=write in: {output}"
+        );
+    }
+
+    #[test]
+    fn record_auth_span_fields_admin_sentinel() {
+        let auth = make_auth_with(None, true, "admin");
+        let output = capture_under_request_span(|span| {
+            record_auth_span_fields(span, &auth);
+        });
+        // Admin god-mode without an explicit tenant renders the <admin>
+        // sentinel so admin actions are still distinguishable in logs.
+        assert!(
+            output.contains("<admin>"),
+            "expected <admin> sentinel in: {output}"
+        );
+        assert!(
+            output.contains("role=\"admin\"") || output.contains("role=admin"),
+            "expected role=admin in: {output}"
+        );
+    }
+
+    #[test]
+    fn record_auth_span_fields_no_tenant_no_admin() {
+        // Global key (no tenant, not admin) — renders <none> sentinel.
+        let auth = make_auth_with(None, false, "read");
+        let output = capture_under_request_span(|span| {
+            record_auth_span_fields(span, &auth);
+        });
+        assert!(
+            output.contains("<none>"),
+            "expected <none> sentinel in: {output}"
+        );
+    }
+
+    #[test]
+    fn record_auth_span_fields_unauth_request_leaves_empty() {
+        // No call to record_auth_span_fields — fields stay Empty and
+        // should not render with concrete values in the captured output.
+        let output = capture_under_request_span(|_span| {
+            // intentionally no recording
+        });
+        // Empty fields don't render as "field=<value>"; they're omitted
+        // by the fmt subscriber. So the output should NOT contain a
+        // populated tenant_id.
+        assert!(
+            !output.contains("tenant_id=\"") && !output.contains("tenant_id=ac"),
+            "unauthenticated request must not show populated tenant_id: {output}"
         );
     }
 

@@ -69,6 +69,16 @@ pub mod events {
     /// on every outcome path (success, clean failure, timeout-kill,
     /// internal error). CLOACI-T-0576.
     pub const COMPILER_BUILD_FINISHED: &str = "compiler.build.finished";
+
+    /// CLOACI-T-0581: tenant teardown event kinds. One per step of the
+    /// `remove_tenant` orchestration so operators can reconstruct what
+    /// happened and which step (if any) errored.
+    pub const TENANT_TEARDOWN_KEYS_REVOKED: &str = "tenant.teardown.keys_revoked";
+    pub const TENANT_TEARDOWN_RUNNER_EVICTED: &str = "tenant.teardown.runner_evicted";
+    pub const TENANT_TEARDOWN_DB_CACHE_EVICTED: &str = "tenant.teardown.db_cache_evicted";
+    pub const TENANT_TEARDOWN_SCHEMA_DROPPED: &str = "tenant.teardown.schema_dropped";
+    pub const TENANT_TEARDOWN_COMPLETED: &str = "tenant.teardown.completed";
+    pub const TENANT_TEARDOWN_FAILED: &str = "tenant.teardown.failed";
 }
 
 /// Log a signing key creation event.
@@ -261,6 +271,44 @@ pub fn log_verification_failure(
         signer_fingerprint = signer_fingerprint.unwrap_or("<unknown>"),
         "Package signature verification failed"
     );
+}
+
+/// CLOACI-T-0581: log a successful tenant teardown step. `step` is one
+/// of the `TENANT_TEARDOWN_*` event-kind constants. Each step also
+/// carries its row/entity count (e.g. number of keys revoked) so
+/// operators can sanity-check at a glance.
+pub fn log_tenant_teardown_step(
+    event_type: &'static str,
+    tenant_id: &str,
+    count: usize,
+    step_duration_ms: u64,
+) {
+    tracing::info!(
+        event_type = event_type,
+        tenant_id = %tenant_id,
+        count = count,
+        step_duration_ms = step_duration_ms,
+        "tenant teardown step"
+    );
+}
+
+/// CLOACI-T-0581: log the overall teardown outcome.
+pub fn log_tenant_teardown_outcome(tenant_id: &str, success: bool, total_duration_ms: u64) {
+    if success {
+        tracing::info!(
+            event_type = events::TENANT_TEARDOWN_COMPLETED,
+            tenant_id = %tenant_id,
+            total_duration_ms = total_duration_ms,
+            "tenant teardown completed"
+        );
+    } else {
+        tracing::warn!(
+            event_type = events::TENANT_TEARDOWN_FAILED,
+            tenant_id = %tenant_id,
+            total_duration_ms = total_duration_ms,
+            "tenant teardown failed"
+        );
+    }
 }
 
 /// Log a compiler build start event. Emitted by `cloacina-compiler` once
@@ -708,6 +756,40 @@ mod tests {
         assert!(output.contains("SIGKILL"));
         assert!(output.contains("600000"));
         assert!(output.contains("exceeded build_timeout"));
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0581: tenant teardown audit events
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_log_tenant_teardown_step_keys_revoked() {
+        let output = with_captured_logs(|| {
+            log_tenant_teardown_step(events::TENANT_TEARDOWN_KEYS_REVOKED, "acme", 7, 42);
+        });
+        assert!(output.contains(events::TENANT_TEARDOWN_KEYS_REVOKED));
+        assert!(output.contains("acme"));
+        assert!(output.contains("count=7"));
+        assert!(output.contains("step_duration_ms=42"));
+    }
+
+    #[test]
+    fn test_log_tenant_teardown_outcome_success() {
+        let output = with_captured_logs(|| {
+            log_tenant_teardown_outcome("acme", true, 500);
+        });
+        assert!(output.contains(events::TENANT_TEARDOWN_COMPLETED));
+        assert!(output.contains("acme"));
+        assert!(output.contains("total_duration_ms=500"));
+    }
+
+    #[test]
+    fn test_log_tenant_teardown_outcome_failure() {
+        let output = with_captured_logs(|| {
+            log_tenant_teardown_outcome("acme", false, 200);
+        });
+        assert!(output.contains(events::TENANT_TEARDOWN_FAILED));
+        assert!(output.contains("acme"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-13T15:30:29Z | 483 files | JavaScript, Python, Rust
+> Generated: 2026-05-13T22:42:20Z | 484 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -314,17 +314,18 @@
 │   │   ├── src/
 │   │   │   ├── lib.rs
 │   │   │   ├── main.rs
-│   │   │   └── routes/
-│   │   │       ├── auth.rs
-│   │   │       ├── error.rs
-│   │   │       ├── executions.rs
-│   │   │       ├── health_graphs.rs
-│   │   │       ├── keys.rs
-│   │   │       ├── mod.rs
-│   │   │       ├── tenants.rs
-│   │   │       ├── triggers.rs
-│   │   │       ├── workflows.rs
-│   │   │       └── ws.rs
+│   │   │   ├── routes/
+│   │   │   │   ├── auth.rs
+│   │   │   │   ├── error.rs
+│   │   │   │   ├── executions.rs
+│   │   │   │   ├── health_graphs.rs
+│   │   │   │   ├── keys.rs
+│   │   │   │   ├── mod.rs
+│   │   │   │   ├── tenants.rs
+│   │   │   │   ├── triggers.rs
+│   │   │   │   ├── workflows.rs
+│   │   │   │   └── ws.rs
+│   │   │   └── tenant_runner_cache.rs
 │   │   └── tests/
 │   │       └── cli_validation.rs
 │   ├── cloacina-testing/
@@ -896,25 +897,26 @@
 - pub `register_accumulator_health` function L434-441 — `( &self, name: String, health_rx: watch::Receiver<AccumulatorHealth>, )` — Register a health watch receiver for an accumulator.
 - pub `get_accumulator_health` function L444-450 — `(&self, name: &str) -> Option<AccumulatorHealth>` — Get the current health of an accumulator.
 - pub `list_accumulators_with_health` function L453-467 — `(&self) -> Vec<(String, AccumulatorHealth)>` — List all accumulators with their current health status.
+- pub `list_accumulators_with_health_for_key` function L479-507 — `( &self, ctx: &KeyContext<'_>, ) -> Vec<(String, AccumulatorHealth)>` — CLOACI-T-0579: list accumulators authorized for the given caller.
 -  `AccumulatorAuthPolicy` type L102-134 — `= AccumulatorAuthPolicy` — under the same name all receive the message.
 -  `ReactorAuthPolicy` type L136-185 — `= ReactorAuthPolicy` — under the same name all receive the message.
 -  `RegistryInner` struct L196-209 — `{ accumulators: HashMap<String, Vec<mpsc::Sender<Vec<u8>>>>, reactors: HashMap<S...` — under the same name all receive the message.
--  `EndpointRegistry` type L211-468 — `= EndpointRegistry` — under the same name all receive the message.
--  `EndpointRegistry` type L470-474 — `impl Default for EndpointRegistry` — under the same name all receive the message.
--  `default` function L471-473 — `() -> Self` — under the same name all receive the message.
--  `tests` module L477-793 — `-` — under the same name all receive the message.
--  `dummy_handle` function L481-486 — `() -> ReactorHandle` — under the same name all receive the message.
--  `test_register_send_deregister_accumulator` function L489-512 — `()` — under the same name all receive the message.
--  `test_broadcast_to_multiple_accumulators` function L515-538 — `()` — under the same name all receive the message.
--  `test_send_to_unregistered_accumulator` function L541-548 — `()` — under the same name all receive the message.
--  `test_register_send_deregister_reactor` function L551-574 — `()` — under the same name all receive the message.
--  `test_send_to_unregistered_reactor` function L577-584 — `()` — under the same name all receive the message.
--  `test_closed_accumulator_channel_pruned` function L587-613 — `()` — under the same name all receive the message.
--  `test_list_accumulators_and_reactors` function L616-633 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_deny_by_default` function L636-650 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_authorized_key` function L653-691 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_tenant_scoped` function L694-748 — `()` — under the same name all receive the message.
--  `test_reactor_auth_with_operation_permissions` function L751-792 — `()` — under the same name all receive the message.
+-  `EndpointRegistry` type L211-508 — `= EndpointRegistry` — under the same name all receive the message.
+-  `EndpointRegistry` type L510-514 — `impl Default for EndpointRegistry` — under the same name all receive the message.
+-  `default` function L511-513 — `() -> Self` — under the same name all receive the message.
+-  `tests` module L517-833 — `-` — under the same name all receive the message.
+-  `dummy_handle` function L521-526 — `() -> ReactorHandle` — under the same name all receive the message.
+-  `test_register_send_deregister_accumulator` function L529-552 — `()` — under the same name all receive the message.
+-  `test_broadcast_to_multiple_accumulators` function L555-578 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_accumulator` function L581-588 — `()` — under the same name all receive the message.
+-  `test_register_send_deregister_reactor` function L591-614 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_reactor` function L617-624 — `()` — under the same name all receive the message.
+-  `test_closed_accumulator_channel_pruned` function L627-653 — `()` — under the same name all receive the message.
+-  `test_list_accumulators_and_reactors` function L656-673 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_deny_by_default` function L676-690 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_authorized_key` function L693-731 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_tenant_scoped` function L734-788 — `()` — under the same name all receive the message.
+-  `test_reactor_auth_with_operation_permissions` function L791-832 — `()` — under the same name all receive the message.
 
 #### crates/cloacina/src/computation_graph/scheduler.rs
 
@@ -923,45 +925,45 @@
 - pub `AccumulatorSpawnConfig` struct L69-76 — `{ dal: Option<crate::dal::unified::DAL>, health_tx: Option<watch::Sender<Accumul...` — Configuration passed to [`AccumulatorFactory::spawn`] for resilience wiring.
 - pub `AccumulatorFactory` interface L81-94 — `{ fn spawn() }` — Factory trait for creating accumulator instances.
 - pub `ReactorDeclaration` struct L98-105 — `{ criteria: ReactionCriteria, strategy: InputStrategy, graph_fn: CompiledGraphFn...` — Declaration for the reactor.
-- pub `GraphStatus` struct L109-116 — `{ name: String, accumulators: Vec<String>, paused: bool, running: bool, health: ...` — Status of a managed computation graph.
-- pub `ComputationGraphScheduler` struct L267-279 — `{ registry: EndpointRegistry, reactors: Arc<RwLock<HashMap<String, RunningGraph>...` — The Reactive Scheduler.
-- pub `new` function L282-289 — `(registry: EndpointRegistry) -> Self` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
-- pub `with_dal` function L292-299 — `(registry: EndpointRegistry, dal: crate::dal::unified::DAL) -> Self` — Create a scheduler with DAL support for persistence and health tracking.
-- pub `load_reactor` function L316-502 — `( &self, reactor_name: String, accumulators: Vec<AccumulatorDeclaration>, criter...` — Load and start a reactor with no subscribers.
-- pub `bind_graph_to_reactor` function L510-545 — `( &self, graph_name: String, reactor_name: String, graph_fn: CompiledGraphFn, ) ...` — Bind a graph as an additional subscriber on an already-loaded reactor.
-- pub `load_graph` function L555-614 — `(&self, decl: ComputationGraphDeclaration) -> Result<(), String>` — Load and start a computation graph.
-- pub `load_graph_split` function L632-670 — `( &self, graph_name: String, graph_fn: CompiledGraphFn, reactor: &cloacina_compu...` — Load a computation graph that references a reactor declaration by
-- pub `unbind_graph_from_reactor` function L678-708 — `(&self, name: &str) -> Result<String, String>` — Unbind a graph from its reactor without affecting the reactor itself.
-- pub `unload_reactor` function L715-759 — `(&self, reactor_name: &str) -> Result<(), String>` — Tear down a reactor and its accumulators.
-- pub `unload_graph` function L767-784 — `(&self, name: &str) -> Result<(), String>` — Backward-compat convenience: unbind the graph from its reactor and,
-- pub `reactor_accumulator_names` function L790-799 — `(&self, reactor_name: &str) -> Option<Vec<String>>` — Snapshot the accumulator names of a loaded reactor, in declaration
-- pub `list_graphs` function L804-825 — `(&self) -> Vec<GraphStatus>` — List all loaded computation graphs with status.
-- pub `check_and_restart_failed` function L832-1101 — `(&self) -> usize` — Check all graphs for crashed tasks and restart them.
-- pub `start_supervision` function L1106-1131 — `( self: &Arc<Self>, mut shutdown_rx: watch::Receiver<bool>, check_interval: std:...` — Start a background supervision loop that checks for crashed tasks.
-- pub `shutdown_all` function L1156-1167 — `(&self)` — Graceful shutdown of all graphs.
--  `check_reactor_contract_matches` function L123-152 — `( existing: &ComputationGraphDeclaration, new: &ComputationGraphDeclaration, ) -...` — Validate that two declarations targeting the same reactor name agree on
--  `dummy_graph_fn` function L157-159 — `() -> CompiledGraphFn` — Placeholder `CompiledGraphFn` used inside the synthetic anchoring
--  `ReactorSubscribers` type L167 — `= Arc<RwLock<HashMap<String, CompiledGraphFn>>>` — Subscribers bound to a single reactor instance.
--  `make_subscriber_dispatcher` function L177-218 — `( reactor_name: String, subscribers: ReactorSubscribers, ) -> CompiledGraphFn` — Build the dispatcher [`CompiledGraphFn`] handed to [`Reactor::new`].
--  `RunningGraph` struct L221-252 — `{ shutdown_tx: watch::Sender<bool>, shutdown_rx: watch::Receiver<bool>, boundary...` — State for a running computation graph.
--  `MAX_RECOVERY_ATTEMPTS` variable L255 — `: u32` — Maximum consecutive failures before a component is permanently abandoned.
--  `BACKOFF_BASE_SECS` variable L258 — `: u64` — Base delay for exponential backoff (doubles on each failure, capped at 60s).
--  `BACKOFF_MAX_SECS` variable L261 — `: u64` — Maximum backoff delay.
--  `SUCCESS_RESET_SECS` variable L264 — `: u64` — Duration of successful operation before failure counter resets.
--  `ComputationGraphScheduler` type L281-1168 — `= ComputationGraphScheduler` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `record_recovery_event` function L1134-1153 — `(&self, component: &str, attempt: u32, backoff_secs: u64)` — Record a recovery event in the DAL (best-effort, logs on failure).
--  `tests` module L1171-1350 — `-` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `TestEvent` struct L1182-1184 — `{ value: f64 }` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `TestAccumulatorFactory` struct L1187 — `-` — A simple passthrough accumulator for testing.
--  `TestAccumulatorFactory` type L1189-1231 — `impl AccumulatorFactory for TestAccumulatorFactory` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `spawn` function L1190-1230 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `Passthrough` struct L1199 — `-` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `Passthrough` type L1202-1207 — `impl Accumulator for Passthrough` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `Output` type L1203 — `= TestEvent` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `process` function L1204-1206 — `(&mut self, event: Vec<u8>) -> Option<TestEvent>` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `test_load_graph_push_event_fires` function L1234-1282 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `test_unload_graph_deregisters` function L1285-1322 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `test_duplicate_load_rejected` function L1325-1349 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+- pub `GraphStatus` struct L109-120 — `{ name: String, accumulators: Vec<String>, paused: bool, running: bool, health: ...` — Status of a managed computation graph.
+- pub `ComputationGraphScheduler` struct L271-283 — `{ registry: EndpointRegistry, reactors: Arc<RwLock<HashMap<String, RunningGraph>...` — The Reactive Scheduler.
+- pub `new` function L286-293 — `(registry: EndpointRegistry) -> Self` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+- pub `with_dal` function L296-303 — `(registry: EndpointRegistry, dal: crate::dal::unified::DAL) -> Self` — Create a scheduler with DAL support for persistence and health tracking.
+- pub `load_reactor` function L320-506 — `( &self, reactor_name: String, accumulators: Vec<AccumulatorDeclaration>, criter...` — Load and start a reactor with no subscribers.
+- pub `bind_graph_to_reactor` function L514-549 — `( &self, graph_name: String, reactor_name: String, graph_fn: CompiledGraphFn, ) ...` — Bind a graph as an additional subscriber on an already-loaded reactor.
+- pub `load_graph` function L559-618 — `(&self, decl: ComputationGraphDeclaration) -> Result<(), String>` — Load and start a computation graph.
+- pub `load_graph_split` function L636-674 — `( &self, graph_name: String, graph_fn: CompiledGraphFn, reactor: &cloacina_compu...` — Load a computation graph that references a reactor declaration by
+- pub `unbind_graph_from_reactor` function L682-712 — `(&self, name: &str) -> Result<String, String>` — Unbind a graph from its reactor without affecting the reactor itself.
+- pub `unload_reactor` function L719-763 — `(&self, reactor_name: &str) -> Result<(), String>` — Tear down a reactor and its accumulators.
+- pub `unload_graph` function L771-788 — `(&self, name: &str) -> Result<(), String>` — Backward-compat convenience: unbind the graph from its reactor and,
+- pub `reactor_accumulator_names` function L794-803 — `(&self, reactor_name: &str) -> Option<Vec<String>>` — Snapshot the accumulator names of a loaded reactor, in declaration
+- pub `list_graphs` function L808-830 — `(&self) -> Vec<GraphStatus>` — List all loaded computation graphs with status.
+- pub `check_and_restart_failed` function L837-1106 — `(&self) -> usize` — Check all graphs for crashed tasks and restart them.
+- pub `start_supervision` function L1111-1136 — `( self: &Arc<Self>, mut shutdown_rx: watch::Receiver<bool>, check_interval: std:...` — Start a background supervision loop that checks for crashed tasks.
+- pub `shutdown_all` function L1161-1172 — `(&self)` — Graceful shutdown of all graphs.
+-  `check_reactor_contract_matches` function L127-156 — `( existing: &ComputationGraphDeclaration, new: &ComputationGraphDeclaration, ) -...` — Validate that two declarations targeting the same reactor name agree on
+-  `dummy_graph_fn` function L161-163 — `() -> CompiledGraphFn` — Placeholder `CompiledGraphFn` used inside the synthetic anchoring
+-  `ReactorSubscribers` type L171 — `= Arc<RwLock<HashMap<String, CompiledGraphFn>>>` — Subscribers bound to a single reactor instance.
+-  `make_subscriber_dispatcher` function L181-222 — `( reactor_name: String, subscribers: ReactorSubscribers, ) -> CompiledGraphFn` — Build the dispatcher [`CompiledGraphFn`] handed to [`Reactor::new`].
+-  `RunningGraph` struct L225-256 — `{ shutdown_tx: watch::Sender<bool>, shutdown_rx: watch::Receiver<bool>, boundary...` — State for a running computation graph.
+-  `MAX_RECOVERY_ATTEMPTS` variable L259 — `: u32` — Maximum consecutive failures before a component is permanently abandoned.
+-  `BACKOFF_BASE_SECS` variable L262 — `: u64` — Base delay for exponential backoff (doubles on each failure, capped at 60s).
+-  `BACKOFF_MAX_SECS` variable L265 — `: u64` — Maximum backoff delay.
+-  `SUCCESS_RESET_SECS` variable L268 — `: u64` — Duration of successful operation before failure counter resets.
+-  `ComputationGraphScheduler` type L285-1173 — `= ComputationGraphScheduler` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `record_recovery_event` function L1139-1158 — `(&self, component: &str, attempt: u32, backoff_secs: u64)` — Record a recovery event in the DAL (best-effort, logs on failure).
+-  `tests` module L1176-1355 — `-` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `TestEvent` struct L1187-1189 — `{ value: f64 }` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `TestAccumulatorFactory` struct L1192 — `-` — A simple passthrough accumulator for testing.
+-  `TestAccumulatorFactory` type L1194-1236 — `impl AccumulatorFactory for TestAccumulatorFactory` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `spawn` function L1195-1235 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `Passthrough` struct L1204 — `-` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `Passthrough` type L1207-1212 — `impl Accumulator for Passthrough` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `Output` type L1208 — `= TestEvent` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `process` function L1209-1211 — `(&mut self, event: Vec<u8>) -> Option<TestEvent>` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `test_load_graph_push_event_fires` function L1239-1287 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `test_unload_graph_deregisters` function L1290-1327 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `test_duplicate_load_rejected` function L1330-1354 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
 
 #### crates/cloacina/src/computation_graph/stream_backend.rs
 
@@ -1499,7 +1501,8 @@
 - pub `validate_hash` function L103-126 — `( dal: &DAL, key_hash: &str, ) -> Result<Option<ApiKeyInfo>, ValidationError>` — Postgres CRUD operations for api_keys table.
 - pub `has_any_keys` function L128-146 — `(dal: &DAL) -> Result<bool, ValidationError>` — Postgres CRUD operations for api_keys table.
 - pub `list_keys` function L148-165 — `(dal: &DAL) -> Result<Vec<ApiKeyInfo>, ValidationError>` — Postgres CRUD operations for api_keys table.
-- pub `revoke_key` function L167-189 — `(dal: &DAL, id: Uuid) -> Result<bool, ValidationError>` — Postgres CRUD operations for api_keys table.
+- pub `revoke_keys_for_tenant` function L170-196 — `( dal: &DAL, tenant_id: &str, ) -> Result<usize, ValidationError>` — CLOACI-T-0581: bulk-revoke every still-active key bound to `tenant_id`.
+- pub `revoke_key` function L198-220 — `(dal: &DAL, id: Uuid) -> Result<bool, ValidationError>` — Postgres CRUD operations for api_keys table.
 -  `ApiKeyRow` struct L31-41 — `{ id: Uuid, key_hash: String, name: String, permissions: String, created_at: chr...` — Diesel model for reading api_keys rows.
 -  `NewApiKey` struct L46-53 — `{ id: Uuid, key_hash: String, name: String, permissions: String, tenant_id: Opti...` — Diesel model for inserting api_keys rows.
 -  `to_info` function L55-65 — `(row: ApiKeyRow) -> ApiKeyInfo` — Postgres CRUD operations for api_keys table.
@@ -1514,6 +1517,7 @@
 - pub `has_any_keys` function L76-78 — `(&self) -> Result<bool, ValidationError>` — Check if any non-revoked API keys exist.
 - pub `list_keys` function L82-84 — `(&self) -> Result<Vec<ApiKeyInfo>, ValidationError>` — List all API keys (no hashes).
 - pub `revoke_key` function L88-90 — `(&self, id: uuid::Uuid) -> Result<bool, ValidationError>` — Soft-revoke a key.
+- pub `revoke_keys_for_tenant` function L95-100 — `( &self, tenant_id: &str, ) -> Result<usize, ValidationError>` — CLOACI-T-0581: bulk-revoke every still-active key bound to the
 -  `crud` module L24 — `-` — API key DAL — Postgres only.
 
 ### crates/cloacina/src/dal/unified
@@ -1577,29 +1581,29 @@
 - pub `ExecutionEventDAL` struct L39-41 — `{ dal: &'a DAL }` — Data access layer for execution event operations with runtime backend selection.
 - pub `new` function L51-53 — `(dal: &'a DAL) -> Self` — Creates a new ExecutionEventDAL instance.
 - pub `create` function L59-68 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — Creates a new execution event record.
-- pub `list_by_workflow` function L154-163 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — Gets all execution events for a specific workflow execution, ordered by sequence.
-- pub `delete_older_than` function L409-418 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — Deletes execution events older than the specified timestamp.
-- pub `count_older_than` function L535-544 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — Counts execution events older than the specified timestamp.
--  `create_postgres` function L71-105 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — state transitions for debugging, compliance, and replay capability.
--  `create_sqlite` function L108-151 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_workflow_postgres` function L166-188 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_workflow_sqlite` function L191-213 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_task` function L216-225 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — Gets all execution events for a specific task execution, ordered by sequence.
--  `list_by_task_postgres` function L228-250 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_task_sqlite` function L253-275 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_type` function L278-288 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — Gets execution events by type for monitoring and analysis.
--  `list_by_type_postgres` function L291-316 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_type_sqlite` function L319-344 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — state transitions for debugging, compliance, and replay capability.
--  `get_recent` function L347-356 — `( &self, limit: i64, ) -> Result<Vec<ExecutionEvent>, ValidationError>` — Gets recent execution events for monitoring purposes.
--  `get_recent_postgres` function L359-381 — `( &self, limit: i64, ) -> Result<Vec<ExecutionEvent>, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `get_recent_sqlite` function L384-403 — `(&self, limit: i64) -> Result<Vec<ExecutionEvent>, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `delete_older_than_postgres` function L421-443 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `delete_older_than_sqlite` function L446-468 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `count_by_workflow` function L471-480 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — Counts total execution events for a workflow execution.
--  `count_by_workflow_postgres` function L483-505 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `count_by_workflow_sqlite` function L508-530 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `count_older_than_postgres` function L547-569 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `count_older_than_sqlite` function L572-594 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+- pub `list_by_workflow` function L160-169 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — Gets all execution events for a specific workflow execution, ordered by sequence.
+- pub `delete_older_than` function L415-424 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — Deletes execution events older than the specified timestamp.
+- pub `count_older_than` function L541-550 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — Counts execution events older than the specified timestamp.
+-  `create_postgres` function L71-108 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — state transitions for debugging, compliance, and replay capability.
+-  `create_sqlite` function L111-157 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_workflow_postgres` function L172-194 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_workflow_sqlite` function L197-219 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_task` function L222-231 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — Gets all execution events for a specific task execution, ordered by sequence.
+-  `list_by_task_postgres` function L234-256 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_task_sqlite` function L259-281 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_type` function L284-294 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — Gets execution events by type for monitoring and analysis.
+-  `list_by_type_postgres` function L297-322 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_type_sqlite` function L325-350 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — state transitions for debugging, compliance, and replay capability.
+-  `get_recent` function L353-362 — `( &self, limit: i64, ) -> Result<Vec<ExecutionEvent>, ValidationError>` — Gets recent execution events for monitoring purposes.
+-  `get_recent_postgres` function L365-387 — `( &self, limit: i64, ) -> Result<Vec<ExecutionEvent>, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `get_recent_sqlite` function L390-409 — `(&self, limit: i64) -> Result<Vec<ExecutionEvent>, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `delete_older_than_postgres` function L427-449 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `delete_older_than_sqlite` function L452-474 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `count_by_workflow` function L477-486 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — Counts total execution events for a workflow execution.
+-  `count_by_workflow_postgres` function L489-511 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `count_by_workflow_sqlite` function L514-536 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `count_older_than_postgres` function L553-575 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `count_older_than_sqlite` function L578-600 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
 
 #### crates/cloacina/src/dal/unified/mod.rs
 
@@ -1650,62 +1654,62 @@
 - pub `NewUnifiedTaskExecutionMetadata` struct L155-163 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, workflow_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `UnifiedRecoveryEvent` struct L171-180 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `NewUnifiedRecoveryEvent` struct L184-193 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedExecutionEvent` struct L203-212 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
-- pub `NewUnifiedExecutionEvent` struct L216-224 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskOutbox` struct L234-238 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
-- pub `NewUnifiedTaskOutbox` struct L242-245 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSchedule` struct L253-271 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSchedule` struct L275-291 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedScheduleExecution` struct L299-310 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedScheduleExecution` struct L314-324 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowRegistryEntry` struct L332-336 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowRegistryEntry` struct L340-344 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowPackage` struct L352-371 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowPackage` struct L375-394 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSigningKey` struct L402-411 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSigningKey` struct L415-423 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTrustedKey` struct L431-439 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTrustedKey` struct L443-450 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedKeyTrustAcl` struct L458-464 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedKeyTrustAcl` struct L468-473 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L481-488 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L492-499 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedAccumulatorCheckpoint` struct L760-767 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedAccumulatorCheckpoint` struct L771-778 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedAccumulatorBoundary` struct L782-790 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedAccumulatorBoundary` struct L794-802 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedReactorState` struct L806-814 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedReactorState` struct L818-826 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedStateAccumulatorBuffer` struct L830-838 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedStateAccumulatorBuffer` struct L842-850 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
--  `DbContext` type L521-530 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L522-529 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowExecutionRecord` type L532-551 — `= WorkflowExecutionRecord` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L533-550 — `(u: UnifiedWorkflowExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L553-578 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L554-577 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L580-592 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L581-591 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L594-607 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L595-606 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L609-622 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L610-621 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L624-632 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L625-631 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L634-657 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L635-656 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L659-672 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L660-671 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L674-686 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L675-685 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L688-698 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L689-697 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L700-711 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L701-710 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `Schedule` type L713-735 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L714-734 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ScheduleExecution` type L737-752 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L738-751 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedExecutionEvent` struct L203-218 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
+- pub `NewUnifiedExecutionEvent` struct L222-241 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskOutbox` struct L251-255 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
+- pub `NewUnifiedTaskOutbox` struct L259-262 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSchedule` struct L270-288 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSchedule` struct L292-308 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedScheduleExecution` struct L316-327 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedScheduleExecution` struct L331-341 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowRegistryEntry` struct L349-353 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowRegistryEntry` struct L357-361 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowPackage` struct L369-388 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowPackage` struct L392-411 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSigningKey` struct L419-428 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSigningKey` struct L432-440 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTrustedKey` struct L448-456 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTrustedKey` struct L460-467 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedKeyTrustAcl` struct L475-481 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedKeyTrustAcl` struct L485-490 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L498-505 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L509-516 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorCheckpoint` struct L780-787 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorCheckpoint` struct L791-798 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorBoundary` struct L802-810 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorBoundary` struct L814-822 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedReactorState` struct L826-834 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedReactorState` struct L838-846 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedStateAccumulatorBuffer` struct L850-858 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedStateAccumulatorBuffer` struct L862-870 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `DbContext` type L538-547 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L539-546 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowExecutionRecord` type L549-568 — `= WorkflowExecutionRecord` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L550-567 — `(u: UnifiedWorkflowExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L570-595 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L571-594 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L597-609 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L598-608 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L611-624 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L612-623 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L626-642 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L627-641 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L644-652 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L645-651 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L654-677 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L655-676 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L679-692 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L680-691 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L694-706 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L695-705 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L708-718 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L709-717 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L720-731 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L721-730 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `Schedule` type L733-755 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L734-754 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ScheduleExecution` type L757-772 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L758-771 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 
 #### crates/cloacina/src/dal/unified/recovery_event.rs
 
@@ -1811,41 +1815,41 @@
 - pub `WorkflowExecutionDAL` struct L35-37 — `{ dal: &'a DAL }` — Data access layer for workflow execution operations with compile-time backend selection.
 - pub `new` function L40-42 — `(dal: &'a DAL) -> Self` — are written atomically.
 - pub `create` function L48-57 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — Creates a new workflow execution record in the database.
-- pub `get_by_id` function L185-194 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
-- pub `get_active_executions` function L236-244 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
-- pub `update_status` function L292-302 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
-- pub `mark_completed` function L366-372 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Marks a workflow execution as completed.
-- pub `get_last_version` function L482-491 — `( &self, workflow_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
-- pub `mark_failed` function L553-563 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a workflow execution as failed with an error reason.
-- pub `cancel` function L687-693 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
-- pub `pause` function L702-712 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — Pauses a running workflow execution.
-- pub `resume` function L828-834 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Resumes a paused workflow execution.
-- pub `update_final_context` function L982-993 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
-- pub `list_recent` function L1051-1060 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
--  `create_postgres` function L60-120 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
--  `create_sqlite` function L123-183 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
--  `get_by_id_postgres` function L197-214 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
--  `get_by_id_sqlite` function L217-234 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
--  `get_active_executions_postgres` function L247-267 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
--  `get_active_executions_sqlite` function L270-290 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
--  `update_status_postgres` function L305-331 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `update_status_sqlite` function L334-360 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_completed_postgres` function L375-426 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `mark_completed_sqlite` function L429-480 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `get_last_version_postgres` function L494-519 — `( &self, workflow_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
--  `get_last_version_sqlite` function L522-547 — `( &self, workflow_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
--  `mark_failed_postgres` function L566-624 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_failed_sqlite` function L627-685 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `pause_postgres` function L715-766 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
--  `pause_sqlite` function L769-820 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
--  `resume_postgres` function L837-882 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `resume_sqlite` function L885-930 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `cancel_postgres` function L933-955 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `cancel_sqlite` function L958-980 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `update_final_context_postgres` function L996-1021 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
--  `update_final_context_sqlite` function L1024-1049 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
--  `list_recent_postgres` function L1063-1085 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
--  `list_recent_sqlite` function L1088-1110 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+- pub `get_by_id` function L191-200 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
+- pub `get_active_executions` function L242-250 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+- pub `update_status` function L298-308 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
+- pub `mark_completed` function L372-378 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Marks a workflow execution as completed.
+- pub `get_last_version` function L494-503 — `( &self, workflow_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+- pub `mark_failed` function L565-575 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a workflow execution as failed with an error reason.
+- pub `cancel` function L705-711 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+- pub `pause` function L720-730 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — Pauses a running workflow execution.
+- pub `resume` function L852-858 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Resumes a paused workflow execution.
+- pub `update_final_context` function L1012-1023 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+- pub `list_recent` function L1081-1090 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `create_postgres` function L60-123 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
+-  `create_sqlite` function L126-189 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
+-  `get_by_id_postgres` function L203-220 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
+-  `get_by_id_sqlite` function L223-240 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
+-  `get_active_executions_postgres` function L253-273 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `get_active_executions_sqlite` function L276-296 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `update_status_postgres` function L311-337 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `update_status_sqlite` function L340-366 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_completed_postgres` function L381-435 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_completed_sqlite` function L438-492 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `get_last_version_postgres` function L506-531 — `( &self, workflow_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+-  `get_last_version_sqlite` function L534-559 — `( &self, workflow_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+-  `mark_failed_postgres` function L578-639 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_failed_sqlite` function L642-703 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `pause_postgres` function L733-787 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
+-  `pause_sqlite` function L790-844 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
+-  `resume_postgres` function L861-909 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `resume_sqlite` function L912-960 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `cancel_postgres` function L963-985 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `cancel_sqlite` function L988-1010 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `update_final_context_postgres` function L1026-1051 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+-  `update_final_context_sqlite` function L1054-1079 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+-  `list_recent_postgres` function L1093-1115 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `list_recent_sqlite` function L1118-1140 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
 
 #### crates/cloacina/src/dal/unified/workflow_packages.rs
 
@@ -2045,39 +2049,39 @@
 #### crates/cloacina/src/dal/unified/task_execution/claiming.rs
 
 - pub `schedule_retry` function L37-50 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — Updates a task's retry schedule with a new attempt count and retry time.
-- pub `claim_ready_task` function L206-215 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — Atomically claims up to `limit` ready tasks for execution.
-- pub `claim_for_runner` function L424-434 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — Atomically claim a task for a specific runner.
-- pub `heartbeat` function L516-526 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — Update heartbeat for a claimed task.
-- pub `release_runner_claim` function L605-614 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — Release a runner's claim on a task (on completion or failure).
-- pub `find_stale_claims` function L676-685 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — Find tasks with stale claims (heartbeat older than threshold).
-- pub `get_ready_for_retry` function L768-774 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — Retrieves tasks that are ready for retry (retry_at time has passed).
--  `schedule_retry_postgres` function L53-125 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
--  `schedule_retry_sqlite` function L128-200 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
--  `claim_ready_task_postgres` function L218-311 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
--  `PgClaimResult` struct L235-244 — `{ id: Uuid, workflow_execution_id: Uuid, task_name: String, attempt: i32 }` — are written atomically.
--  `claim_ready_task_sqlite` function L314-414 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
--  `claim_for_runner_postgres` function L437-472 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
--  `claim_for_runner_sqlite` function L475-510 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
--  `heartbeat_postgres` function L529-563 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
--  `heartbeat_sqlite` function L566-600 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
--  `release_runner_claim_postgres` function L617-642 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `release_runner_claim_sqlite` function L645-670 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `find_stale_claims_postgres` function L688-725 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
--  `find_stale_claims_sqlite` function L728-765 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
--  `get_ready_for_retry_postgres` function L777-801 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
--  `get_ready_for_retry_sqlite` function L804-828 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
+- pub `claim_ready_task` function L212-221 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — Atomically claims up to `limit` ready tasks for execution.
+- pub `claim_for_runner` function L436-446 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — Atomically claim a task for a specific runner.
+- pub `heartbeat` function L528-538 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — Update heartbeat for a claimed task.
+- pub `release_runner_claim` function L617-626 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — Release a runner's claim on a task (on completion or failure).
+- pub `find_stale_claims` function L688-697 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — Find tasks with stale claims (heartbeat older than threshold).
+- pub `get_ready_for_retry` function L780-786 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — Retrieves tasks that are ready for retry (retry_at time has passed).
+-  `schedule_retry_postgres` function L53-128 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
+-  `schedule_retry_sqlite` function L131-206 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
+-  `claim_ready_task_postgres` function L224-320 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
+-  `PgClaimResult` struct L241-250 — `{ id: Uuid, workflow_execution_id: Uuid, task_name: String, attempt: i32 }` — are written atomically.
+-  `claim_ready_task_sqlite` function L323-426 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
+-  `claim_for_runner_postgres` function L449-484 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
+-  `claim_for_runner_sqlite` function L487-522 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
+-  `heartbeat_postgres` function L541-575 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
+-  `heartbeat_sqlite` function L578-612 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
+-  `release_runner_claim_postgres` function L629-654 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `release_runner_claim_sqlite` function L657-682 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `find_stale_claims_postgres` function L700-737 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
+-  `find_stale_claims_sqlite` function L740-777 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
+-  `get_ready_for_retry_postgres` function L789-813 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
+-  `get_ready_for_retry_sqlite` function L816-840 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
 
 #### crates/cloacina/src/dal/unified/task_execution/crud.rs
 
 - pub `create` function L38-47 — `( &self, new_task: NewTaskExecution, ) -> Result<TaskExecution, ValidationError>` — Creates a new task execution record in the database.
-- pub `get_by_id` function L172-181 — `( &self, task_id: UniversalUuid, ) -> Result<TaskExecution, ValidationError>` — Retrieves a specific task execution by its ID.
-- pub `get_all_tasks_for_workflow` function L224-235 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<TaskExecution>, V...` — Retrieves all tasks associated with a workflow execution.
--  `create_postgres` function L50-108 — `( &self, new_task: NewTaskExecution, ) -> Result<TaskExecution, ValidationError>` — are written atomically.
--  `create_sqlite` function L111-169 — `( &self, new_task: NewTaskExecution, ) -> Result<TaskExecution, ValidationError>` — are written atomically.
--  `get_by_id_postgres` function L184-201 — `( &self, task_id: UniversalUuid, ) -> Result<TaskExecution, ValidationError>` — are written atomically.
--  `get_by_id_sqlite` function L204-221 — `( &self, task_id: UniversalUuid, ) -> Result<TaskExecution, ValidationError>` — are written atomically.
--  `get_all_tasks_for_workflow_postgres` function L238-259 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<TaskExecution>, V...` — are written atomically.
--  `get_all_tasks_for_workflow_sqlite` function L262-283 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<TaskExecution>, V...` — are written atomically.
+- pub `get_by_id` function L178-187 — `( &self, task_id: UniversalUuid, ) -> Result<TaskExecution, ValidationError>` — Retrieves a specific task execution by its ID.
+- pub `get_all_tasks_for_workflow` function L230-241 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<TaskExecution>, V...` — Retrieves all tasks associated with a workflow execution.
+-  `create_postgres` function L50-111 — `( &self, new_task: NewTaskExecution, ) -> Result<TaskExecution, ValidationError>` — are written atomically.
+-  `create_sqlite` function L114-175 — `( &self, new_task: NewTaskExecution, ) -> Result<TaskExecution, ValidationError>` — are written atomically.
+-  `get_by_id_postgres` function L190-207 — `( &self, task_id: UniversalUuid, ) -> Result<TaskExecution, ValidationError>` — are written atomically.
+-  `get_by_id_sqlite` function L210-227 — `( &self, task_id: UniversalUuid, ) -> Result<TaskExecution, ValidationError>` — are written atomically.
+-  `get_all_tasks_for_workflow_postgres` function L244-265 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<TaskExecution>, V...` — are written atomically.
+-  `get_all_tasks_for_workflow_sqlite` function L268-289 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<TaskExecution>, V...` — are written atomically.
 
 #### crates/cloacina/src/dal/unified/task_execution/mod.rs
 
@@ -2144,26 +2148,26 @@
 #### crates/cloacina/src/dal/unified/task_execution/state.rs
 
 - pub `mark_completed` function L41-51 — `( &self, task_id: UniversalUuid, runner_id: Option<UniversalUuid>, ) -> Result<b...` — Marks a task execution as completed.
-- pub `mark_failed` function L199-212 — `( &self, task_id: UniversalUuid, error_message: &str, runner_id: Option<Universa...` — Marks a task execution as failed with an error message.
-- pub `mark_ready` function L367-373 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — Marks a task as ready for execution.
-- pub `mark_skipped` function L499-509 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a task as skipped with a provided reason.
-- pub `mark_abandoned` function L633-643 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a task as permanently abandoned after too many recovery attempts.
-- pub `set_sub_status` function L766-776 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — Updates the sub_status of a running task execution.
-- pub `reset_retry_state` function L910-916 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — Resets the retry state for a task to its initial state.
--  `mark_completed_postgres` function L54-120 — `( &self, task_id: UniversalUuid, runner_id: Option<UniversalUuid>, ) -> Result<b...` — are written atomically.
--  `mark_completed_sqlite` function L123-189 — `( &self, task_id: UniversalUuid, runner_id: Option<UniversalUuid>, ) -> Result<b...` — are written atomically.
--  `mark_failed_postgres` function L215-285 — `( &self, task_id: UniversalUuid, error_message: &str, runner_id: Option<Universa...` — are written atomically.
--  `mark_failed_sqlite` function L288-358 — `( &self, task_id: UniversalUuid, error_message: &str, runner_id: Option<Universa...` — are written atomically.
--  `mark_ready_postgres` function L376-433 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `mark_ready_sqlite` function L436-493 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `mark_skipped_postgres` function L512-568 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_skipped_sqlite` function L571-627 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_abandoned_postgres` function L646-701 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_abandoned_sqlite` function L704-759 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `set_sub_status_postgres` function L779-840 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — are written atomically.
--  `set_sub_status_sqlite` function L843-904 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — are written atomically.
--  `reset_retry_state_postgres` function L919-974 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `reset_retry_state_sqlite` function L977-1032 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+- pub `mark_failed` function L205-218 — `( &self, task_id: UniversalUuid, error_message: &str, runner_id: Option<Universa...` — Marks a task execution as failed with an error message.
+- pub `mark_ready` function L379-385 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — Marks a task as ready for execution.
+- pub `mark_skipped` function L517-527 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a task as skipped with a provided reason.
+- pub `mark_abandoned` function L657-667 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a task as permanently abandoned after too many recovery attempts.
+- pub `set_sub_status` function L796-806 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — Updates the sub_status of a running task execution.
+- pub `reset_retry_state` function L946-952 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — Resets the retry state for a task to its initial state.
+-  `mark_completed_postgres` function L54-123 — `( &self, task_id: UniversalUuid, runner_id: Option<UniversalUuid>, ) -> Result<b...` — are written atomically.
+-  `mark_completed_sqlite` function L126-195 — `( &self, task_id: UniversalUuid, runner_id: Option<UniversalUuid>, ) -> Result<b...` — are written atomically.
+-  `mark_failed_postgres` function L221-294 — `( &self, task_id: UniversalUuid, error_message: &str, runner_id: Option<Universa...` — are written atomically.
+-  `mark_failed_sqlite` function L297-370 — `( &self, task_id: UniversalUuid, error_message: &str, runner_id: Option<Universa...` — are written atomically.
+-  `mark_ready_postgres` function L388-448 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_ready_sqlite` function L451-511 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_skipped_postgres` function L530-589 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_skipped_sqlite` function L592-651 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_abandoned_postgres` function L670-728 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_abandoned_sqlite` function L731-789 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `set_sub_status_postgres` function L809-873 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — are written atomically.
+-  `set_sub_status_sqlite` function L876-940 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — are written atomically.
+-  `reset_retry_state_postgres` function L955-1013 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `reset_retry_state_sqlite` function L1016-1074 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
 
 ### crates/cloacina/src/database
 
@@ -2213,12 +2217,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L1072-1074 — `-`
-- pub `postgres` module L1080-1082 — `-`
-- pub `sqlite` module L1085-1087 — `-`
--  `unified_schema` module L25-393 — `-`
--  `postgres_schema` module L402-773 — `-`
--  `sqlite_schema` module L776-1067 — `-`
+- pub `unified` module L1084-1086 — `-`
+- pub `postgres` module L1092-1094 — `-`
+- pub `sqlite` module L1097-1099 — `-`
+-  `unified_schema` module L25-399 — `-`
+-  `postgres_schema` module L408-782 — `-`
+-  `sqlite_schema` module L785-1079 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -2357,31 +2361,39 @@
 #### crates/cloacina/src/database/connection/mod.rs
 
 - pub `DatabaseError` enum L83-103 — `PoolCreation | InvalidUrl | Schema | Migration` — Errors that can occur during database operations.
-- pub `Database` struct L116-123 — `{ pool: AnyPool, backend: BackendType, schema: Option<String> }` — Represents a pool of database connections.
-- pub `new` function L151-153 — `(connection_string: &str, database_name: &str, max_size: u32) -> Self` — Creates a new database connection pool with automatic backend detection.
-- pub `new_with_schema` function L171-179 — `( connection_string: &str, database_name: &str, max_size: u32, schema: Option<&s...` — Creates a new database connection pool with optional schema support.
-- pub `try_new_with_schema` function L197-313 — `( connection_string: &str, _database_name: &str, max_size: u32, schema: Option<&...` — Creates a new database connection pool with optional schema support.
-- pub `backend` function L316-318 — `(&self) -> BackendType` — Returns the detected backend type.
-- pub `schema` function L321-323 — `(&self) -> Option<&str>` — Returns the schema name if set.
-- pub `pool` function L326-328 — `(&self) -> AnyPool` — Returns a clone of the connection pool.
-- pub `get_connection` function L331-333 — `(&self) -> AnyPool` — Alias for `pool()` for backward compatibility.
-- pub `close` function L349-352 — `(&self)` — Closes the connection pool, releasing all database connections.
-- pub `run_migrations` function L374-449 — `(&self) -> Result<(), String>` — Runs pending database migrations for the appropriate backend.
-- pub `setup_schema` function L461-513 — `(&self, schema: &str) -> Result<(), String>` — Sets up the PostgreSQL schema for multi-tenant isolation.
-- pub `get_connection_with_schema` function L523-561 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection with the schema search path set.
-- pub `get_postgres_connection` function L567-574 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection.
-- pub `get_sqlite_connection` function L580-608 — `( &self, ) -> Result< deadpool::managed::Object<SqliteManager>, deadpool::manage...` — Gets a SQLite connection.
+- pub `set_strict_search_path` function L121-123 — `(enabled: bool)` — Set the process-wide strict-search-path flag.
+- pub `is_strict_search_path` function L126-128 — `() -> bool` — Read the process-wide strict-search-path flag.
+- pub `Database` struct L172-179 — `{ pool: AnyPool, backend: BackendType, schema: Option<String> }` — Represents a pool of database connections.
+- pub `new` function L207-209 — `(connection_string: &str, database_name: &str, max_size: u32) -> Self` — Creates a new database connection pool with automatic backend detection.
+- pub `new_with_schema` function L227-235 — `( connection_string: &str, database_name: &str, max_size: u32, schema: Option<&s...` — Creates a new database connection pool with optional schema support.
+- pub `try_new_with_schema` function L253-369 — `( connection_string: &str, _database_name: &str, max_size: u32, schema: Option<&...` — Creates a new database connection pool with optional schema support.
+- pub `backend` function L372-374 — `(&self) -> BackendType` — Returns the detected backend type.
+- pub `schema` function L377-379 — `(&self) -> Option<&str>` — Returns the schema name if set.
+- pub `pool` function L382-384 — `(&self) -> AnyPool` — Returns a clone of the connection pool.
+- pub `get_connection` function L387-389 — `(&self) -> AnyPool` — Alias for `pool()` for backward compatibility.
+- pub `close` function L405-408 — `(&self)` — Closes the connection pool, releasing all database connections.
+- pub `run_migrations` function L430-505 — `(&self) -> Result<(), String>` — Runs pending database migrations for the appropriate backend.
+- pub `setup_schema` function L517-569 — `(&self, schema: &str) -> Result<(), String>` — Sets up the PostgreSQL schema for multi-tenant isolation.
+- pub `get_connection_with_schema` function L579-715 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection with the schema search path set.
+- pub `get_postgres_connection` function L721-728 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection.
+- pub `get_sqlite_connection` function L734-762 — `( &self, ) -> Result< deadpool::managed::Object<SqliteManager>, deadpool::manage...` — Gets a SQLite connection.
 -  `backend` module L51 — `-` — Database connection management module supporting both PostgreSQL and SQLite.
 -  `schema_validation` module L52 — `-` — ```
--  `Database` type L125-133 — `= Database` — ```
--  `fmt` function L126-132 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
--  `Database` type L135-609 — `= Database` — ```
--  `build_postgres_url` function L355-359 — `(base_url: &str, database_name: &str) -> Result<String, url::ParseError>` — Builds a PostgreSQL connection URL.
--  `build_sqlite_url` function L362-369 — `(connection_string: &str) -> String` — Builds a SQLite connection URL.
--  `tests` module L612-709 — `-` — ```
--  `test_postgres_url_parsing_scenarios` function L616-640 — `()` — ```
--  `test_sqlite_connection_strings` function L643-659 — `()` — ```
--  `test_backend_type_detection` function L662-708 — `()` — ```
+-  `STRICT_SEARCH_PATH` variable L116-117 — `: std::sync::atomic::AtomicBool` — Process-wide strict-search-path flag.
+-  `CurrentSchemaRow` struct L135-138 — `{ s: Option<String> }` — Row shape for the `SELECT current_schema()` defense-in-depth probe.
+-  `search_path_pool_error` function L144-159 — `( tenant_schema: &str, cause: &str, ) -> deadpool::managed::PoolError<deadpool_d...` — Construct a `PoolError::Backend` carrying a CLOACI-T-0582 search_path
+-  `Database` type L181-189 — `= Database` — ```
+-  `fmt` function L182-188 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
+-  `Database` type L191-763 — `= Database` — ```
+-  `build_postgres_url` function L411-415 — `(base_url: &str, database_name: &str) -> Result<String, url::ParseError>` — Builds a PostgreSQL connection URL.
+-  `build_sqlite_url` function L418-425 — `(connection_string: &str) -> String` — Builds a SQLite connection URL.
+-  `tests` module L766-909 — `-` — ```
+-  `strict_search_path_default_off` function L779-786 — `()` — ```
+-  `strict_search_path_set_round_trip` function L789-796 — `()` — ```
+-  `search_path_pool_error_carries_tenant_and_cause` function L800-813 — `()` — ```
+-  `test_postgres_url_parsing_scenarios` function L816-840 — `()` — ```
+-  `test_sqlite_connection_strings` function L843-859 — `()` — ```
+-  `test_backend_type_detection` function L862-908 — `()` — ```
 
 #### crates/cloacina/src/database/connection/schema_validation.rs
 
@@ -2829,21 +2841,22 @@
 
 #### crates/cloacina/src/models/execution_event.rs
 
-- pub `ExecutionEvent` struct L34-51 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — Represents an execution event record (domain type).
-- pub `NewExecutionEvent` struct L55-66 — `{ workflow_execution_id: UniversalUuid, task_execution_id: Option<UniversalUuid>...` — Structure for creating new execution event records (domain type).
-- pub `workflow_event` function L70-83 — `( workflow_execution_id: UniversalUuid, event_type: ExecutionEventType, event_da...` — Creates a new execution event for a workflow-level transition.
-- pub `task_event` function L86-100 — `( workflow_execution_id: UniversalUuid, task_execution_id: UniversalUuid, event_...` — Creates a new execution event for a task-level transition.
-- pub `ExecutionEventType` enum L108-146 — `TaskCreated | TaskMarkedReady | TaskClaimed | TaskStarted | TaskDeferred | TaskR...` — Enumeration of execution event types in the system.
-- pub `as_str` function L150-172 — `(&self) -> &'static str` — Returns the string representation of the event type.
-- pub `from_str` function L176-199 — `(s: &str) -> Option<Self>` — Parses an event type from its string representation.
-- pub `is_task_event` function L202-218 — `(&self) -> bool` — Returns true if this is a task-level event.
-- pub `is_workflow_event` function L221-230 — `(&self) -> bool` — Returns true if this is a workflow-level event.
--  `NewExecutionEvent` type L68-101 — `= NewExecutionEvent` — These are API-level types; backend-specific models handle database storage.
--  `ExecutionEventType` type L148-231 — `= ExecutionEventType` — These are API-level types; backend-specific models handle database storage.
--  `String` type L233-237 — `= String` — These are API-level types; backend-specific models handle database storage.
--  `from` function L234-236 — `(event_type: ExecutionEventType) -> Self` — These are API-level types; backend-specific models handle database storage.
--  `ExecutionEventType` type L239-243 — `= ExecutionEventType` — These are API-level types; backend-specific models handle database storage.
--  `fmt` function L240-242 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — These are API-level types; backend-specific models handle database storage.
+- pub `ExecutionEvent` struct L34-62 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — Represents an execution event record (domain type).
+- pub `NewExecutionEvent` struct L66-83 — `{ workflow_execution_id: UniversalUuid, task_execution_id: Option<UniversalUuid>...` — Structure for creating new execution event records (domain type).
+- pub `workflow_event` function L91-107 — `( workflow_execution_id: UniversalUuid, event_type: ExecutionEventType, event_da...` — Creates a new execution event for a workflow-level transition.
+- pub `task_event` function L113-130 — `( workflow_execution_id: UniversalUuid, task_execution_id: UniversalUuid, event_...` — Creates a new execution event for a task-level transition.
+- pub `with_context` function L135-151 — `( mut self, request_id: Option<UniversalUuid>, runner_id: Option<UniversalUuid>,...` — Builder-style: attach correlation context to an event before insert.
+- pub `ExecutionEventType` enum L159-197 — `TaskCreated | TaskMarkedReady | TaskClaimed | TaskStarted | TaskDeferred | TaskR...` — Enumeration of execution event types in the system.
+- pub `as_str` function L201-223 — `(&self) -> &'static str` — Returns the string representation of the event type.
+- pub `from_str` function L227-250 — `(s: &str) -> Option<Self>` — Parses an event type from its string representation.
+- pub `is_task_event` function L253-269 — `(&self) -> bool` — Returns true if this is a task-level event.
+- pub `is_workflow_event` function L272-281 — `(&self) -> bool` — Returns true if this is a workflow-level event.
+-  `NewExecutionEvent` type L85-152 — `= NewExecutionEvent` — These are API-level types; backend-specific models handle database storage.
+-  `ExecutionEventType` type L199-282 — `= ExecutionEventType` — These are API-level types; backend-specific models handle database storage.
+-  `String` type L284-288 — `= String` — These are API-level types; backend-specific models handle database storage.
+-  `from` function L285-287 — `(event_type: ExecutionEventType) -> Self` — These are API-level types; backend-specific models handle database storage.
+-  `ExecutionEventType` type L290-294 — `= ExecutionEventType` — These are API-level types; backend-specific models handle database storage.
+-  `fmt` function L291-293 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — These are API-level types; backend-specific models handle database storage.
 
 #### crates/cloacina/src/models/key_trust_acl.rs
 
@@ -3603,24 +3616,25 @@
 - pub `new` function L80-82 — `(database_url: &str) -> Result<Self, WorkflowExecutionError>` — Creates a new default runner with default configuration
 - pub `builder` function L85-87 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
 - pub `with_schema` function L90-99 — `( database_url: &str, schema: &str, ) -> Result<Self, WorkflowExecutionError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
-- pub `with_config` function L102-164 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, WorkflowExe...` — Creates a new unified executor with custom configuration
-- pub `database` function L167-169 — `(&self) -> &Database` — Returns a reference to the database.
-- pub `dal` function L172-174 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `runtime` function L177-179 — `(&self) -> Arc<Runtime>` — Returns a handle to the scoped `Runtime` this runner uses.
-- pub `unified_scheduler` function L182-184 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
-- pub `set_graph_scheduler` function L188-194 — `( &self, scheduler: Arc<crate::computation_graph::scheduler::ComputationGraphSch...` — Set the graph scheduler for computation graph package routing.
-- pub `shutdown` function L197-202 — `(&self) -> Result<(), WorkflowExecutionError>` — Gracefully shuts down the executor and its background services.
+- pub `with_config` function L102-116 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, WorkflowExe...` — Creates a new unified executor with custom configuration
+- pub `with_database` function L130-183 — `( database: Database, config: DefaultRunnerConfig, shared_runtime: Option<Arc<Ru...` — CLOACI-T-0580: construct a runner around a pre-built `Database`,
+- pub `database` function L186-188 — `(&self) -> &Database` — Returns a reference to the database.
+- pub `dal` function L191-193 — `(&self) -> DAL` — Returns the DAL for database operations.
+- pub `runtime` function L196-198 — `(&self) -> Arc<Runtime>` — Returns a handle to the scoped `Runtime` this runner uses.
+- pub `unified_scheduler` function L201-203 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
+- pub `set_graph_scheduler` function L207-213 — `( &self, scheduler: Arc<crate::computation_graph::scheduler::ComputationGraphSch...` — Set the graph scheduler for computation graph package routing.
+- pub `shutdown` function L216-221 — `(&self) -> Result<(), WorkflowExecutionError>` — Gracefully shuts down the executor and its background services.
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `service_manager` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `services` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `workflow_executor_impl` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `workflow_result` module L34 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L78-203 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L205-215 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L206-214 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L218-224 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L219-223 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L78-222 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L224-234 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L225-233 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L237-243 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L238-242 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/service_manager.rs
 
@@ -3719,7 +3733,7 @@
 
 #### crates/cloacina/src/security/audit.rs
 
-- pub `events` module L30-72 — `-` — Event types for package operations.
+- pub `events` module L30-82 — `-` — Event types for package operations.
 - pub `PACKAGE_LOAD_SUCCESS` variable L32 — `: &str` — Package load success event type.
 - pub `PACKAGE_LOAD_FAILURE` variable L34 — `: &str` — Package load failure event type.
 - pub `PACKAGE_SIGNED` variable L36 — `: &str` — Package signed event type.
@@ -3736,55 +3750,66 @@
 - pub `VERIFICATION_FAILURE` variable L62 — `: &str` — Verification failure event type.
 - pub `COMPILER_BUILD_STARTED` variable L67 — `: &str` — Compiler build started event type.
 - pub `COMPILER_BUILD_FINISHED` variable L71 — `: &str` — Compiler build finished event type.
-- pub `log_signing_key_created` function L75-89 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a signing key creation event.
-- pub `log_signing_key_create_failed` function L92-100 — `(org_id: UniversalUuid, key_name: &str, error: &str)` — Log a signing key creation failure.
-- pub `log_signing_key_revoked` function L103-117 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a signing key revocation event.
-- pub `log_key_exported` function L120-127 — `(key_id: UniversalUuid, key_fingerprint: &str)` — Log a public key export event.
-- pub `log_trusted_key_added` function L130-144 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a trusted key addition event.
-- pub `log_trusted_key_revoked` function L147-153 — `(key_id: UniversalUuid)` — Log a trusted key revocation event.
-- pub `log_trust_acl_granted` function L156-163 — `(parent_org: UniversalUuid, child_org: UniversalUuid)` — Log a trust ACL grant event.
-- pub `log_trust_acl_revoked` function L166-173 — `(parent_org: UniversalUuid, child_org: UniversalUuid)` — Log a trust ACL revocation event.
-- pub `log_package_signed` function L176-184 — `(package_path: &str, package_hash: &str, key_fingerprint: &str)` — Log a package signing event.
-- pub `log_package_sign_failed` function L187-194 — `(package_path: &str, error: &str)` — Log a package signing failure.
-- pub `log_package_load_success` function L197-213 — `( org_id: UniversalUuid, package_path: &str, package_hash: &str, signer_fingerpr...` — Log a package load success event.
-- pub `log_package_load_failure` function L216-230 — `( org_id: UniversalUuid, package_path: &str, error: &str, failure_reason: &str, ...` — Log a package load failure event.
-- pub `log_verification_success` function L233-247 — `( org_id: UniversalUuid, package_hash: &str, signer_fingerprint: &str, signer_na...` — Log a verification success event.
-- pub `log_verification_failure` function L250-264 — `( org_id: UniversalUuid, package_hash: &str, failure_reason: &str, signer_finger...` — Log a verification failure event.
-- pub `log_compiler_build_started` function L270-288 — `( build_claim_id: UniversalUuid, package_name: &str, package_version: &str, carg...` — Log a compiler build start event.
-- pub `log_compiler_build_finished` function L300-330 — `( build_claim_id: UniversalUuid, package_name: &str, package_version: &str, carg...` — Log a compiler build finished event.
--  `tests` module L333-735 — `-` — Events are logged using the `tracing` crate at appropriate levels.
--  `StringWriter` struct L339 — `-` — Events are logged using the `tracing` crate at appropriate levels.
--  `StringWriter` type L341-350 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
--  `write` function L342-345 — `(&mut self, buf: &[u8]) -> std::io::Result<usize>` — Events are logged using the `tracing` crate at appropriate levels.
--  `flush` function L347-349 — `(&mut self) -> std::io::Result<()>` — Events are logged using the `tracing` crate at appropriate levels.
--  `StringWriter` type L352-358 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
--  `Writer` type L353 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
--  `make_writer` function L355-357 — `(&'a self) -> Self::Writer` — Events are logged using the `tracing` crate at appropriate levels.
--  `with_captured_logs` function L361-377 — `(f: F) -> String` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_signing_key_created` function L380-393 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_verification_failure` function L396-409 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_package_load_success` function L412-426 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trust_acl_granted` function L429-437 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_event_type_constants` function L440-445 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_signing_key_create_failed` function L448-455 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_signing_key_revoked` function L458-470 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_signing_key_revoked_no_name` function L473-484 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_key_exported` function L487-493 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trusted_key_added` function L496-508 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trusted_key_added_no_name` function L511-522 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trusted_key_revoked` function L525-530 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trust_acl_revoked` function L533-540 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_package_signed` function L543-551 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_package_sign_failed` function L554-561 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_package_load_failure` function L564-577 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_verification_success` function L580-593 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_verification_success_no_name` function L596-602 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_verification_failure_no_fingerprint` function L605-611 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_compiler_build_started_full_payload` function L618-636 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_compiler_build_started_no_lockfile_renders_none` function L639-654 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_compiler_build_finished_success` function L657-684 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_compiler_build_finished_timeout_killed` function L687-711 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_compiler_build_finished_clean_failure` function L714-734 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+- pub `TENANT_TEARDOWN_KEYS_REVOKED` variable L76 — `: &str` — CLOACI-T-0581: tenant teardown event kinds.
+- pub `TENANT_TEARDOWN_RUNNER_EVICTED` variable L77 — `: &str` — Events are logged using the `tracing` crate at appropriate levels.
+- pub `TENANT_TEARDOWN_DB_CACHE_EVICTED` variable L78 — `: &str` — Events are logged using the `tracing` crate at appropriate levels.
+- pub `TENANT_TEARDOWN_SCHEMA_DROPPED` variable L79 — `: &str` — Events are logged using the `tracing` crate at appropriate levels.
+- pub `TENANT_TEARDOWN_COMPLETED` variable L80 — `: &str` — Events are logged using the `tracing` crate at appropriate levels.
+- pub `TENANT_TEARDOWN_FAILED` variable L81 — `: &str` — Events are logged using the `tracing` crate at appropriate levels.
+- pub `log_signing_key_created` function L85-99 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a signing key creation event.
+- pub `log_signing_key_create_failed` function L102-110 — `(org_id: UniversalUuid, key_name: &str, error: &str)` — Log a signing key creation failure.
+- pub `log_signing_key_revoked` function L113-127 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a signing key revocation event.
+- pub `log_key_exported` function L130-137 — `(key_id: UniversalUuid, key_fingerprint: &str)` — Log a public key export event.
+- pub `log_trusted_key_added` function L140-154 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a trusted key addition event.
+- pub `log_trusted_key_revoked` function L157-163 — `(key_id: UniversalUuid)` — Log a trusted key revocation event.
+- pub `log_trust_acl_granted` function L166-173 — `(parent_org: UniversalUuid, child_org: UniversalUuid)` — Log a trust ACL grant event.
+- pub `log_trust_acl_revoked` function L176-183 — `(parent_org: UniversalUuid, child_org: UniversalUuid)` — Log a trust ACL revocation event.
+- pub `log_package_signed` function L186-194 — `(package_path: &str, package_hash: &str, key_fingerprint: &str)` — Log a package signing event.
+- pub `log_package_sign_failed` function L197-204 — `(package_path: &str, error: &str)` — Log a package signing failure.
+- pub `log_package_load_success` function L207-223 — `( org_id: UniversalUuid, package_path: &str, package_hash: &str, signer_fingerpr...` — Log a package load success event.
+- pub `log_package_load_failure` function L226-240 — `( org_id: UniversalUuid, package_path: &str, error: &str, failure_reason: &str, ...` — Log a package load failure event.
+- pub `log_verification_success` function L243-257 — `( org_id: UniversalUuid, package_hash: &str, signer_fingerprint: &str, signer_na...` — Log a verification success event.
+- pub `log_verification_failure` function L260-274 — `( org_id: UniversalUuid, package_hash: &str, failure_reason: &str, signer_finger...` — Log a verification failure event.
+- pub `log_tenant_teardown_step` function L280-293 — `( event_type: &'static str, tenant_id: &str, count: usize, step_duration_ms: u64...` — CLOACI-T-0581: log a successful tenant teardown step.
+- pub `log_tenant_teardown_outcome` function L296-312 — `(tenant_id: &str, success: bool, total_duration_ms: u64)` — CLOACI-T-0581: log the overall teardown outcome.
+- pub `log_compiler_build_started` function L318-336 — `( build_claim_id: UniversalUuid, package_name: &str, package_version: &str, carg...` — Log a compiler build start event.
+- pub `log_compiler_build_finished` function L348-378 — `( build_claim_id: UniversalUuid, package_name: &str, package_version: &str, carg...` — Log a compiler build finished event.
+-  `tests` module L381-822 — `-` — Events are logged using the `tracing` crate at appropriate levels.
+-  `StringWriter` struct L387 — `-` — Events are logged using the `tracing` crate at appropriate levels.
+-  `StringWriter` type L389-398 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
+-  `write` function L390-393 — `(&mut self, buf: &[u8]) -> std::io::Result<usize>` — Events are logged using the `tracing` crate at appropriate levels.
+-  `flush` function L395-397 — `(&mut self) -> std::io::Result<()>` — Events are logged using the `tracing` crate at appropriate levels.
+-  `StringWriter` type L400-406 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
+-  `Writer` type L401 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
+-  `make_writer` function L403-405 — `(&'a self) -> Self::Writer` — Events are logged using the `tracing` crate at appropriate levels.
+-  `with_captured_logs` function L409-425 — `(f: F) -> String` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_signing_key_created` function L428-441 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_verification_failure` function L444-457 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_package_load_success` function L460-474 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trust_acl_granted` function L477-485 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_event_type_constants` function L488-493 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_signing_key_create_failed` function L496-503 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_signing_key_revoked` function L506-518 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_signing_key_revoked_no_name` function L521-532 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_key_exported` function L535-541 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trusted_key_added` function L544-556 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trusted_key_added_no_name` function L559-570 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trusted_key_revoked` function L573-578 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trust_acl_revoked` function L581-588 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_package_signed` function L591-599 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_package_sign_failed` function L602-609 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_package_load_failure` function L612-625 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_verification_success` function L628-641 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_verification_success_no_name` function L644-650 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_verification_failure_no_fingerprint` function L653-659 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_started_full_payload` function L666-684 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_started_no_lockfile_renders_none` function L687-702 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_finished_success` function L705-732 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_finished_timeout_killed` function L735-759 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_tenant_teardown_step_keys_revoked` function L766-779 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_tenant_teardown_outcome_success` function L782-789 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_tenant_teardown_outcome_failure` function L792-798 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_finished_clean_failure` function L801-821 — `()` — Events are logged using the `tracing` crate at appropriate levels.
 
 #### crates/cloacina/src/security/db_key_manager.rs
 
@@ -5176,29 +5201,29 @@
 -  `CargoBuildSuccess` struct L84-89 — `{ artifact: Vec<u8>, exit_status: Option<i32> }` — Successful cargo invocation.
 -  `sha256_hex_if_present` function L110-119 — `(path: &Path) -> std::io::Result<Option<String>>` — SHA-256 of a file's bytes, hex-encoded.
 -  `signal_name` function L127-138 — `(num: i32) -> String` — Translate a signal number to a name for the audit `exit_signal` field.
--  `run_build` function L140-297 — `( registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>, package_id: uuid::Uui...` — main loop.
--  `load_manifest` function L299-306 — `(source_dir: &Path) -> Result<toml::Value, String>` — main loop.
--  `manifest_language` function L308-315 — `(manifest: &toml::Value) -> String` — main loop.
--  `classify_offline_failure` function L337-385 — `(stderr: &str) -> Option<String>` — Classify a non-zero cargo exit into an operator-actionable error message
--  `cargo_build` function L387-550 — `( package_id: uuid::Uuid, source_dir: &Path, config: &CompilerConfig, ) -> Resul...` — main loop.
--  `MAX_ERR` variable L392 — `: usize` — main loop.
--  `profile_for_flags` function L552-558 — `(flags: &[String]) -> &'static str` — main loop.
--  `find_cdylib` function L560-581 — `(target_dir: &Path, pkg_name: &str) -> Result<PathBuf, String>` — main loop.
--  `read_cargo_package_name` function L583-595 — `(source_dir: &Path) -> Result<String, String>` — main loop.
--  `apply_rlimits` function L611-642 — `(cmd: &mut tokio::process::Command, rlimits: &BuildRlimits)` — Install a `pre_exec` hook on the cargo `Command` that calls `setrlimit`
--  `apply_rlimits` function L647-650 — `(_cmd: &mut tokio::process::Command, _rlimits: &BuildRlimits)` — Non-Linux fallback: rlimits stored on `CompilerConfig` but not applied.
--  `tests` module L657-918 — `-` — main loop.
--  `synthetic_sleeper_package` function L665-690 — `(work: &Path, sleep_secs: u64) -> PathBuf` — Build a minimal cargo package whose `build.rs` sleeps for `sleep_secs`
--  `test_config` function L692-718 — `(home: &Path, build_timeout: Duration) -> CompilerConfig` — main loop.
--  `cargo_build_returns_timed_out_when_build_rs_sleeps_past_timeout` function L728-757 — `()` — CLOACI-T-0573: a build whose `build.rs` exceeds `--build-timeout-s`
--  `classify_offline_failure_extracts_single_missing_crate` function L764-778 — `()` — main loop.
--  `classify_offline_failure_aggregates_multiple_missing_crates` function L781-790 — `()` — main loop.
--  `classify_offline_failure_dedupes_repeated_missing_crate_mentions` function L793-802 — `()` — main loop.
--  `classify_offline_failure_recognizes_missing_lockfile` function L805-817 — `()` — main loop.
--  `classify_offline_failure_recognizes_git_dep_offline` function L820-833 — `()` — main loop.
--  `classify_offline_failure_returns_none_for_unrelated_stderr` function L836-841 — `()` — main loop.
--  `synthetic_memory_hog_package` function L851-878 — `(work: &Path) -> PathBuf` — A `build.rs` that tries to allocate 8 GiB.
--  `cargo_build_fails_when_build_rs_overshoots_rlimit_as` function L890-917 — `()` — CLOACI-T-0575 (Linux only): a build whose `build.rs` allocates past
+-  `run_build` function L140-300 — `( registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>, package_id: uuid::Uui...` — main loop.
+-  `load_manifest` function L302-309 — `(source_dir: &Path) -> Result<toml::Value, String>` — main loop.
+-  `manifest_language` function L311-318 — `(manifest: &toml::Value) -> String` — main loop.
+-  `classify_offline_failure` function L340-388 — `(stderr: &str) -> Option<String>` — Classify a non-zero cargo exit into an operator-actionable error message
+-  `cargo_build` function L390-552 — `( package_id: uuid::Uuid, source_dir: &Path, config: &CompilerConfig, ) -> Resul...` — main loop.
+-  `MAX_ERR` variable L395 — `: usize` — main loop.
+-  `profile_for_flags` function L554-560 — `(flags: &[String]) -> &'static str` — main loop.
+-  `find_cdylib` function L562-583 — `(target_dir: &Path, pkg_name: &str) -> Result<PathBuf, String>` — main loop.
+-  `read_cargo_package_name` function L585-597 — `(source_dir: &Path) -> Result<String, String>` — main loop.
+-  `apply_rlimits` function L613-644 — `(cmd: &mut tokio::process::Command, rlimits: &BuildRlimits)` — Install a `pre_exec` hook on the cargo `Command` that calls `setrlimit`
+-  `apply_rlimits` function L649-652 — `(_cmd: &mut tokio::process::Command, _rlimits: &BuildRlimits)` — Non-Linux fallback: rlimits stored on `CompilerConfig` but not applied.
+-  `tests` module L659-920 — `-` — main loop.
+-  `synthetic_sleeper_package` function L667-692 — `(work: &Path, sleep_secs: u64) -> PathBuf` — Build a minimal cargo package whose `build.rs` sleeps for `sleep_secs`
+-  `test_config` function L694-720 — `(home: &Path, build_timeout: Duration) -> CompilerConfig` — main loop.
+-  `cargo_build_returns_timed_out_when_build_rs_sleeps_past_timeout` function L730-759 — `()` — CLOACI-T-0573: a build whose `build.rs` exceeds `--build-timeout-s`
+-  `classify_offline_failure_extracts_single_missing_crate` function L766-780 — `()` — main loop.
+-  `classify_offline_failure_aggregates_multiple_missing_crates` function L783-792 — `()` — main loop.
+-  `classify_offline_failure_dedupes_repeated_missing_crate_mentions` function L795-804 — `()` — main loop.
+-  `classify_offline_failure_recognizes_missing_lockfile` function L807-819 — `()` — main loop.
+-  `classify_offline_failure_recognizes_git_dep_offline` function L822-835 — `()` — main loop.
+-  `classify_offline_failure_returns_none_for_unrelated_stderr` function L838-843 — `()` — main loop.
+-  `synthetic_memory_hog_package` function L853-880 — `(work: &Path) -> PathBuf` — A `build.rs` that tries to allocate 8 GiB.
+-  `cargo_build_fails_when_build_rs_overshoots_rlimit_as` function L892-919 — `()` — CLOACI-T-0575 (Linux only): a build whose `build.rs` allocates past
 
 #### crates/cloacina-compiler/src/config.rs
 
@@ -6242,81 +6267,101 @@
 #### crates/cloacina-server/src/lib.rs
 
 - pub `routes` module L23 — `-` — Cloacina HTTP API server library.
-- pub `TenantDatabaseCache` struct L43-46 — `{ databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>, d...` — Cached per-tenant database connections for schema isolation.
-- pub `new` function L49-54 — `(database_url: String) -> Self` — management, workflow upload, and execution APIs.
-- pub `resolve` function L59-91 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
-- pub `AppState` struct L96-109 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::routes::...` — Shared application state accessible from all route handlers.
-- pub `run` function L137-375 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
--  `TenantDatabaseCache` type L48-92 — `= TenantDatabaseCache` — management, workflow upload, and execution APIs.
--  `validate_security_args` function L117-129 — `( require_signatures: bool, verification_org_id: Option<&uuid::Uuid>, ) -> Resul...` — Validate security-related CLI args at server boot.
--  `request_id_middleware` function L379-399 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L401-522 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
--  `api_request_metrics` function L526-548 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
--  `health` function L551-553 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L556-585 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L588-598 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
--  `fallback_404` function L601-606 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L609-631 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L637-685 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L689-691 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L694-1889 — `-` — management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L702 — `: &str` — management, workflow upload, and execution APIs.
--  `test_state` function L705-738 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `test_state_with_signature_required` function L743-753 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
--  `create_test_api_key` function L756-764 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L767-782 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L788-814 — `()` — management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L820-832 — `()` — management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L836-848 — `()` — management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L852-920 — `()` — management, workflow upload, and execution APIs.
--  `test_api_request_duration_histogram_emitted` function L924-968 — `()` — management, workflow upload, and execution APIs.
--  `test_unprefixed_auth_route_returns_404` function L981-996 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
--  `test_auth_no_token_returns_401` function L1002-1014 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L1018-1031 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L1035-1048 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L1052-1065 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L1071-1089 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L1093-1109 — `()` — management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L1113-1128 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L1132-1157 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L1161-1176 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L1180-1194 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L1200-1226 — `()` — management, workflow upload, and execution APIs.
--  `test_list_tenants` function L1230-1244 — `()` — management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L1248-1264 — `()` — management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L1268-1305 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L1309-1324 — `()` — management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L1330-1344 — `()` — management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L1348-1361 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L1365-1389 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L1393-1417 — `()` — management, workflow upload, and execution APIs.
--  `fixture_path` function L1420-1425 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L1428-1439 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L1442-1455 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L1459-1485 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L1489-1515 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L1519-1539 — `()` — management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1545-1559 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1563-1576 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1580-1594 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1598-1611 — `()` — management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1615-1630 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1634-1652 — `()` — management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1658-1672 — `()` — management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1676-1689 — `()` — management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1695-1707 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_unsigned_with_require_signatures_returns_403` function L1719-1752 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_signed_with_require_signatures_passes_verification` function L1756-1847 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_default_passes` function L1852-1855 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_org_without_require_passes` function L1858-1863 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_with_org_passes` function L1866-1870 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_without_org_fails` function L1873-1888 — `()` — management, workflow upload, and execution APIs.
+- pub `tenant_runner_cache` module L24 — `-` — management, workflow upload, and execution APIs.
+- pub `TenantDatabaseCache` struct L44-47 — `{ databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>, d...` — Cached per-tenant database connections for schema isolation.
+- pub `new` function L50-55 — `(database_url: String) -> Self` — management, workflow upload, and execution APIs.
+- pub `resolve` function L60-92 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
+- pub `evict` function L98-101 — `(&self, tenant_id: &str) -> bool` — CLOACI-T-0581: drop the cached `Database` for a tenant.
+- pub `AppState` struct L106-124 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::routes::...` — Shared application state accessible from all route handlers.
+- pub `run` function L169-446 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+-  `TenantDatabaseCache` type L49-102 — `= TenantDatabaseCache` — management, workflow upload, and execution APIs.
+-  `runner_config_for_tenant_cache` function L130-141 — `( reconcile_interval: Option<std::time::Duration>, ) -> cloacina::DefaultRunnerC...` — CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
+-  `validate_security_args` function L149-161 — `( require_signatures: bool, verification_org_id: Option<&uuid::Uuid>, ) -> Resul...` — Validate security-related CLI args at server boot.
+-  `request_id_middleware` function L450-478 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
+-  `build_router` function L480-601 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
+-  `api_request_metrics` function L605-627 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
+-  `health` function L630-632 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L635-664 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L667-677 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
+-  `fallback_404` function L680-685 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L688-710 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L716-764 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L768-770 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L773-1972 — `-` — management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L781 — `: &str` — management, workflow upload, and execution APIs.
+-  `test_state` function L784-821 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `test_state_with_signature_required` function L826-836 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
+-  `create_test_api_key` function L839-847 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L850-865 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L871-897 — `()` — management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L903-915 — `()` — management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L919-931 — `()` — management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L935-1003 — `()` — management, workflow upload, and execution APIs.
+-  `test_api_request_duration_histogram_emitted` function L1007-1051 — `()` — management, workflow upload, and execution APIs.
+-  `test_unprefixed_auth_route_returns_404` function L1064-1079 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
+-  `test_auth_no_token_returns_401` function L1085-1097 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L1101-1114 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L1118-1131 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L1135-1148 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L1154-1172 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L1176-1192 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L1196-1211 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L1215-1240 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L1244-1259 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L1263-1277 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L1283-1309 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L1313-1327 — `()` — management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L1331-1347 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L1351-1388 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L1392-1407 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L1413-1427 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L1431-1444 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L1448-1472 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L1476-1500 — `()` — management, workflow upload, and execution APIs.
+-  `fixture_path` function L1503-1508 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L1511-1522 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L1525-1538 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L1542-1568 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L1572-1598 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1602-1622 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1628-1642 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1646-1659 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1663-1677 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1681-1694 — `()` — management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1698-1713 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1717-1735 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1741-1755 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1759-1772 — `()` — management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1778-1790 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_unsigned_with_require_signatures_returns_403` function L1802-1835 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_signed_with_require_signatures_passes_verification` function L1839-1930 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_default_passes` function L1935-1938 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_org_without_require_passes` function L1941-1946 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_with_org_passes` function L1949-1953 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_without_org_fails` function L1956-1971 — `()` — management, workflow upload, and execution APIs.
 
 #### crates/cloacina-server/src/main.rs
 
--  `Cli` struct L30-66 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, bootstra...` — cloacina-server — HTTP API for Cloacina, backed by Postgres.
--  `default_home` function L68-72 — `() -> PathBuf` — command in T-0510 (CLOACI-I-0098).
--  `main` function L75-88 — `() -> Result<()>` — command in T-0510 (CLOACI-I-0098).
+-  `Cli` struct L30-77 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, bootstra...` — cloacina-server — HTTP API for Cloacina, backed by Postgres.
+-  `default_home` function L79-83 — `() -> PathBuf` — command in T-0510 (CLOACI-I-0098).
+-  `main` function L86-100 — `() -> Result<()>` — command in T-0510 (CLOACI-I-0098).
+
+#### crates/cloacina-server/src/tenant_runner_cache.rs
+
+- pub `TenantRunnerCache` struct L40-47 — `{ cache: Mutex<LruCache<String, Arc<DefaultRunner>>>, shared_runtime: Arc<Runtim...` — LRU-bounded cache of per-tenant `DefaultRunner` instances.
+- pub `new` function L53-59 — `(capacity: NonZeroUsize, base_config: DefaultRunnerConfig) -> Self` — Build a new cache with the given LRU cap.
+- pub `shared_runtime` function L63-65 — `(&self) -> Arc<Runtime>` — Get the shared `Runtime` so callers can install graph schedulers,
+- pub `get_or_create` function L77-138 — `( &self, tenant_id: &str, tenant_database: Database, ) -> Result<Arc<DefaultRunn...` — Look up (or construct) the runner for `tenant_id`, bound to
+- pub `evict` function L144-163 — `( &self, tenant_id: &str, ) -> Result<bool, cloacina::WorkflowExecutionError>` — Explicitly evict a tenant's runner from the cache, awaiting its
+- pub `shutdown_all` function L168-183 — `(&self) -> HashMap<String, Result<(), String>>` — Shut down every cached runner.
+- pub `len` function L186-188 — `(&self) -> usize` — Current number of cached runners.
+- pub `is_empty` function L191-193 — `(&self) -> bool` — `true` if the cache holds no runners.
+-  `TenantRunnerCache` type L49-194 — `= TenantRunnerCache` — next cache lookup.
+-  `tests` module L197-226 — `-` — next cache lookup.
+-  `cap` function L200-202 — `(n: usize) -> NonZeroUsize` — next cache lookup.
+-  `empty_cache_is_empty` function L205-209 — `()` — next cache lookup.
+-  `evict_missing_tenant_returns_false` function L212-216 — `()` — next cache lookup.
+-  `shared_runtime_is_stable_arc` function L219-225 — `()` — next cache lookup.
 
 ### crates/cloacina-server/src/routes
 
@@ -6333,31 +6378,45 @@
 - pub `evict` function L107-110 — `(&self, hash: &str)` — Evict a specific key (used after revocation).
 - pub `clear` function L113-116 — `(&self)` — Clear all entries.
 - pub `validate_token` function L123-169 — `( state: &AppState, token: &str, ) -> Result<AuthenticatedKey, (StatusCode, Json...` — Validate a bearer token and return the authenticated key info.
-- pub `require_auth` function L175-195 — `( State(state): State<AppState>, mut request: Request, next: Next, ) -> Response` — Auth middleware — validates Bearer token against cache then DAL.
-- pub `can_access_tenant` function L217-225 — `(&self, tenant_id: &str) -> bool` — Check if this key can access the given tenant's resources.
-- pub `forbidden_response` function L228-230 — `() -> ApiError` — Returns a 403 response for tenant access denied.
-- pub `admin_required_response` function L233-235 — `() -> ApiError` — Returns a 403 response for admin-only operations.
-- pub `can_write` function L240-242 — `(&self) -> bool` — Check if this key has at least write permission.
-- pub `can_admin` function L246-248 — `(&self) -> bool` — Check if this key has admin role within its tenant.
-- pub `insufficient_role_response` function L251-253 — `() -> ApiError` — Returns a 403 response for insufficient role.
-- pub `WsTicketStore` struct L273-277 — `{ tickets: Mutex<HashMap<String, WsTicket>>, ttl: Duration, max_capacity: usize ...` — Thread-safe store for WebSocket auth tickets.
-- pub `new` function L281-287 — `(ttl: Duration) -> Self` — Create a new ticket store with the given TTL (e.g., 60 seconds).
-- pub `issue` function L294-319 — `(&self, auth: AuthenticatedKey) -> String` — Issue a new ticket for the given authenticated key.
-- pub `consume` function L323-331 — `(&self, ticket: &str) -> Option<AuthenticatedKey>` — Consume a ticket — returns the authenticated key if valid and not expired.
+- pub `require_auth` function L175-196 — `( State(state): State<AppState>, mut request: Request, next: Next, ) -> Response` — Auth middleware — validates Bearer token against cache then DAL.
+- pub `can_access_tenant` function L252-260 — `(&self, tenant_id: &str) -> bool` — Check if this key can access the given tenant's resources.
+- pub `forbidden_response` function L263-265 — `() -> ApiError` — Returns a 403 response for tenant access denied.
+- pub `admin_required_response` function L268-270 — `() -> ApiError` — Returns a 403 response for admin-only operations.
+- pub `can_write` function L275-277 — `(&self) -> bool` — Check if this key has at least write permission.
+- pub `can_admin` function L281-283 — `(&self) -> bool` — Check if this key has admin role within its tenant.
+- pub `insufficient_role_response` function L286-288 — `() -> ApiError` — Returns a 403 response for insufficient role.
+- pub `WsTicketStore` struct L308-312 — `{ tickets: Mutex<HashMap<String, WsTicket>>, ttl: Duration, max_capacity: usize ...` — Thread-safe store for WebSocket auth tickets.
+- pub `new` function L316-322 — `(ttl: Duration) -> Self` — Create a new ticket store with the given TTL (e.g., 60 seconds).
+- pub `issue` function L329-354 — `(&self, auth: AuthenticatedKey) -> String` — Issue a new ticket for the given authenticated key.
+- pub `consume` function L358-366 — `(&self, ticket: &str) -> Option<AuthenticatedKey>` — Consume a ticket — returns the authenticated key if valid and not expired.
 -  `CachedEntry` struct L52-55 — `{ info: ApiKeyInfo, inserted_at: Instant }` — A cached entry with TTL tracking.
 -  `KeyCache` type L63-117 — `= KeyCache` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `extract_bearer_token` function L198-205 — `(request: &Request) -> Option<&str>` — Extract the Bearer token from the Authorization header.
--  `AuthenticatedKey` type L211-254 — `= AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `WsTicket` struct L264-267 — `{ auth: AuthenticatedKey, expires_at: Instant }` — A single-use, time-limited ticket for WebSocket authentication.
--  `WsTicketStore` type L279-332 — `= WsTicketStore` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `tests` module L335-447 — `-` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `make_auth` function L338-346 — `(name: &str) -> AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_issue_and_consume` function L349-357 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_single_use` function L360-369 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_invalid_rejected` function L372-378 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_expired_rejected` function L381-389 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_store_bounded` function L392-420 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `test_ticket_store_evicts_expired_on_issue` function L423-446 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `record_auth_span_fields` function L216-230 — `(span: &tracing::Span, auth: &AuthenticatedKey)` — CLOACI-T-0578: attach `tenant_id`, `key_id`, `role` to the current
+-  `extract_bearer_token` function L233-240 — `(request: &Request) -> Option<&str>` — Extract the Bearer token from the Authorization header.
+-  `AuthenticatedKey` type L246-289 — `= AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `WsTicket` struct L299-302 — `{ auth: AuthenticatedKey, expires_at: Instant }` — A single-use, time-limited ticket for WebSocket authentication.
+-  `WsTicketStore` type L314-367 — `= WsTicketStore` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `tests` module L370-625 — `-` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `make_auth` function L373-381 — `(name: &str) -> AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_issue_and_consume` function L384-392 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_single_use` function L395-404 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_invalid_rejected` function L407-413 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_expired_rejected` function L416-424 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_store_bounded` function L427-455 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `StringWriter` struct L465 — `-` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `StringWriter` type L467-475 — `= StringWriter` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `write` function L468-471 — `(&mut self, buf: &[u8]) -> std::io::Result<usize>` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `flush` function L472-474 — `(&mut self) -> std::io::Result<()>` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `StringWriter` type L477-482 — `= StringWriter` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `Writer` type L478 — `= StringWriter` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `make_writer` function L479-481 — `(&'a self) -> Self::Writer` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `capture_under_request_span` function L488-516 — `(f: F) -> String` — Run `f` under a `tracing` subscriber that pre-declares the three
+-  `make_auth_with` function L518-530 — `( tenant: Option<&str>, is_admin: bool, permissions: &str, ) -> AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `record_auth_span_fields_tenant_scoped` function L533-551 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `record_auth_span_fields_admin_sentinel` function L554-569 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `record_auth_span_fields_no_tenant_no_admin` function L572-582 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `record_auth_span_fields_unauth_request_leaves_empty` function L585-598 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `test_ticket_store_evicts_expired_on_issue` function L601-624 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
 
 #### crates/cloacina-server/src/routes/error.rs
 
@@ -6375,16 +6434,23 @@
 #### crates/cloacina-server/src/routes/executions.rs
 
 - pub `ExecuteRequest` struct L37-41 — `{ context: Option<serde_json::Value> }` — Request body for executing a workflow.
-- pub `execute_workflow` function L50-99 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
-- pub `list_executions` function L102-151 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list workflow executions.
-- pub `get_execution` function L154-198 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id — get execution details.
-- pub `get_execution_events` function L201-253 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
+- pub `execute_workflow` function L49-131 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+- pub `list_executions` function L134-183 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list workflow executions.
+- pub `get_execution` function L186-230 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id — get execution details.
+- pub `get_execution_events` function L233-285 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
 
 #### crates/cloacina-server/src/routes/health_graphs.rs
 
-- pub `list_accumulators` function L37-54 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/accumulators — list all registered accumulators with health status.
-- pub `list_graphs` function L57-81 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/graphs — list loaded computation graphs with status.
-- pub `get_graph` function L84-117 — `( State(state): State<AppState>, Path(name): Path<String>, ) -> impl IntoRespons...` — GET /v1/health/graphs/{name} — single graph health.
+- pub `list_accumulators` function L69-90 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /v1/health/accumulators — list registered accumulators with health,
+- pub `list_graphs` function L94-122 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /v1/health/graphs — list loaded graphs visible to the caller.
+- pub `get_graph` function L127-165 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /v1/health/graphs/{name} — single graph health, gated by caller
+-  `key_context` function L41-47 — `(auth: &'a AuthenticatedKey) -> KeyContext<'a>` — Build a `KeyContext` from the `AuthenticatedKey` for policy
+-  `graph_visible` function L53-65 — `(auth: &AuthenticatedKey, graph_tenant: Option<&str>) -> bool` — Decide whether the caller may see a graph based on its tenant scope.
+-  `tests` module L168-204 — `-` — registered-but-not-running graphs.
+-  `auth` function L171-179 — `(tenant: Option<&str>, is_admin: bool) -> AuthenticatedKey` — registered-but-not-running graphs.
+-  `graph_visible_admin_sees_all` function L182-187 — `()` — registered-but-not-running graphs.
+-  `graph_visible_tenant_scoped` function L190-196 — `()` — registered-but-not-running graphs.
+-  `graph_visible_global_key_cannot_see_tenant_graphs` function L199-203 — `()` — registered-but-not-running graphs.
 
 #### crates/cloacina-server/src/routes/keys.rs
 
@@ -6412,15 +6478,15 @@
 
 #### crates/cloacina-server/src/routes/tenants.rs
 
-- pub `CreateTenantRequest` struct L39-47 — `{ schema_name: String, username: String, password: String }` — Request body for creating a tenant.
-- pub `create_tenant` function L51-88 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
-- pub `remove_tenant` function L92-115 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:schema_name — remove a tenant (drop schema + user).
-- pub `list_tenants` function L119-141 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /tenants — list tenant schemas.
+- pub `CreateTenantRequest` struct L41-49 — `{ schema_name: String, username: String, password: String }` — Request body for creating a tenant.
+- pub `create_tenant` function L53-90 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
+- pub `remove_tenant` function L110-229 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
+- pub `list_tenants` function L233-255 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /tenants — list tenant schemas.
 
 #### crates/cloacina-server/src/routes/triggers.rs
 
-- pub `list_triggers` function L31-72 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
-- pub `get_trigger` function L75-134 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+- pub `list_triggers` function L35-91 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
+- pub `get_trigger` function L99-173 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
 
 #### crates/cloacina-server/src/routes/workflows.rs
 

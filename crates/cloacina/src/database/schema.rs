@@ -116,6 +116,12 @@ mod unified_schema {
             worker_id -> Nullable<Text>,
             created_at -> DbTimestamp,
             sequence_num -> BigInt,
+            // CLOACI-T-0583 correlation columns. All nullable: pre-migration
+            // rows have no context (no backfill), and the daemon path emits
+            // events without any of these.
+            request_id -> Nullable<DbUuid>,
+            runner_id -> Nullable<DbUuid>,
+            tenant_id -> Nullable<Text>,
         }
     }
 
@@ -475,6 +481,9 @@ mod postgres_schema {
             worker_id -> Nullable<Varchar>,
             created_at -> Timestamp,
             sequence_num -> Int8,
+            request_id -> Nullable<Uuid>,
+            runner_id -> Nullable<Uuid>,
+            tenant_id -> Nullable<Text>,
         }
     }
 
@@ -849,6 +858,9 @@ mod sqlite_schema {
             worker_id -> Nullable<Text>,
             created_at -> Text,
             sequence_num -> BigInt,
+            request_id -> Nullable<Binary>,
+            runner_id -> Nullable<Binary>,
+            tenant_id -> Nullable<Text>,
         }
     }
 

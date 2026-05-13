@@ -48,6 +48,17 @@ pub struct ExecutionEvent {
     pub created_at: UniversalTimestamp,
     /// Monotonically increasing sequence number for ordering
     pub sequence_num: i64,
+    /// CLOACI-T-0583: id of the originating request. Populated by server
+    /// route handlers from the current tracing span; `None` for background
+    /// scheduler emissions and the daemon path.
+    pub request_id: Option<UniversalUuid>,
+    /// CLOACI-T-0583: id of the runner instance that emitted the event.
+    /// Populated for per-tenant runner emissions; `None` for the daemon's
+    /// single direct runner.
+    pub runner_id: Option<UniversalUuid>,
+    /// CLOACI-T-0583: tenant scope. `None` on the daemon and on
+    /// emissions without a tenant context.
+    pub tenant_id: Option<String>,
 }
 
 /// Structure for creating new execution event records (domain type).
@@ -63,10 +74,20 @@ pub struct NewExecutionEvent {
     pub event_data: Option<String>,
     /// Worker ID that generated this event
     pub worker_id: Option<String>,
+    /// CLOACI-T-0583: originating request id (from the tracing span).
+    pub request_id: Option<UniversalUuid>,
+    /// CLOACI-T-0583: runner instance id.
+    pub runner_id: Option<UniversalUuid>,
+    /// CLOACI-T-0583: tenant scope.
+    pub tenant_id: Option<String>,
 }
 
 impl NewExecutionEvent {
     /// Creates a new execution event for a workflow-level transition.
+    ///
+    /// CLOACI-T-0583 correlation fields default to `None` for backward
+    /// compatibility; use [`Self::with_context`] to populate them after
+    /// construction.
     pub fn workflow_event(
         workflow_execution_id: UniversalUuid,
         event_type: ExecutionEventType,
@@ -79,10 +100,16 @@ impl NewExecutionEvent {
             event_type: event_type.as_str().to_string(),
             event_data,
             worker_id,
+            request_id: None,
+            runner_id: None,
+            tenant_id: None,
         }
     }
 
     /// Creates a new execution event for a task-level transition.
+    ///
+    /// CLOACI-T-0583 correlation fields default to `None`; use
+    /// [`Self::with_context`] to populate them.
     pub fn task_event(
         workflow_execution_id: UniversalUuid,
         task_execution_id: UniversalUuid,
@@ -96,7 +123,31 @@ impl NewExecutionEvent {
             event_type: event_type.as_str().to_string(),
             event_data,
             worker_id,
+            request_id: None,
+            runner_id: None,
+            tenant_id: None,
         }
+    }
+
+    /// Builder-style: attach correlation context to an event before insert.
+    /// Any `Some` value overrides whatever the constructor set; `None`s
+    /// pass through unchanged. CLOACI-T-0583.
+    pub fn with_context(
+        mut self,
+        request_id: Option<UniversalUuid>,
+        runner_id: Option<UniversalUuid>,
+        tenant_id: Option<String>,
+    ) -> Self {
+        if request_id.is_some() {
+            self.request_id = request_id;
+        }
+        if runner_id.is_some() {
+            self.runner_id = runner_id;
+        }
+        if tenant_id.is_some() {
+            self.tenant_id = tenant_id;
+        }
+        self
     }
 }
 

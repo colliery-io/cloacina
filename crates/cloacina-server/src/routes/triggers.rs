@@ -28,6 +28,10 @@ use crate::routes::error::ApiError;
 use crate::AppState;
 
 /// GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
+///
+/// CLOACI-T-0579: routed through the tenant-scoped `Database` from
+/// `TenantDatabaseCache` so the underlying `SELECT FROM schedules`
+/// hits the tenant's schema, not the admin schema. Closes SEC-02.
 pub async fn list_triggers(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -37,7 +41,22 @@ pub async fn list_triggers(
         return AuthenticatedKey::forbidden_response().into_response();
     }
 
-    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            warn!(
+                "Failed to resolve tenant database for '{}': {}",
+                tenant_id, e
+            );
+            return ApiError::internal(format!("tenant database unavailable: {}", e))
+                .into_response();
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db);
 
     match dal.schedule().list(None, false, 100, 0).await {
         Ok(schedules) => {
@@ -72,6 +91,11 @@ pub async fn list_triggers(
 }
 
 /// GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+///
+/// CLOACI-T-0579: routed through the tenant-scoped `Database`. A request
+/// for tenant B with a trigger id that belongs to tenant A naturally
+/// 404s — the row simply doesn't exist in tenant B's schema. No
+/// info-disclosure via "not in your tenant" error code. Closes SEC-02.
 pub async fn get_trigger(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -81,7 +105,22 @@ pub async fn get_trigger(
         return AuthenticatedKey::forbidden_response().into_response();
     }
 
-    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            warn!(
+                "Failed to resolve tenant database for '{}': {}",
+                tenant_id, e
+            );
+            return ApiError::internal(format!("tenant database unavailable: {}", e))
+                .into_response();
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db);
 
     // Find schedule by workflow name or trigger name
     let schedules = match dal.schedule().list(None, false, 100, 0).await {
