@@ -60,6 +60,15 @@ pub mod events {
     pub const VERIFICATION_SUCCESS: &str = "verification.success";
     /// Verification failure event type.
     pub const VERIFICATION_FAILURE: &str = "verification.failure";
+
+    /// Compiler build started event type. Emitted once per build claim by
+    /// `cloacina-compiler` after the source archive is unpacked, just
+    /// before the cargo subprocess fires. CLOACI-T-0576.
+    pub const COMPILER_BUILD_STARTED: &str = "compiler.build.started";
+    /// Compiler build finished event type. Emitted once per build claim
+    /// on every outcome path (success, clean failure, timeout-kill,
+    /// internal error). CLOACI-T-0576.
+    pub const COMPILER_BUILD_FINISHED: &str = "compiler.build.finished";
 }
 
 /// Log a signing key creation event.
@@ -251,6 +260,72 @@ pub fn log_verification_failure(
         failure_reason = %failure_reason,
         signer_fingerprint = signer_fingerprint.unwrap_or("<unknown>"),
         "Package signature verification failed"
+    );
+}
+
+/// Log a compiler build start event. Emitted by `cloacina-compiler` once
+/// per build claim, after the source archive is unpacked and content
+/// hashes are computed, just before the cargo subprocess fires.
+/// CLOACI-T-0576.
+pub fn log_compiler_build_started(
+    build_claim_id: UniversalUuid,
+    package_name: &str,
+    package_version: &str,
+    cargo_toml_hash: &str,
+    cargo_lock_hash: Option<&str>,
+    compiler_instance_id: UniversalUuid,
+) {
+    tracing::info!(
+        event_type = events::COMPILER_BUILD_STARTED,
+        build_claim_id = %build_claim_id,
+        package_name = %package_name,
+        package_version = %package_version,
+        cargo_toml_hash = %cargo_toml_hash,
+        cargo_lock_hash = cargo_lock_hash.unwrap_or("<none>"),
+        compiler_instance_id = %compiler_instance_id,
+        "Compiler build started"
+    );
+}
+
+/// Log a compiler build finished event. Emitted exactly once per build
+/// claim on every outcome path (`success`, `failed`, `timeout_killed`,
+/// `internal_error`). CLOACI-T-0576.
+///
+/// `exit_status` is `Some(code)` only when cargo exited via `exit()`;
+/// `exit_signal` is `Some(name)` only when cargo was signal-terminated.
+/// On `timeout_killed`, the compiler SIGKILL'd cargo itself —
+/// `exit_signal = Some("SIGKILL")`. `failure_reason` is `<none>` on
+/// `success`.
+#[allow(clippy::too_many_arguments)]
+pub fn log_compiler_build_finished(
+    build_claim_id: UniversalUuid,
+    package_name: &str,
+    package_version: &str,
+    cargo_toml_hash: &str,
+    cargo_lock_hash: Option<&str>,
+    compiler_instance_id: UniversalUuid,
+    outcome: &str,
+    exit_status: Option<i32>,
+    exit_signal: Option<&str>,
+    wall_clock_ms: u64,
+    failure_reason: Option<&str>,
+) {
+    tracing::info!(
+        event_type = events::COMPILER_BUILD_FINISHED,
+        build_claim_id = %build_claim_id,
+        package_name = %package_name,
+        package_version = %package_version,
+        cargo_toml_hash = %cargo_toml_hash,
+        cargo_lock_hash = cargo_lock_hash.unwrap_or("<none>"),
+        compiler_instance_id = %compiler_instance_id,
+        outcome = %outcome,
+        exit_status = exit_status
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "<none>".to_string()),
+        exit_signal = exit_signal.unwrap_or("<none>"),
+        wall_clock_ms = wall_clock_ms,
+        failure_reason = failure_reason.unwrap_or("<none>"),
+        "Compiler build finished"
     );
 }
 
@@ -533,5 +608,128 @@ mod tests {
         });
         assert!(output.contains(events::VERIFICATION_FAILURE));
         assert!(output.contains("<unknown>"));
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACI-T-0576: compiler build audit events
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_log_compiler_build_started_full_payload() {
+        let output = with_captured_logs(|| {
+            log_compiler_build_started(
+                UniversalUuid::new_v4(),
+                "my-package",
+                "1.2.3",
+                "deadbeefcafef00d",
+                Some("0123456789abcdef"),
+                UniversalUuid::new_v4(),
+            );
+        });
+        assert!(output.contains(events::COMPILER_BUILD_STARTED));
+        assert!(output.contains("my-package"));
+        assert!(output.contains("1.2.3"));
+        assert!(output.contains("deadbeefcafef00d"));
+        assert!(output.contains("0123456789abcdef"));
+        assert!(output.contains("build_claim_id"));
+        assert!(output.contains("compiler_instance_id"));
+    }
+
+    #[test]
+    fn test_log_compiler_build_started_no_lockfile_renders_none() {
+        let output = with_captured_logs(|| {
+            log_compiler_build_started(
+                UniversalUuid::new_v4(),
+                "pkg-without-lock",
+                "0.0.1",
+                "abc",
+                None,
+                UniversalUuid::new_v4(),
+            );
+        });
+        assert!(output.contains(events::COMPILER_BUILD_STARTED));
+        // The lockfile field should render `<none>` placeholder.
+        assert!(output.contains("cargo_lock_hash"));
+        assert!(output.contains("<none>"));
+    }
+
+    #[test]
+    fn test_log_compiler_build_finished_success() {
+        let output = with_captured_logs(|| {
+            log_compiler_build_finished(
+                UniversalUuid::new_v4(),
+                "happy-pkg",
+                "1.0.0",
+                "cafe",
+                Some("babe"),
+                UniversalUuid::new_v4(),
+                "success",
+                Some(0),
+                None,
+                4250,
+                None,
+            );
+        });
+        assert!(output.contains(events::COMPILER_BUILD_FINISHED));
+        assert!(output.contains("outcome=\"success\"") || output.contains("outcome=success"));
+        assert!(output.contains("wall_clock_ms"));
+        assert!(output.contains("4250"));
+        // failure_reason and exit_signal should render <none> on success.
+        let none_occurrences = output.matches("<none>").count();
+        assert!(
+            none_occurrences >= 2,
+            "expected at least two <none> placeholders (exit_signal + failure_reason), \
+             got: {output}"
+        );
+    }
+
+    #[test]
+    fn test_log_compiler_build_finished_timeout_killed() {
+        let output = with_captured_logs(|| {
+            log_compiler_build_finished(
+                UniversalUuid::new_v4(),
+                "slow-pkg",
+                "0.1.0",
+                "feed",
+                None,
+                UniversalUuid::new_v4(),
+                "timeout_killed",
+                None,
+                Some("SIGKILL"),
+                600_000,
+                Some("cargo build exceeded build_timeout"),
+            );
+        });
+        assert!(output.contains(events::COMPILER_BUILD_FINISHED));
+        assert!(
+            output.contains("outcome=\"timeout_killed\"")
+                || output.contains("outcome=timeout_killed")
+        );
+        assert!(output.contains("SIGKILL"));
+        assert!(output.contains("600000"));
+        assert!(output.contains("exceeded build_timeout"));
+    }
+
+    #[test]
+    fn test_log_compiler_build_finished_clean_failure() {
+        let output = with_captured_logs(|| {
+            log_compiler_build_finished(
+                UniversalUuid::new_v4(),
+                "broken-pkg",
+                "0.0.1",
+                "f00d",
+                Some("c001"),
+                UniversalUuid::new_v4(),
+                "failed",
+                Some(101),
+                None,
+                2500,
+                Some("dependencies not available offline: unobtanium"),
+            );
+        });
+        assert!(output.contains(events::COMPILER_BUILD_FINISHED));
+        assert!(output.contains("outcome=\"failed\"") || output.contains("outcome=failed"));
+        assert!(output.contains("101"));
+        assert!(output.contains("unobtanium"));
     }
 }

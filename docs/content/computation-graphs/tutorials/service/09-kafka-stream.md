@@ -202,8 +202,15 @@ pub struct PriceSignal {
     pub spread_bps: f64,
 }
 
+#[cloacina_macros::reactor(
+    name = "kafka_price_signal_reactor",
+    accumulators = [orderbook],
+    criteria = when_any(orderbook),
+)]
+pub struct KafkaPriceSignalReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook),
+    trigger = reactor("kafka_price_signal_reactor"),
     graph = {
         compute(orderbook) -> emit,
     }
@@ -365,8 +372,15 @@ pub struct ReferencePrice {
     pub price: f64,
 }
 
+#[cloacina_macros::reactor(
+    name = "kafka_stateful_signal_reactor",
+    accumulators = [orderbook, reference],
+    criteria = when_all(orderbook, reference),
+)]
+pub struct KafkaStatefulSignalReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_all(orderbook, reference),
+    trigger = reactor("kafka_stateful_signal_reactor"),
     graph = {
         evaluate(orderbook, reference) -> alert,
     }
@@ -432,8 +446,15 @@ pub struct VwapResult {
 static BUFFER: Lazy<Mutex<Vec<Trade>>> = Lazy::new(|| Mutex::new(Vec::new()));
 const BATCH_SIZE: usize = 5;
 
+#[cloacina_macros::reactor(
+    name = "kafka_batch_vwap_reactor",
+    accumulators = [trade],
+    criteria = when_any(trade),
+)]
+pub struct KafkaBatchVwapReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(trade),
+    trigger = reactor("kafka_batch_vwap_reactor"),
     graph = {
         batch_and_compute(trade) -> emit_vwap,
     }

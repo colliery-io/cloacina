@@ -57,9 +57,21 @@ The body receives a raw event dict and returns the processed dict that the graph
 The graph topology is identical to Tutorial 09 — only the source name changes.
 
 ```python
+# Declare the reactor that fires the graph (CLOACI-I-0101 split — the
+# bundled `react={...}` kwarg was removed in favour of first-class
+# `@cloaca.reactor` classes).
+@cloaca.reactor(
+    name="pricing_graph_reactor",
+    accumulators=["pricing"],
+    mode="when_any",
+)
+class PricingGraphReactor:
+    pass
+
+
 with cloaca.ComputationGraphBuilder(
     "pricing_graph",
-    react={"mode": "when_any", "accumulators": ["pricing"]},
+    reactor=PricingGraphReactor,
     graph={
         "ingest": {
             "inputs": ["pricing"],

@@ -54,8 +54,15 @@ pub struct SignalOutput {
     pub message: String,
 }
 
+#[cloacina_macros::reactor(
+    name = "pricing_graph_reactor",
+    accumulators = [pricing],
+    criteria = when_any(pricing),
+)]
+pub struct PricingGraphReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(pricing),
+    trigger = reactor("pricing_graph_reactor"),
     graph = {
         ingest(pricing) -> analyze,
         analyze -> format_signal,
@@ -162,7 +169,7 @@ let (shutdown_tx, shutdown_rx) = shutdown_signal();
 ```rust
 let boundary_sender = BoundarySender::new(
     boundary_tx,
-    SourceName::new("pricing"),  // must match react = when_any(pricing)
+    SourceName::new("pricing"),  // must match accumulators = [pricing] / criteria = when_any(pricing) on the reactor
 );
 
 let acc_ctx = AccumulatorContext {

@@ -4,12 +4,13 @@ description: "Define a computation graph, declare its topology, and execute it w
 weight: 10
 ---
 
-In this tutorial you'll build your first computation graph — a pricing pipeline that reads an order book snapshot, computes spread in basis points, and formats the result. You'll learn how the `#[computation_graph]` macro wires async functions into a compiled, callable graph.
+In this tutorial you'll build your first computation graph — a pricing pipeline that reads an order book snapshot, computes spread in basis points, and formats the result. You'll learn how Cloacina's two macros work together: `#[reactor]` declares the firing criterion, and `#[computation_graph]` references that reactor by name and wires async functions into a compiled, callable graph.
 
 ## What you'll learn
 
 - How to define boundary types (the data that flows between nodes)
-- The `#[computation_graph]` attribute macro and topology declaration syntax
+- The `#[reactor]` attribute macro: declaring the firing criterion as a top-level primitive
+- The `#[computation_graph]` attribute macro and topology declaration syntax — including `trigger = reactor("...")`
 - Entry nodes, processing nodes, and terminal nodes
 - `InputCache`, `SourceName`, and `serialize()`
 - Calling the generated `_compiled()` function and inspecting `GraphResult`
@@ -68,13 +69,20 @@ You define one struct per data boundary. `OrderBookSnapshot` enters the graph fr
 
 ---
 
-## Step 2: Declare the computation graph
+## Step 2: Declare the reactor and the computation graph
 
-The `#[computation_graph]` macro takes two arguments: a reaction criterion (`react`) and the topology (`graph`). Inside the annotated `mod`, each `pub async fn` becomes a node.
+As of CLOACI-I-0101 a graph's firing criterion is its own top-level primitive. You declare a reactor with `#[reactor]` (giving it a `name`, an `accumulators` list, and a `criteria` expression), then point one or more `#[computation_graph]` declarations at it via `trigger = reactor("name")`. Inside the annotated `mod`, each `pub async fn` becomes a node.
 
 ```rust
+#[cloacina_macros::reactor(
+    name = "pricing_pipeline_reactor",
+    accumulators = [orderbook],
+    criteria = when_any(orderbook),
+)]
+pub struct PricingPipelineReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook),
+    trigger = reactor("pricing_pipeline_reactor"),
     graph = {
         ingest(orderbook) -> compute_spread,
         compute_spread -> format_output,
@@ -118,7 +126,8 @@ pub mod pricing_pipeline {
 
 | Syntax | Meaning |
 |---|---|
-| `react = when_any(orderbook)` | Fire the graph whenever the `orderbook` source has new data |
+| `#[reactor(criteria = when_any(orderbook), ...)]` | Declares a reactor that fires whenever the `orderbook` source has new data |
+| `trigger = reactor("pricing_pipeline_reactor")` | This graph subscribes to the reactor declared above (referenced by its string name) |
 | `ingest(orderbook)` | `ingest` is an entry node; it reads `orderbook` from the cache |
 | `-> compute_spread` | `ingest`'s output is passed to `compute_spread` as its input |
 | `compute_spread -> format_output` | `format_output` receives `compute_spread`'s output |
@@ -151,7 +160,8 @@ async fn main() {
     };
 
     // Serialize and insert under the source name "orderbook"
-    // — must match the name declared in react = when_any(orderbook)
+    // — must match the accumulator name declared on the reactor
+    //   (#[reactor(accumulators = [orderbook], criteria = when_any(orderbook), ...)])
     cache.update(
         SourceName::new("orderbook"),
         serialize(&orderbook).expect("serialization should succeed"),
@@ -179,7 +189,7 @@ async fn main() {
 
 **Key points:**
 
-- `SourceName::new("orderbook")` must exactly match the name you used in the topology — `ingest(orderbook)` and `react = when_any(orderbook)`.
+- `SourceName::new("orderbook")` must exactly match the accumulator name in the reactor declaration (`accumulators = [orderbook]`) and in the topology (`ingest(orderbook)`).
 - `serialize()` converts your value to `Vec<u8>` using the same codec the cache uses internally.
 - `GraphResult::Completed { outputs }` carries a `Vec<Box<dyn Any>>`. Use `downcast_ref::<T>()` to get your concrete type back.
 - `GraphResult::Error(e)` carries a string describing what went wrong.
@@ -207,7 +217,8 @@ Graph completed with 1 terminal output(s)
 
 You've built and executed your first computation graph:
 
-- **`#[computation_graph]`** declares the topology and generates the `_compiled` function
+- **`#[reactor]`** declares the firing criterion as a top-level primitive (`name`, `accumulators`, `criteria`)
+- **`#[computation_graph]`** declares the topology, subscribes to a reactor via `trigger = reactor("name")`, and generates the `_compiled` function
 - **Entry nodes** receive `Option<&T>` from the `InputCache`; processing nodes receive `&T` from their upstream peer
 - **`InputCache`** holds named, serialized data that feeds entry nodes
 - **`GraphResult::Completed`** carries boxed terminal outputs; downcast them to your concrete types

@@ -149,6 +149,8 @@ For everything else — local iteration, CI builds, exploratory
 packaging — `cloacinactl package build` and `pack` are simpler and
 faster.
 
+See [Run cloacina-compiler in Production]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) for the service-side deployment posture: threat model, vendor curation, resource limits, audit-event reference.
+
 ## Local Loader Sanity Check
 
 If you want to verify your `.cloacina` archive loads cleanly without

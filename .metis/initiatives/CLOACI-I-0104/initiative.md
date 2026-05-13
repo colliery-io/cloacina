@@ -4,14 +4,14 @@ level: initiative
 title: "Compiler hardening Phase 1 — build timeouts, offline-by-default, resource limits"
 short_code: "CLOACI-I-0104"
 created_at: 2026-05-06T11:05:31.488861+00:00
-updated_at: 2026-05-06T11:05:31.488861+00:00
+updated_at: 2026-05-13T17:22:41.322347+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -51,13 +51,13 @@ Phase 1 mitigations are intentionally lightweight, immediately deployable, and c
 - **OPS-07 (Critical-adjusted)** — Compiler service is unsandboxed; multi-tenant deployments see attacker-source builds.
 - **OPS-10 (Minor)** — SIGTERM does not interrupt `cargo build`; shutdown can hang for the duration of any in-flight build.
 
-## Discovery Questions
+## Locked decisions (2026-05-13)
 
-- What's the right default `--build-timeout-s`? 600s (10 min) is conventional but may break legitimate large builds.
-- How do we curate the pre-vendored registry? Per-deployment or shipped as a fixture? How do operators add deps for in-house packages?
-- How does `--frozen --offline` interact with packages that legitimately need new deps? Probably reject + report; need explicit operator workflow.
-- Cross-platform: `setrlimit` is Unix-only. Do we need a Windows path, or is Linux-only acceptable for the compiler service?
-- Audit log destination: same audit-log facility as I-0103, or a separate compiler-events stream?
+- **Default `--build-timeout-s` = 600** (10 min). Operators with large monorepo packages override via flag/env. Sweeper resets the build row to `pending` on kill.
+- **Offline policy: reject + report.** `--frozen --offline` is the default. Builds that need uncached crates fail fast with an error naming the missing crates. Operator workflow: `cargo vendor` the dep, bind-mount into the compiler, rebuild. No per-build network escape hatch in Phase 1.
+- **Vendor curation: per-deployment, operator-managed.** Compiler reads vendor from `--vendor-dir` (default `~/.cargo/registry`). Cloacina ships no in-tree fixture — `production-deployment.md` documents the `cargo vendor` procedure. Phase 2 sandbox bind-mounts the same dir RO.
+- **Audit log: reuse the I-0103 audit facility.** Two new event kinds — `compiler_build_started` and `compiler_build_finished` — emitted through the existing `audit::log_*` surface. Include build-claim id, package name+version, and Cargo.toml dep-graph hash for forensic traceability.
+- **Linux-only (per A-0005).** No Windows path. `setrlimit` and `pre_exec` are available on the supported deployment posture.
 
 ## Initial Sketch
 
@@ -67,6 +67,16 @@ Phase 1 mitigations are intentionally lightweight, immediately deployable, and c
 - Document `production-deployment.md` posture: dedicated UID, no outbound network beyond curated cargo paths, no Cloacina admin credentials beyond build-claim DB user.
 - Audit-log entries on build start/finish with Cargo.toml hash and build-claim id.
 - Wire `--build-timeout-s`, `--build-rlimit-cpu`, `--build-rlimit-mem`, `--build-rlimit-procs`, `--build-rlimit-files`, `--vendor-dir` config flags.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

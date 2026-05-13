@@ -22,7 +22,7 @@ mod config;
 mod health;
 mod loopp;
 
-pub use config::CompilerConfig;
+pub use config::{BuildRlimits, CompilerConfig};
 
 use std::sync::Arc;
 
@@ -45,7 +45,18 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
         heartbeat_interval = ?config.heartbeat_interval,
         stale_threshold = ?config.stale_threshold,
         sweep_interval = ?config.sweep_interval,
+        compiler_instance_id = %config.compiler_instance_id,
         "cloacina-compiler starting"
+    );
+
+    // CLOACI-T-0575: rlimits are Linux-only kernel-enforced. On non-Linux
+    // dev hosts we still build and run, but the resource ceiling is
+    // unenforced; warn once so the operator can't miss it.
+    #[cfg(not(target_os = "linux"))]
+    tracing::warn!(
+        "non-Linux build host: --build-rlimit-* values are ignored \
+         (setrlimit hook is Linux-only per ADR-0005). The wall-clock \
+         timeout from --build-timeout-s is the only resource bound."
     );
 
     // Registry is shared between the build loop and the /v1/status endpoint.

@@ -26,13 +26,20 @@ Use `when_any` when each source is self-sufficient — the graph can compute a m
 
 Use `when_all` when your graph function requires data from every source to produce a valid result. A common example is a graph that joins two independent feeds: executing before both have arrived would produce a meaningless result with all `None` inputs.
 
-## Declaring when_all in the graph macro
+## Declaring when_all on the reactor
 
-Change `react = when_any(...)` to `react = when_all(...)` in the `#[computation_graph]` attribute:
+The firing criterion lives on the `#[reactor]` declaration, not the graph. To switch from `when_any` to `when_all`, change the `criteria = ...` clause on the reactor; the `#[computation_graph]` macro just references the reactor by name and is unchanged:
 
 ```rust
+#[cloacina_macros::reactor(
+    name = "market_pipeline_reactor",
+    accumulators = [orderbook, pricing],
+    criteria = when_all(orderbook, pricing),
+)]
+pub struct MarketPipelineReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_all(orderbook, pricing),
+    trigger = reactor("market_pipeline_reactor"),
     graph = {
         combine(orderbook, pricing) -> evaluate,
         evaluate -> signal,
@@ -43,7 +50,7 @@ pub mod market_pipeline {
 }
 ```
 
-The source names inside `when_all(...)` must match the parameter names of your entry node function.
+The source names inside `criteria = when_all(...)` must match both the reactor's `accumulators` list and the parameter names of your entry node function.
 
 ## How dirty flags work with when_all
 
@@ -105,9 +112,16 @@ pub struct MarketView { pub spread: f64, pub mid_price: f64, pub pricing_mid: f6
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradingSignal { pub action: String, pub confidence: f64 }
 
-// Same graph declaration as tutorial 09, but with when_all
+// Same wiring as tutorial 09, but the reactor now uses when_all
+#[cloacina_macros::reactor(
+    name = "market_pipeline_reactor",
+    accumulators = [orderbook, pricing],
+    criteria = when_all(orderbook, pricing),   // <-- changed from when_any
+)]
+pub struct MarketPipelineReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_all(orderbook, pricing),   // <-- changed from when_any
+    trigger = reactor("market_pipeline_reactor"),
     graph = {
         combine(orderbook, pricing) -> evaluate,
         evaluate -> signal,

@@ -12,6 +12,7 @@ Practical recipes for solving specific problems with the computation graph syste
 
 - [Accumulator Types]({{< ref "/computation-graphs/how-to-guides/accumulator-types" >}}) — Choose and configure the right accumulator
 - [When-All Criteria]({{< ref "/computation-graphs/how-to-guides/when-all-criteria" >}}) — Fire graphs only when all sources have data
+- [Computation Graph in a Workflow Task]({{< ref "/computation-graphs/how-to-guides/computation-graph-in-workflow" >}}) — Wrap a trigger-less graph as a workflow task with `invokes = computation_graph(...)`
 
 ## Operations
 

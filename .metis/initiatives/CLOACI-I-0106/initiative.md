@@ -4,14 +4,14 @@ level: initiative
 title: "Complete multi-tenant abstraction across runner, reconciler, observability, and lifecycle"
 short_code: "CLOACI-I-0106"
 created_at: 2026-05-06T11:05:34.186707+00:00
-updated_at: 2026-05-06T11:05:34.186707+00:00
+updated_at: 2026-05-13T19:38:39.746157+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -69,14 +69,14 @@ Per CLOACI-A-0005, multi-tenancy is a **server-only** concern. The daemon is hig
 - **API-04 (Major)** — Auth model is dual-axis but undocumented (cross-references REC-05).
 - **EVO-15 (Observation)** — Server tenant cache is a half-implementation.
 
-## Discovery Questions
+## Locked decisions (2026-05-13)
 
-- **Runner strategy** — `TenantRunnerCache` with per-tenant `DefaultRunner` (modeled on `TenantDatabaseCache`) vs `Database`-override on `WorkflowExecutor::execute_async`? Per cross-cutting review, the cache approach is cleaner long-term but multiplies memory cost per tenant. How do we bound it?
-- **Inventory sharing** — `TaskRegistry`, `WorkflowRegistry`, `TriggerRegistry`, `ReactorRegistry`, `GraphRegistry` are inventory-seeded and tenant-agnostic. Confirm they can be shared by Arc across all per-tenant runners without aliasing issues.
-- **Tenant cache sizing** — what's a sensible bound for the LRU? 256 entries? Larger for SaaS deployments? Make it configurable.
-- **Server tenancy modes** — should there be a flag (`--multi-tenant=auto|single|multi`) that toggles certain assumptions on the server, or is the single abstraction always correct and "single-org" just means one tenant?
-- **`remove_tenant` ordering** — what's the right teardown sequence? Reactors first? Drain in-flight executions? Concurrent-safe revoke?
-- **Migration on `execution_events`** — adding three columns. Backfill strategy on Postgres vs SQLite (per project rule, no DROP+CREATE on SQLite).
+- **Runner strategy: per-tenant `DefaultRunner` cache.** A new `TenantRunnerCache` mirrors the existing `TenantDatabaseCache` pattern. Each cached tenant gets a fully-constructed `DefaultRunner` with its own scheduler loop, heartbeat, and executor pool. The five inventory-seeded registries (`Task`/`Workflow`/`Trigger`/`Reactor`/`Graph`) are shared by `Arc` across all per-tenant runners (already supported by the post-T-0506 inventory→Runtime seeding path; no aliasing concern). Database-override on `WorkflowExecutor::execute_async` was rejected — too much per-call plumbing, easy to miss a path and silently fall back to admin schema (the original COR-01 footgun).
+- **Tenant runner cache: LRU with configurable cap, default 256.** Operator override via `--tenant-runner-cache-size` flag. Evicts least-recently-active tenant on insertion past the cap. Eviction triggers a graceful runner shutdown (drain in-flight, stop reactors, close DB pool). Recreation on next request for the evicted tenant pays a runner-startup cost (~tens of ms).
+- **No `--multi-tenant` mode flag.** Single-org deployments are "multi-tenant with one tenant." Same code path everywhere — no auto/single/multi branching. Abstraction overhead at N=1 is negligible (one cached runner) and not worth two code paths.
+- **`remove_tenant` teardown order:** stop reactors → cancel executions → revoke keys → evict DB+runner cache → drop schema. Top-down: stop accepting new work first, then cancel in-flight, then close auth, then tear down caches, then DB. Each step is observable and idempotent; a retry is safe.
+- **Inventory sharing** (decided, not user-facing): post-T-0506, all five registries (`Task`/`Workflow`/`Trigger`/`Reactor`/`Graph`) are inventory-seeded and held behind `Arc` on `Runtime`. Multiple per-tenant `Runtime` instances reading the same inventory is the supported path; T-0507 already exercises register/unregister on each per-package basis.
+- **`execution_events` migration** (decided, mechanical): standard `ALTER TABLE ADD COLUMN ... NULL` on both Postgres and SQLite. Backfill leaves pre-migration rows NULL; new rows populate `request_id` / `runner_id` / `tenant_id` from day one. Per project convention (feedback_sqlite_migration_recreate), no DROP+CREATE on SQLite.
 
 ## Initial Sketch
 
@@ -90,6 +90,12 @@ Plan as one Metis initiative with phases (subject to design):
 6. **Phase 6 — `execution_events` correlation columns + migration** (OPS-16).
 
 Each phase ships independently. Phases 1–2 are quick wins; Phase 3 is the main lift.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -3,10 +3,20 @@
 
 Python computation graph bindings.
 
-Mirrors the WorkflowBuilder + @task pattern:
+Mirrors the WorkflowBuilder + @task pattern. As of CLOACI-I-0101 the
+bundled `react={...}` kwarg has been removed; declare a
+`@cloaca.reactor` class and pass it via `reactor=`:
 ```python
+@cloaca.reactor(
+    name="market_maker_reactor",
+    accumulators=["alpha", "beta"],
+    mode="when_any",
+)
+class MarketMakerReactor:
+    pass
+
 with cloaca.ComputationGraphBuilder("market_maker",
-react={"mode": "when_any", "accumulators": ["alpha", "beta"]},
+reactor=MarketMakerReactor,
 graph={
 "decision": {"inputs": ["alpha", "beta"], "routes": {
 "Signal": "signal_handler",
@@ -28,6 +38,13 @@ return {"published": True}
 def audit_logger(reason):
 return {"logged": True}
 ```
+
+<!-- TODO(I-0101): the embedded Source blocks below are auto-generated
+from older Rust source and still show the bundled `react: &Bound<PyDict>`
+form. The actual binding (crates/cloacina-python/src/computation_graph.rs)
+now uses `reactor=` / rejects `react=`. Re-run the API-reference
+generator to refresh them. -->
+
 
 ## Classes
 

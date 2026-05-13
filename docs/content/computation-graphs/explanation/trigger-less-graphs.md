@@ -42,11 +42,10 @@ Use a regular reactor-bound CG when:
 ## How they're declared
 
 Trigger-less CGs use the same `#[computation_graph]` macro, but with
-no `trigger` argument:
+no `trigger` argument at all:
 
 ```rust
 #[computation_graph(
-    react = none,
     graph = {
         score: { inputs: ["context"], next: "decide" },
         decide: { next: "publish" },
@@ -62,9 +61,9 @@ mod decision_graph {
 }
 ```
 
-`react = none` is what marks the graph trigger-less. The macro emits
-a `TriggerlessGraphEntry` inventory entry instead of a reactor-bound
-`ComputationGraphEntry`.
+Omitting the `trigger` clause is what marks the graph trigger-less.
+The macro emits a `TriggerlessGraphEntry` inventory entry instead of
+a reactor-bound `ComputationGraphEntry`.
 
 A workflow task then invokes the graph by name:
 

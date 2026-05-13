@@ -37,9 +37,22 @@ In Python you declare the topology by opening a `ComputationGraphBuilder` contex
 ```python
 import cloaca
 
+
+# Declare the reactor that fires the graph (CLOACI-I-0101 split — the
+# bundled `react={...}` kwarg was removed; reactors are now first-class
+# `@cloaca.reactor` classes referenced by the builder via `reactor=`).
+@cloaca.reactor(
+    name="pricing_pipeline_reactor",
+    accumulators=["orderbook"],
+    mode="when_any",
+)
+class PricingPipelineReactor:
+    pass
+
+
 with cloaca.ComputationGraphBuilder(
     "pricing_pipeline",
-    react={"mode": "when_any", "accumulators": ["orderbook"]},
+    reactor=PricingPipelineReactor,
     graph={
         "ingest": {
             "inputs": ["orderbook"],   # reads from the cache by this name
@@ -61,7 +74,7 @@ The `graph` dict mirrors the Rust topology syntax:
 | `compute_spread -> format_output` | `"compute_spread": {"next": "format_output"}` |
 | `format_output` (terminal) | `"format_output": {}` |
 
-`react` tells the graph when to fire. `"mode": "when_any"` fires whenever any named accumulator delivers new data.
+The `@cloaca.reactor` decorator declares when the graph fires. `mode="when_any"` fires whenever any named accumulator delivers new data. The builder takes that reactor class via `reactor=PricingPipelineReactor` — a Python mirror of Rust's `trigger = reactor("...")` clause.
 
 ---
 
@@ -148,7 +161,8 @@ Result: {'message': 'Mid: 100.52, Spread: 4.9 bps', 'mid_price': 100.525, 'sprea
 
 | Concept | Rust | Python |
 |---|---|---|
-| Graph declaration | `#[computation_graph(...)] pub mod name { }` | `with ComputationGraphBuilder("name", ...) as builder:` |
+| Reactor declaration | `#[reactor(name = "...", accumulators = [...], criteria = when_any(...))] pub struct R;` | `@cloaca.reactor(name="...", accumulators=[...], mode="when_any")` on a class |
+| Graph declaration | `#[computation_graph(trigger = reactor("..."), graph = {...})] pub mod name { }` | `with ComputationGraphBuilder("name", reactor=R, graph={...}) as builder:` |
 | Node definition | `pub async fn node_name(...)` | `@cloaca.node` + `def node_name(...)` |
 | Entry node inputs | `Option<&T>` for each source | named argument per source, `None` if absent |
 | Calling the graph | `name_compiled(&cache).await` | `builder.execute({...})` |
@@ -160,7 +174,8 @@ Result: {'message': 'Mid: 100.52, Spread: 4.9 bps', 'mid_price': 100.525, 'sprea
 
 You've defined and executed your first Python computation graph:
 
-- `ComputationGraphBuilder` declares the graph name, reaction mode, and topology in one `with` block
+- `@cloaca.reactor` declares the firing criterion (`name`, `accumulators`, `mode`) as a first-class class
+- `ComputationGraphBuilder` declares the graph name, takes the reactor class via `reactor=`, and declares the topology in one `with` block
 - `@cloaca.node` registers each function and its position in the graph
 - Entry nodes receive source values as named arguments (`None` if absent)
 - `builder.execute({source: value})` runs the graph and returns the terminal node's output

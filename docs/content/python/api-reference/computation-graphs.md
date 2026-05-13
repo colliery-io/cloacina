@@ -12,12 +12,14 @@ The Python API mirrors the Rust computation graph system, using decorators and a
 
 ## ComputationGraphBuilder
 
-`ComputationGraphBuilder` is a context manager that declares a computation graph's name, reaction criteria, and topology. Inside the `with` block you define node functions with the `@cloaca.node` decorator. When the block exits, the builder validates that every node in the topology has a matching decorated function and vice versa, then registers the graph for execution.
+`ComputationGraphBuilder` is a context manager that declares a computation graph's name, the reactor that fires it, and the topology. Inside the `with` block you define node functions with the `@cloaca.node` decorator. When the block exits, the builder validates that every node in the topology has a matching decorated function and vice versa, then registers the graph for execution.
+
+As of CLOACI-I-0101 the firing criterion is its own first-class primitive: a class decorated with `@cloaca.reactor`. The bundled `react={...}` kwarg has been removed; pass the reactor class via `reactor=`.
 
 ### Constructor
 
 ```python
-cloaca.ComputationGraphBuilder(name, *, react, graph)
+cloaca.ComputationGraphBuilder(name, *, reactor, graph)
 ```
 
 **Parameters:**
@@ -25,7 +27,7 @@ cloaca.ComputationGraphBuilder(name, *, react, graph)
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | `str` | Yes | Unique name for the computation graph. Used to identify the graph at execution time. |
-| `react` | `dict` | Yes | Reaction criteria dict with keys `mode` and `accumulators`. See [Reaction Criteria](#reaction-criteria). |
+| `reactor` | class decorated with `@cloaca.reactor` | Yes (for reactor-triggered graphs) | The reactor that fires this graph. Its `accumulators` and `mode` determine when the graph runs. Omit for a trigger-less graph invoked via `builder.execute()` only. |
 | `graph` | `dict` | Yes | Topology dict mapping node names to their configuration. See [Topology Dict](#topology-dict). |
 
 **Returns:** `ComputationGraphBuilder` instance (used as a context manager)
@@ -34,9 +36,17 @@ cloaca.ComputationGraphBuilder(name, *, react, graph)
 ```python
 import cloaca
 
+@cloaca.reactor(
+    name="pricing_pipeline_reactor",
+    accumulators=["orderbook"],
+    mode="when_any",
+)
+class PricingPipelineReactor:
+    pass
+
 with cloaca.ComputationGraphBuilder(
     "pricing_pipeline",
-    react={"mode": "when_any", "accumulators": ["orderbook"]},
+    reactor=PricingPipelineReactor,
     graph={
         "ingest": {"inputs": ["orderbook"], "next": "compute_spread"},
         "compute_spread": {"next": "format_output"},
@@ -49,20 +59,24 @@ with cloaca.ComputationGraphBuilder(
 
 ### Reaction Criteria
 
-The `react` parameter controls when the graph fires.
+The reactor's `mode` and `accumulators` control when the graph fires.
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `mode` | `str` | Yes | `"when_any"` -- fire when any named accumulator delivers new data. `"when_all"` -- fire only when every named accumulator has delivered at least one value. |
-| `accumulators` | `list[str]` | Yes | List of accumulator names that feed this graph. Each name must match a registered accumulator function. |
+| `accumulators` | `list[str]` | Yes | List of accumulator names that feed this reactor. Each name must match a registered accumulator function. |
 
 **Example:**
 ```python
 # Fire whenever either source delivers data
-react={"mode": "when_any", "accumulators": ["orderbook", "pricing"]}
+@cloaca.reactor(name="market_reactor", accumulators=["orderbook", "pricing"], mode="when_any")
+class MarketReactor:
+    pass
 
 # Fire only after both sources have delivered at least once
-react={"mode": "when_all", "accumulators": ["orderbook", "pricing"]}
+@cloaca.reactor(name="market_reactor_strict", accumulators=["orderbook", "pricing"], mode="when_all")
+class MarketReactorStrict:
+    pass
 ```
 
 ### Topology Dict
@@ -452,10 +466,19 @@ import cloaca
 def orderbook(event):
     return {"best_bid": event["bid"], "best_ask": event["ask"]}
 
-# 2. Declare graph topology and define nodes
+# 2. Declare the reactor that fires the graph
+@cloaca.reactor(
+    name="pricing_pipeline_reactor",
+    accumulators=["orderbook"],
+    mode="when_any",
+)
+class PricingPipelineReactor:
+    pass
+
+# 3. Declare graph topology and define nodes
 with cloaca.ComputationGraphBuilder(
     "pricing_pipeline",
-    react={"mode": "when_any", "accumulators": ["orderbook"]},
+    reactor=PricingPipelineReactor,
     graph={
         "ingest":         {"inputs": ["orderbook"], "next": "compute_spread"},
         "compute_spread": {"next": "format_output"},
@@ -486,7 +509,7 @@ with cloaca.ComputationGraphBuilder(
                        f"Spread: {input_data['spread_bps']:.1f} bps",
         }
 
-# 3. Execute
+# 4. Execute
 raw_event = {"bid": 100.50, "ask": 100.55}
 processed = orderbook(raw_event)
 result = builder.execute({"orderbook": processed})
@@ -509,9 +532,17 @@ def orderbook(event):
 def pricing(event):
     return event
 
+@cloaca.reactor(
+    name="market_maker_reactor",
+    accumulators=["orderbook", "pricing"],
+    mode="when_any",
+)
+class MarketMakerReactor:
+    pass
+
 with cloaca.ComputationGraphBuilder(
     "market_maker",
-    react={"mode": "when_any", "accumulators": ["orderbook", "pricing"]},
+    reactor=MarketMakerReactor,
     graph={
         "decision": {
             "inputs": ["orderbook", "pricing"],
@@ -564,6 +595,10 @@ print(result)  # {"logged": True, "reason": "spread too wide: 1.00"}
 ```python
 import cloaca
 
+@cloaca.reactor(name="src_reactor", accumulators=["src"], mode="when_any")
+class SrcReactor:
+    pass
+
 # Error: @cloaca.node outside a builder context
 try:
     @cloaca.node
@@ -577,7 +612,7 @@ except ValueError as e:
 try:
     with cloaca.ComputationGraphBuilder(
         "broken_graph",
-        react={"mode": "when_any", "accumulators": ["src"]},
+        reactor=SrcReactor,
         graph={"missing_node": {"inputs": ["src"]}},
     ) as builder:
         pass  # no @cloaca.node defined
@@ -589,7 +624,7 @@ except AttributeError as e:
 try:
     with cloaca.ComputationGraphBuilder(
         "extra_graph",
-        react={"mode": "when_any", "accumulators": ["src"]},
+        reactor=SrcReactor,
         graph={"ingest": {"inputs": ["src"]}},
     ) as builder:
         @cloaca.node

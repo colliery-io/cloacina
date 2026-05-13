@@ -476,10 +476,17 @@ If using `when_all` and one source never publishes, the graph will never fire.
 
 **Solution:**
 
-1. **Check the reaction mode** in your graph definition:
+1. **Check the reaction mode** on the reactor that triggers your graph. The mode lives on `#[reactor(criteria = ...)]`; the graph macro references it by name:
    ```rust
+   #[cloacina_macros::reactor(
+       name = "my_reactor",
+       accumulators = [source1, source2],
+       criteria = when_any(source1, source2),
+   )]
+   pub struct MyReactor;
+
    #[cloacina_macros::computation_graph(
-       react = when_any(source1, source2),
+       trigger = reactor("my_reactor"),
        graph = { ... }
    )]
    ```

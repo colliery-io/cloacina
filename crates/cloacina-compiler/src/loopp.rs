@@ -78,6 +78,18 @@ async fn run_build_with_heartbeat(
                 warn!(%e, %package_id, "mark_build_failed failed");
             }
         }
+        crate::build::BuildOutcome::TimedOut { elapsed } => {
+            // CLOACI-T-0573: heartbeat was cancelled above; row's
+            // build_claimed_at is now stale. The sweeper will reclaim it on
+            // its next tick (stale_threshold after the last heartbeat).
+            // Do NOT call mark_build_failed — the row should be reset to
+            // `pending`, not terminally failed.
+            warn!(
+                %package_id,
+                elapsed_s = elapsed.as_secs(),
+                "build timed out; leaving row for stale-build sweeper to reset"
+            );
+        }
     }
 }
 

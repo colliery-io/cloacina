@@ -11,14 +11,12 @@ graph that binds to that reactor as its upstream. You'll deploy them
 to a running `cloacina-server`, watch the reconciler load both
 packages and wire them together, then practice safe unload ordering.
 
-By the end you'll understand the split-form reactor model, why
-cross-package binding works, and what the bound-subscriber guard is
-protecting against.
+By the end you'll understand how decoupled reactor and graph
+declarations enable cross-package binding, and what the
+bound-subscriber guard is protecting against.
 
 ## What you'll learn
 
-- The difference between bundled-form and split-form computation
-  graphs (and why split form enables this pattern).
 - How `#[reactor(...)]` declares a reactor as a unit struct.
 - How `#[computation_graph(trigger = reactor(...))]` binds a graph
   in a *separate* cdylib to a reactor in another cdylib.
@@ -42,21 +40,22 @@ protecting against.
 
 ---
 
-## Background: split-form reactors
+## Background: decoupled reactors and graphs
 
-In the bundled form (the default for the `#[computation_graph]`
-macro), a reactor and the graph that subscribes to it are declared
-together in a single module. There's a 1:1 mapping; loading the
-package creates one reactor with one subscriber, and unloading the
-package tears both down together.
+Reactors and computation graphs are declared independently. A
+reactor is a unit struct annotated with `#[reactor(...)]`; it
+names the accumulators it watches and the firing criterion
+(`when_any` / `when_all`). A computation graph is a module
+annotated with `#[computation_graph(...)]`; it declares its
+topology and names the reactor it subscribes to via
+`trigger = reactor("MyReactor")`.
 
-The split form decouples the two. A reactor is declared standalone
-with `#[reactor(...)]`. One or more graphs declare an upstream
-binding via `#[computation_graph(trigger = reactor(MyReactor),
-...)]`. The N graphs can live in the same package as the reactor,
-in different packages, or even in different tenants — the
-reconciler resolves the `reactor(MyReactor)` reference by name at
-load time.
+Because the binding is by name rather than by direct reference, a
+reactor and the graphs that subscribe to it do not need to live in
+the same crate. The N graphs can live in the same package as the
+reactor, in different packages, or even in different tenants — the
+reconciler resolves the `reactor("MyReactor")` reference by name
+at load time against the runtime's reactor registry.
 
 This unlocks a real architectural pattern: a publisher package owns
 a reactor that emits events of broad interest (e.g., a price feed,
@@ -110,7 +109,7 @@ fn main() {
 [package]
 name = "pricing-publisher"
 version = "0.1.0"
-description = "Publishes a normalized price stream via a split-form reactor"
+description = "Publishes a normalized price stream via a standalone reactor"
 ```
 
 ### `src/lib.rs`
@@ -124,8 +123,8 @@ use cloacina_workflow_plugin::*;
 // submission so the reconciler can discover it.
 #[reactor(
     name = "PriceReactor",
-    accumulators = ["raw_prices", "normalized_prices"],
-    criteria = when_any
+    accumulators = [raw_prices, normalized_prices],
+    criteria = when_any(raw_prices, normalized_prices),
 )]
 pub struct PriceReactor;
 
@@ -203,12 +202,11 @@ use cloacina_workflow_plugin::*;
 // across packages the reconciler enforces it at load time and
 // rejects the load with a clear error if the binding is invalid.
 #[computation_graph(
-    react = when_any,
+    trigger = reactor("PriceReactor"),
     graph = {
         score: { inputs: ["raw_prices", "normalized_prices"], next: "publish" },
         publish: {},
     },
-    trigger = reactor(PriceReactor),
 )]
 pub mod price_consumer {
     use super::*;
@@ -357,7 +355,8 @@ partial unloads — see [Safely Unload a Package]({{< ref "/platform/how-to-guid
 
 - A two-cdylib pattern where a reactor in one package is consumed
   by a graph in another.
-- Working knowledge of split-form vs bundled-form reactors.
+- Working knowledge of how reactors and graphs are declared
+  independently and bound by name.
 - Hands-on familiarity with the cross-package reactor name lookup
   and the bound-subscriber guard.
 - The mental model for designing a Cloacina deployment around

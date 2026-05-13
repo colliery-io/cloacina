@@ -4,14 +4,14 @@ level: task
 title: "T-04: Tutorials, how-to, and breaking-change release notes for CG split"
 short_code: "CLOACI-T-0542"
 created_at: 2026-04-24T15:08:24.727807+00:00
-updated_at: 2026-04-24T15:08:24.727807+00:00
+updated_at: 2026-05-12T19:07:52.815517+00:00
 parent: CLOACI-I-0101
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -30,18 +30,37 @@ Bring the user-facing docs, tutorials, and release notes in line with the post-I
 
 ## Acceptance Criteria
 
-- [ ] All Rust computation-graph tutorials under `docs/content/computation-graphs/tutorials/` use the split declaration (`#[reactor]` + `#[computation_graph(trigger = reactor("name"))]` for standalone CGs).
-- [ ] All Python computation-graph tutorials under `docs/content/python/tutorials/computation-graphs/` use the split decorator form (`@cloaca.computation_graph(trigger=cloaca.reactor("name"))`).
-- [ ] New how-to guide: `docs/content/platform/how-to-guides/computation-graph-in-workflow.md` (or equivalent location), covering the `invokes = computation_graph("name")` / `@task(invokes=...)` pattern, the context ↔ graph-type adapter, and when to prefer embedded-CG vs. standalone-CG.
-- [ ] Any reference doc (`docs/content/api-reference/**`, tutorials' `_index.md`, glossary) that mentioned the bundled form is rewritten.
-- [ ] Release notes entry (wherever the project tracks them — `CHANGELOG.md` or an entry under `.github/release_notes/` or the docs' release section) that:
-  - Announces the breaking change.
-  - Shows a before-and-after migration snippet for Rust.
-  - Shows the same for Python.
-  - Links to CLOACI-I-0101 and CLOACI-S-0011.
-- [ ] `docs/content/_index.md` and any entry-point material reflects the new mental model (reactor as standalone trigger; CG optionally declares its trigger upstream).
-- [ ] Full-text grep across `docs/content/` for the old bundled form turns up nothing (or only release-notes historical references).
-- [ ] `angreal docs build` green.
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] All Rust computation-graph tutorials under `docs/content/computation-graphs/tutorials/` use the split declaration (`#[reactor]` + `#[computation_graph(trigger = reactor("name"))]`).
+- [x] All Python computation-graph tutorials under `docs/content/python/tutorials/computation-graphs/` use the split decorator form (`@cloaca.reactor(...)` + `ComputationGraphBuilder(..., reactor=ClassObject)`).
+- [x] New how-to guide authored at `docs/content/computation-graphs/how-to-guides/computation-graph-in-workflow.md` covering `invokes = computation_graph("name")` / `@task(invokes=...)`, context adapter, post-invocation hook, and embedded-vs-standalone guidance.
+- [x] Reference docs rewritten (CG reference, reactor-lifecycle, trigger-less-graphs, ffi-vtable, troubleshooting). Two auto-generated API-ref pages carry HTML TODOs for the generator pass.
+- [x] CHANGELOG `[Unreleased]` → `Changed (breaking)` entry added with Rust + Python before/after snippets, linking to CLOACI-S-0011 and the new how-to.
+- [x] How-to index updated with the new guide.
+- [x] Grep of `docs/content/` for the bundled `react =` form: no surviving references outside historical CHANGELOG context.
+- [ ] `angreal docs build` — run externally (per user convention, builds not run in-tool).
+
+## Status Updates
+
+**2026-05-12** — Completed.
+
+Docs sweep done across 18 files via subagent + direct authoring:
+
+- **Rust tutorial library 07–10** and **service 09–10**: bundled `react = when_any(...)` rewritten to split `#[reactor(...)]` + `#[computation_graph(trigger = reactor("name"))]`, matching example sources verbatim. Cross-package-binding also had stale `accumulators = ["..."]` quoting and paren-less `criteria = when_any` — corrected to bare-ident + parenthesized form per the macro parser.
+- **CG reference**: full macro section rewrite, new `#[reactor]` companion section, criteria table updated.
+- **Explanation docs**: `reactor-lifecycle.md` declaration-model rewrite + dropped bundled-form back-compat section; `trigger-less-graphs.md` stray bundled mention cleaned; `ffi-vtable.md` "synthesized reactor" line rewritten — synthesized reactors no longer exist.
+- **Python tutorials 09/10/11**: confirmed verbatim against example sources; no edits needed (already current).
+- **CHANGELOG**: `[Unreleased]` entry with Rust + Python before/after migration snippets, S-0011 link, how-to link.
+- **New how-to**: `computation-graph-in-workflow.md` with worked end-to-end example + Python parity + linked from how-to index.
+
+### Outstanding (not blocking close)
+
+- `docs/content/workflows/how-to-guides/sequential-strategy.md` — HTML TODO marks unresolved macro-level sequential strategy syntax. Reactor macro has no `input_strategy =` clause; sequential strategy is set on `Reactor::new` at runtime, which the doc shows lower down. Re-review when a macro clause exists.
+- Two auto-generated API-ref pages have TODOs for the next generator pass.
+- `angreal docs build` needs to run externally to verify hugo green.
 
 ## Implementation Notes
 

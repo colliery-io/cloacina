@@ -64,11 +64,18 @@ pub struct TradingSignal {
 
 ## Step 2: Declare the multi-source graph
 
-The topology lists both `orderbook` and `pricing` in the `react` criterion and in the entry node's input list.
+The reactor lists both `orderbook` and `pricing` as accumulators and as the `criteria` arguments, and the graph entry node lists them as inputs.
 
 ```rust
+#[cloacina_macros::reactor(
+    name = "market_pipeline_reactor",
+    accumulators = [orderbook, pricing],
+    criteria = when_any(orderbook, pricing),
+)]
+pub struct MarketPipelineReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook, pricing),
+    trigger = reactor("market_pipeline_reactor"),
     graph = {
         combine(orderbook, pricing) -> evaluate,
         evaluate -> signal,

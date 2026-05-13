@@ -6,7 +6,12 @@ weight: 35
 
 # Computation Graph Reference
 
-Computation graphs are Cloacina's reactive data processing primitive. A graph defines a DAG of async node functions that execute when upstream data arrives. The `#[computation_graph]` macro compiles a module of node functions into a single async function that the reactor calls on each trigger.
+Computation graphs are Cloacina's reactive data processing primitive. A graph defines a DAG of async node functions that execute when upstream data arrives. Two macros work together:
+
+- **`#[reactor]`** declares a firing criterion as a top-level primitive — a named bundle of accumulators plus a `criteria = when_any(...) | when_all(...)` expression.
+- **`#[computation_graph]`** compiles a module of node functions into a single async function and subscribes it to a reactor via `trigger = reactor("name")`.
+
+As of CLOACI-I-0101 the previously bundled `react = ...` clause on `#[computation_graph]` has been removed: reactors are declared separately and the graph references them by string name.
 
 ```rust
 use cloacina::computation_graph::types::{serialize, GraphResult, InputCache, SourceName};
@@ -21,15 +26,56 @@ use cloacina::computation_graph::reactor::{
 
 ---
 
-## #[computation_graph] Macro
+## #[reactor] Macro
 
-The `#[computation_graph]` attribute macro is applied to a module containing async node functions. It declares graph topology and reaction criteria, validates the graph at compile time, and generates a compiled async function.
+The `#[reactor]` attribute macro is applied to a unit struct. It declares a named firing primitive: which accumulator sources feed it and what criteria fire its subscribers. One or more `#[computation_graph]` declarations can reference the same reactor by its string `name`.
 
 ### Full Syntax
 
 ```rust
+#[cloacina_macros::reactor(
+    name = "my_reactor",
+    accumulators = [alpha, beta],
+    criteria = when_any(alpha, beta),
+)]
+pub struct MyReactor;
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `name = "..."` | yes | String identifier referenced by graphs via `trigger = reactor("...")` and used for runtime registration. |
+| `accumulators = [a, b, ...]` | yes | The accumulator source names this reactor consumes from. |
+| `criteria = when_any(...) \| when_all(...)` | yes | Firing rule (see table below). The accumulator identifiers inside must be a subset of `accumulators`. |
+
+| Mode | Syntax | Behavior |
+|------|--------|----------|
+| `when_any` | `criteria = when_any(alpha, beta)` | Fire when **any** listed source has new data |
+| `when_all` | `criteria = when_all(alpha, beta)` | Fire only when **all** listed sources have new data |
+
+### Emitted Code
+
+The macro preserves the struct and emits an `impl cloacina_computation_graph::Reactor` block exposing `name`, the accumulator list, and the reaction mode as `const`s, plus an `inventory::submit!` of `ReactorEntry` so the runtime registry picks it up at startup. See `#[computation_graph]` below for the matching `trigger = reactor("name")` clause.
+
+---
+
+## #[computation_graph] Macro
+
+The `#[computation_graph]` attribute macro is applied to a module containing async node functions. It declares graph topology, subscribes to a previously declared reactor via `trigger = reactor("name")`, validates the graph at compile time, and generates a compiled async function.
+
+### Full Syntax
+
+```rust
+#[cloacina_macros::reactor(
+    name = "my_reactor",
+    accumulators = [source1, source2],
+    criteria = when_any(source1, source2),
+)]
+pub struct MyReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(source1, source2),
+    trigger = reactor("my_reactor"),
     graph = {
         entry_node(source1, source2) -> next_node,
         next_node -> terminal_node,
@@ -40,16 +86,15 @@ pub mod my_graph {
 }
 ```
 
-### `react` Attribute
+### `trigger` Attribute
 
-The `react` attribute declares which accumulator sources trigger graph execution and the criteria for firing.
+The `trigger` attribute names the reactor that fires this graph. The string passed to `reactor("...")` must match the `name = "..."` on a `#[reactor]` declaration somewhere in the crate (or in a dependency that gets seeded into the runtime registry).
 
-| Mode | Syntax | Behavior |
-|------|--------|----------|
-| `when_any` | `react = when_any(alpha, beta)` | Fire when **any** listed source has new data |
-| `when_all` | `react = when_all(alpha, beta)` | Fire only when **all** listed sources have new data |
+| Syntax | Meaning |
+|--------|---------|
+| `trigger = reactor("my_reactor")` | Subscribe this graph to the reactor named `my_reactor` |
 
-The names listed in `react` must match the source names used in entry node parenthesized inputs.
+The accumulator names used in entry node parenthesized inputs must be a subset of the accumulators declared on the referenced reactor.
 
 ### `graph` Attribute
 
@@ -176,8 +221,15 @@ pub struct SpreadSignal { pub spread: f64, pub mid_price: f64 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormattedOutput { pub message: String }
 
+#[cloacina_macros::reactor(
+    name = "pricing_pipeline_reactor",
+    accumulators = [orderbook],
+    criteria = when_any(orderbook),
+)]
+pub struct PricingPipelineReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook),
+    trigger = reactor("pricing_pipeline_reactor"),
     graph = {
         ingest(orderbook) -> compute_spread,
         compute_spread -> format_output,
@@ -918,8 +970,8 @@ The macro performs compile-time validation:
 | No cycles in the graph | `"cycle detected in graph: nodes involved in cycle: X, Y"` |
 | At least one entry node exists | `"computation graph has no entry nodes"` |
 | Routing edges have at least one variant | `"routing edge must have at least one variant"` |
-| No duplicate `react` or `graph` attributes | `"duplicate 'react' field"` |
-| Valid reaction mode | `"unknown reaction mode 'X', expected 'when_any' or 'when_all'"` |
+| No duplicate `trigger` or `graph` attributes | `"duplicate 'trigger' field"` |
+| Valid reaction mode (on the reactor) | `"unknown reaction mode 'X', expected 'when_any' or 'when_all'"` |
 
 ---
 
@@ -940,8 +992,15 @@ pub struct TradeSignal { pub direction: String, pub price: f64 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoActionReason { pub reason: String }
 
+#[cloacina_macros::reactor(
+    name = "market_maker_reactor",
+    accumulators = [orderbook, pricing],
+    criteria = when_any(orderbook, pricing),
+)]
+pub struct MarketMakerReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook, pricing),
+    trigger = reactor("market_maker_reactor"),
     graph = {
         decision(orderbook, pricing) => {
             Trade -> signal_handler,

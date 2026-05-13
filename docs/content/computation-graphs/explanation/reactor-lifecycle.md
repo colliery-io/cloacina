@@ -13,27 +13,26 @@ compiled graph function when criteria are met. This document covers
 the *lifecycle* of a reactor — how it gets created, how it gets
 torn down, and the invariants that keep both halves safe.
 
-## Bundled-form vs split-form
+## Declaration model
 
-A reactor can be declared two ways:
+As of CLOACI-I-0101 a reactor is its own top-level primitive. You
+declare one with `#[reactor(name = "...", accumulators = [...],
+criteria = ...)]` on a unit struct; this names the reactor, lists
+its accumulators, and fixes its reaction mode. One or more
+`#[computation_graph(trigger = reactor("name"), graph = ...)]`
+declarations then bind their graphs to that reactor by string name.
+The reactor is loaded once, and N subscribers can bind to it across
+the same or different packages.
 
-**Bundled form** — the original model, and still the simplest path.
-The `#[computation_graph(react = ..., graph = ...)]` macro on a single
-module produces both a synthesized reactor and the graph that
-subscribes to it. There's a 1:1 reactor-to-graph mapping; loading
-the package creates one reactor with one subscriber.
+The previously bundled form (`#[computation_graph(react = ...,
+graph = ...)]` synthesizing a reactor inside the same macro) has
+been removed; there is no longer a "synthesized" reactor. Every
+reactor is explicit.
 
-**Split form** — the decoupled model. A `#[reactor(...)]` declaration
-defines a reactor as a unit struct with named accumulators and a
-reaction mode. One or more `#[computation_graph(trigger =
-reactor(MyReactor), ...)]` declarations bind separate graphs to that
-reactor. The reactor is loaded once, and N subscribers can bind to
-it across the same or different packages.
-
-Cross-package binding (split form across packages) is a real use
-case: a "publishing" package owns a reactor exposed to other tenants;
-"subscriber" packages bind their own CGs to that reactor without
-having to redeclare the upstream side.
+Cross-package binding is a real use case: a "publishing" package
+owns a reactor exposed to other tenants; "subscriber" packages bind
+their own CGs to that reactor without having to redeclare the
+upstream side.
 
 ## The two registries
 
@@ -70,9 +69,8 @@ The reconciler runs step 3 of the [pipeline]({{< ref "/platform/explanation/reco
      boundary-receiver channel.
    - Spawn accumulator tasks and connect their output sockets to
      the reactor's boundary-receiver.
-   - Register the reactor under its name + any back-compat aliases
-     (e.g., the bundled-form CG name) in the endpoint registry, so
-     `cloacinactl reactor force-fire <name>` resolves.
+   - Register the reactor under its declared name in the endpoint
+     registry, so `cloacinactl reactor force-fire <name>` resolves.
 4. Record the reactor name in `PackageState::reactor_names` so
    unload knows what to tear down.
 
@@ -107,17 +105,6 @@ teardown (step 2) are *both* required. Earlier versions of Cloacina
 only had step 1; the second arm was added after operators observed
 reactor-name leaks across hot-reload cycles in long-running daemons
 (every reload accumulated a stale constructor entry in `Runtime`).
-
-## The bundled-form back-compat path
-
-For bundled-form CG packages, the reactor is implicitly tied to the
-graph: there's one subscriber and it's the package's own graph. To
-keep the unload story simple for these packages, the bundled `unload_graph()` call also tears down the reactor when the graph was the
-last subscriber. Unload then runs through step 3 again for the
-explicitly-declared reactors and finds nothing to do — the
-scheduler-side teardown returns "reactor 'foo' not loaded", which
-the reconciler treats as a clean no-op (and still fires the
-runtime-side constructor cleanup).
 
 ## Cross-package unload ordering
 

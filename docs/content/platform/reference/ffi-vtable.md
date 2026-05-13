@@ -69,16 +69,17 @@ context back across the boundary.
 | Wire output | `Result<GraphPackageMetadata, PluginError>` |
 | Optional since | — |
 
-Returns the package's *bundled-form* computation graph metadata
-(*bundled-form* = the original 1:1 reactor-per-graph model where the
-reactor is synthesized inside the same `#[computation_graph]` macro
-expansion; contrast *split-form*, where the reactor is declared
-standalone via `#[reactor(...)]` and graphs bind to it via
-`trigger = reactor(...)` — see [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}})).
-The metadata carries name, reaction mode (`when_any` / `when_all`),
-input strategy (`latest` / `sequential`), and accumulator
-declarations. Packages without a CG return `PluginError`; the
-reconciler treats that as "no bundled CG" and skips step 5.
+Returns the package's primary reactor-bound computation graph metadata
+— a holdover slot from the pre-CLOACI-I-0101 1:1 reactor-per-graph model.
+As of I-0101, reactors are declared standalone via `#[reactor(...)]` and
+graphs bind to them via `trigger = reactor("name")` (see [Reactor
+Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}})),
+so the "synthesized-reactor" form this method historically described no
+longer exists. The metadata still carries name, reaction mode (`when_any`
+/ `when_all`), input strategy (`latest` / `sequential`), and accumulator
+declarations for whichever reactor-bound graph the package nominates here.
+Packages without a CG return `PluginError`; the reconciler treats that as
+"no primary CG" and skips step 5.
 
 ## Method Index 3 — `execute_graph`
 

@@ -4,7 +4,7 @@ level: task
 title: "Cron schedule_executions never marked complete → cron_recovery infinite loop"
 short_code: "CLOACI-T-0572"
 created_at: 2026-05-09T00:00:00+00:00
-updated_at: 2026-05-09T12:20:52.604313+00:00
+updated_at: 2026-05-12T18:52:03.940294+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

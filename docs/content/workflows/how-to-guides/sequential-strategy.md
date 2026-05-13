@@ -108,8 +108,21 @@ pub struct AuditRecord {
     pub processed_at_ms: u64,
 }
 
+<!-- TODO(I-0101): re-author for split reactor + sequential strategy declaration once API confirmed.
+     The reactor macro (crates/cloacina-macros/src/reactor_attr.rs) currently
+     accepts only name/accumulators/criteria; there is no input_strategy =
+     sequential clause. The sequential strategy is still set on the runtime
+     `Reactor::new(..., InputStrategy::Sequential, ...)` builder (shown later
+     in this doc); the macro-level expression of "sequential" is unresolved. -->
+#[cloacina_macros::reactor(
+    name = "audit_pipeline_reactor",
+    accumulators = [actions],
+    criteria = when_any(actions),
+)]
+pub struct AuditPipelineReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(actions),
+    trigger = reactor("audit_pipeline_reactor"),
     graph = {
         record(actions),
     }

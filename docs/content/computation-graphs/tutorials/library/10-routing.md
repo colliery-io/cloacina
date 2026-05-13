@@ -84,8 +84,15 @@ Each variant of the routing enum carries a different payload type. That payload 
 The `=>` syntax replaces the `->` arrow on a routing node. Inside `=>`, you map each enum variant name to its downstream handler.
 
 ```rust
+#[cloacina_macros::reactor(
+    name = "market_maker_reactor",
+    accumulators = [orderbook, pricing],
+    criteria = when_any(orderbook, pricing),
+)]
+pub struct MarketMakerReactor;
+
 #[cloacina_macros::computation_graph(
-    react = when_any(orderbook, pricing),
+    trigger = reactor("market_maker_reactor"),
     graph = {
         decision(orderbook, pricing) => {
             Trade -> signal_handler,

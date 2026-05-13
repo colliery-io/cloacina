@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **`cloacina-compiler` Phase 1 hardening** (CLOACI-I-0104) — bounded-cost mitigations for malicious `build.rs` source. `cargo build` now runs with `--frozen --offline` by default against an operator-curated `CARGO_HOME` (`--vendor-dir` / `CLOACINA_COMPILER_VENDOR_DIR`); packages whose deps aren't vendored fail fast with a structured rejection naming the missing crates. Builds are bounded by a wall-clock timeout (`--build-timeout-s`, default 600s) — overruns are SIGKILL'd and reclaimed by the existing stale-build sweeper. On Linux, four kernel-enforced rlimits are applied to the cargo subprocess via `setrlimit` in a `pre_exec` hook: CPU-seconds (tracks `--build-timeout-s`), virtual address space (`--build-rlimit-mem`, default `4G`, accepts `K`/`M`/`G` suffixes), open file descriptors (`--build-rlimit-files`, default 1024), and user processes (`--build-rlimit-procs`, default 256). Every build emits a `compiler.build.started` and `compiler.build.finished` structured audit event via `tracing`, including build-claim id, `Cargo.toml` / `Cargo.lock` SHA-256, outcome, cargo exit code/signal, wall-clock duration, and a process-wide `compiler_instance_id`. See [Run cloacina-compiler in Production](https://cloacina.colliery.io/platform/how-to-guides/running-the-compiler/) for the deployment runbook. Phase 2 (CLOACI-I-0105) adds a bubblewrap + landlock sandbox.
+
+  **Operator action required** for existing deployments:
+
+  - Run `cargo vendor` against your known-good source tree and point `--vendor-dir` at the result, or pre-populate `~/.cargo` on the compiler host with the deps your authors submit. Packages that previously succeeded by fetching deps online will now fail until vendored.
+  - Verify the compiler runs under an unprivileged UID with a database role limited to `workflow_packages` (`SELECT`/`UPDATE`) — a shared admin DB role would be a privilege-escalation path for any malicious `build.rs`.
+  - Tune `--build-rlimit-mem` if your release builds peak above 4 GiB (large generic-heavy crates can).
+
+### Changed (breaking)
+
+- **Computation graphs and reactors are now declared separately** (CLOACI-I-0101) — the bundled `#[computation_graph(react = when_any(...), graph = { ... })]` form is removed. A reactor is now its own top-level primitive declared with `#[reactor(...)]`, and computation graphs reference it by string name via `trigger = reactor("name")`. Trigger-less graphs (no `trigger =` clause) are first-class and can be invoked from a workflow task with `#[task(invokes = computation_graph("name"))]`. Multiple computation graphs may now subscribe to the same reactor. Python mirrors the split: `@cloaca.reactor(...)` declares the reactor class; `ComputationGraphBuilder(..., reactor=ReactorClass, ...)` binds the graph; `@cloaca.task(invokes=graph_builder)` wraps a trigger-less graph as a workflow task. No deprecation window; rewrite required.
+
+  **Before (Rust):**
+
+  ```rust
+  #[cloacina_macros::computation_graph(
+      react = when_any(orderbook),
+      graph = { ingest(orderbook) -> output },
+  )]
+  pub mod pricing_pipeline { /* ... */ }
+  ```
+
+  **After (Rust):**
+
+  ```rust
+  #[cloacina_macros::reactor(
+      name = "pricing_pipeline_reactor",
+      accumulators = [orderbook],
+      criteria = when_any(orderbook),
+  )]
+  pub struct PricingPipelineReactor;
+
+  #[cloacina_macros::computation_graph(
+      trigger = reactor("pricing_pipeline_reactor"),
+      graph = { ingest(orderbook) -> output },
+  )]
+  pub mod pricing_pipeline { /* ... */ }
+  ```
+
+  **Before (Python):**
+
+  ```python
+  with cloaca.ComputationGraphBuilder(
+      "pricing_pipeline",
+      react={"mode": "when_any", "accumulators": ["orderbook"]},
+      graph={...},
+  ) as builder:
+      ...
+  ```
+
+  **After (Python):**
+
+  ```python
+  @cloaca.reactor(
+      name="pricing_pipeline_reactor",
+      accumulators=["orderbook"],
+      mode="when_any",
+  )
+  class PricingPipelineReactor:
+      pass
+
+  with cloaca.ComputationGraphBuilder(
+      "pricing_pipeline",
+      reactor=PricingPipelineReactor,
+      graph={...},
+  ) as builder:
+      ...
+  ```
+
+  See [CLOACI-S-0011](https://github.com/colliery-io/cloacina/blob/main/.metis/specs/CLOACI-S-0011.md) for the primitive nomenclature and the [Computation Graph in a Workflow Task](https://cloacina.colliery.io/computation-graphs/how-to-guides/computation-graph-in-workflow/) how-to for the new embedded-CG pattern.
+
 ## [0.6.1] - 2026-05-09
 
 ### Fixed

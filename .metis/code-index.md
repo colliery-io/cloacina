@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-09T12:30:50Z | 483 files | JavaScript, Python, Rust
+> Generated: 2026-05-13T15:30:29Z | 483 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -3719,7 +3719,7 @@
 
 #### crates/cloacina/src/security/audit.rs
 
-- pub `events` module L30-63 — `-` — Event types for package operations.
+- pub `events` module L30-72 — `-` — Event types for package operations.
 - pub `PACKAGE_LOAD_SUCCESS` variable L32 — `: &str` — Package load success event type.
 - pub `PACKAGE_LOAD_FAILURE` variable L34 — `: &str` — Package load failure event type.
 - pub `PACKAGE_SIGNED` variable L36 — `: &str` — Package signed event type.
@@ -3734,48 +3734,57 @@
 - pub `KEY_TRUST_ACL_REVOKED` variable L57 — `: &str` — Trust ACL revoked event type.
 - pub `VERIFICATION_SUCCESS` variable L60 — `: &str` — Verification success event type.
 - pub `VERIFICATION_FAILURE` variable L62 — `: &str` — Verification failure event type.
-- pub `log_signing_key_created` function L66-80 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a signing key creation event.
-- pub `log_signing_key_create_failed` function L83-91 — `(org_id: UniversalUuid, key_name: &str, error: &str)` — Log a signing key creation failure.
-- pub `log_signing_key_revoked` function L94-108 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a signing key revocation event.
-- pub `log_key_exported` function L111-118 — `(key_id: UniversalUuid, key_fingerprint: &str)` — Log a public key export event.
-- pub `log_trusted_key_added` function L121-135 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a trusted key addition event.
-- pub `log_trusted_key_revoked` function L138-144 — `(key_id: UniversalUuid)` — Log a trusted key revocation event.
-- pub `log_trust_acl_granted` function L147-154 — `(parent_org: UniversalUuid, child_org: UniversalUuid)` — Log a trust ACL grant event.
-- pub `log_trust_acl_revoked` function L157-164 — `(parent_org: UniversalUuid, child_org: UniversalUuid)` — Log a trust ACL revocation event.
-- pub `log_package_signed` function L167-175 — `(package_path: &str, package_hash: &str, key_fingerprint: &str)` — Log a package signing event.
-- pub `log_package_sign_failed` function L178-185 — `(package_path: &str, error: &str)` — Log a package signing failure.
-- pub `log_package_load_success` function L188-204 — `( org_id: UniversalUuid, package_path: &str, package_hash: &str, signer_fingerpr...` — Log a package load success event.
-- pub `log_package_load_failure` function L207-221 — `( org_id: UniversalUuid, package_path: &str, error: &str, failure_reason: &str, ...` — Log a package load failure event.
-- pub `log_verification_success` function L224-238 — `( org_id: UniversalUuid, package_hash: &str, signer_fingerprint: &str, signer_na...` — Log a verification success event.
-- pub `log_verification_failure` function L241-255 — `( org_id: UniversalUuid, package_hash: &str, failure_reason: &str, signer_finger...` — Log a verification failure event.
--  `tests` module L258-537 — `-` — Events are logged using the `tracing` crate at appropriate levels.
--  `StringWriter` struct L264 — `-` — Events are logged using the `tracing` crate at appropriate levels.
--  `StringWriter` type L266-275 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
--  `write` function L267-270 — `(&mut self, buf: &[u8]) -> std::io::Result<usize>` — Events are logged using the `tracing` crate at appropriate levels.
--  `flush` function L272-274 — `(&mut self) -> std::io::Result<()>` — Events are logged using the `tracing` crate at appropriate levels.
--  `StringWriter` type L277-283 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
--  `Writer` type L278 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
--  `make_writer` function L280-282 — `(&'a self) -> Self::Writer` — Events are logged using the `tracing` crate at appropriate levels.
--  `with_captured_logs` function L286-302 — `(f: F) -> String` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_signing_key_created` function L305-318 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_verification_failure` function L321-334 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_package_load_success` function L337-351 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trust_acl_granted` function L354-362 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_event_type_constants` function L365-370 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_signing_key_create_failed` function L373-380 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_signing_key_revoked` function L383-395 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_signing_key_revoked_no_name` function L398-409 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_key_exported` function L412-418 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trusted_key_added` function L421-433 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trusted_key_added_no_name` function L436-447 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trusted_key_revoked` function L450-455 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_trust_acl_revoked` function L458-465 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_package_signed` function L468-476 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_package_sign_failed` function L479-486 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_package_load_failure` function L489-502 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_verification_success` function L505-518 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_verification_success_no_name` function L521-527 — `()` — Events are logged using the `tracing` crate at appropriate levels.
--  `test_log_verification_failure_no_fingerprint` function L530-536 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+- pub `COMPILER_BUILD_STARTED` variable L67 — `: &str` — Compiler build started event type.
+- pub `COMPILER_BUILD_FINISHED` variable L71 — `: &str` — Compiler build finished event type.
+- pub `log_signing_key_created` function L75-89 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a signing key creation event.
+- pub `log_signing_key_create_failed` function L92-100 — `(org_id: UniversalUuid, key_name: &str, error: &str)` — Log a signing key creation failure.
+- pub `log_signing_key_revoked` function L103-117 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a signing key revocation event.
+- pub `log_key_exported` function L120-127 — `(key_id: UniversalUuid, key_fingerprint: &str)` — Log a public key export event.
+- pub `log_trusted_key_added` function L130-144 — `( org_id: UniversalUuid, key_id: UniversalUuid, key_fingerprint: &str, key_name:...` — Log a trusted key addition event.
+- pub `log_trusted_key_revoked` function L147-153 — `(key_id: UniversalUuid)` — Log a trusted key revocation event.
+- pub `log_trust_acl_granted` function L156-163 — `(parent_org: UniversalUuid, child_org: UniversalUuid)` — Log a trust ACL grant event.
+- pub `log_trust_acl_revoked` function L166-173 — `(parent_org: UniversalUuid, child_org: UniversalUuid)` — Log a trust ACL revocation event.
+- pub `log_package_signed` function L176-184 — `(package_path: &str, package_hash: &str, key_fingerprint: &str)` — Log a package signing event.
+- pub `log_package_sign_failed` function L187-194 — `(package_path: &str, error: &str)` — Log a package signing failure.
+- pub `log_package_load_success` function L197-213 — `( org_id: UniversalUuid, package_path: &str, package_hash: &str, signer_fingerpr...` — Log a package load success event.
+- pub `log_package_load_failure` function L216-230 — `( org_id: UniversalUuid, package_path: &str, error: &str, failure_reason: &str, ...` — Log a package load failure event.
+- pub `log_verification_success` function L233-247 — `( org_id: UniversalUuid, package_hash: &str, signer_fingerprint: &str, signer_na...` — Log a verification success event.
+- pub `log_verification_failure` function L250-264 — `( org_id: UniversalUuid, package_hash: &str, failure_reason: &str, signer_finger...` — Log a verification failure event.
+- pub `log_compiler_build_started` function L270-288 — `( build_claim_id: UniversalUuid, package_name: &str, package_version: &str, carg...` — Log a compiler build start event.
+- pub `log_compiler_build_finished` function L300-330 — `( build_claim_id: UniversalUuid, package_name: &str, package_version: &str, carg...` — Log a compiler build finished event.
+-  `tests` module L333-735 — `-` — Events are logged using the `tracing` crate at appropriate levels.
+-  `StringWriter` struct L339 — `-` — Events are logged using the `tracing` crate at appropriate levels.
+-  `StringWriter` type L341-350 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
+-  `write` function L342-345 — `(&mut self, buf: &[u8]) -> std::io::Result<usize>` — Events are logged using the `tracing` crate at appropriate levels.
+-  `flush` function L347-349 — `(&mut self) -> std::io::Result<()>` — Events are logged using the `tracing` crate at appropriate levels.
+-  `StringWriter` type L352-358 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
+-  `Writer` type L353 — `= StringWriter` — Events are logged using the `tracing` crate at appropriate levels.
+-  `make_writer` function L355-357 — `(&'a self) -> Self::Writer` — Events are logged using the `tracing` crate at appropriate levels.
+-  `with_captured_logs` function L361-377 — `(f: F) -> String` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_signing_key_created` function L380-393 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_verification_failure` function L396-409 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_package_load_success` function L412-426 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trust_acl_granted` function L429-437 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_event_type_constants` function L440-445 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_signing_key_create_failed` function L448-455 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_signing_key_revoked` function L458-470 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_signing_key_revoked_no_name` function L473-484 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_key_exported` function L487-493 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trusted_key_added` function L496-508 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trusted_key_added_no_name` function L511-522 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trusted_key_revoked` function L525-530 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_trust_acl_revoked` function L533-540 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_package_signed` function L543-551 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_package_sign_failed` function L554-561 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_package_load_failure` function L564-577 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_verification_success` function L580-593 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_verification_success_no_name` function L596-602 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_verification_failure_no_fingerprint` function L605-611 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_started_full_payload` function L618-636 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_started_no_lockfile_renders_none` function L639-654 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_finished_success` function L657-684 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_finished_timeout_killed` function L687-711 — `()` — Events are logged using the `tracing` crate at appropriate levels.
+-  `test_log_compiler_build_finished_clean_failure` function L714-734 — `()` — Events are logged using the `tracing` crate at appropriate levels.
 
 #### crates/cloacina/src/security/db_key_manager.rs
 
@@ -5159,22 +5168,44 @@
 
 #### crates/cloacina-compiler/src/build.rs
 
-- pub `BuildOutcome` enum L31-34 — `Success | Failed` — Result of a single build attempt.
-- pub `execute_build` function L41-50 — `( registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>, package_id: uuid::Uui...` — Execute a build for the given package id.
--  `run_build` function L52-112 — `( registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>, package_id: uuid::Uui...` — main loop.
--  `load_manifest` function L114-121 — `(source_dir: &Path) -> Result<toml::Value, String>` — main loop.
--  `manifest_language` function L123-130 — `(manifest: &toml::Value) -> String` — main loop.
--  `cargo_build` function L132-184 — `(source_dir: &Path, config: &CompilerConfig) -> Result<Vec<u8>, String>` — main loop.
--  `MAX_ERR` variable L133 — `: usize` — main loop.
--  `profile_for_flags` function L186-192 — `(flags: &[String]) -> &'static str` — main loop.
--  `find_cdylib` function L194-215 — `(target_dir: &Path, pkg_name: &str) -> Result<PathBuf, String>` — main loop.
--  `read_cargo_package_name` function L217-229 — `(source_dir: &Path) -> Result<String, String>` — main loop.
+- pub `BuildOutcome` enum L36-47 — `Success | Failed | TimedOut` — Result of a single build attempt.
+- pub `execute_build` function L96-106 — `( registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>, package_id: uuid::Uui...` — Execute a build for the given package id.
+-  `BuildError` enum L54-67 — `Failed | TimedOut` — Internal build-step error.
+-  `BuildError` type L69-79 — `= BuildError` — main loop.
+-  `internal` function L72-78 — `(reason: impl Into<String>) -> Self` — Pre-spawn failure: no cargo subprocess ever ran, so exit fields
+-  `CargoBuildSuccess` struct L84-89 — `{ artifact: Vec<u8>, exit_status: Option<i32> }` — Successful cargo invocation.
+-  `sha256_hex_if_present` function L110-119 — `(path: &Path) -> std::io::Result<Option<String>>` — SHA-256 of a file's bytes, hex-encoded.
+-  `signal_name` function L127-138 — `(num: i32) -> String` — Translate a signal number to a name for the audit `exit_signal` field.
+-  `run_build` function L140-297 — `( registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>, package_id: uuid::Uui...` — main loop.
+-  `load_manifest` function L299-306 — `(source_dir: &Path) -> Result<toml::Value, String>` — main loop.
+-  `manifest_language` function L308-315 — `(manifest: &toml::Value) -> String` — main loop.
+-  `classify_offline_failure` function L337-385 — `(stderr: &str) -> Option<String>` — Classify a non-zero cargo exit into an operator-actionable error message
+-  `cargo_build` function L387-550 — `( package_id: uuid::Uuid, source_dir: &Path, config: &CompilerConfig, ) -> Resul...` — main loop.
+-  `MAX_ERR` variable L392 — `: usize` — main loop.
+-  `profile_for_flags` function L552-558 — `(flags: &[String]) -> &'static str` — main loop.
+-  `find_cdylib` function L560-581 — `(target_dir: &Path, pkg_name: &str) -> Result<PathBuf, String>` — main loop.
+-  `read_cargo_package_name` function L583-595 — `(source_dir: &Path) -> Result<String, String>` — main loop.
+-  `apply_rlimits` function L611-642 — `(cmd: &mut tokio::process::Command, rlimits: &BuildRlimits)` — Install a `pre_exec` hook on the cargo `Command` that calls `setrlimit`
+-  `apply_rlimits` function L647-650 — `(_cmd: &mut tokio::process::Command, _rlimits: &BuildRlimits)` — Non-Linux fallback: rlimits stored on `CompilerConfig` but not applied.
+-  `tests` module L657-918 — `-` — main loop.
+-  `synthetic_sleeper_package` function L665-690 — `(work: &Path, sleep_secs: u64) -> PathBuf` — Build a minimal cargo package whose `build.rs` sleeps for `sleep_secs`
+-  `test_config` function L692-718 — `(home: &Path, build_timeout: Duration) -> CompilerConfig` — main loop.
+-  `cargo_build_returns_timed_out_when_build_rs_sleeps_past_timeout` function L728-757 — `()` — CLOACI-T-0573: a build whose `build.rs` exceeds `--build-timeout-s`
+-  `classify_offline_failure_extracts_single_missing_crate` function L764-778 — `()` — main loop.
+-  `classify_offline_failure_aggregates_multiple_missing_crates` function L781-790 — `()` — main loop.
+-  `classify_offline_failure_dedupes_repeated_missing_crate_mentions` function L793-802 — `()` — main loop.
+-  `classify_offline_failure_recognizes_missing_lockfile` function L805-817 — `()` — main loop.
+-  `classify_offline_failure_recognizes_git_dep_offline` function L820-833 — `()` — main loop.
+-  `classify_offline_failure_returns_none_for_unrelated_stderr` function L836-841 — `()` — main loop.
+-  `synthetic_memory_hog_package` function L851-878 — `(work: &Path) -> PathBuf` — A `build.rs` that tries to allocate 8 GiB.
+-  `cargo_build_fails_when_build_rs_overshoots_rlimit_as` function L890-917 — `()` — CLOACI-T-0575 (Linux only): a build whose `build.rs` allocates past
 
 #### crates/cloacina-compiler/src/config.rs
 
-- pub `CompilerConfig` struct L25-56 — `{ home: PathBuf, bind: SocketAddr, database_url: String, verbose: bool, poll_int...` — Runtime configuration for the compiler service.
-- pub `tmp_root_or_default` function L60-64 — `(&self) -> PathBuf` — Resolve the effective tmp-root — uses `$home/build-tmp` when unset.
--  `CompilerConfig` type L58-65 — `= CompilerConfig` — Configuration for cloacina-compiler.
+- pub `BuildRlimits` struct L30-41 — `{ cpu_s: u64, mem_bytes: u64, files: u64, procs: u64 }` — Kernel-enforced resource ceilings applied to the cargo subprocess via
+- pub `CompilerConfig` struct L45-104 — `{ home: PathBuf, bind: SocketAddr, database_url: String, verbose: bool, poll_int...` — Runtime configuration for the compiler service.
+- pub `tmp_root_or_default` function L108-112 — `(&self) -> PathBuf` — Resolve the effective tmp-root — uses `$home/build-tmp` when unset.
+-  `CompilerConfig` type L106-113 — `= CompilerConfig` — Configuration for cloacina-compiler.
 
 #### crates/cloacina-compiler/src/health.rs
 
@@ -5185,23 +5216,33 @@
 
 #### crates/cloacina-compiler/src/lib.rs
 
-- pub `run` function L39-88 — `(config: CompilerConfig) -> Result<()>` — Start the compiler service.
+- pub `run` function L39-99 — `(config: CompilerConfig) -> Result<()>` — Start the compiler service.
 -  `build` module L20 — `-` — cloacina-compiler library — entrypoint `run()` exposed so integration tests
 -  `config` module L21 — `-` — and the binary main both share the same code path.
 -  `health` module L22 — `-` — and the binary main both share the same code path.
 -  `loopp` module L23 — `-` — and the binary main both share the same code path.
--  `install_logging` function L90-114 — `(config: &CompilerConfig) -> Result<tracing_appender::non_blocking::WorkerGuard>` — and the binary main both share the same code path.
+-  `install_logging` function L101-125 — `(config: &CompilerConfig) -> Result<tracing_appender::non_blocking::WorkerGuard>` — and the binary main both share the same code path.
 
 #### crates/cloacina-compiler/src/loopp.rs
 
--  `run_build_with_heartbeat` function L37-82 — `( registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>, package_id: uuid:...` — Run a single build with a heartbeat task running alongside it.
--  `run` function L84-126 — `( registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>, config: CompilerC...` — stale.
+-  `run_build_with_heartbeat` function L37-94 — `( registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>, package_id: uuid:...` — Run a single build with a heartbeat task running alongside it.
+-  `run` function L96-138 — `( registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>, config: CompilerC...` — stale.
 
 #### crates/cloacina-compiler/src/main.rs
 
--  `Cli` struct L37-81 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, poll_int...` — cloacina-compiler — DB-queue-driven build service.
--  `default_home` function L83-87 — `() -> PathBuf` — directly — no runtime toolchain required.
--  `main` function L90-118 — `() -> Result<()>` — directly — no runtime toolchain required.
+-  `Cli` struct L37-136 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, poll_int...` — cloacina-compiler — DB-queue-driven build service.
+-  `parse_size` function L140-158 — `(s: &str) -> Result<u64, String>` — Parse a byte-size string with an optional `K`/`M`/`G` suffix (base-1024).
+-  `default_home` function L160-164 — `() -> PathBuf` — directly — no runtime toolchain required.
+-  `main` function L167-220 — `() -> Result<()>` — directly — no runtime toolchain required.
+-  `tests` module L227-280 — `-` — directly — no runtime toolchain required.
+-  `parse_size_plain_bytes` function L231-234 — `()` — directly — no runtime toolchain required.
+-  `parse_size_kilo_suffix` function L237-240 — `()` — directly — no runtime toolchain required.
+-  `parse_size_mega_suffix` function L243-246 — `()` — directly — no runtime toolchain required.
+-  `parse_size_giga_suffix` function L249-252 — `()` — directly — no runtime toolchain required.
+-  `parse_size_rejects_empty` function L255-257 — `()` — directly — no runtime toolchain required.
+-  `parse_size_rejects_unknown_suffix` function L260-263 — `()` — directly — no runtime toolchain required.
+-  `parse_size_rejects_garbage_number` function L266-269 — `()` — directly — no runtime toolchain required.
+-  `parse_size_overflow` function L272-279 — `()` — directly — no runtime toolchain required.
 
 ### crates/cloacina-computation-graph/src
 
