@@ -622,6 +622,10 @@ impl Reactor {
         let graph_name_exec = self.graph_name.clone();
         let batch_flush = self.batch_flush_senders.clone();
         let fire_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        // Consecutive persist failures — drives the I-0108 / T-0590
+        // watchdog that flips the reactor to `Degraded` after 5 in a row.
+        let persist_streak = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let health_exec = self.health.clone();
 
         loop {
             tokio::select! {
@@ -663,6 +667,7 @@ impl Reactor {
                                         tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                         persist_reactor_state(
                                             &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec, None,
+                                            &persist_streak, &health_exec,
                                         ).await;
                                         for sender in &batch_flush {
                                             let _ = sender.try_send(());
@@ -682,6 +687,7 @@ impl Reactor {
                             persist_reactor_state(
                                 &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec,
                                 Some(&seq_queue_exec),
+                                &persist_streak, &health_exec,
                             ).await;
                             // Drain the queue — one execution per queued boundary
                             loop {
@@ -712,6 +718,7 @@ impl Reactor {
                                                 persist_reactor_state(
                                                     &dal_exec, &graph_name_exec, &cache_exec,
                                                     &dirty_exec, Some(&seq_queue_exec),
+                                                    &persist_streak, &health_exec,
                                                 ).await;
                                                 // Signal batch accumulators to flush
                                                 for sender in &batch_flush {
@@ -735,6 +742,7 @@ impl Reactor {
                     persist_reactor_state(
                         &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec,
                         Some(&seq_queue_exec),
+                        &persist_streak, &health_exec,
                     ).await;
                     break;
                 }
@@ -746,13 +754,27 @@ impl Reactor {
     }
 }
 
+/// Threshold for the persist-failure watchdog: a reactor whose persist
+/// fails this many times in a row is downgraded to
+/// `ReactorHealth::Degraded`. See CLOACI-I-0108 / T-0590.
+const PERSIST_FAILURE_DEGRADE_THRESHOLD: u32 = 5;
+
 /// Persist reactor state to DAL (best-effort, logs on failure).
+///
+/// Tracks consecutive failures via `persist_streak` and downgrades the
+/// reactor to `ReactorHealth::Degraded` after
+/// `PERSIST_FAILURE_DEGRADE_THRESHOLD` consecutive failures. On the next
+/// successful persist after the threshold has been crossed, the streak is
+/// reset and the reactor reports `Live` again — operators see persist
+/// trouble on `/v1/health/graphs/{name}` without tailing logs.
 async fn persist_reactor_state(
     dal: &Option<crate::dal::unified::DAL>,
     graph_name: &str,
     cache: &Arc<RwLock<InputCache>>,
     dirty: &Arc<RwLock<DirtyFlags>>,
     seq_queue: Option<&SeqQueue>,
+    persist_streak: &Arc<std::sync::atomic::AtomicU32>,
+    health: &Option<watch::Sender<ReactorHealth>>,
 ) {
     let dal = match dal {
         Some(d) if !graph_name.is_empty() => d,
@@ -767,6 +789,7 @@ async fn persist_reactor_state(
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(graph = %graph_name, "cache serialization failed: {}", e);
+            record_reactor_persist_failure(graph_name, "cache_serialize", persist_streak, health);
             return;
         }
     };
@@ -775,6 +798,7 @@ async fn persist_reactor_state(
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(graph = %graph_name, "dirty flags serialization failed: {}", e);
+            record_reactor_persist_failure(graph_name, "dirty_serialize", persist_streak, health);
             return;
         }
     };
@@ -788,6 +812,12 @@ async fn persist_reactor_state(
                 Ok(b) => Some(b),
                 Err(e) => {
                     tracing::warn!(graph = %graph_name, "sequential queue serialization failed: {}", e);
+                    record_reactor_persist_failure(
+                        graph_name,
+                        "seq_serialize",
+                        persist_streak,
+                        health,
+                    );
                     None
                 }
             }
@@ -802,6 +832,52 @@ async fn persist_reactor_state(
         .await
     {
         tracing::warn!(graph = %graph_name, "reactor state persistence failed: {}", e);
+        record_reactor_persist_failure(graph_name, "save", persist_streak, health);
+        return;
+    }
+
+    // Success path — reset streak and recover health if we'd previously
+    // degraded due to persist trouble.
+    let prev = persist_streak.swap(0, std::sync::atomic::Ordering::Relaxed);
+    if prev >= PERSIST_FAILURE_DEGRADE_THRESHOLD {
+        if let Some(ref tx) = health {
+            tracing::info!(graph = %graph_name, "persist recovered after {} failures", prev);
+            let _ = tx.send(ReactorHealth::Live);
+        }
+    }
+}
+
+/// Increment the bounded persist-failures counter for a reactor, bump the
+/// reactor-level streak, and push the reactor to `Degraded` once the
+/// streak crosses [`PERSIST_FAILURE_DEGRADE_THRESHOLD`]. The
+/// `kind ∈ {cache_serialize, dirty_serialize, seq_serialize, save}` label
+/// surface attributes the failure to a specific branch of
+/// [`persist_reactor_state`].
+fn record_reactor_persist_failure(
+    graph_name: &str,
+    kind: &'static str,
+    persist_streak: &Arc<std::sync::atomic::AtomicU32>,
+    health: &Option<watch::Sender<ReactorHealth>>,
+) {
+    metrics::counter!(
+        "cloacina_reactor_persist_failures_total",
+        "graph" => graph_name.to_string(),
+        "reactor" => graph_name.to_string(),
+        "kind" => kind,
+    )
+    .increment(1);
+    let streak = persist_streak.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if streak == PERSIST_FAILURE_DEGRADE_THRESHOLD {
+        if let Some(ref tx) = health {
+            tracing::warn!(
+                graph = %graph_name,
+                streak,
+                "persist failure streak hit threshold — downgrading reactor to Degraded"
+            );
+            let _ = tx.send(ReactorHealth::Degraded {
+                disconnected: vec!["persist".to_string()],
+            });
+        }
     }
 }
 

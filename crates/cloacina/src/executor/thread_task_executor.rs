@@ -849,7 +849,10 @@ impl TaskExecutor for ThreadTaskExecutor {
             }
         };
 
-        metrics::gauge!("cloacina_active_tasks").increment(1.0);
+        // `cloacina_active_tasks` is SQL-derived in the scheduler tick
+        // (see `SchedulerLoop::process_active_executions`); no
+        // increment/decrement here because a panic between the two would
+        // leak the gauge permanently. CLOACI-T-0589 / mirrors T-0534.
 
         // Execute the task — if it requires a handle, wrap execution with
         // task-local storage so the macro-generated code can access it.
@@ -913,7 +916,8 @@ impl TaskExecutor for ThreadTaskExecutor {
         drop(cancel_tx);
         let duration = start.elapsed();
         metrics::histogram!("cloacina_task_duration_seconds").record(duration.as_secs_f64());
-        metrics::gauge!("cloacina_active_tasks").decrement(1.0);
+        // No `cloacina_active_tasks.decrement()` — SQL-derived in the
+        // scheduler tick. See CLOACI-T-0589.
 
         // Stop heartbeat and release claim after execution (success or failure)
         if let Some(handle) = heartbeat_handle {

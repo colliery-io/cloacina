@@ -563,6 +563,7 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
                         if let Some(ref handle) = ctx.checkpoint {
                             if let Err(e) = handle.save(&output).await {
                                 tracing::warn!(name = %ctx.name, "polling checkpoint save failed: {}", e);
+                                record_accumulator_persist_failure(&ctx, "checkpoint");
                             }
                         }
                     }
@@ -725,6 +726,7 @@ async fn persist_batch_buffer(ctx: &AccumulatorContext, buffer: &[Vec<u8>]) {
     if let Some(ref handle) = ctx.checkpoint {
         if let Err(e) = handle.save(&buffer.to_vec()).await {
             tracing::warn!(name = %ctx.name, "batch buffer checkpoint failed: {}", e);
+            record_accumulator_persist_failure(ctx, "batch_buffer");
         }
     }
 }
@@ -764,6 +766,20 @@ fn set_health(ctx: &AccumulatorContext, health: AccumulatorHealth) {
     if let Some(ref sender) = ctx.health {
         let _ = sender.send(health);
     }
+}
+
+/// Increment `cloacina_accumulator_persist_failures_total{graph,accumulator,kind}`
+/// with a bounded `kind ∈ {checkpoint, boundary, batch_buffer}` label.
+/// Replaces the silent `let _ = persist_*` failure paths flagged as OPS-15
+/// (CLOACI-I-0108 / T-0590).
+fn record_accumulator_persist_failure(ctx: &AccumulatorContext, kind: &'static str) {
+    metrics::counter!(
+        "cloacina_accumulator_persist_failures_total",
+        "graph" => graph_label(ctx),
+        "accumulator" => ctx.name.clone(),
+        "kind" => kind,
+    )
+    .increment(1);
 }
 
 /// Derive the bounded `graph` metric label for an accumulator. When the
@@ -821,6 +837,7 @@ async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) 
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!(name = %ctx.name, "boundary persistence serialization failed: {}", e);
+                record_accumulator_persist_failure(ctx, "boundary");
                 return;
             }
         };
@@ -841,6 +858,7 @@ async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) 
             }
             Err(e) => {
                 tracing::warn!(name = %ctx.name, "boundary persistence failed: {}", e);
+                record_accumulator_persist_failure(ctx, "boundary");
             }
         }
     }

@@ -33,6 +33,8 @@ used as labels. Adding a new metric should preserve this invariant; see
 | `cloacina_reactor_deduped_events_total` | `graph`, `reactor`, `source` | Boundary events the reactor rejected as duplicates of an already-seen emission sequence. **Reserved** — the reactor-side dedup path lands as a follow-up to T-0413; the metric is registered today so dashboards and alert rules can be authored against the eventual name. |
 | `cloacina_ws_messages_total` | `endpoint`, `direction` | WebSocket framed messages by `endpoint` (`accumulator` | `reactor`) and `direction` (`in` | `out`). Ping/pong handled by axum are excluded. |
 | `cloacina_ws_auth_failures_total` | `reason` | Rejected WebSocket upgrade requests. `reason` ∈ `ticket_expired`, `invalid_signature`, `tenant_mismatch`, `not_authorized`. |
+| `cloacina_reactor_persist_failures_total` | `graph`, `reactor`, `kind` | Reactor state-persistence failures. `kind` ∈ `cache_serialize`, `dirty_serialize`, `seq_serialize`, `save`. The reactor downgrades to `Degraded` after 5 consecutive failures and recovers on the next success. |
+| `cloacina_accumulator_persist_failures_total` | `graph`, `accumulator`, `kind` | Accumulator persist failures. `kind` ∈ `checkpoint` (polling save), `boundary` (persist_boundary), `batch_buffer` (batch buffer save). |
 
 ### Histograms
 
@@ -49,7 +51,7 @@ used as labels. Adding a new metric should preserve this invariant; see
 | Name | Labels | Description |
 |------|--------|-------------|
 | `cloacina_active_workflows` | — | Workflow executions in `Pending` or `Running` state. SQL-derived — re-seeded every scheduler tick from `workflow_executions` row count, so the value is correct by construction across crashes, claim loss, and finalize-path errors. Lags real DB state by at most one scheduler `poll_interval`. |
-| `cloacina_active_tasks` | — | Tasks currently inside the executor's run body. Incremented at the top of `ThreadTaskExecutor::execute_task`, decremented at the bottom; a panic between the two leaks one. |
+| `cloacina_active_tasks` | — | Task executions in the `Running` state. SQL-derived — re-seeded every scheduler tick from a `task_executions WHERE status = 'Running'` count, so the value is correct by construction across crashes, claim loss, and panic-between-inc-and-dec paths. Lags real DB state by at most one scheduler `poll_interval`. |
 | `cloacina_component_health` | `graph`, `component`, `state` | One-of indicator for a computation-graph component's current health. For each `(graph, component)` tuple the gauge is `1` on the current state and `0` on every other state. `state` is bounded: `healthy`, `degraded`, `starting`, `stopped`, `crashed`. Re-emitted every supervisor tick. |
 | `cloacina_accumulator_buffer_depth` | `graph`, `accumulator` | Current internal buffer size for buffered accumulators. Meaningful for `batch` and stateful `stream` kinds; `passthrough` and `polling` emit `0` from runtime startup so dashboards see a stable series per (graph, accumulator). |
 | `cloacina_reactor_cache_age_seconds` | `graph`, `reactor`, `source` | Age in seconds of the most-recent emission per source held in the reactor's input cache. Refreshed on every boundary arrival (all known sources re-emitted, so silent sources show increasing staleness). |
@@ -124,6 +126,18 @@ window.
 
 ```promql
 rate(cloacina_scheduler_stale_claims_swept_total[5m])
+```
+
+### Graphs currently in Degraded state
+
+The supervisor downgrades a reactor to `Degraded` after 5 consecutive
+persist failures (see I-0108 / T-0590) and recovers on the next
+success. This query lists every graph currently reporting Degraded
+health — operators triage by checking the matching `*_persist_failures_total`
+counters by `kind`.
+
+```promql
+cloacina_component_health{component="reactor",state="degraded"} == 1
 ```
 
 ## Current gaps

@@ -407,6 +407,21 @@ pub async fn run(
          `ticket_expired`, `invalid_signature`, `tenant_mismatch`, \
          `not_authorized`."
     );
+    metrics::describe_counter!(
+        "cloacina_reactor_persist_failures_total",
+        "Total `persist_reactor_state` failures, broken down by branch. \
+         `kind` ∈ `cache_serialize`, `dirty_serialize`, `seq_serialize`, \
+         `save`. The reactor downgrades to `ReactorHealth::Degraded` after \
+         5 consecutive failures (any kind) and recovers on the next success. \
+         See CLOACI-I-0108 / T-0590."
+    );
+    metrics::describe_counter!(
+        "cloacina_accumulator_persist_failures_total",
+        "Total accumulator persist failures, broken down by call site. \
+         `kind` ∈ `checkpoint` (polling-accumulator save), `boundary` \
+         (persist_boundary), `batch_buffer` (batch accumulator buffer save). \
+         Replaces the silent `let _ = persist_*` patterns flagged as OPS-15."
+    );
 
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let mut runner_builder = DefaultRunnerConfig::builder();
@@ -1534,6 +1549,80 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    #[serial]
+    async fn test_persist_failure_metrics_emit() {
+        let state = test_state().await;
+
+        for kind in [
+            "cache_serialize",
+            "dirty_serialize",
+            "seq_serialize",
+            "save",
+        ] {
+            metrics::counter!(
+                "cloacina_reactor_persist_failures_total",
+                "graph" => "test_graph",
+                "reactor" => "test_reactor",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+        for kind in ["checkpoint", "boundary", "batch_buffer"] {
+            metrics::counter!(
+                "cloacina_accumulator_persist_failures_total",
+                "graph" => "test_graph",
+                "accumulator" => "acc0",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+
+        for kind in [
+            "cache_serialize",
+            "dirty_serialize",
+            "seq_serialize",
+            "save",
+        ] {
+            assert!(
+                text.contains(&format!(
+                    "cloacina_reactor_persist_failures_total{{graph=\"test_graph\",kind=\"{}\"",
+                    kind
+                )) || text.contains(&format!("kind=\"{}\"", kind)),
+                "Missing kind={} in reactor_persist_failures_total. Got:\n{}",
+                kind,
+                text
+            );
+        }
+        for kind in ["checkpoint", "boundary", "batch_buffer"] {
+            assert!(
+                text.contains(&format!("kind=\"{}\"", kind)),
+                "Missing kind={} in accumulator_persist_failures_total. Got:\n{}",
+                kind,
+                text
+            );
+        }
+    }
+
     /// I-0099 cardinality guard — assert that every `cloacina_*` metric
     /// introduced by the initiative stays under a fixed series ceiling.
     ///
@@ -1667,6 +1756,32 @@ mod tests {
             .increment(1);
         }
 
+        // I-0108 persist-failure counters — included so the cardinality
+        // guard covers them as well.
+        for kind in [
+            "cache_serialize",
+            "dirty_serialize",
+            "seq_serialize",
+            "save",
+        ] {
+            metrics::counter!(
+                "cloacina_reactor_persist_failures_total",
+                "graph" => "g0",
+                "reactor" => "r0",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+        for kind in ["checkpoint", "boundary", "batch_buffer"] {
+            metrics::counter!(
+                "cloacina_accumulator_persist_failures_total",
+                "graph" => "g0",
+                "accumulator" => "acc0",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+
         // Scrape and parse
         let app = build_router(state);
         let response = app
@@ -1767,6 +1882,8 @@ mod tests {
             "cloacina_ws_connections_active",
             "cloacina_ws_messages_total",
             "cloacina_ws_auth_failures_total",
+            "cloacina_reactor_persist_failures_total",
+            "cloacina_accumulator_persist_failures_total",
         ] {
             assert!(
                 series_count.contains_key(expected),

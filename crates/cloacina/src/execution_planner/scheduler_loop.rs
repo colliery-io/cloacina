@@ -163,9 +163,21 @@ impl<'a> SchedulerLoop<'a> {
             .get_active_executions()
             .await?;
 
-        // SQL-derived gauge — re-seeded every tick so it cannot drift on crash,
-        // claim loss, or any path that skips finalize_workflow_execution.
+        // SQL-derived gauges — re-seeded every tick so they cannot drift on
+        // crash, claim loss, or any path that skips
+        // finalize_workflow_execution (workflows) /
+        // `ThreadTaskExecutor::execute_task` (tasks). See T-0534 + T-0589.
         metrics::gauge!("cloacina_active_workflows").set(active_executions.len() as f64);
+        match self.dal.task_execution().count_running_tasks().await {
+            Ok(n) => {
+                metrics::gauge!("cloacina_active_tasks").set(n as f64);
+            }
+            Err(e) => {
+                // Best-effort — leave the previous tick's value rather than
+                // zeroing the gauge on a transient DB hiccup.
+                warn!("failed to count running tasks for gauge re-seed: {}", e);
+            }
+        }
 
         if active_executions.is_empty() {
             // Even with no active workflow executions, dispatch any Ready tasks (e.g., retries)

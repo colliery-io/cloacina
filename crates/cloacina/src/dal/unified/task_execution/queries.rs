@@ -159,6 +159,62 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(tasks.into_iter().map(Into::into).collect())
     }
 
+    /// Count task executions currently in the `Running` state across all
+    /// workflows. Used by the scheduler tick to re-seed
+    /// `cloacina_active_tasks` from SQL, replacing the gauge-leak prone
+    /// increment/decrement pattern (CLOACI-T-0589, mirrors T-0534).
+    pub async fn count_running_tasks(&self) -> Result<i64, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.count_running_tasks_postgres().await,
+            self.count_running_tasks_sqlite().await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn count_running_tasks_postgres(&self) -> Result<i64, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let n: i64 = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::status.eq("Running"))
+                    .count()
+                    .get_result(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(n)
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn count_running_tasks_sqlite(&self) -> Result<i64, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let n: i64 = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::status.eq("Running"))
+                    .count()
+                    .get_result(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(n)
+    }
+
     /// Checks if all tasks in a workflow execution have reached a terminal state.
     pub async fn check_workflow_completion(
         &self,
