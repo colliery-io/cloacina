@@ -346,6 +346,80 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   # -----------------------------------------------------------------------
+  # Step 5c: Build + push cloacina-server Docker image (CLOACI-I-0111 / T-0604)
+  #
+  # Multi-arch build via buildx, pushed to ghcr.io/<owner>/cloacina-server.
+  # Tags applied: <semver>, <major>.<minor>, latest.
+  # -----------------------------------------------------------------------
+
+  publish-docker:
+    name: Publish cloacina-server image
+    needs: [verify-version]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute tags
+        id: tags
+        env:
+          TAG_REF: ${{ github.ref }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_REF#refs/tags/}"     # vX.Y.Z
+          version="${tag#v}"              # X.Y.Z
+          major_minor="${version%.*}"     # X.Y
+          owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          image="ghcr.io/${owner_lc}/cloacina-server"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag_list<<EOF"
+            echo "${image}:${version}"
+            echo "${image}:${major_minor}"
+            echo "${image}:latest"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tag_list }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (--version against linux/amd64)
+        env:
+          IMAGE: ${{ steps.tags.outputs.image }}
+        run: |
+          set -euo pipefail
+          # The amd64 manifest is the runner's native arch; pull and
+          # exercise --version. Verifies the entrypoint, the binary
+          # actually runs, and clap reports the build version.
+          docker run --rm "${IMAGE}:latest" --version
+
+  # -----------------------------------------------------------------------
   # Step 6: Cache hygiene
   #
   # Tag-scoped caches are write-once: they're only re-used if you re-run
@@ -356,7 +430,7 @@ jobs:
 
   prune-tag-caches:
     name: Prune Tag-Scoped Caches
-    needs: [publish-cargo, publish-pypi, build-release-binaries]
+    needs: [publish-cargo, publish-pypi, build-release-binaries, publish-docker]
     if: always() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

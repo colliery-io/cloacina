@@ -4,14 +4,14 @@ level: task
 title: "T-02: cloacina-server Docker image + ghcr.io publish"
 short_code: "CLOACI-T-0604"
 created_at: 2026-05-14T22:45:16.385322+00:00
-updated_at: 2026-05-14T22:45:16.385322+00:00
+updated_at: 2026-05-14T23:35:39.601242+00:00
 parent: CLOACI-I-0111
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -48,6 +48,10 @@ Ship `cloacina-server` as a multi-stage Docker image published to `ghcr.io/colli
 4. **Smoke test** in CI:
    - `docker run --rm <image> --version` exits 0 with the tag
    - Optional: spin up server, hit `/v1/health`, expect 200
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

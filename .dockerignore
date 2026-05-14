@@ -1,0 +1,38 @@
+# Build artifacts — never ship these into the build context.
+target/
+**/target/
+.cargo/registry/
+.cargo/git/
+
+# Metis / planning + dev metadata
+.metis/
+.angreal/
+.claude/
+.github/
+.git/
+.gitignore
+
+# Documentation site (pre-built)
+docs/public/
+docs/themes/
+
+# Editor / OS clutter
+.idea/
+.vscode/
+**/.DS_Store
+**/*.swp
+
+# Python venvs / build artifacts
+test-env-*/
+.venv/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+
+# Containerfiles + this very file are not needed inside the build context
+Dockerfile
+.dockerignore
+
+# NOTE: `crates/`, `examples/`, `tests/`, `Cargo.toml`, and `Cargo.lock`
+# are all required by `cargo build` (workspace resolution walks every
+# member crate's manifest). Don't exclude them.
