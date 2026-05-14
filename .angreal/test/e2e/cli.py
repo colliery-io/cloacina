@@ -52,9 +52,13 @@ def _start_postgres():
     raise RuntimeError("Postgres not ready")
 
 
-def _wait_for_health(base_url: str, timeout_s: float = 30.0):
+def _wait_for_health(base_url: str, timeout_s: float = 30.0, server_proc=None):
     deadline = time.time() + timeout_s
     while time.time() < deadline:
+        if server_proc is not None and server_proc.poll() is not None:
+            raise RuntimeError(
+                f"server exited {server_proc.returncode} while waiting for /health"
+            )
         try:
             with urllib.request.urlopen(f"{base_url}/health", timeout=1.0):
                 return
@@ -98,6 +102,10 @@ def cli():
     with tempfile.TemporaryDirectory() as home_s:
         home = Path(home_s)
 
+        # Drain stderr to a file so the buffer doesn't fill (causing the
+        # server to block on writes and the /health probe to flap).
+        # Captured for the failure diagnostic if the test fails.
+        server_stderr = open(home / "server-stderr.log", "wb")
         server = subprocess.Popen(
             [
                 "target/debug/cloacina-server",
@@ -106,11 +114,25 @@ def cli():
                 "--bind", bind,
                 "--bootstrap-key", bootstrap_key,
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=server_stderr,
         )
+
+        def _dump_server_stderr():
+            server_stderr.flush()
+            try:
+                with open(home / "server-stderr.log", "r") as f:
+                    tail = f.read()[-4096:]
+                print(f"--- server stderr tail ---\n{tail}\n--- end ---")
+            except Exception as e:
+                print(f"(failed to read server-stderr.log: {e})")
+
         try:
-            _wait_for_health(base_url)
+            # Catch a server that exits during startup before we even probe.
+            if server.poll() is not None:
+                _dump_server_stderr()
+                raise RuntimeError(f"server exited {server.returncode} before health probe")
+            _wait_for_health(base_url, server_proc=server)
 
             # --- server health via cloacinactl ---
             code, out, _ = _cloacinactl(home, "--server", base_url, "server", "health")
@@ -295,6 +317,9 @@ def cli():
             print("  ok: API-10 trigger list --limit/--offset accepted")
 
             print_final_success("cloacinactl e2e")
+        except Exception:
+            _dump_server_stderr()
+            raise
         finally:
             if server.poll() is None:
                 server.send_signal(signal.SIGTERM)
@@ -302,3 +327,4 @@ def cli():
                     server.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     server.kill()
+            server_stderr.close()
