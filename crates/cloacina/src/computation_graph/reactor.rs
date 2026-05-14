@@ -69,6 +69,19 @@ impl std::fmt::Display for ReactorHealth {
     }
 }
 
+impl ReactorHealth {
+    /// Project the ReactorHealth state machine onto the bounded
+    /// `cloacina_component_health` gauge label values
+    /// (`starting | healthy | degraded`). See I-0099 / T-0585.
+    pub fn as_state_label(&self) -> &'static str {
+        match self {
+            Self::Starting | Self::Warming { .. } => "starting",
+            Self::Live => "healthy",
+            Self::Degraded { .. } => "degraded",
+        }
+    }
+}
+
 /// Create a reactor health reporting channel.
 pub fn reactor_health_channel() -> (watch::Sender<ReactorHealth>, watch::Receiver<ReactorHealth>) {
     watch::channel(ReactorHealth::Starting)
@@ -349,6 +362,17 @@ impl Reactor {
 
     /// Run the reactor. Spawns receiver + executor tasks.
     pub async fn run(mut self) {
+        // Compute the bounded `strategy` metric label once per run. Mapping
+        // collapses the two-axis (criteria × input_strategy) design into the
+        // three values documented for `cloacina_reactor_fires_total`:
+        // Sequential ⇒ "sequential", Latest+WhenAny ⇒ "when_any",
+        // Latest+WhenAll ⇒ "when_all".
+        let strategy_label: &'static str = match (&self.input_strategy, &self.criteria) {
+            (InputStrategy::Sequential, _) => "sequential",
+            (InputStrategy::Latest, ReactionCriteria::WhenAny) => "when_any",
+            (InputStrategy::Latest, ReactionCriteria::WhenAll) => "when_all",
+        };
+
         // Report starting health
         if let Some(ref health) = self.health {
             let _ = health.send(ReactorHealth::Starting);
@@ -514,6 +538,12 @@ impl Reactor {
 
         let (strategy_tx, mut strategy_rx) = mpsc::channel::<StrategySignal>(64);
 
+        // Per-source last-arrival timestamps for `cloacina_reactor_cache_age_seconds`.
+        // Shared between receiver and executor so both tasks can refresh the
+        // gauge — receiver on every boundary, executor before each fire.
+        let last_received_at: Arc<RwLock<HashMap<SourceName, std::time::Instant>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
         // Spawn receiver task
         let cache_recv = cache.clone();
         let dirty_recv = dirty.clone();
@@ -523,11 +553,33 @@ impl Reactor {
         let mut accumulator_rx = self.accumulator_rx;
         let mut manual_rx = self.manual_rx;
         let strategy_tx_recv = strategy_tx.clone();
+        let last_received_recv = last_received_at.clone();
+        let graph_name_recv = self.graph_name.clone();
 
         let receiver_handle = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     Some((source, bytes)) = accumulator_rx.recv() => {
+                        // Record arrival timestamp + refresh `cache_age_seconds`
+                        // for every known source. Refreshing all sources on
+                        // every arrival is how silent sources show staleness
+                        // in dashboards without needing a separate periodic
+                        // ticker.
+                        let now = std::time::Instant::now();
+                        {
+                            let mut map = last_received_recv.write().await;
+                            map.insert(source.clone(), now);
+                            for (src, ts) in map.iter() {
+                                let age = now.saturating_duration_since(*ts).as_secs_f64();
+                                metrics::gauge!(
+                                    "cloacina_reactor_cache_age_seconds",
+                                    "graph" => graph_name_recv.clone(),
+                                    "reactor" => graph_name_recv.clone(),
+                                    "source" => src.as_str().to_string(),
+                                )
+                                .set(age);
+                            }
+                        }
                         match input_strategy_recv {
                             InputStrategy::Latest => {
                                 cache_recv.write().await.update(source.clone(), bytes);
@@ -590,7 +642,21 @@ impl Reactor {
                             if should_run && !paused.load(Ordering::SeqCst) {
                                 let snapshot = cache_exec.read().await.snapshot();
                                 dirty_exec.write().await.clear_all();
+                                let fire_started = std::time::Instant::now();
                                 let result = (graph)(snapshot).await;
+                                metrics::counter!(
+                                    "cloacina_reactor_fires_total",
+                                    "graph" => graph_name_exec.clone(),
+                                    "reactor" => graph_name_exec.clone(),
+                                    "strategy" => strategy_label,
+                                )
+                                .increment(1);
+                                metrics::histogram!(
+                                    "cloacina_reactor_fire_duration_seconds",
+                                    "graph" => graph_name_exec.clone(),
+                                    "reactor" => graph_name_exec.clone(),
+                                )
+                                .record(fire_started.elapsed().as_secs_f64());
                                 match &result {
                                     GraphResult::Completed { .. } => {
                                         let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -624,7 +690,21 @@ impl Reactor {
                                     Some((source, bytes)) => {
                                         cache_exec.write().await.update(source, bytes);
                                         let snapshot = cache_exec.read().await.snapshot();
+                                        let fire_started = std::time::Instant::now();
                                         let result = (graph)(snapshot).await;
+                                        metrics::counter!(
+                                            "cloacina_reactor_fires_total",
+                                            "graph" => graph_name_exec.clone(),
+                                            "reactor" => graph_name_exec.clone(),
+                                            "strategy" => strategy_label,
+                                        )
+                                        .increment(1);
+                                        metrics::histogram!(
+                                            "cloacina_reactor_fire_duration_seconds",
+                                            "graph" => graph_name_exec.clone(),
+                                            "reactor" => graph_name_exec.clone(),
+                                        )
+                                        .record(fire_started.elapsed().as_secs_f64());
                                         match &result {
                                             GraphResult::Completed { .. } => {
                                                 let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;

@@ -689,6 +689,11 @@ impl TaskExecutor for ThreadTaskExecutor {
 
             match claim_result {
                 Ok(RunnerClaimResult::Claimed) => {
+                    metrics::counter!(
+                        "cloacina_scheduler_claim_attempts_total",
+                        "outcome" => "claimed",
+                    )
+                    .increment(1);
                     tracing::debug!(
                         task_id = %event.task_execution_id,
                         runner_id = %self.instance_id,
@@ -696,6 +701,11 @@ impl TaskExecutor for ThreadTaskExecutor {
                     );
                 }
                 Ok(RunnerClaimResult::AlreadyClaimed) => {
+                    metrics::counter!(
+                        "cloacina_scheduler_claim_attempts_total",
+                        "outcome" => "contended",
+                    )
+                    .increment(1);
                     tracing::debug!(
                         task_id = %event.task_execution_id,
                         "Task already claimed by another runner — skipping"
@@ -733,6 +743,8 @@ impl TaskExecutor for ThreadTaskExecutor {
                     ticker.tick().await;
                     match dal.task_execution().heartbeat(task_id, runner_id).await {
                         Ok(crate::dal::unified::task_execution::HeartbeatResult::Ok) => {
+                            metrics::counter!("cloacina_scheduler_heartbeat_writes_total")
+                                .increment(1);
                             tracing::trace!(task_id = %task_id, "Heartbeat sent");
                         }
                         Ok(crate::dal::unified::task_execution::HeartbeatResult::ClaimLost) => {

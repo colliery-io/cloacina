@@ -23,6 +23,16 @@ used as labels. Adding a new metric should preserve this invariant; see
 | `cloacina_workflows_total` | `status`, `reason` | Total workflow executions. `status` ∈ `completed`, `failed`. `reason` is `ok` on success, `dependency_failed` on failure (workflow failure is always downstream of task failure). |
 | `cloacina_tasks_total` | `status`, `reason` | Total task executions. `status` ∈ `completed`, `failed`. `reason` is `ok` on success, or one of: `task_error`, `timeout`, `validation_failed`, `infrastructure`, `task_not_found`, `claim_lost`, `unknown`. |
 | `cloacina_api_requests_total` | `method`, `status` | Total HTTP API requests. `method` is the HTTP verb; `status` is the numeric HTTP status code. |
+| `cloacina_scheduler_claim_attempts_total` | `outcome` | Total task claim attempts. `outcome` ∈ `claimed` (claim succeeded), `contended` (another runner already held the claim), `empty` (scheduler tick found no ready tasks to dispatch). |
+| `cloacina_scheduler_heartbeat_writes_total` | — | Total successful heartbeat writes by the per-task heartbeat loop. Failed heartbeats are recorded only in logs. |
+| `cloacina_scheduler_stale_claims_swept_total` | — | Total stale claims released by the stale-claim sweeper. Each increment corresponds to one task whose runner heartbeat had expired and was reset to Ready. |
+| `cloacina_supervisor_restarts_total` | `graph`, `component`, `reason` | Total computation-graph supervisor restarts. `component` ∈ `reactor` or an accumulator name. `reason` is `panic` (JoinError::is_panic), `error` (any other terminated handle), or `shutdown_timeout` (graceful-shutdown path). |
+| `cloacina_accumulator_events_total` | `graph`, `accumulator`, `kind` | Total events processed by computation-graph accumulators. `kind` ∈ `passthrough`, `stream`, `polling`, `batch`. `graph` is the deployed graph name (or `embedded` for runtimes without a DAL). |
+| `cloacina_accumulator_checkpoint_writes_total` | `graph`, `accumulator` | Total successful checkpoint writes via `CheckpointHandle::save` or `persist_boundary`. Failed writes appear only in logs. |
+| `cloacina_reactor_fires_total` | `graph`, `reactor`, `strategy` | Total reactor fires (graph executions). `strategy` ∈ `when_any`, `when_all`, `sequential` — projects the (criteria × input_strategy) axes onto a single bounded label. |
+| `cloacina_reactor_deduped_events_total` | `graph`, `reactor`, `source` | Boundary events the reactor rejected as duplicates of an already-seen emission sequence. **Reserved** — the reactor-side dedup path lands as a follow-up to T-0413; the metric is registered today so dashboards and alert rules can be authored against the eventual name. |
+| `cloacina_ws_messages_total` | `endpoint`, `direction` | WebSocket framed messages by `endpoint` (`accumulator` | `reactor`) and `direction` (`in` | `out`). Ping/pong handled by axum are excluded. |
+| `cloacina_ws_auth_failures_total` | `reason` | Rejected WebSocket upgrade requests. `reason` ∈ `ticket_expired`, `invalid_signature`, `tenant_mismatch`, `not_authorized`. |
 
 ### Histograms
 
@@ -31,6 +41,8 @@ used as labels. Adding a new metric should preserve this invariant; see
 | `cloacina_api_request_duration_seconds` | `method`, `status` | Handler duration for HTTP API requests, measured inside the `api_request_metrics` middleware. |
 | `cloacina_workflow_duration_seconds` | — | Wall-clock duration from workflow execution start to finalize (success or failure). |
 | `cloacina_task_duration_seconds` | — | Wall-clock duration from task execution start to end, including timeouts. |
+| `cloacina_accumulator_emit_duration_seconds` | `graph`, `accumulator` | End-to-end emit latency per accumulator event: time from the event arriving on the merge channel through `process()`, boundary send, and checkpoint persistence. |
+| `cloacina_reactor_fire_duration_seconds` | `graph`, `reactor` | Wall-clock duration of the user's compiled graph body (time inside `(graph)(snapshot).await`). Excludes cache lookup + persistence. |
 
 ### Gauges
 
@@ -38,6 +50,10 @@ used as labels. Adding a new metric should preserve this invariant; see
 |------|--------|-------------|
 | `cloacina_active_workflows` | — | Workflow executions in `Pending` or `Running` state. SQL-derived — re-seeded every scheduler tick from `workflow_executions` row count, so the value is correct by construction across crashes, claim loss, and finalize-path errors. Lags real DB state by at most one scheduler `poll_interval`. |
 | `cloacina_active_tasks` | — | Tasks currently inside the executor's run body. Incremented at the top of `ThreadTaskExecutor::execute_task`, decremented at the bottom; a panic between the two leaks one. |
+| `cloacina_component_health` | `graph`, `component`, `state` | One-of indicator for a computation-graph component's current health. For each `(graph, component)` tuple the gauge is `1` on the current state and `0` on every other state. `state` is bounded: `healthy`, `degraded`, `starting`, `stopped`, `crashed`. Re-emitted every supervisor tick. |
+| `cloacina_accumulator_buffer_depth` | `graph`, `accumulator` | Current internal buffer size for buffered accumulators. Meaningful for `batch` and stateful `stream` kinds; `passthrough` and `polling` emit `0` from runtime startup so dashboards see a stable series per (graph, accumulator). |
+| `cloacina_reactor_cache_age_seconds` | `graph`, `reactor`, `source` | Age in seconds of the most-recent emission per source held in the reactor's input cache. Refreshed on every boundary arrival (all known sources re-emitted, so silent sources show increasing staleness). |
+| `cloacina_ws_connections_active` | `endpoint` | Currently open WebSocket connections. `endpoint` ∈ `accumulator`, `reactor`. RAII-guarded so panics inside the handler still decrement on Drop. |
 
 ## Example PromQL queries
 
@@ -88,14 +104,42 @@ sum by (reason) (
 )
 ```
 
+### Scheduler claim contention rate
+
+High `contended` rates indicate two or more runners are racing for the
+same tasks; persistent non-zero `empty` rates are healthy — they just
+mean there is no pending work in the outbox.
+
+```promql
+sum by (outcome) (
+  rate(cloacina_scheduler_claim_attempts_total[5m])
+)
+```
+
+### Stale-claim sweep activity
+
+A non-zero rate of stale claims released means a runner is crashing or
+losing its heartbeat — investigate executor logs for the affected
+window.
+
+```promql
+rate(cloacina_scheduler_stale_claims_swept_total[5m])
+```
+
 ## Current gaps
 
-The computation-graph subsystem — reactors, accumulators, the scheduler
-loop's health signals, and the WebSocket layer — **does not emit any
-metrics today**. Operators running CG workloads should rely on logs plus
+Computation-graph observability for the full reactive stack ships in
+[CLOACI-I-0099](../../.metis/initiatives/CLOACI-I-0099/initiative.md).
+The remaining gaps are reactor-side dedup wiring (the
+`cloacina_reactor_deduped_events_total` metric is registered but its
+emit path lands as a follow-up to T-0413) and any operator-defined
+SLO/alert rules (out of scope for the metrics surface itself).
+Operators running CG workloads should rely on logs plus
 `/v1/health/reactors` and `/v1/health/accumulators` for observability
 until [CLOACI-I-0099 (Computation Graph Observability)](../../.metis/initiatives/CLOACI-I-0099/initiative.md)
-lands. See that initiative for the planned metric set.
+lands. Scheduler-loop signals (claim attempts, heartbeat writes, stale
+claim sweeps) are now covered by the `cloacina_scheduler_*` family
+above. See I-0099 for the remaining planned metric set.
 
 The audit that produced the current state is
 [CLOACI-T-0498](../../.metis/CLOACI-T-0498.md).

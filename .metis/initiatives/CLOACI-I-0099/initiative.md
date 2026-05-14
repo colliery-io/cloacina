@@ -4,14 +4,14 @@ level: initiative
 title: "Computation Graph Observability — Reactor, Accumulator, Scheduler, and WebSocket Metrics"
 short_code: "CLOACI-I-0099"
 created_at: 2026-04-22T12:21:00.287617+00:00
-updated_at: 2026-04-22T12:21:00.287617+00:00
+updated_at: 2026-05-14T13:46:24.895005+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

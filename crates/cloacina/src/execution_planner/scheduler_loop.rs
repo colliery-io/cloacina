@@ -259,6 +259,15 @@ impl<'a> SchedulerLoop<'a> {
         // Get all Ready tasks where retry_at has passed (or is null)
         let ready_tasks = self.dal.task_execution().get_ready_for_retry().await?;
 
+        if ready_tasks.is_empty() {
+            metrics::counter!(
+                "cloacina_scheduler_claim_attempts_total",
+                "outcome" => "empty",
+            )
+            .increment(1);
+            return Ok(());
+        }
+
         for task in ready_tasks {
             let event = TaskReadyEvent::new(
                 task.id,
