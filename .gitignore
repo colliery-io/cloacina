@@ -53,3 +53,6 @@ test-quick/
 .claude/*
 run_demos.sh
 docs/content/api-reference/_nav.yml
+
+# Transient test output (don't commit)
+integration-test.log

@@ -4,14 +4,14 @@ level: initiative
 title: "Complete multi-tenant abstraction across runner, reconciler, observability, and lifecycle"
 short_code: "CLOACI-I-0106"
 created_at: 2026-05-06T11:05:34.186707+00:00
-updated_at: 2026-05-13T20:29:09.006111+00:00
+updated_at: 2026-05-14T06:57:42.788345+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -90,6 +90,8 @@ Plan as one Metis initiative with phases (subject to design):
 6. **Phase 6 — `execution_events` correlation columns + migration** (OPS-16).
 
 Each phase ships independently. Phases 1–2 are quick wins; Phase 3 is the main lift.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
