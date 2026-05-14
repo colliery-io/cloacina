@@ -134,9 +134,28 @@ def cli():
                 raise RuntimeError(f"server exited {server.returncode} before health probe")
             _wait_for_health(base_url, server_proc=server)
 
+            # Diagnostic: explicit /health probe so we see the actual
+            # status + headers if the next CLI call fails to reach the
+            # same endpoint. Mismatch here means the seam (CLI vs the
+            # raw HTTP) is the bug.
+            with urllib.request.urlopen(f"{base_url}/health", timeout=2.0) as resp:
+                print(f"  diag: /health → {resp.status}, headers={dict(resp.headers)}")
+
             # --- server health via cloacinactl ---
-            code, out, _ = _cloacinactl(home, "--server", base_url, "server", "health")
-            assert code == 0 and out.strip() == "up", f"server health mismatch: {out!r}"
+            # ClientContext::resolve requires --api-key even though health
+            # doesn't use it (the handler's `Err(_) => eprintln!("down")`
+            # arm fires before the actual HTTP probe otherwise).
+            code, out, stderr = _cloacinactl(
+                home,
+                "--server", base_url,
+                "--api-key", bootstrap_key,
+                "server", "health",
+                check=False,
+            )
+            if code != 0 or out.strip() != "up":
+                raise AssertionError(
+                    f"server health mismatch: code={code} out={out!r} stderr={stderr!r}"
+                )
             print("  ok: server health")
 
             # --- profile: set + use, then drop --server everywhere ---
@@ -151,9 +170,12 @@ def cli():
             print("  ok: profile-resolved server health")
 
             # --- error: unreachable server → exit 2 ---
+            # Provide --api-key so we test actual network failure, not
+            # ClientContext resolution failure.
             code, _, _ = _cloacinactl(
                 home,
                 "--server", "http://127.0.0.1:59999",
+                "--api-key", bootstrap_key,
                 "server", "health",
                 check=False,
             )
