@@ -1,13 +1,21 @@
 # Prometheus Metrics
 
-`cloacina-server` exposes metrics in the standard Prometheus text exposition
-format at `GET /metrics`. The endpoint is public (no auth) so Prometheus can
-scrape it without credential management.
+Both `cloacina-server` and `cloacina-compiler` expose metrics in the
+standard Prometheus text exposition format at `GET /metrics`. Both
+endpoints are public (no auth) so Prometheus can scrape them without
+credential management.
 
-The exposition format is version-checked in CI via `angreal test
-metrics-format`, which boots the server and pipes `/metrics` through
-`promtool check metrics`. If that job fails, a recent metric change broke
-the format — see T-0536 for how the check is wired.
+`cloacinactl daemon` does **not** expose `/metrics` — it's a
+hobbyist-tier local process per [ADR
+CLOACI-A-0005](../../.metis/adrs/CLOACI-A-0005-deployment-mode-trust-model-hobbyist-daemon-vs-enterprise-server.md);
+observe it via logs. If a "daemon-as-service" deployment mode emerges,
+revisit.
+
+The exposition format of both binaries is version-checked in CI via
+`angreal test metrics-format`, which boots each one and pipes `/metrics`
+through `promtool check metrics`. If that job fails, a recent metric
+change broke the format — see T-0536 (server) + T-0591 (compiler) for
+how the check is wired.
 
 ## Metric reference
 
@@ -138,6 +146,47 @@ counters by `kind`.
 
 ```promql
 cloacina_component_health{component="reactor",state="degraded"} == 1
+```
+
+## Compiler metrics
+
+`cloacina-compiler` exposes the following `cloacina_compiler_*` family
+on its own `/metrics` endpoint (default `127.0.0.1:9000`, shared with
+`/health` and `/v1/status`).
+
+### Counters
+
+| Name | Labels | Description |
+|------|--------|-------------|
+| `cloacina_compiler_builds_total` | `status` | Total cargo builds executed. `status` ∈ `ok`, `failed`, `timed_out`. Timed-out rows are left for the stale-build sweeper. |
+| `cloacina_compiler_sweep_resets_total` | — | Stale builds reset to `pending` by the sweeper. Each increment corresponds to one row reclaimed. Sustained non-zero rate indicates worker crashes or hung builds. |
+| `cloacina_compiler_heartbeat_failures_total` | — | Heartbeat-update failures from the builder. Repeated failures starve `build_claimed_at` and the sweeper will eventually reclaim the row. |
+
+### Histograms
+
+| Name | Labels | Description |
+|------|--------|-------------|
+| `cloacina_compiler_build_duration_seconds` | — | Wall-clock duration of `execute_build` — covers the cargo subprocess from spawn through artifact persistence. Independent of result status. |
+
+### Gauges
+
+| Name | Labels | Description |
+|------|--------|-------------|
+| `cloacina_compiler_queue_depth` | `state` | Build queue size. `state` ∈ `queued`, `building`. SQL-derived — re-seeded every sweep tick from `compiled_data` row counts (REC-06 pattern), so it cannot drift on crash. |
+
+### Example PromQL — compiler build rate by outcome
+
+```promql
+sum by (status) (rate(cloacina_compiler_builds_total[5m]))
+```
+
+### Example PromQL — compiler build p95 duration
+
+```promql
+histogram_quantile(
+  0.95,
+  sum by (le) (rate(cloacina_compiler_build_duration_seconds_bucket[5m]))
+)
 ```
 
 ## Current gaps

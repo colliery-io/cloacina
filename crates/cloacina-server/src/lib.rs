@@ -28,7 +28,7 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::ge
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{info, warn};
-use tracing_appender::rolling;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use cloacina::computation_graph::registry::EndpointRegistry;
@@ -172,6 +172,7 @@ fn validate_security_args(
 /// is a `RunConfig` struct, tracked as a follow-up. T-0567 added the
 /// `verification_org_id` parameter and pushed us to 8.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     home: std::path::PathBuf,
     bind: SocketAddr,
@@ -183,6 +184,7 @@ pub async fn run(
     reconcile_interval: Option<std::time::Duration>,
     tenant_runner_cache_size: usize,
     tenant_deletion_drain_timeout: std::time::Duration,
+    log_retention_days: u64,
 ) -> Result<()> {
     // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
     validate_security_args(require_signatures, verification_org_id.as_ref())?;
@@ -213,7 +215,23 @@ pub async fn run(
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
     };
 
-    let file_appender = rolling::daily(&logs_dir, "cloacina-server.log");
+    // Daily-rotated file appender with optional retention via
+    // `max_log_files`. `log_retention_days == 0` disables pruning per
+    // operator opt-out; otherwise the appender keeps the most recent N
+    // files. CLOACI-T-0592.
+    let mut log_builder = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("cloacina-server")
+        .filename_suffix("log");
+    if log_retention_days > 0 {
+        log_builder = log_builder.max_log_files(log_retention_days as usize);
+    }
+    let file_appender = log_builder.build(&logs_dir).with_context(|| {
+        format!(
+            "Failed to build rolling log appender in {}",
+            logs_dir.display()
+        )
+    })?;
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // Build the base subscriber with stderr + file layers

@@ -20,7 +20,12 @@ use std::path::PathBuf;
 use crate::shared::pid;
 use crate::GlobalOpts;
 
-pub async fn run(globals: &GlobalOpts, watch_dirs: Vec<PathBuf>, poll_interval: u64) -> Result<()> {
+pub async fn run(
+    globals: &GlobalOpts,
+    watch_dirs: Vec<PathBuf>,
+    poll_interval: u64,
+    log_retention_days: u64,
+) -> Result<()> {
     // Write our PID file so `daemon stop` can find us.
     pid::write(&globals.home.join("daemon.pid"))?;
 
@@ -29,6 +34,7 @@ pub async fn run(globals: &GlobalOpts, watch_dirs: Vec<PathBuf>, poll_interval: 
         watch_dirs,
         poll_interval,
         globals.verbose,
+        log_retention_days,
     )
     .await;
 
