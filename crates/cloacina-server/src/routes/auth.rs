@@ -22,10 +22,9 @@
 
 use axum::{
     extract::{Request, State},
-    http::{header, StatusCode},
+    http::header,
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 use lru::LruCache;
 use std::num::NonZeroUsize;
@@ -120,10 +119,7 @@ impl KeyCache {
 ///
 /// Shared logic used by both the HTTP middleware and WebSocket handlers.
 /// Checks the LRU cache first, then falls back to the DAL.
-pub async fn validate_token(
-    state: &AppState,
-    token: &str,
-) -> Result<AuthenticatedKey, (StatusCode, Json<serde_json::Value>)> {
+pub async fn validate_token(state: &AppState, token: &str) -> Result<AuthenticatedKey, ApiError> {
     let hash = cloacina::security::api_keys::hash_api_key(token);
 
     // Check cache first (avoids DB hit)
@@ -153,16 +149,13 @@ pub async fn validate_token(
         }
         Ok(None) => {
             warn!("API key validation failed — unknown or revoked key");
-            Err((
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "invalid or revoked API key"})),
-            ))
+            // CLOACI-T-0595 / API-06: canonical ApiError envelope.
+            Err(ApiError::unauthorized("invalid or revoked API key"))
         }
         Err(e) => {
             warn!("API key validation error: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal error during authentication"})),
+            Err(ApiError::internal(
+                "internal error during authentication".to_string(),
             ))
         }
     }

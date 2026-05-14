@@ -714,18 +714,21 @@ fn build_router(state: AppState) -> Router {
             crate::routes::auth::require_auth,
         ));
 
-    // Computation graph health routes — behind auth
+    // Computation graph health routes — behind auth.
+    // CLOACI-T-0595 / API-08: paths are relative to the `/v1` nest below
+    // (previously these used absolute `/v1/...` and were merged at the
+    // top level, bypassing the `/v1` nest's middleware contract).
     let graph_health_routes = Router::new()
         .route(
-            "/v1/health/accumulators",
+            "/health/accumulators",
             get(crate::routes::health_graphs::list_accumulators),
         )
         .route(
-            "/v1/health/graphs",
+            "/health/graphs",
             get(crate::routes::health_graphs::list_graphs),
         )
         .route(
-            "/v1/health/graphs/{name}",
+            "/health/graphs/{name}",
             get(crate::routes::health_graphs::get_graph),
         )
         .route_layer(middleware::from_fn_with_state(
@@ -733,23 +736,26 @@ fn build_router(state: AppState) -> Router {
             crate::routes::auth::require_auth,
         ));
 
-    // WebSocket routes — auth handled in the handler (before upgrade)
+    // WebSocket routes — auth handled in the handler (before upgrade).
+    // Relative paths so they nest cleanly under `/v1` per API-08.
     let ws_routes = Router::new()
         .route(
-            "/v1/ws/accumulator/{name}",
+            "/ws/accumulator/{name}",
             get(crate::routes::ws::accumulator_ws),
         )
-        .route("/v1/ws/reactor/{name}", get(crate::routes::ws::reactor_ws));
+        .route("/ws/reactor/{name}", get(crate::routes::ws::reactor_ws));
+
+    // All of v1 in a single nest — API-08 invariant: anything served
+    // under `/v1/*` shares the same middleware stack.
+    let v1 = auth_routes.merge(graph_health_routes).merge(ws_routes);
 
     // Public routes — no auth
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
-        // All authenticated routes under /v1/
-        .nest("/v1", auth_routes)
-        .merge(graph_health_routes)
-        .merge(ws_routes)
+        // All v1 routes (auth + graph health + ws) under one nest.
+        .nest("/v1", v1)
         .fallback(fallback_404)
         // Body size limit: 100MB (matches PackageValidator)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
@@ -836,12 +842,11 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
-/// Fallback for unmatched routes — returns 404 JSON
+/// Fallback for unmatched routes — returns the canonical `ApiError`
+/// envelope (CLOACI-T-0595 / API-06) so every server error matches the
+/// same shape regardless of which handler (or no handler) produced it.
 async fn fallback_404() -> impl IntoResponse {
-    (
-        StatusCode::NOT_FOUND,
-        Json(serde_json::json!({"error": "not found"})),
-    )
+    crate::routes::error::ApiError::not_found("not_found", "no route matches this request")
 }
 
 /// Wait for shutdown signal (SIGINT or SIGTERM)
@@ -2216,14 +2221,15 @@ mod tests {
         let token = create_test_api_key(&state).await;
         let app = build_router(state);
 
-        let schema = format!(
+        let name = format!(
             "test_{}",
             uuid::Uuid::new_v4().to_string().replace('-', "_")
         );
+        // CLOACI-T-0594 / API-01: request body now uses `{name, description?, password?}`.
         let body_json = serde_json::json!({
-            "schema_name": schema,
-            "username": schema,
-            "password": "testpass123"
+            "name": name,
+            "description": "integration test tenant",
+            "password": "testpass123",
         });
 
         let req = axum::http::Request::builder()
@@ -2236,7 +2242,9 @@ mod tests {
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
-        assert_eq!(body["schema_name"], schema);
+        // Response keys reflect the new shape — `name` (the canonical
+        // identifier) replaces `schema_name`.
+        assert_eq!(body["name"], name);
     }
 
     #[tokio::test]
@@ -2254,7 +2262,13 @@ mod tests {
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body["tenants"].as_array().is_some());
+        // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
+        assert!(
+            body["items"].as_array().is_some(),
+            "list_tenants must return items envelope; got {:?}",
+            body
+        );
+        assert!(body["total"].as_u64().is_some());
     }
 
     /// CLOACI-T-0580: LRU eviction. With a cache cap of 2, cycling
@@ -2295,8 +2309,7 @@ mod tests {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "schema_name": s,
-                        "username": s,
+                        "name": s,
                         "password": "testpass123",
                     })
                     .to_string(),
@@ -2381,8 +2394,7 @@ mod tests {
             .header("content-type", "application/json")
             .body(Body::from(
                 serde_json::json!({
-                    "schema_name": schema,
-                    "username": schema,
+                    "name": schema,
                     "password": "testpass123",
                 })
                 .to_string(),
@@ -2448,8 +2460,7 @@ mod tests {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "schema_name": s,
-                        "username": s,
+                        "name": s,
                         "password": "testpass123",
                     })
                     .to_string(),
@@ -2546,9 +2557,8 @@ mod tests {
             uuid::Uuid::new_v4().to_string().replace('-', "_")
         );
         let body_json = serde_json::json!({
-            "schema_name": schema,
-            "username": schema,
-            "password": "testpass123"
+            "name": schema,
+            "password": "testpass123",
         });
 
         // Create

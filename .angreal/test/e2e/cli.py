@@ -15,6 +15,7 @@ import signal
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -166,6 +167,132 @@ def cli():
             parsed = json.loads(out)
             assert isinstance(parsed, list)
             print("  ok: package list -o json parses")
+
+            # ─────────────────────────────────────────────────────────
+            # CLOACI-I-0107 regression coverage. Every test below pins
+            # one or more of the seven API-XX findings from the May
+            # 2026 review. Failure traces back to T-0594/T-0595/T-0596.
+            # ─────────────────────────────────────────────────────────
+
+            # --- API-01: `tenant create` happy path ---
+            tenant_name = f"e2e_tenant_{int(time.time())}"
+            code, out, _ = _cloacinactl(
+                home,
+                "-o", "json",
+                "tenant", "create", tenant_name,
+                "--description", "e2e fixture",
+                "--password", "e2e-test-pass",
+            )
+            parsed = json.loads(out)
+            assert parsed.get("name") == tenant_name, (
+                f"API-01: tenant create response should echo `name`, got {parsed!r}"
+            )
+            print("  ok: API-01 tenant create round-trips")
+
+            # --- API-03: `tenant list` returns items envelope (rendered via render::list) ---
+            code, out, _ = _cloacinactl(home, "-o", "json", "tenant", "list")
+            parsed = json.loads(out)
+            assert isinstance(parsed, list), (
+                f"API-03: tenant list JSON should render the items array, got {parsed!r}"
+            )
+            assert any(t.get("name") == tenant_name for t in parsed), (
+                f"API-03: newly created tenant {tenant_name} missing from list"
+            )
+            print("  ok: API-03 tenant list renders items envelope")
+
+            # --- API-06: 4xx response has `code` + `message` (canonical ApiError) ---
+            # Hit a known-bad endpoint via raw urllib so we see the body shape.
+            req = urllib.request.Request(
+                f"{base_url}/v1/tenants",
+                method="POST",
+                headers={
+                    "Authorization": f"Bearer {bootstrap_key}",
+                    "Content-Type": "application/json",
+                },
+                data=b"{}",  # missing required `name` field
+            )
+            try:
+                urllib.request.urlopen(req)
+                raise AssertionError("expected POST /v1/tenants with empty body to 4xx")
+            except urllib.error.HTTPError as e:
+                body = json.loads(e.read())
+                assert "code" in body, f"API-06: error envelope missing `code`: {body!r}"
+                assert "message" in body, f"API-06: error envelope missing `message`: {body!r}"
+            print("  ok: API-06 error envelope has `code` + `message`")
+
+            # --- API-08: /health (under no nest) returns x-request-id header.
+            # The middleware is global so health probes get tagged too.
+            req = urllib.request.Request(f"{base_url}/health")
+            with urllib.request.urlopen(req) as resp:
+                xrid = resp.headers.get("x-request-id")
+                assert xrid is not None and len(xrid) > 0, (
+                    "API-08: /health response missing x-request-id"
+                )
+            print("  ok: API-08 health response carries x-request-id")
+
+            # --- API-05: `package pack --sign` exits non-zero ---
+            with tempfile.TemporaryDirectory() as fakepkg_s:
+                fakepkg = Path(fakepkg_s)
+                (fakepkg / "package.toml").write_text("[package]\nname = 'x'\nversion = '0.1.0'\n")
+                fake_key = fakepkg / "fake.key"
+                fake_key.write_text("not-a-real-key")
+                code, _, stderr = _cloacinactl(
+                    home,
+                    "package", "pack",
+                    str(fakepkg),
+                    "--sign", str(fake_key),
+                    check=False,
+                )
+                assert code != 0, "API-05: --sign must fail-hard"
+                assert "not yet implemented" in stderr.lower(), (
+                    f"API-05: error should mention 'not yet implemented', got: {stderr!r}"
+                )
+            print("  ok: API-05 --sign fails hard with clear message")
+
+            # --- API-17: `execution events --follow` exits non-zero ---
+            code, _, stderr = _cloacinactl(
+                home,
+                "execution", "events",
+                "00000000-0000-0000-0000-000000000000",
+                "--follow",
+                check=False,
+            )
+            assert code != 0, "API-17: --follow must fail-hard"
+            assert "not yet implemented" in stderr.lower(), (
+                f"API-17: error should mention 'not yet implemented', got: {stderr!r}"
+            )
+            print("  ok: API-17 --follow fails hard with clear message")
+
+            # --- API-02: `execution list --status` filter actually takes effect ---
+            # No executions exist yet for this tenant, so any filter returns []
+            # but the request must not 4xx (proving the route accepts the query).
+            code, out, _ = _cloacinactl(
+                home,
+                "-o", "json",
+                "--tenant", tenant_name,
+                "execution", "list",
+                "--status", "Failed",
+            )
+            parsed = json.loads(out)
+            assert isinstance(parsed, list), (
+                f"API-02: execution list with filter should render array, got {parsed!r}"
+            )
+            print("  ok: API-02 execution list --status accepted")
+
+            # --- API-10: `trigger list --limit` round-trip ---
+            code, out, _ = _cloacinactl(
+                home,
+                "-o", "json",
+                "--tenant", tenant_name,
+                "trigger", "list",
+                "--limit", "5",
+                "--offset", "0",
+            )
+            parsed = json.loads(out)
+            assert isinstance(parsed, list), (
+                f"API-10: trigger list with pagination should render array, got {parsed!r}"
+            )
+            print("  ok: API-10 trigger list --limit/--offset accepted")
 
             print_final_success("cloacinactl e2e")
         finally:

@@ -31,8 +31,18 @@ pub struct TriggerCmd {
 
 #[derive(Subcommand)]
 enum TriggerVerb {
-    List,
-    Inspect { name: String },
+    List {
+        /// Maximum number of rows to return (server-side cap: 1000).
+        /// CLOACI-T-0596 / API-10.
+        #[arg(long, default_value = "100")]
+        limit: u32,
+        /// Offset into the result set for pagination.
+        #[arg(long, default_value = "0")]
+        offset: u32,
+    },
+    Inspect {
+        name: String,
+    },
 }
 
 impl TriggerCmd {
@@ -43,9 +53,11 @@ impl TriggerCmd {
         let client = CliClient::new(ctx)?;
         let tenant = client.ctx().tenant_segment().to_string();
         match self.verb {
-            TriggerVerb::List => {
+            TriggerVerb::List { limit, offset } => {
                 let body: serde_json::Value = client
-                    .get(&format!("/v1/tenants/{tenant}/triggers"))
+                    .get(&format!(
+                        "/v1/tenants/{tenant}/triggers?limit={limit}&offset={offset}"
+                    ))
                     .await?;
                 render::list(&body, output)
             }

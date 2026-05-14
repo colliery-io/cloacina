@@ -73,16 +73,16 @@ impl CliError {
     }
 }
 
+/// CLOACI-T-0595 / API-06: the canonical `ApiError` envelope is
+/// `{ code, message, request_id }`. The CLI reads `body.message`
+/// directly. Legacy fallbacks (`{error: <str>}`, `{error: {message}}`,
+/// bare strings) used to live here and silently masked schema drift —
+/// now removed. If a response doesn't have `message`, the CLI renders
+/// the raw JSON body so the operator sees the unexpected shape.
 fn extract_message(body: &serde_json::Value) -> String {
-    body.get("error")
-        .and_then(|e| e.get("message"))
+    body.get("message")
         .and_then(|m| m.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            body.get("message")
-                .and_then(|m| m.as_str())
-                .map(String::from)
-        })
+        .map(String::from)
         .unwrap_or_else(|| body.to_string())
 }
 

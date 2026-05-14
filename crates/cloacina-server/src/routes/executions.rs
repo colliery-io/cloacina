@@ -17,7 +17,7 @@
 //! Execution API — trigger workflows and query execution status.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Extension, Json,
@@ -126,14 +126,54 @@ pub async fn execute_workflow(
     }
 }
 
+/// Query string for `list_executions` — CLOACI-T-0594 / API-02 surface.
+/// The route forwards these into the DAL `ExecutionListFilter` so the
+/// CLI's `--status` / `--workflow` flags actually take effect. `workflow`
+/// matches the CLI surface (short, ergonomic); on the DAL side it maps
+/// to `workflow_name`.
+#[derive(Deserialize, Default)]
+pub struct ListExecutionsQuery {
+    pub status: Option<String>,
+    pub workflow: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+/// Default page size for `list_executions` when the client doesn't
+/// specify `?limit=`. Bounded so the response stays small enough for
+/// CLI rendering.
+const DEFAULT_EXECUTIONS_LIMIT: i64 = 100;
+/// Hard ceiling on `?limit=` to keep a single response from pulling
+/// the entire `workflow_executions` table.
+const MAX_EXECUTIONS_LIMIT: i64 = 1000;
+
 /// GET /tenants/:tenant_id/executions — list workflow executions.
+///
+/// **CLOACI-T-0594 / API-02:** accepts `?status=Failed` and
+/// `?workflow_name=foo` and `?limit=N&offset=M`. Previously these
+/// query params were silently discarded.
 pub async fn list_executions(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
+    Query(q): Query<ListExecutionsQuery>,
 ) -> impl IntoResponse {
     if !auth.can_access_tenant(&tenant_id) {
         return AuthenticatedKey::forbidden_response().into_response();
+    }
+
+    let limit = q.limit.unwrap_or(DEFAULT_EXECUTIONS_LIMIT);
+    if !(1..=MAX_EXECUTIONS_LIMIT).contains(&limit) {
+        return ApiError::bad_request(
+            "invalid_pagination",
+            format!("limit must be 1..={}", MAX_EXECUTIONS_LIMIT),
+        )
+        .into_response();
+    }
+    let offset = q.offset.unwrap_or(0);
+    if offset < 0 {
+        return ApiError::bad_request("invalid_pagination", "offset must be >= 0".to_string())
+            .into_response();
     }
 
     let tenant_db = match state
@@ -148,7 +188,14 @@ pub async fn list_executions(
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
 
-    match dal.workflow_execution().get_active_executions().await {
+    let filter = cloacina::dal::unified::workflow_execution::ExecutionListFilter {
+        status: q.status,
+        workflow_name: q.workflow,
+        limit,
+        offset,
+    };
+
+    match dal.workflow_execution().list_filtered(filter).await {
         Ok(executions) => {
             let items: Vec<_> = executions
                 .into_iter()
@@ -162,9 +209,14 @@ pub async fn list_executions(
                     })
                 })
                 .collect();
+            // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
+            // `total` is best-effort — equals the returned page size when
+            // we don't run a separate COUNT (high-cardinality table).
+            let total = items.len();
             Json(serde_json::json!({
                 "tenant_id": tenant_id,
-                "executions": items,
+                "items": items,
+                "total": total,
             }))
             .into_response()
         }

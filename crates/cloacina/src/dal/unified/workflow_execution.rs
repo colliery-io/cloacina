@@ -30,6 +30,23 @@ use crate::models::execution_event::ExecutionEventType;
 use crate::models::workflow_execution::{NewWorkflowExecution, WorkflowExecutionRecord};
 use diesel::prelude::*;
 
+/// Filter for `WorkflowExecutionDAL::list_filtered`. CLOACI-T-0594 /
+/// API-02: closes the silent-filter-drop bug where the REST route's
+/// `--status` / `--workflow_name` query params were discarded.
+#[derive(Debug, Clone, Default)]
+pub struct ExecutionListFilter {
+    /// Filter by status (e.g. `Pending`, `Running`, `Completed`, `Failed`).
+    /// `None` means no status filter.
+    pub status: Option<String>,
+    /// Filter by exact workflow name. `None` means no name filter.
+    pub workflow_name: Option<String>,
+    /// SQL `LIMIT`. Caller is responsible for bounding (route validates
+    /// `limit <= 1000`); the DAL trusts whatever is passed.
+    pub limit: i64,
+    /// SQL `OFFSET`.
+    pub offset: i64,
+}
+
 /// Data access layer for workflow execution operations with compile-time backend selection.
 #[derive(Clone)]
 pub struct WorkflowExecutionDAL<'a> {
@@ -1087,6 +1104,88 @@ impl<'a> WorkflowExecutionDAL<'a> {
             self.list_recent_postgres(limit).await,
             self.list_recent_sqlite(limit).await
         )
+    }
+
+    /// CLOACI-T-0594 / API-02: filtered list endpoint. Supports
+    /// `status` (e.g. "Failed", "Running") and `workflow_name`
+    /// filters with bounded pagination. Replaces the old route-level
+    /// `get_active_executions()` call that silently ignored the query
+    /// string.
+    pub async fn list_filtered(
+        &self,
+        filter: ExecutionListFilter,
+    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.list_filtered_postgres(filter).await,
+            self.list_filtered_sqlite(filter).await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn list_filtered_postgres(
+        &self,
+        filter: ExecutionListFilter,
+    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let executions: Vec<UnifiedWorkflowExecution> = conn
+            .interact(move |conn| {
+                let mut query = workflow_executions::table.into_boxed();
+                if let Some(ref status) = filter.status {
+                    query = query.filter(workflow_executions::status.eq(status.clone()));
+                }
+                if let Some(ref name) = filter.workflow_name {
+                    query = query.filter(workflow_executions::workflow_name.eq(name.clone()));
+                }
+                query
+                    .order(workflow_executions::started_at.desc())
+                    .limit(filter.limit)
+                    .offset(filter.offset)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(executions.into_iter().map(Into::into).collect())
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn list_filtered_sqlite(
+        &self,
+        filter: ExecutionListFilter,
+    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let executions: Vec<UnifiedWorkflowExecution> = conn
+            .interact(move |conn| {
+                let mut query = workflow_executions::table.into_boxed();
+                if let Some(ref status) = filter.status {
+                    query = query.filter(workflow_executions::status.eq(status.clone()));
+                }
+                if let Some(ref name) = filter.workflow_name {
+                    query = query.filter(workflow_executions::workflow_name.eq(name.clone()));
+                }
+                query
+                    .order(workflow_executions::started_at.desc())
+                    .limit(filter.limit)
+                    .offset(filter.offset)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(executions.into_iter().map(Into::into).collect())
     }
 
     #[cfg(feature = "postgres")]
