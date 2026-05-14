@@ -220,14 +220,26 @@ def cli():
 
             # --- API-01: `tenant create` happy path ---
             tenant_name = f"e2e_tenant_{int(time.time())}"
-            code, out, _ = _cloacinactl(
+            code, out, stderr = _cloacinactl(
                 home,
                 "-o", "json",
                 "tenant", "create", tenant_name,
                 "--description", "e2e fixture",
                 "--password", "e2e-test-pass",
+                check=False,
             )
-            parsed = json.loads(out)
+            if code != 0 or not out.strip():
+                raise AssertionError(
+                    f"API-01: tenant create unexpected\n"
+                    f"  exit={code}\n  stdout={out!r}\n  stderr={stderr!r}"
+                )
+            try:
+                parsed = json.loads(out)
+            except json.JSONDecodeError as e:
+                raise AssertionError(
+                    f"API-01: tenant create stdout not JSON: {e}\n"
+                    f"  stdout={out!r}\n  stderr={stderr!r}"
+                ) from e
             assert parsed.get("name") == tenant_name, (
                 f"API-01: tenant create response should echo `name`, got {parsed!r}"
             )
