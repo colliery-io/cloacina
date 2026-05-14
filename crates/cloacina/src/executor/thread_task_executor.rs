@@ -1126,8 +1126,11 @@ mod tests {
                 "infrastructure",
             ),
             (
+                // COR-11: ContextLoadFailed now surfaces under its own
+                // bounded reason value, distinct from the generic
+                // `infrastructure` bucket.
                 ExecutorError::ContextLoadFailed("bad".into()),
-                "infrastructure",
+                "context_load_failed",
             ),
             (
                 ExecutorError::TaskNotFound("missing".into()),
@@ -1142,6 +1145,7 @@ mod tests {
             "task_error",
             "validation_failed",
             "infrastructure",
+            "context_load_failed",
             "task_not_found",
             "claim_lost",
             "unknown",
