@@ -74,13 +74,17 @@ impl CliError {
 }
 
 /// CLOACI-T-0595 / API-06: the canonical `ApiError` envelope is
-/// `{ code, message, request_id }`. The CLI reads `body.message`
-/// directly. Legacy fallbacks (`{error: <str>}`, `{error: {message}}`,
-/// bare strings) used to live here and silently masked schema drift —
-/// now removed. If a response doesn't have `message`, the CLI renders
-/// the raw JSON body so the operator sees the unexpected shape.
+/// `{ code, error }` — see `cloacina-server/src/routes/error.rs`. The
+/// `error` field carries the human-readable message; `code` is the
+/// machine-readable classifier. Request correlation goes via the
+/// `x-request-id` response header, not the body.
+///
+/// Legacy fallbacks (`{error: {message}}`, bare strings) used to live
+/// here and silently masked schema drift — now removed. If the body
+/// doesn't have a string `error`, the raw JSON renders so the operator
+/// sees the unexpected shape.
 fn extract_message(body: &serde_json::Value) -> String {
-    body.get("message")
+    body.get("error")
         .and_then(|m| m.as_str())
         .map(String::from)
         .unwrap_or_else(|| body.to_string())

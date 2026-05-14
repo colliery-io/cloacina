@@ -293,9 +293,9 @@ def cli():
                     print(f"!! status={e.code}")
                     print(f"!! body={raw!r}")
                     raise AssertionError("API-06: 4xx body not JSON (see prints above)")
-                assert "code" in body, f"API-06: error envelope missing `code`: {body!r}"
-                assert "message" in body, f"API-06: error envelope missing `message`: {body!r}"
-            print("  ok: API-06 error envelope has `code` + `message`")
+                assert "code" in body, f"API-06: envelope missing `code`: {body!r}"
+                assert "error" in body, f"API-06: envelope missing `error`: {body!r}"
+            print("  ok: API-06 envelope has `code` + `error`")
 
             # --- API-08: /health (under no nest) returns x-request-id header.
             # The middleware is global so health probes get tagged too.
