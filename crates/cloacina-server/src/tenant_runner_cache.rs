@@ -48,9 +48,32 @@ use lru::LruCache;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
+use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
 use cloacina::Database;
 use cloacina::Runtime;
 use cloacina::{DefaultRunner, DefaultRunnerConfig};
+
+/// Outcome of a bounded-drain eviction. CLOACI-T-0581.
+#[derive(Debug, Clone)]
+pub enum EvictOutcome {
+    /// No runner was cached for this tenant.
+    Missing,
+    /// Runner drained cleanly within the timeout.
+    Drained,
+    /// Runner shutdown returned an error (still removed from cache).
+    ShutdownError(String),
+    /// Drain exceeded the timeout (runner removed; shutdown continues
+    /// unawaited in the background).
+    Timeout,
+}
+
+impl EvictOutcome {
+    /// `true` if a runner existed for this tenant (drained, errored,
+    /// or timed out). `false` only for `Missing`.
+    pub fn was_present(&self) -> bool {
+        !matches!(self, EvictOutcome::Missing)
+    }
+}
 
 /// LRU-bounded cache of per-tenant `DefaultRunner` instances.
 pub struct TenantRunnerCache {
@@ -60,6 +83,13 @@ pub struct TenantRunnerCache {
     shared_runtime: Arc<Runtime>,
     /// Base runner config; cloned for each new tenant runner.
     base_config: DefaultRunnerConfig,
+    /// CLOACI-T-0581 follow-up: optional shared `ComputationGraphScheduler`
+    /// installed on every per-tenant runner via `set_graph_scheduler` so
+    /// the tenant's reconciler can route packaged CGs into it. The
+    /// scheduler itself stores `tenant_id` per graph (T-0579), so
+    /// cross-tenant filtering at the health-endpoint layer still works
+    /// even with a shared scheduler.
+    graph_scheduler: Option<Arc<ComputationGraphScheduler>>,
 }
 
 impl TenantRunnerCache {
@@ -71,7 +101,19 @@ impl TenantRunnerCache {
             cache: Mutex::new(LruCache::new(capacity)),
             shared_runtime: Arc::new(Runtime::new()),
             base_config,
+            graph_scheduler: None,
         }
+    }
+
+    /// CLOACI-T-0581 follow-up: install a shared graph scheduler. Every
+    /// per-tenant runner constructed after this call will have the
+    /// scheduler wired via `DefaultRunner::set_graph_scheduler` so the
+    /// reconciler can route CG packages. Idempotent — calling again
+    /// replaces the scheduler reference, but already-constructed runners
+    /// retain whatever they were given at construction time.
+    pub fn with_graph_scheduler(mut self, scheduler: Arc<ComputationGraphScheduler>) -> Self {
+        self.graph_scheduler = Some(scheduler);
+        self
     }
 
     /// Get the shared `Runtime` so callers can install graph schedulers,
@@ -114,6 +156,11 @@ impl TenantRunnerCache {
             Some(self.shared_runtime.clone()),
         )
         .await?;
+        // CLOACI-T-0581 follow-up: install the shared graph scheduler if
+        // present so the tenant's reconciler can route packaged CGs.
+        if let Some(scheduler) = &self.graph_scheduler {
+            runner.set_graph_scheduler(scheduler.clone()).await;
+        }
         let runner = Arc::new(runner);
 
         // Install — evicting the LRU entry if we're at cap, with a
@@ -172,6 +219,52 @@ impl TenantRunnerCache {
                 Ok(true)
             }
             None => Ok(false),
+        }
+    }
+
+    /// CLOACI-T-0581: bounded-drain eviction. Returns an `EvictOutcome`
+    /// distinguishing clean drain, timeout, shutdown error, and missing
+    /// entry. On timeout the runner is already removed from the cache;
+    /// its `shutdown()` future continues unawaited in the background.
+    pub async fn evict_with_timeout(
+        &self,
+        tenant_id: &str,
+        drain_timeout: std::time::Duration,
+    ) -> EvictOutcome {
+        let runner = {
+            let mut cache = self.cache.lock().await;
+            cache.pop(tenant_id)
+        };
+        match runner {
+            None => EvictOutcome::Missing,
+            Some(r) => {
+                let tenant_owned = tenant_id.to_string();
+                match tokio::time::timeout(drain_timeout, r.shutdown()).await {
+                    Ok(Ok(())) => {
+                        info!(
+                            tenant_id = %tenant_owned,
+                            "tenant runner drained within timeout"
+                        );
+                        EvictOutcome::Drained
+                    }
+                    Ok(Err(e)) => {
+                        warn!(
+                            tenant_id = %tenant_owned,
+                            %e,
+                            "tenant runner shutdown returned error"
+                        );
+                        EvictOutcome::ShutdownError(e.to_string())
+                    }
+                    Err(_) => {
+                        warn!(
+                            tenant_id = %tenant_owned,
+                            drain_timeout_s = drain_timeout.as_secs(),
+                            "tenant runner shutdown exceeded drain timeout; proceeding (CLOACI-T-0581)"
+                        );
+                        EvictOutcome::Timeout
+                    }
+                }
+            }
         }
     }
 

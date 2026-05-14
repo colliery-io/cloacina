@@ -70,6 +70,17 @@ struct Cli {
     /// memory-tight ones. Default 256.
     #[arg(long, env = "CLOACINA_TENANT_RUNNER_CACHE_SIZE", default_value_t = 256)]
     tenant_runner_cache_size: usize,
+
+    /// Max seconds to wait for in-flight workflows to drain during tenant
+    /// teardown (CLOACI-T-0581). Past this, the runner is hard-evicted —
+    /// any task that ignored cooperative cancellation will error on its
+    /// next DB write once the schema is dropped in step 4. Default 30s.
+    #[arg(
+        long,
+        env = "CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S",
+        default_value_t = 30
+    )]
+    tenant_deletion_drain_timeout_s: u64,
 }
 
 fn default_home() -> PathBuf {
@@ -91,6 +102,7 @@ async fn main() -> Result<()> {
         cli.verification_org_id,
         cli.reconcile_interval_s.map(std::time::Duration::from_secs),
         cli.tenant_runner_cache_size,
+        std::time::Duration::from_secs(cli.tenant_deletion_drain_timeout_s),
     )
     .await
 }

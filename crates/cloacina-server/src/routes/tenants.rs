@@ -144,30 +144,25 @@ pub async fn remove_tenant(
         step_started.elapsed().as_millis() as u64,
     );
 
-    // Step 2: evict the tenant runner from cache.
+    // Step 2: evict the tenant runner from cache (bounded drain).
+    // CLOACI-T-0581: pathological tasks that ignore cooperative cancellation
+    // can't block teardown. Past `tenant_deletion_drain_timeout`, the runner
+    // is removed from the cache and we proceed without awaiting its shutdown
+    // future. The shutdown continues in the background; any task that
+    // ignored cancellation will error on its next DB write once step 4 drops
+    // the schema.
     let step_started = Instant::now();
-    let runner_evicted = match state.tenant_runners.evict(&schema_name).await {
-        Ok(b) => b,
-        Err(e) => {
-            warn!(
-                tenant_id = %schema_name,
-                error = %e,
-                "tenant teardown step 2 (runner eviction) failed"
-            );
-            audit::log_tenant_teardown_outcome(
-                &schema_name,
-                false,
-                teardown_started.elapsed().as_millis() as u64,
-            );
-            return ApiError::internal(format!("runner eviction failed: {}", e)).into_response();
-        }
-    };
+    let evict_outcome = state
+        .tenant_runners
+        .evict_with_timeout(&schema_name, state.tenant_deletion_drain_timeout)
+        .await;
     audit::log_tenant_teardown_step(
         audit::events::TENANT_TEARDOWN_RUNNER_EVICTED,
         &schema_name,
-        if runner_evicted { 1 } else { 0 },
+        if evict_outcome.was_present() { 1 } else { 0 },
         step_started.elapsed().as_millis() as u64,
     );
+    let runner_evicted = evict_outcome.was_present();
 
     // Step 3: evict the tenant database from cache.
     let step_started = Instant::now();

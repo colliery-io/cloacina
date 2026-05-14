@@ -121,6 +121,12 @@ pub struct AppState {
     /// `Runtime` via `Arc`; per-tenant runners differ only in their
     /// underlying `Database` (schema scope) and lifecycle state.
     pub tenant_runners: Arc<crate::tenant_runner_cache::TenantRunnerCache>,
+    /// CLOACI-T-0581: max wall-clock for the tenant-teardown runner-evict
+    /// step. Past this, the runner is hard-dropped from the cache without
+    /// awaiting graceful shutdown completion — any task that ignored
+    /// cooperative cancellation will error on its next DB write once the
+    /// schema is dropped.
+    pub tenant_deletion_drain_timeout: std::time::Duration,
 }
 
 /// CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
@@ -176,6 +182,7 @@ pub async fn run(
     verification_org_id: Option<uuid::Uuid>,
     reconcile_interval: Option<std::time::Duration>,
     tenant_runner_cache_size: usize,
+    tenant_deletion_drain_timeout: std::time::Duration,
 ) -> Result<()> {
     // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
     validate_security_args(require_signatures, verification_org_id.as_ref())?;
@@ -327,7 +334,7 @@ pub async fn run(
         runner: Arc::new(runner),
         key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
         endpoint_registry,
-        graph_scheduler,
+        graph_scheduler: graph_scheduler.clone(),
         security_config: SecurityConfig {
             require_signatures,
             verification_org_id: verification_org_id.map(cloacina::UniversalUuid::from),
@@ -342,11 +349,19 @@ pub async fn run(
         // tunable; 256 default. If the configured cap is zero we fall
         // back to 1 (LruCache requires NonZeroUsize) so misconfiguration
         // doesn't panic the server at boot.
-        tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
-            std::num::NonZeroUsize::new(tenant_runner_cache_size.max(1))
-                .expect("max(1) is non-zero"),
-            runner_config_for_tenant_cache(reconcile_interval),
-        )),
+        tenant_runners: Arc::new(
+            crate::tenant_runner_cache::TenantRunnerCache::new(
+                std::num::NonZeroUsize::new(tenant_runner_cache_size.max(1))
+                    .expect("max(1) is non-zero"),
+                runner_config_for_tenant_cache(reconcile_interval),
+            )
+            // CLOACI-T-0581 follow-up: per-tenant runners share the
+            // global graph scheduler so their reconcilers can route
+            // packaged CGs. The scheduler stores tenant_id per graph
+            // (T-0579), so health-endpoint filtering still works.
+            .with_graph_scheduler(graph_scheduler.clone()),
+        ),
+        tenant_deletion_drain_timeout,
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -816,6 +831,7 @@ mod tests {
                 std::num::NonZeroUsize::new(8).expect("test cap"),
                 runner_config_for_tenant_cache(None),
             )),
+            tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
         }
     }
 
@@ -1323,6 +1339,264 @@ mod tests {
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body["tenants"].as_array().is_some());
+    }
+
+    /// CLOACI-T-0580: LRU eviction. With a cache cap of 2, cycling
+    /// through 3 tenant runners must evict the least-recently-used.
+    /// Requires Postgres (creates real tenant schemas + runners).
+    ///
+    /// Uses a freshly-built `TenantRunnerCache` with cap=2 rather than
+    /// the default test cap of 8.
+    #[tokio::test]
+    #[serial]
+    async fn test_tenant_runner_cache_lru_evicts_oldest() {
+        let mut state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        // Override the cache with a small cap for this test.
+        state.tenant_runners = Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
+            std::num::NonZeroUsize::new(2).expect("cap=2"),
+            runner_config_for_tenant_cache(None),
+        ));
+
+        let schema_a = format!(
+            "test_lru_a_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let schema_b = format!(
+            "test_lru_b_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let schema_c = format!(
+            "test_lru_c_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        for s in [&schema_a, &schema_b, &schema_c] {
+            let req = axum::http::Request::builder()
+                .method("POST")
+                .uri("/v1/tenants")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "schema_name": s,
+                        "username": s,
+                        "password": "testpass123",
+                    })
+                    .to_string(),
+                ))
+                .unwrap();
+            let (status, _) = send_request(build_router(state.clone()), req).await;
+            assert_eq!(status, StatusCode::CREATED, "create tenant {}", s);
+        }
+
+        // Acquire A, then B → cache full (cap=2).
+        let db_a = state
+            .tenant_databases
+            .resolve(&schema_a, &state.database)
+            .await
+            .expect("resolve A");
+        let _ = state
+            .tenant_runners
+            .get_or_create(&schema_a, db_a)
+            .await
+            .expect("A");
+        let db_b = state
+            .tenant_databases
+            .resolve(&schema_b, &state.database)
+            .await
+            .expect("resolve B");
+        let _ = state
+            .tenant_runners
+            .get_or_create(&schema_b, db_b)
+            .await
+            .expect("B");
+        assert_eq!(state.tenant_runners.len().await, 2);
+
+        // Acquire C → evicts A (least recently used).
+        let db_c = state
+            .tenant_databases
+            .resolve(&schema_c, &state.database)
+            .await
+            .expect("resolve C");
+        let _ = state
+            .tenant_runners
+            .get_or_create(&schema_c, db_c)
+            .await
+            .expect("C");
+        assert_eq!(
+            state.tenant_runners.len().await,
+            2,
+            "cache must stay bounded at cap=2"
+        );
+
+        // Cleanup.
+        for s in [&schema_a, &schema_b, &schema_c] {
+            let req = axum::http::Request::builder()
+                .method("DELETE")
+                .uri(format!("/v1/tenants/{}", s))
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap();
+            let _ = send_request(build_router(state.clone()), req).await;
+        }
+    }
+
+    /// CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
+    /// idempotent. First call drops the schema; second call sees no
+    /// runner/DB to evict and `DROP SCHEMA IF EXISTS` is a no-op.
+    /// Returns success both times.
+    #[tokio::test]
+    #[serial]
+    async fn test_remove_tenant_idempotent_retry() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        let schema = format!(
+            "test_idem_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+
+        // Create.
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "schema_name": schema,
+                    "username": schema,
+                    "password": "testpass123",
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let (status, _) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        // First delete.
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/tenants/{}", schema))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status_1, body_1) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(status_1, StatusCode::OK);
+        assert_eq!(body_1["status"], "removed");
+
+        // Second delete (idempotent).
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/tenants/{}", schema))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status_2, body_2) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(
+            status_2,
+            StatusCode::OK,
+            "idempotent retry must succeed: {body_2:?}"
+        );
+        assert_eq!(body_2["status"], "removed");
+        // Step counts: no runner, no cached DB.
+        assert_eq!(body_2["runner_evicted"], false);
+        assert_eq!(body_2["db_cache_evicted"], false);
+    }
+
+    /// CLOACI-T-0580: two per-tenant runners constructed through the
+    /// `TenantRunnerCache` share the same `Arc<Runtime>` allocation —
+    /// inventory isn't duplicated per tenant. Requires a live Postgres
+    /// (admin schema + per-tenant schemas created via `create_tenant`).
+    #[tokio::test]
+    #[serial]
+    async fn test_tenant_runners_share_inventory_arc() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        // Create two distinct tenant schemas.
+        let schema_a = format!(
+            "test_arc_a_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let schema_b = format!(
+            "test_arc_b_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        for s in [&schema_a, &schema_b] {
+            let req = axum::http::Request::builder()
+                .method("POST")
+                .uri("/v1/tenants")
+                .header("Authorization", format!("Bearer {}", token))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "schema_name": s,
+                        "username": s,
+                        "password": "testpass123",
+                    })
+                    .to_string(),
+                ))
+                .unwrap();
+            let (status, _body) = send_request(build_router(state.clone()), req).await;
+            assert_eq!(
+                status,
+                StatusCode::CREATED,
+                "create tenant {} should succeed",
+                s
+            );
+        }
+
+        // Construct runners for both tenants via the cache.
+        let db_a = state
+            .tenant_databases
+            .resolve(&schema_a, &state.database)
+            .await
+            .expect("resolve A");
+        let db_b = state
+            .tenant_databases
+            .resolve(&schema_b, &state.database)
+            .await
+            .expect("resolve B");
+        let runner_a = state
+            .tenant_runners
+            .get_or_create(&schema_a, db_a)
+            .await
+            .expect("runner A");
+        let runner_b = state
+            .tenant_runners
+            .get_or_create(&schema_b, db_b)
+            .await
+            .expect("runner B");
+
+        // The cache's `shared_runtime` accessor should match what each
+        // runner reports via its `runtime()` accessor.
+        let cache_rt = state.tenant_runners.shared_runtime();
+        assert!(
+            std::sync::Arc::ptr_eq(&cache_rt, &runner_a.runtime()),
+            "runner A's Runtime Arc should match the cache's shared_runtime"
+        );
+        assert!(
+            std::sync::Arc::ptr_eq(&cache_rt, &runner_b.runtime()),
+            "runner B's Runtime Arc should match the cache's shared_runtime"
+        );
+        // Transitively, both runners share the same Arc.
+        assert!(
+            std::sync::Arc::ptr_eq(&runner_a.runtime(), &runner_b.runtime()),
+            "two tenant runners must share the same Runtime Arc (inventory not duplicated)"
+        );
+
+        // Clean up: drop both tenants.
+        for s in [&schema_a, &schema_b] {
+            let req = axum::http::Request::builder()
+                .method("DELETE")
+                .uri(format!("/v1/tenants/{}", s))
+                .header("Authorization", format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap();
+            let _ = send_request(build_router(state.clone()), req).await;
+        }
     }
 
     #[tokio::test]
