@@ -1131,6 +1131,20 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
     /// Record a successful build. Writes the compiled bytes and transitions
     /// the row to `success`.
+    /// Mark a claimed build as successful. Returns `Err(StaleClaim)` if the
+    /// row is no longer in `building` state — defends against the clobber
+    /// race COR-16 calls out: two compilers racing on the same row would
+    /// otherwise both succeed, with the second overwriting the first.
+    ///
+    /// **Note on the guard column (COR-16):** the spec asked for filtering
+    /// by `compiler_instance_id`, but that column doesn't exist on
+    /// `workflow_packages` today (it's an in-memory / audit-event id only).
+    /// Adding it requires a migration that's out of scope for this bundle.
+    /// Filtering by `build_status = 'building'` is the cheaper guard that
+    /// still closes the race: `claim_next_build` is the only path that
+    /// flips `pending → building`, and it does so with `FOR UPDATE SKIP
+    /// LOCKED`, so only one caller can win the `building` state at a time.
+    /// Once we transition to `success`, the second caller's filter misses.
     pub async fn mark_build_success(
         &self,
         package_id: Uuid,
@@ -1144,7 +1158,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let pid = UniversalUuid(package_id);
         let now = UniversalTimestamp::now();
         let bytes = UniversalBinary::new(compiled);
-        crate::dispatch_backend!(
+        let updated: usize = crate::dispatch_backend!(
             self.database.backend(),
             {
                 let conn = self
@@ -1154,19 +1168,22 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .map_err(|e| RegistryError::Database(e.to_string()))?;
                 conn.interact(move |conn| {
                     use diesel::prelude::*;
-                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
-                        .set((
-                            workflow_packages::build_status.eq("success"),
-                            workflow_packages::compiled_data.eq(Some(bytes)),
-                            workflow_packages::compiled_at.eq(Some(now)),
-                            workflow_packages::build_error.eq::<Option<String>>(None),
-                        ))
-                        .execute(conn)
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .filter(workflow_packages::build_status.eq("building")),
+                    )
+                    .set((
+                        workflow_packages::build_status.eq("success"),
+                        workflow_packages::compiled_data.eq(Some(bytes)),
+                        workflow_packages::compiled_at.eq(Some(now)),
+                        workflow_packages::build_error.eq::<Option<String>>(None),
+                    ))
+                    .execute(conn)
                 })
                 .await
                 .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(())
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
             },
             {
                 let conn = self
@@ -1176,24 +1193,36 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .map_err(|e| RegistryError::Database(e.to_string()))?;
                 conn.interact(move |conn| {
                     use diesel::prelude::*;
-                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
-                        .set((
-                            workflow_packages::build_status.eq("success"),
-                            workflow_packages::compiled_data.eq(Some(bytes)),
-                            workflow_packages::compiled_at.eq(Some(now)),
-                            workflow_packages::build_error.eq::<Option<String>>(None),
-                        ))
-                        .execute(conn)
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .filter(workflow_packages::build_status.eq("building")),
+                    )
+                    .set((
+                        workflow_packages::build_status.eq("success"),
+                        workflow_packages::compiled_data.eq(Some(bytes)),
+                        workflow_packages::compiled_at.eq(Some(now)),
+                        workflow_packages::build_error.eq::<Option<String>>(None),
+                    ))
+                    .execute(conn)
                 })
                 .await
                 .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(())
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
             }
-        )
+        );
+        if updated == 0 {
+            return Err(RegistryError::Database(format!(
+                "stale build claim on package {pid}: row no longer in 'building' state \
+                 — another compiler must have raced this mark_build_success"
+            )));
+        }
+        Ok(())
     }
 
-    /// Record a failed build.
+    /// Record a failed build. Returns `Err(StaleClaim)` if the row is no
+    /// longer in `building` state — same race-defence as
+    /// [`Self::mark_build_success`] (COR-16).
     pub async fn mark_build_failed(
         &self,
         package_id: Uuid,
@@ -1210,7 +1239,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             error.to_string()
         };
         let pid = UniversalUuid(package_id);
-        crate::dispatch_backend!(
+        let updated: usize = crate::dispatch_backend!(
             self.database.backend(),
             {
                 let conn = self
@@ -1220,17 +1249,20 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .map_err(|e| RegistryError::Database(e.to_string()))?;
                 conn.interact(move |conn| {
                     use diesel::prelude::*;
-                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
-                        .set((
-                            workflow_packages::build_status.eq("failed"),
-                            workflow_packages::build_error.eq(Some(truncated)),
-                        ))
-                        .execute(conn)
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .filter(workflow_packages::build_status.eq("building")),
+                    )
+                    .set((
+                        workflow_packages::build_status.eq("failed"),
+                        workflow_packages::build_error.eq(Some(truncated)),
+                    ))
+                    .execute(conn)
                 })
                 .await
                 .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(())
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
             },
             {
                 let conn = self
@@ -1240,19 +1272,29 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .map_err(|e| RegistryError::Database(e.to_string()))?;
                 conn.interact(move |conn| {
                     use diesel::prelude::*;
-                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
-                        .set((
-                            workflow_packages::build_status.eq("failed"),
-                            workflow_packages::build_error.eq(Some(truncated)),
-                        ))
-                        .execute(conn)
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .filter(workflow_packages::build_status.eq("building")),
+                    )
+                    .set((
+                        workflow_packages::build_status.eq("failed"),
+                        workflow_packages::build_error.eq(Some(truncated)),
+                    ))
+                    .execute(conn)
                 })
                 .await
                 .map_err(|e| RegistryError::Database(e.to_string()))?
-                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                Ok(())
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
             }
-        )
+        );
+        if updated == 0 {
+            return Err(RegistryError::Database(format!(
+                "stale build claim on package {pid}: row no longer in 'building' state \
+                 — another compiler must have raced this mark_build_failed"
+            )));
+        }
+        Ok(())
     }
 
     /// Refresh `build_claimed_at` so the stale-build sweeper doesn't reset us.

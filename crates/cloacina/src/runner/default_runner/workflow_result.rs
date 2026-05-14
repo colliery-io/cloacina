@@ -146,14 +146,15 @@ impl DefaultRunner {
             })
             .collect();
 
-        // Convert status
-        let status = match workflow_execution.status.as_str() {
-            "Pending" => WorkflowStatus::Pending,
-            "Running" => WorkflowStatus::Running,
-            "Completed" => WorkflowStatus::Completed,
-            "Failed" => WorkflowStatus::Failed,
-            _ => WorkflowStatus::Failed,
-        };
+        // Convert status — fallible parse (COR-18). Unknown strings surface
+        // as a typed error rather than silently coercing to Failed, which
+        // used to mask DB schema drift.
+        let status =
+            WorkflowStatus::parse_status(workflow_execution.status.as_str()).map_err(|s| {
+                WorkflowExecutionError::ExecutionFailed {
+                    message: format!("unknown workflow status in DB: {:?}", s),
+                }
+            })?;
 
         let duration = workflow_execution.completed_at.map(|end| {
             let end_utc = end.0;

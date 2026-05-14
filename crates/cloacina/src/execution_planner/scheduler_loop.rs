@@ -402,15 +402,18 @@ impl<'a> SchedulerLoop<'a> {
     /// This method finds the context from the final task(s) that produced output
     /// and updates the workflow execution's context_id to point to that final context,
     /// ensuring that WorkflowExecutionResult.final_context returns the correct data.
+    ///
+    /// **Selection rule (COR-14):** primary sort by `completed_at` (latest
+    /// wins), secondary sort by `task_name` (lexicographically largest
+    /// wins) so two tasks finishing at the same millisecond don't
+    /// produce nondeterministic final contexts across replays.
     async fn update_execution_final_context(
         &self,
         workflow_execution_id: UniversalUuid,
         all_tasks: &[TaskExecution],
     ) -> Result<(), ValidationError> {
-        // Find the final context by looking at the last task that completed with context
-        // Priority order: Completed > Skipped, then by completion time (latest first)
         let mut final_context_id: Option<UniversalUuid> = None;
-        let mut latest_completion_time: Option<chrono::DateTime<chrono::Utc>> = None;
+        let mut latest_key: Option<(chrono::DateTime<chrono::Utc>, String)> = None;
 
         for task in all_tasks {
             // Only consider tasks that have finished execution and might have output context
@@ -428,12 +431,16 @@ impl<'a> SchedulerLoop<'a> {
                         .await
                     {
                         if let Some(context_id) = task_metadata.context_id {
-                            // Use this context if it's the latest completion time or we haven't found one yet
-                            if latest_completion_time.is_none()
-                                || completed_at.0 > latest_completion_time.unwrap()
-                            {
+                            let candidate = (completed_at.0, task.task_name.clone());
+                            // Lexicographic compare on (completed_at, task_name) —
+                            // deterministic tiebreaker per COR-14.
+                            let should_update = match latest_key.as_ref() {
+                                None => true,
+                                Some(cur) => candidate > *cur,
+                            };
+                            if should_update {
                                 final_context_id = Some(context_id);
-                                latest_completion_time = Some(completed_at.0);
+                                latest_key = Some(candidate);
                             }
                         }
                     }

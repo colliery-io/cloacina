@@ -194,15 +194,13 @@ impl WorkflowExecutor for DefaultRunner {
                 message: format!("Failed to get execution status: {}", e),
             })?;
 
-        let status = match execution.status.as_str() {
-            "Pending" => WorkflowStatus::Pending,
-            "Running" => WorkflowStatus::Running,
-            "Completed" => WorkflowStatus::Completed,
-            "Failed" => WorkflowStatus::Failed,
-            "Cancelled" => WorkflowStatus::Cancelled,
-            "Paused" => WorkflowStatus::Paused,
-            _ => WorkflowStatus::Failed,
-        };
+        // Fallible parse (COR-18). Unknown strings surface as typed
+        // error rather than silently coercing to Failed.
+        let status = WorkflowStatus::parse_status(execution.status.as_str()).map_err(|s| {
+            WorkflowExecutionError::ExecutionFailed {
+                message: format!("unknown workflow status in DB: {:?}", s),
+            }
+        })?;
 
         Ok(status)
     }

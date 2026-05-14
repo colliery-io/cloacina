@@ -440,6 +440,14 @@ pub async fn run(
          (persist_boundary), `batch_buffer` (batch accumulator buffer save). \
          Replaces the silent `let _ = persist_*` patterns flagged as OPS-15."
     );
+    metrics::describe_counter!(
+        "cloacina_context_merge_failures_total",
+        "Total failures merging dependency contexts into a task's input \
+         context. `kind` ∈ `parse` (dependency context JSON failed to \
+         deserialize — fails the task as `ContextLoadFailed`), `merge` \
+         (Context API rejected an insert/update — counted but does not \
+         fail the task). Closes COR-11."
+    );
 
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let mut runner_builder = DefaultRunnerConfig::builder();
@@ -1799,6 +1807,16 @@ mod tests {
             )
             .increment(1);
         }
+        // I-0110 / COR-11: context-merge failure counter — bounded
+        // `kind ∈ parse | merge`. Included in the cardinality guard so
+        // future additions don't sneak in an unbounded label.
+        for kind in ["parse", "merge"] {
+            metrics::counter!(
+                "cloacina_context_merge_failures_total",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
 
         // Scrape and parse
         let app = build_router(state);
@@ -1902,6 +1920,7 @@ mod tests {
             "cloacina_ws_auth_failures_total",
             "cloacina_reactor_persist_failures_total",
             "cloacina_accumulator_persist_failures_total",
+            "cloacina_context_merge_failures_total",
         ] {
             assert!(
                 series_count.contains_key(expected),

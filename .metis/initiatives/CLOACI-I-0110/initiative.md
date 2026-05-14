@@ -4,14 +4,14 @@ level: initiative
 title: "Partial-failure correctness sweep — eliminate log-and-continue at data boundaries"
 short_code: "CLOACI-I-0110"
 created_at: 2026-05-06T11:05:38.946209+00:00
-updated_at: 2026-05-06T11:05:38.946209+00:00
+updated_at: 2026-05-14T16:32:41.628190+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,16 @@ Each is a small, bounded patch; together they remove a class of partial-failure 
 ## Initial Sketch
 
 These are all small individual patches. Bundle them into one initiative for a single review/PR rather than spreading across multiple short tasks.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

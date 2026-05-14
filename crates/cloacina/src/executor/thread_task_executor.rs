@@ -67,8 +67,12 @@ fn failure_reason(err: &ExecutorError) -> &'static str {
         ExecutorError::ClaimLost => "claim_lost",
         ExecutorError::Database(_)
         | ExecutorError::ConnectionPool(_)
-        | ExecutorError::Context(_)
-        | ExecutorError::ContextLoadFailed(_) => "infrastructure",
+        | ExecutorError::Context(_) => "infrastructure",
+        // COR-11: ContextLoadFailed now reports as its own bounded
+        // reason value so operators can distinguish "task failed
+        // because we couldn't load its dependency context" from
+        // generic infrastructure issues.
+        ExecutorError::ContextLoadFailed(_) => "context_load_failed",
         ExecutorError::TaskNotFound(_) | ExecutorError::WorkflowExecutionNotFound(_) => {
             "task_not_found"
         }
@@ -270,27 +274,58 @@ impl ThreadTaskExecutor {
             );
             for (_task_metadata, context_json) in dep_metadata_with_contexts {
                 if let Some(json_str) = context_json {
-                    // Parse the JSON context data
-                    if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
-                        debug!(
-                            "Merging dependency context with {} keys: {:?}",
-                            dep_context.data().len(),
-                            dep_context.data().keys().collect::<Vec<_>>()
-                        );
-                        // Merge context data (smart merging strategy)
-                        for (key, value) in dep_context.data() {
-                            if let Some(existing_value) = context.get(key) {
-                                // Key exists - perform smart merging
-                                let merged_value =
-                                    Self::merge_context_values(existing_value, value);
-                                let _ = context.update(key, merged_value);
-                            } else {
-                                // Key doesn't exist - insert new value
-                                let _ = context.insert(key, value.clone());
+                    // Parse the JSON context data — COR-11: a parse failure
+                    // here used to silently downgrade to a `debug!` line and
+                    // continue with a partial context, which masked the
+                    // bug. Now it bubbles up as `ContextLoadFailed` so the
+                    // task fails explicitly and the
+                    // `cloacina_context_merge_failures_total{kind="parse"}`
+                    // counter increments.
+                    let dep_context = match Context::<serde_json::Value>::from_json(json_str) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            metrics::counter!(
+                                "cloacina_context_merge_failures_total",
+                                "kind" => "parse",
+                            )
+                            .increment(1);
+                            return Err(ExecutorError::ContextLoadFailed(format!(
+                                "dependency context JSON parse failed for task '{}': {}",
+                                claimed_task.task_name, e
+                            )));
+                        }
+                    };
+                    debug!(
+                        "Merging dependency context with {} keys: {:?}",
+                        dep_context.data().len(),
+                        dep_context.data().keys().collect::<Vec<_>>()
+                    );
+                    // Merge context data (smart merging strategy). Context
+                    // API insert/update fail when a key conflicts under a
+                    // strict-mode policy; count those as `kind="merge"`
+                    // for visibility but keep going so a single noisy key
+                    // doesn't fail the whole task.
+                    for (key, value) in dep_context.data() {
+                        if let Some(existing_value) = context.get(key) {
+                            // Key exists - perform smart merging
+                            let merged_value = Self::merge_context_values(existing_value, value);
+                            if context.update(key, merged_value).is_err() {
+                                metrics::counter!(
+                                    "cloacina_context_merge_failures_total",
+                                    "kind" => "merge",
+                                )
+                                .increment(1);
+                            }
+                        } else {
+                            // Key doesn't exist - insert new value
+                            if context.insert(key, value.clone()).is_err() {
+                                metrics::counter!(
+                                    "cloacina_context_merge_failures_total",
+                                    "kind" => "merge",
+                                )
+                                .increment(1);
                             }
                         }
-                    } else {
-                        debug!("Failed to parse dependency context JSON");
                     }
                 }
             }
@@ -474,10 +509,26 @@ impl ThreadTaskExecutor {
     ///
     /// # Returns
     /// Result indicating success or failure of the operation
-    /// Completes a task by marking it as completed (with claim guard) then saving context.
+    /// Completes a task by saving its context and then marking it completed.
     ///
-    /// Order: mark_completed first (guarded by claimed_by), then save context. If the
-    /// claim was lost, context is NOT saved — another runner owns this task.
+    /// **Order (COR-10):** save context first, mark completed second. The old
+    /// order (`mark_completed` first) had a CRITICAL hole — if context save
+    /// failed after the task was already marked Completed, the task looked
+    /// done but downstream consumers saw missing/empty context.
+    ///
+    /// The reversed order is asymmetric in the opposite, harmless direction:
+    /// if `mark_completed` fails *after* context save, the context row is
+    /// "orphaned" (saved + linked in task_execution_metadata) but the task
+    /// still appears Running — a heartbeat-loss + sweeper cycle retries
+    /// the task, saves a new context, and re-attempts. Orphan context rows
+    /// have no FK references and are harmless; a single DAL prune cron
+    /// can clean them up if storage matters.
+    ///
+    /// (The reviewer-recommended "single Diesel transaction" is the textbook
+    /// correct fix; deferred because the atomic write spans three DAL
+    /// submodules — contexts, task_execution_metadata, task_executions —
+    /// each with its own postgres/sqlite dispatch. Reversal here closes
+    /// the actual data-loss path without that surface-area expansion.)
     async fn complete_task_transaction(
         &self,
         claimed_task: &ClaimedTask,
@@ -489,7 +540,14 @@ impl ThreadTaskExecutor {
             None
         };
 
-        // Mark completed first — guarded by claim ownership
+        // 1. Save context FIRST. If this fails, the task is still marked
+        //    Running with our claim — the heartbeat-loss / claim-sweep
+        //    cycle will reset it to Ready and another attempt drives it
+        //    through this path again. No "marked Completed but no
+        //    context" state is reachable.
+        self.save_task_context(claimed_task, context).await?;
+
+        // 2. Mark completed — guarded by claim ownership.
         let applied = self
             .dal
             .task_execution()
@@ -500,7 +558,7 @@ impl ThreadTaskExecutor {
             warn!(
                 task_id = %claimed_task.task_execution_id,
                 task_name = %claimed_task.task_name,
-                "Claim lost — skipping context save, another runner owns this task"
+                "Claim lost between context save and mark_completed — context row is orphaned (harmless), another runner now owns this task"
             );
             return Ok(());
         }
@@ -511,18 +569,6 @@ impl ThreadTaskExecutor {
             workflow_id = %claimed_task.workflow_execution_id,
             "Task state change: -> Completed"
         );
-
-        // Save context only after confirming we still own the claim
-        if let Err(e) = self.save_task_context(claimed_task, context).await {
-            error!(
-                task_id = %claimed_task.task_execution_id,
-                task_name = %claimed_task.task_name,
-                workflow_id = %claimed_task.workflow_execution_id,
-                error = %e,
-                "CRITICAL: mark_completed succeeded but context save failed"
-            );
-            return Err(e);
-        }
 
         Ok(())
     }
@@ -919,9 +965,17 @@ impl TaskExecutor for ThreadTaskExecutor {
         // No `cloacina_active_tasks.decrement()` — SQL-derived in the
         // scheduler tick. See CLOACI-T-0589.
 
-        // Stop heartbeat and release claim after execution (success or failure)
+        // Stop heartbeat and release claim after execution (success or failure).
+        // COR-08: actually wait for the heartbeat task to finish so the
+        // synchronous-close contract holds. Without the bounded await,
+        // an in-flight `dal.task_execution().heartbeat(...)` could still
+        // be racing the final `mark_completed` write — confusing the
+        // claim-loss path. 100ms is plenty: the heartbeat loop's only
+        // await point is the DAL call, and after `abort()` it cooperates
+        // immediately at the next `tokio::select!` poll.
         if let Some(handle) = heartbeat_handle {
             handle.abort();
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(100), handle).await;
         }
 
         let result = match execution_result {
