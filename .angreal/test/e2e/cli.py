@@ -229,17 +229,17 @@ def cli():
                 check=False,
             )
             if code != 0 or not out.strip():
-                raise AssertionError(
-                    f"API-01: tenant create unexpected\n"
-                    f"  exit={code}\n  stdout={out!r}\n  stderr={stderr!r}"
-                )
+                print(f"!! API-01 tenant create exit={code}")
+                print(f"!! stdout={out!r}")
+                print(f"!! stderr={stderr!r}")
+                raise AssertionError("API-01: tenant create unexpected (see prints above)")
             try:
                 parsed = json.loads(out)
             except json.JSONDecodeError as e:
-                raise AssertionError(
-                    f"API-01: tenant create stdout not JSON: {e}\n"
-                    f"  stdout={out!r}\n  stderr={stderr!r}"
-                ) from e
+                print(f"!! API-01 tenant create stdout not JSON: {e}")
+                print(f"!! stdout={out!r}")
+                print(f"!! stderr={stderr!r}")
+                raise AssertionError("API-01: tenant create stdout not JSON (see prints above)")
             assert parsed.get("name") == tenant_name, (
                 f"API-01: tenant create response should echo `name`, got {parsed!r}"
             )
