@@ -246,8 +246,21 @@ def cli():
             print("  ok: API-01 tenant create round-trips")
 
             # --- API-03: `tenant list` returns items envelope (rendered via render::list) ---
-            code, out, _ = _cloacinactl(home, "-o", "json", "tenant", "list")
-            parsed = json.loads(out)
+            code, out, stderr = _cloacinactl(
+                home, "-o", "json", "tenant", "list", check=False,
+            )
+            if code != 0 or not out.strip():
+                raise AssertionError(
+                    f"API-03: tenant list unexpected\n"
+                    f"  exit={code}\n  stdout={out!r}\n  stderr={stderr!r}"
+                )
+            try:
+                parsed = json.loads(out)
+            except json.JSONDecodeError as e:
+                raise AssertionError(
+                    f"API-03: tenant list stdout not JSON: {e}\n"
+                    f"  stdout={out!r}\n  stderr={stderr!r}"
+                ) from e
             assert isinstance(parsed, list), (
                 f"API-03: tenant list JSON should render the items array, got {parsed!r}"
             )
@@ -322,29 +335,53 @@ def cli():
             # --- API-02: `execution list --status` filter actually takes effect ---
             # No executions exist yet for this tenant, so any filter returns []
             # but the request must not 4xx (proving the route accepts the query).
-            code, out, _ = _cloacinactl(
+            code, out, stderr = _cloacinactl(
                 home,
                 "-o", "json",
                 "--tenant", tenant_name,
                 "execution", "list",
                 "--status", "Failed",
+                check=False,
             )
-            parsed = json.loads(out)
+            if code != 0 or not out.strip():
+                raise AssertionError(
+                    f"API-02: execution list unexpected\n"
+                    f"  exit={code}\n  stdout={out!r}\n  stderr={stderr!r}"
+                )
+            try:
+                parsed = json.loads(out)
+            except json.JSONDecodeError as e:
+                raise AssertionError(
+                    f"API-02: execution list stdout not JSON: {e}\n"
+                    f"  stdout={out!r}\n  stderr={stderr!r}"
+                ) from e
             assert isinstance(parsed, list), (
                 f"API-02: execution list with filter should render array, got {parsed!r}"
             )
             print("  ok: API-02 execution list --status accepted")
 
             # --- API-10: `trigger list --limit` round-trip ---
-            code, out, _ = _cloacinactl(
+            code, out, stderr = _cloacinactl(
                 home,
                 "-o", "json",
                 "--tenant", tenant_name,
                 "trigger", "list",
                 "--limit", "5",
                 "--offset", "0",
+                check=False,
             )
-            parsed = json.loads(out)
+            if code != 0 or not out.strip():
+                raise AssertionError(
+                    f"API-10: trigger list unexpected\n"
+                    f"  exit={code}\n  stdout={out!r}\n  stderr={stderr!r}"
+                )
+            try:
+                parsed = json.loads(out)
+            except json.JSONDecodeError as e:
+                raise AssertionError(
+                    f"API-10: trigger list stdout not JSON: {e}\n"
+                    f"  stdout={out!r}\n  stderr={stderr!r}"
+                ) from e
             assert isinstance(parsed, list), (
                 f"API-10: trigger list with pagination should render array, got {parsed!r}"
             )
