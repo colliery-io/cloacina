@@ -246,6 +246,106 @@ jobs:
           password: ${{ secrets.PYPI_TOKEN }}
 
   # -----------------------------------------------------------------------
+  # Step 5b: Build + upload cloacinactl release binaries (CLOACI-I-0111 / T-0603)
+  #
+  # Cross-compiles `cloacinactl` for the four supported targets, packages
+  # each as a tarball with a SHA256 sidecar, and uploads them to the
+  # GitHub Release for the tag. Powers `scripts/install.sh`.
+  # -----------------------------------------------------------------------
+
+  build-release-binaries:
+    name: Build Binary (${{ matrix.target }})
+    needs: [verify-version]
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: false
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            cross: false
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            cross: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install libpq (Linux native)
+        if: runner.os == 'Linux' && matrix.cross == false
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+
+      - name: Install libpq (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install libpq
+          echo "PQ_LIB_DIR=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
+      - name: Install cross
+        if: matrix.cross == true
+        run: cargo install cross --locked --version 0.2.5
+
+      - name: Build (native)
+        if: matrix.cross == false
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin cloacinactl
+
+      - name: Build (cross)
+        if: matrix.cross == true
+        run: cross build --release --locked --target ${{ matrix.target }} --bin cloacinactl
+
+      - name: Strip binary
+        if: runner.os == 'Linux' && matrix.cross == false
+        run: strip target/${{ matrix.target }}/release/cloacinactl
+      - name: Strip binary (macOS)
+        if: runner.os == 'macOS'
+        run: strip -x target/${{ matrix.target }}/release/cloacinactl
+
+      - name: Package tarball + sha256 sidecar
+        id: pack
+        env:
+          TAG_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_REF#refs/tags/}"
+          asset="cloacinactl-${tag}-${{ matrix.target }}.tar.gz"
+          mkdir -p dist
+          tar -C "target/${{ matrix.target }}/release" -czf "dist/${asset}" cloacinactl
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd dist && sha256sum "${asset}" > "${asset}.sha256")
+          else
+            (cd dist && shasum -a 256 "${asset}" > "${asset}.sha256")
+          fi
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact (intra-workflow)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/cloacinactl-*
+          retention-days: 14
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/cloacinactl-*.tar.gz
+            dist/cloacinactl-*.tar.gz.sha256
+          fail_on_unmatched_files: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # -----------------------------------------------------------------------
   # Step 6: Cache hygiene
   #
   # Tag-scoped caches are write-once: they're only re-used if you re-run
@@ -256,7 +356,7 @@ jobs:
 
   prune-tag-caches:
     name: Prune Tag-Scoped Caches
-    needs: [publish-cargo, publish-pypi]
+    needs: [publish-cargo, publish-pypi, build-release-binaries]
     if: always() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

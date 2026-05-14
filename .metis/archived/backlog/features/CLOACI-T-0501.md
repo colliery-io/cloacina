@@ -7,7 +7,7 @@ created_at: 2026-04-16T12:44:09.822835+00:00
 updated_at: 2026-04-16T12:44:09.822835+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -105,6 +105,8 @@ helm install cloacina cloacina/cloacina-server
 - Secret for API keys / TLS certs
 - Service + Ingress for HTTP/WebSocket
 - ServiceMonitor for Prometheus scraping
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
