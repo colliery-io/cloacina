@@ -385,6 +385,19 @@ pub async fn run(
          `when_any | when_all | sequential` — projects the two-axis \
          (criteria × input_strategy) design onto a single bounded label."
     );
+    metrics::describe_counter!(
+        "cloacina_reactor_firings_total",
+        "Total `reactor_firings` rows written by the reactor on each \
+         fire (CLOACI-I-0100 / T-0599). One row per fire feeds the \
+         subscription poller; this counter mirrors successful row \
+         writes only — DAL failures land in logs."
+    );
+    metrics::describe_counter!(
+        "cloacina_reactor_firings_pruned_total",
+        "Total `reactor_firings` rows deleted by the unified scheduler's \
+         TTL prune sweep (CLOACI-I-0100 / T-0601). Unlabeled — single \
+         global counter is sufficient."
+    );
     metrics::describe_histogram!(
         "cloacina_reactor_fire_duration_seconds",
         "Wall-clock duration of the user's compiled graph body (the time \
@@ -1822,6 +1835,18 @@ mod tests {
             )
             .increment(1);
         }
+        // I-0100 / T-0599: reactor firings counter — labels are
+        // `graph | reactor` (typically the same value, derived from the
+        // package's reactor name). Bounded by the loaded reactor set,
+        // not by request-time data.
+        metrics::counter!(
+            "cloacina_reactor_firings_total",
+            "graph" => "g0",
+            "reactor" => "r0",
+        )
+        .increment(1);
+        // I-0100 / T-0601: TTL prune counter — unlabeled.
+        metrics::counter!("cloacina_reactor_firings_pruned_total").increment(1);
 
         // Scrape and parse
         let app = build_router(state);
@@ -1926,6 +1951,8 @@ mod tests {
             "cloacina_reactor_persist_failures_total",
             "cloacina_accumulator_persist_failures_total",
             "cloacina_context_merge_failures_total",
+            "cloacina_reactor_firings_total",
+            "cloacina_reactor_firings_pruned_total",
         ] {
             assert!(
                 series_count.contains_key(expected),

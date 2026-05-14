@@ -458,7 +458,8 @@ impl ComputationGraphScheduler {
         .with_graph_name(reactor_name.clone())
         .with_health(reactor_health_tx)
         .with_expected_sources(expected_sources)
-        .with_accumulator_health(acc_health_rxs);
+        .with_accumulator_health(acc_health_rxs)
+        .with_tenant_id(tenant_id.clone());
 
         if let Some(ref dal) = self.dal {
             reactor = reactor.with_dal(dal.clone());
@@ -1004,7 +1005,8 @@ impl ComputationGraphScheduler {
                 .with_graph_name(graph_name.clone())
                 .with_health(reactor_health_tx)
                 .with_expected_sources(expected_sources)
-                .with_accumulator_health(restart_acc_health_rxs);
+                .with_accumulator_health(restart_acc_health_rxs)
+                .with_tenant_id(running.declaration.tenant_id.clone());
                 if let Some(ref dal) = self.dal {
                     reactor = reactor.with_dal(dal.clone());
                 }

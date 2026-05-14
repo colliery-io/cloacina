@@ -266,6 +266,10 @@ pub struct Reactor {
     graph_name: String,
     /// DAL handle for cache persistence. None in embedded mode.
     dal: Option<crate::dal::unified::DAL>,
+    /// Tenant scope for the reactor's package, used as the
+    /// `reactor_firings.tenant_id` row key (CLOACI-I-0100 / T-0599).
+    /// `None` for cross-tenant or embedded reactors.
+    tenant_id: Option<String>,
     /// Health state reporter. None when health tracking not needed.
     health: Option<watch::Sender<ReactorHealth>>,
     /// Accumulator health receivers for startup gating and degraded mode detection.
@@ -298,6 +302,7 @@ impl Reactor {
             expected_sources: Vec::new(),
             graph_name: String::new(),
             dal: None,
+            tenant_id: None,
             health: None,
             accumulator_health_rxs: Vec::new(),
             batch_flush_senders: Vec::new(),
@@ -319,6 +324,12 @@ impl Reactor {
     /// Set the DAL handle for cache persistence.
     pub fn with_dal(mut self, dal: crate::dal::unified::DAL) -> Self {
         self.dal = Some(dal);
+        self
+    }
+
+    /// Set the tenant scope for reactor firings (CLOACI-I-0100 / T-0599).
+    pub fn with_tenant_id(mut self, tenant_id: Option<String>) -> Self {
+        self.tenant_id = tenant_id;
         self
     }
 
@@ -619,6 +630,7 @@ impl Reactor {
         let graph = self.graph.clone();
         let criteria = self.criteria.clone();
         let dal_exec = self.dal.clone();
+        let tenant_id_exec = self.tenant_id.clone();
         let graph_name_exec = self.graph_name.clone();
         let batch_flush = self.batch_flush_senders.clone();
         let fire_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -647,6 +659,9 @@ impl Reactor {
                                 let snapshot = cache_exec.read().await.snapshot();
                                 dirty_exec.write().await.clear_all();
                                 let fire_started = std::time::Instant::now();
+                                write_reactor_firing(
+                                    &dal_exec, &tenant_id_exec, &graph_name_exec, &snapshot,
+                                ).await;
                                 let result = (graph)(snapshot).await;
                                 metrics::counter!(
                                     "cloacina_reactor_fires_total",
@@ -697,6 +712,9 @@ impl Reactor {
                                         cache_exec.write().await.update(source, bytes);
                                         let snapshot = cache_exec.read().await.snapshot();
                                         let fire_started = std::time::Instant::now();
+                                        write_reactor_firing(
+                                            &dal_exec, &tenant_id_exec, &graph_name_exec, &snapshot,
+                                        ).await;
                                         let result = (graph)(snapshot).await;
                                         metrics::counter!(
                                             "cloacina_reactor_fires_total",
@@ -752,6 +770,68 @@ impl Reactor {
         // Wait for receiver to finish
         let _ = receiver_handle.await;
     }
+}
+
+/// Write one `reactor_firings` row to the DAL on each fire.
+///
+/// Best-effort: a DAL failure logs a warning but never blocks the
+/// in-process CG dispatch (the supervisor's persist-failure watchdog
+/// catches sustained DAL trouble via `persist_reactor_state`).
+///
+/// Skipped silently when no DAL is wired (embedded mode) or no tenant
+/// is set (cross-tenant / test reactors).
+async fn write_reactor_firing(
+    dal: &Option<crate::dal::unified::DAL>,
+    tenant_id: &Option<String>,
+    reactor_name: &str,
+    snapshot: &cloacina_computation_graph::InputCache,
+) {
+    let Some(dal) = dal else { return };
+    let Some(tenant) = tenant_id else { return };
+    if reactor_name.is_empty() {
+        return;
+    }
+
+    // Serialize boundary cache as a stable map keyed by source name string —
+    // matches what subscribers will deserialize as their input context.
+    let entries: std::collections::HashMap<String, Vec<u8>> = snapshot
+        .entries_raw()
+        .iter()
+        .map(|(name, bytes)| (name.as_str().to_string(), bytes.clone()))
+        .collect();
+    let payload = match bincode::serialize(&entries) {
+        Ok(b) => Some(b),
+        Err(e) => {
+            tracing::warn!(
+                reactor = reactor_name,
+                "failed to bincode-serialize firing payload: {}",
+                e
+            );
+            None
+        }
+    };
+
+    let fired_at = crate::database::universal_types::UniversalTimestamp::now();
+    if let Err(e) = dal
+        .reactor_subscriptions()
+        .insert_firing(reactor_name, tenant, payload, fired_at)
+        .await
+    {
+        tracing::warn!(
+            reactor = reactor_name,
+            tenant = tenant.as_str(),
+            "failed to write reactor_firings row: {}",
+            e
+        );
+        return;
+    }
+
+    metrics::counter!(
+        "cloacina_reactor_firings_total",
+        "graph" => reactor_name.to_string(),
+        "reactor" => reactor_name.to_string(),
+    )
+    .increment(1);
 }
 
 /// Threshold for the persist-failure watchdog: a reactor whose persist

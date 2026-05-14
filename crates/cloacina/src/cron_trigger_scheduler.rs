@@ -73,6 +73,20 @@ pub struct SchedulerConfig {
     pub trigger_base_poll_interval: Duration,
     /// Maximum time to wait for a single trigger poll operation.
     pub trigger_poll_timeout: Duration,
+    /// How often to poll reactor subscriptions for new firings
+    /// (CLOACI-I-0100 / T-0599). Defaults to the base tick interval.
+    pub reactor_poll_interval: Duration,
+    /// Maximum number of unconsumed firings to drain per subscription
+    /// per tick. Caps unbounded backlog work on a single tick.
+    pub reactor_poll_batch_limit: i64,
+    /// How often to prune old `reactor_firings` rows
+    /// (CLOACI-I-0100 / T-0601). Defaults to 1 hour.
+    pub reactor_firings_prune_interval: Duration,
+    /// Retention window for `reactor_firings` rows. Anything with
+    /// `fired_at < now - retention` is deleted on each prune sweep.
+    /// Defaults to 7 days. Subscriptions whose watermark predates the
+    /// retention window will miss firings — documented gotcha.
+    pub reactor_firings_retention: Duration,
 }
 
 impl Default for SchedulerConfig {
@@ -83,6 +97,10 @@ impl Default for SchedulerConfig {
             max_acceptable_delay: Duration::from_secs(300), // 5 minutes
             trigger_base_poll_interval: Duration::from_secs(1),
             trigger_poll_timeout: Duration::from_secs(30),
+            reactor_poll_interval: Duration::from_secs(1),
+            reactor_poll_batch_limit: 100,
+            reactor_firings_prune_interval: Duration::from_secs(60 * 60),
+            reactor_firings_retention: Duration::from_secs(7 * 24 * 60 * 60),
         }
     }
 }
@@ -123,6 +141,12 @@ pub struct Scheduler {
     last_poll_times: HashMap<String, Instant>,
     /// Tracks when cron schedules were last checked.
     last_cron_check: Option<Instant>,
+    /// Tracks when reactor subscriptions were last polled
+    /// (CLOACI-I-0100 / T-0599).
+    last_reactor_poll: Option<Instant>,
+    /// Tracks when the `reactor_firings` TTL prune last ran
+    /// (CLOACI-I-0100 / T-0601).
+    last_reactor_prune: Option<Instant>,
 }
 
 impl Scheduler {
@@ -148,6 +172,8 @@ impl Scheduler {
             runtime,
             last_poll_times: HashMap::new(),
             last_cron_check: None,
+            last_reactor_poll: None,
+            last_reactor_prune: None,
         }
     }
 
@@ -202,6 +228,30 @@ impl Scheduler {
                     // --- Triggers ---
                     if let Err(e) = self.check_and_process_triggers().await {
                         error!("Error processing triggers: {}", e);
+                    }
+
+                    // --- Reactor subscriptions (CLOACI-I-0100 / T-0599) ---
+                    let should_poll_reactors = match self.last_reactor_poll {
+                        Some(last) => now.duration_since(last) >= self.config.reactor_poll_interval,
+                        None => true,
+                    };
+                    if should_poll_reactors {
+                        self.last_reactor_poll = Some(now);
+                        if let Err(e) = self.check_and_process_reactor_subscriptions().await {
+                            error!("Error processing reactor subscriptions: {}", e);
+                        }
+                    }
+
+                    // --- Reactor firings TTL prune (CLOACI-I-0100 / T-0601) ---
+                    let should_prune = match self.last_reactor_prune {
+                        Some(last) => {
+                            now.duration_since(last) >= self.config.reactor_firings_prune_interval
+                        }
+                        None => true,
+                    };
+                    if should_prune {
+                        self.last_reactor_prune = Some(now);
+                        self.prune_reactor_firings().await;
                     }
                 }
                 _ = self.shutdown.changed() => {
@@ -796,6 +846,198 @@ impl Scheduler {
     }
 
     // -----------------------------------------------------------------------
+    // Reactor subscription processing (CLOACI-I-0100 / T-0599)
+    // -----------------------------------------------------------------------
+
+    /// Polls the `reactor_trigger_subscriptions` table and dispatches one
+    /// workflow execution per unconsumed `reactor_firings` row.
+    ///
+    /// Watermark advance happens after dispatch — at-least-once on crash.
+    /// Workflow idempotency is the user's concern (same as cron-triggered
+    /// workflows).
+    async fn check_and_process_reactor_subscriptions(&self) -> Result<(), WorkflowExecutionError> {
+        let subs = match self.dal.reactor_subscriptions().list_all_enabled().await {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!("Failed to list reactor subscriptions: {}", e);
+                return Ok(());
+            }
+        };
+
+        if subs.is_empty() {
+            return Ok(());
+        }
+
+        debug!(
+            "Polling {} reactor subscription(s) for new firings",
+            subs.len()
+        );
+
+        for sub in subs {
+            if let Err(e) = self.process_reactor_subscription(&sub).await {
+                error!(
+                    subscription = %sub.id.0,
+                    reactor = %sub.reactor_name,
+                    workflow = %sub.workflow_name,
+                    "Failed to process reactor subscription: {}",
+                    e
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Drain new firings for one subscription and dispatch each as a
+    /// workflow execution.
+    async fn process_reactor_subscription(
+        &self,
+        sub: &crate::dal::unified::ReactorSubscription,
+    ) -> Result<(), WorkflowExecutionError> {
+        let firings = self
+            .dal
+            .reactor_subscriptions()
+            .poll_unconsumed(
+                &sub.tenant_id,
+                &sub.reactor_name,
+                sub.last_seen_fired_at,
+                self.config.reactor_poll_batch_limit,
+            )
+            .await
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+                message: format!(
+                    "reactor poll_unconsumed failed for subscription {}: {}",
+                    sub.id.0, e
+                ),
+            })?;
+
+        for firing in firings {
+            // Build the workflow's input context from the firing payload.
+            let mut context = Context::<serde_json::Value>::new();
+
+            if let Some(payload) = &firing.payload {
+                match bincode::deserialize::<std::collections::HashMap<String, Vec<u8>>>(
+                    payload.as_slice(),
+                ) {
+                    Ok(entries) => {
+                        for (source, bytes) in entries {
+                            // Boundary payloads are bincode; surface as JSON
+                            // when we can, otherwise as a hex string. The
+                            // workflow author knows the source schema and
+                            // can re-decode as needed.
+                            let value = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                                Ok(v) => v,
+                                Err(_) => serde_json::json!(hex::encode(&bytes)),
+                            };
+                            if let Err(e) = context.insert(&source, value) {
+                                warn!(
+                                    "reactor firing {}: failed to insert source '{}' into context: {}",
+                                    firing.id.0, source, e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "reactor firing {}: failed to decode payload, dispatching with empty context: {}",
+                            firing.id.0, e
+                        );
+                    }
+                }
+            }
+
+            let _ = context.insert("reactor_name", serde_json::json!(sub.reactor_name.clone()));
+            let _ = context.insert("reactor_firing_id", serde_json::json!(firing.id.0));
+            let _ = context.insert(
+                "reactor_fired_at",
+                serde_json::json!(firing.fired_at.0.to_rfc3339()),
+            );
+
+            // Dispatch — fire-and-forget. The poller hands off the
+            // workflow and moves on; failures are surfaced via the
+            // standard execution audit, not by blocking this tick.
+            match self
+                .executor
+                .execute_async(&sub.workflow_name, context)
+                .await
+            {
+                Ok(handle) => {
+                    debug!(
+                        subscription = %sub.id.0,
+                        firing = %firing.id.0,
+                        execution = %handle.execution_id,
+                        "dispatched workflow '{}' for reactor '{}'",
+                        sub.workflow_name, sub.reactor_name,
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        subscription = %sub.id.0,
+                        firing = %firing.id.0,
+                        "failed to dispatch workflow '{}' for reactor '{}': {}",
+                        sub.workflow_name, sub.reactor_name, e
+                    );
+                    // Stop draining this subscription on dispatch error so
+                    // the watermark stays put and the firing is retried on
+                    // the next tick. Other subscriptions still progress.
+                    return Err(e);
+                }
+            }
+
+            // Advance watermark only after successful dispatch.
+            if let Err(e) = self
+                .dal
+                .reactor_subscriptions()
+                .advance_watermark(sub.id.0, firing.fired_at)
+                .await
+            {
+                warn!(
+                    subscription = %sub.id.0,
+                    firing = %firing.id.0,
+                    "watermark advance failed; firing may be re-dispatched: {}",
+                    e
+                );
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// TTL prune of `reactor_firings` (CLOACI-I-0100 / T-0601).
+    ///
+    /// Best-effort: errors log warn and never propagate. Subscriptions
+    /// whose `last_seen_fired_at` predates the cutoff will skip past
+    /// firings that get pruned — documented gotcha in the tutorial.
+    async fn prune_reactor_firings(&self) {
+        let cutoff_dt = Utc::now()
+            - chrono::Duration::from_std(self.config.reactor_firings_retention)
+                .unwrap_or(chrono::Duration::days(7));
+        let cutoff = UniversalTimestamp(cutoff_dt);
+
+        match self
+            .dal
+            .reactor_subscriptions()
+            .prune_firings_older_than(cutoff)
+            .await
+        {
+            Ok(0) => {
+                debug!("reactor_firings prune: no rows older than {}", cutoff_dt);
+            }
+            Ok(n) => {
+                debug!(
+                    "reactor_firings prune: deleted {} row(s) older than {}",
+                    n, cutoff_dt
+                );
+                metrics::counter!("cloacina_reactor_firings_pruned_total").increment(n as u64);
+            }
+            Err(e) => {
+                warn!("reactor_firings prune failed: {}", e);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Trigger management (public API)
     // -----------------------------------------------------------------------
 
@@ -911,6 +1153,16 @@ mod tests {
         assert_eq!(config.max_acceptable_delay, Duration::from_secs(300));
         assert_eq!(config.trigger_base_poll_interval, Duration::from_secs(1));
         assert_eq!(config.trigger_poll_timeout, Duration::from_secs(30));
+        assert_eq!(config.reactor_poll_interval, Duration::from_secs(1));
+        assert_eq!(config.reactor_poll_batch_limit, 100);
+        assert_eq!(
+            config.reactor_firings_prune_interval,
+            Duration::from_secs(3600)
+        );
+        assert_eq!(
+            config.reactor_firings_retention,
+            Duration::from_secs(7 * 86_400)
+        );
     }
 
     #[test]
@@ -1016,12 +1268,26 @@ mod tests {
             max_acceptable_delay: Duration::from_secs(120),
             trigger_base_poll_interval: Duration::from_secs(5),
             trigger_poll_timeout: Duration::from_secs(10),
+            reactor_poll_interval: Duration::from_secs(2),
+            reactor_poll_batch_limit: 25,
+            reactor_firings_prune_interval: Duration::from_secs(120),
+            reactor_firings_retention: Duration::from_secs(86_400),
         };
         assert_eq!(config.cron_poll_interval, Duration::from_secs(60));
         assert_eq!(config.max_catchup_executions, 50);
         assert_eq!(config.max_acceptable_delay, Duration::from_secs(120));
         assert_eq!(config.trigger_base_poll_interval, Duration::from_secs(5));
         assert_eq!(config.trigger_poll_timeout, Duration::from_secs(10));
+        assert_eq!(config.reactor_poll_interval, Duration::from_secs(2));
+        assert_eq!(config.reactor_poll_batch_limit, 25);
+        assert_eq!(
+            config.reactor_firings_prune_interval,
+            Duration::from_secs(120)
+        );
+        assert_eq!(
+            config.reactor_firings_retention,
+            Duration::from_secs(86_400)
+        );
     }
 
     #[test]

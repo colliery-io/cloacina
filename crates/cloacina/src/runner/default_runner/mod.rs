@@ -28,6 +28,7 @@
 
 mod config;
 mod cron_api;
+mod reactor_subscriptions_api;
 mod service_manager;
 mod services;
 mod workflow_executor_impl;
