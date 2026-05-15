@@ -18,7 +18,7 @@
 # Run:     docker run --rm -e DATABASE_URL=postgres://... cloacina-server:dev
 # Verify:  docker run --rm cloacina-server:dev --version
 
-ARG RUST_VERSION=1.85
+ARG RUST_VERSION=1.93
 
 # ---------------------------------------------------------------------------
 # Stage 1: builder
