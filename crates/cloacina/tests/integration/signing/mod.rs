@@ -23,6 +23,7 @@
 //! - Security failure cases (tampered packages, untrusted signers, revoked keys)
 
 mod key_rotation;
+mod reconciler_did_check;
 mod security_failures;
 mod sign_and_verify;
 mod trust_chain;

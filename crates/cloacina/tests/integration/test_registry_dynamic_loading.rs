@@ -156,6 +156,8 @@ fn test_reconciler_config() {
         package_operation_timeout: std::time::Duration::from_secs(60),
         continue_on_package_error: false,
         default_tenant_id: "custom".to_string(),
+        require_signatures: false,
+        verification_org_id: None,
     };
 
     assert_eq!(custom_config.reconcile_interval.as_secs(), 60);

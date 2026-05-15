@@ -423,6 +423,22 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
 
         Ok(())
     }
+
+    /// Defense-in-depth signature existence check (CLOACI-T-0571).
+    ///
+    /// Queries `package_signatures` for any row with the given hash.
+    /// Used by the reconciler when `require_signatures` is on.
+    async fn find_signature(&self, package_hash: &str) -> Result<bool, RegistryError> {
+        use crate::security::{DbPackageSigner, PackageSigner};
+        let signer = DbPackageSigner::new(crate::dal::DAL::new(self.database.clone()));
+        match signer.find_signature(package_hash).await {
+            Ok(opt) => Ok(opt.is_some()),
+            Err(e) => Err(RegistryError::Internal(format!(
+                "find_signature DAL query failed for hash {}: {}",
+                package_hash, e
+            ))),
+        }
+    }
 }
 
 #[cfg(test)]

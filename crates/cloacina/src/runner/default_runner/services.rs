@@ -184,6 +184,11 @@ impl DefaultRunner {
             package_operation_timeout: Duration::from_secs(30),
             continue_on_package_error: true,
             default_tenant_id: "public".to_string(),
+            // CLOACI-T-0571: forward signature-existence-check config
+            // from the runner so server mode picks up the same gating
+            // already plumbed via --require-signatures + --verification-org-id.
+            require_signatures: self.config.require_signatures(),
+            verification_org_id: self.config.verification_org_id(),
         };
 
         let workflow_registry_result = match self.config.registry_storage_backend() {

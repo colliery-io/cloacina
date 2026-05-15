@@ -157,6 +157,22 @@ pub trait WorkflowRegistry: Send + Sync {
         package_name: &str,
         version: &str,
     ) -> Result<(), RegistryError>;
+
+    /// Check whether a `package_signatures` row exists for the given
+    /// SHA-256 hash. Used by the reconciler's defense-in-depth
+    /// signature-existence check (CLOACI-T-0571) when
+    /// `--require-signatures` is on. Implementations that don't have a
+    /// signature backing store return `Ok(false)`.
+    ///
+    /// # Arguments
+    ///
+    /// * `package_hash` — hex-encoded SHA-256 of the package source archive.
+    async fn find_signature(&self, package_hash: &str) -> Result<bool, RegistryError> {
+        // Default impl: no signature store. Implementations backed by the
+        // unified DB schema override this to query `package_signatures`.
+        let _ = package_hash;
+        Ok(false)
+    }
 }
 
 /// Trait for binary storage backends.

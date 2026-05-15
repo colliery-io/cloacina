@@ -309,6 +309,13 @@ pub async fn run(
     if let Some(interval) = reconcile_interval {
         runner_builder = runner_builder.registry_reconcile_interval(interval);
     }
+    // CLOACI-T-0571: forward the verification config into the runner so the
+    // reconciler's defense-in-depth signature-existence check fires even
+    // when packages reach `workflow_packages` via paths other than the
+    // upload route.
+    runner_builder = runner_builder
+        .require_signatures(require_signatures)
+        .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
     let runner_config = runner_builder
         .build()
         .context("Invalid runner configuration")?;

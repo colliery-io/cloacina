@@ -4,15 +4,15 @@ level: task
 title: "Reconciler DiD existence check for signed packages (defense-in-depth)"
 short_code: "CLOACI-T-0571"
 created_at: 2026-05-07T03:50:15.943463+00:00
-updated_at: 2026-05-07T03:50:15.943463+00:00
-parent:
+updated_at: 2026-05-15T13:05:10.206466+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
