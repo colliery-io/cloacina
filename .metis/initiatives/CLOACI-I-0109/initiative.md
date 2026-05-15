@@ -4,14 +4,14 @@ level: initiative
 title: "Install Prometheus recorders in cloacina-compiler and cloacinactl daemon"
 short_code: "CLOACI-I-0109"
 created_at: 2026-05-06T11:05:37.562963+00:00
-updated_at: 2026-05-06T11:05:37.562963+00:00
+updated_at: 2026-05-14T15:21:32.530841+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -31,12 +31,12 @@ This initiative installs Prometheus recorders on both binaries with metrics mean
 
 **Goals:**
 - `cloacina-compiler` exposes `/metrics` with build-relevant counters/histograms/gauges.
-- `cloacinactl daemon` installs the engine's Prometheus recorder and exposes `/metrics` on a configurable bind.
-- Both endpoints validated by `angreal test:metrics-format` (promtool).
+- Compiler endpoint validated by `angreal test:metrics-format` (promtool).
 - Log retention is configurable on all three deployables (compiler, server, daemon) via `--log-retention-days`.
 
 **Non-Goals:**
-- Distributed tracing for compiler/daemon (separate concern).
+- **Daemon `/metrics`** — `cloacinactl daemon` is a hobbyist-tier local process per CLOACI-A-0005's deployment-mode trust model. There's no Prometheus to scrape it, an HTTP listener adds unnecessary attack surface, and the observability story for a local daemon is logs. OPS-05 is closed as won't-fix for this reason; if a "daemon-as-service" deployment mode ever emerges, revisit.
+- Distributed tracing for compiler (separate concern).
 - Reworking the engine's metric schema. Reuse what exists.
 - Custom dashboards/alerts. Exposition is enough.
 
@@ -58,6 +58,16 @@ This initiative installs Prometheus recorders on both binaries with metrics mean
 - Day 1: Compiler `/metrics` with the metric set above. SQL-derived re-seed on queue depth per the REC-06 pattern.
 - Day 2: Daemon Prometheus recorder + `--metrics-bind` + emits engine's existing 8 metrics.
 - Day 3: Add to `angreal test:metrics-format`. Wire `--log-retention-days` on all three deployables (default 14) via `tracing_appender::rolling::Builder::max_log_files(N)`.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

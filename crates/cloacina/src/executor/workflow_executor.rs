@@ -487,36 +487,21 @@ pub trait WorkflowExecutor: Send + Sync {
 }
 
 impl WorkflowStatus {
-    /// Creates a WorkflowStatus from a string representation.
+    /// Parse a `WorkflowStatus` from its string representation.
     ///
-    /// This method is used internally for deserializing workflow statuses from
-    /// various sources (database, API responses, etc.). It provides a consistent
-    /// way to convert string representations of workflow statuses into the
-    /// corresponding enum variants.
-    ///
-    /// # Arguments
-    ///
-    /// * `s` - String representation of the status
-    ///
-    /// # Returns
-    ///
-    /// The corresponding WorkflowStatus variant, or Failed if the string is invalid
-    ///
-    /// # Usage
-    /// - Database deserialization
-    /// - API response parsing
-    /// - Status conversion from external systems
-    /// - Testing and validation
-    #[cfg(test)]
-    pub(crate) fn from_str(s: &str) -> Self {
+    /// Fallible — an unrecognized string returns `Err(value)` containing
+    /// the offending input. CLOACI-I-0110 / COR-18: callers must
+    /// surface unknown statuses explicitly rather than silently
+    /// coercing them to `Failed`, which used to mask schema drift.
+    pub fn parse_status(s: &str) -> Result<Self, String> {
         match s {
-            "Pending" => WorkflowStatus::Pending,
-            "Running" => WorkflowStatus::Running,
-            "Completed" => WorkflowStatus::Completed,
-            "Failed" => WorkflowStatus::Failed,
-            "Cancelled" => WorkflowStatus::Cancelled,
-            "Paused" => WorkflowStatus::Paused,
-            _ => WorkflowStatus::Failed,
+            "Pending" => Ok(WorkflowStatus::Pending),
+            "Running" => Ok(WorkflowStatus::Running),
+            "Completed" => Ok(WorkflowStatus::Completed),
+            "Failed" => Ok(WorkflowStatus::Failed),
+            "Cancelled" => Ok(WorkflowStatus::Cancelled),
+            "Paused" => Ok(WorkflowStatus::Paused),
+            other => Err(other.to_string()),
         }
     }
 }
@@ -545,27 +530,37 @@ mod tests {
     }
 
     #[test]
-    fn test_workflow_status_from_str_valid() {
-        assert_eq!(WorkflowStatus::from_str("Pending"), WorkflowStatus::Pending);
-        assert_eq!(WorkflowStatus::from_str("Running"), WorkflowStatus::Running);
-        assert_eq!(
-            WorkflowStatus::from_str("Completed"),
-            WorkflowStatus::Completed
-        );
-        assert_eq!(WorkflowStatus::from_str("Failed"), WorkflowStatus::Failed);
-        assert_eq!(
-            WorkflowStatus::from_str("Cancelled"),
-            WorkflowStatus::Cancelled
-        );
-        assert_eq!(WorkflowStatus::from_str("Paused"), WorkflowStatus::Paused);
+    fn test_workflow_status_parse_valid_round_trip() {
+        // Round-trip every variant — COR-18 acceptance.
+        for variant in [
+            WorkflowStatus::Pending,
+            WorkflowStatus::Running,
+            WorkflowStatus::Completed,
+            WorkflowStatus::Failed,
+            WorkflowStatus::Cancelled,
+            WorkflowStatus::Paused,
+        ] {
+            let s = format!("{:?}", variant);
+            assert_eq!(
+                WorkflowStatus::parse_status(&s).expect("variant must round-trip"),
+                variant,
+                "round-trip failed for {:?}",
+                variant
+            );
+        }
     }
 
     #[test]
-    fn test_workflow_status_from_str_invalid_defaults_to_failed() {
-        assert_eq!(WorkflowStatus::from_str("garbage"), WorkflowStatus::Failed);
-        assert_eq!(WorkflowStatus::from_str(""), WorkflowStatus::Failed);
-        assert_eq!(WorkflowStatus::from_str("running"), WorkflowStatus::Failed);
-        // case-sensitive
+    fn test_workflow_status_parse_invalid_is_err() {
+        // COR-18: unknown strings must surface as Err, not silently
+        // coerce to Failed (which used to mask DB schema drift).
+        assert!(WorkflowStatus::parse_status("garbage").is_err());
+        assert!(WorkflowStatus::parse_status("").is_err());
+        assert!(WorkflowStatus::parse_status("running").is_err()); // case-sensitive
+        assert_eq!(
+            WorkflowStatus::parse_status("garbage").unwrap_err(),
+            "garbage"
+        );
     }
 
     #[test]

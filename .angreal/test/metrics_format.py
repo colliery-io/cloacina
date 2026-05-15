@@ -1,6 +1,7 @@
 """
-test metrics-format — scrape /metrics from a live cloacina-server and
-validate the exposition output with `promtool check metrics` (T-0536).
+test metrics-format — scrape /metrics from a live cloacina-server *and*
+cloacina-compiler, validate both exposition outputs with
+`promtool check metrics` (T-0536 + T-0591).
 """
 
 import subprocess
@@ -39,18 +40,22 @@ def metrics_format():
         print("  Install from https://prometheus.io/download/ and try again.")
         return 1
 
-    print("Building cloacina-server (debug)...")
+    print("Building cloacina-server + cloacina-compiler (debug)...")
     build = subprocess.run(
-        ["cargo", "build", "-p", "cloacina-server"],
+        ["cargo", "build", "-p", "cloacina-server", "-p", "cloacina-compiler"],
         cwd=PROJECT_ROOT,
     )
     if build.returncode != 0:
-        print("Server build failed.")
+        print("Build failed.")
         return build.returncode
 
     server_binary = PROJECT_ROOT / "target" / "debug" / "cloacina-server"
+    compiler_binary = PROJECT_ROOT / "target" / "debug" / "cloacina-compiler"
     if not server_binary.exists():
         print(f"Server binary not found at {server_binary}")
+        return 1
+    if not compiler_binary.exists():
+        print(f"Compiler binary not found at {compiler_binary}")
         return 1
 
     compose_file = PROJECT_ROOT / ".angreal" / "docker-compose.yaml"
@@ -82,7 +87,48 @@ def metrics_format():
         shutil.rmtree(home)
     home.mkdir(parents=True)
 
+    def wait_for_health(url: str, label: str) -> bool:
+        for _ in range(30):
+            time.sleep(1)
+            try:
+                with urllib.request.urlopen(url, timeout=1) as resp:
+                    if resp.status == 200:
+                        return True
+            except Exception:
+                continue
+        print(f"{label} never became healthy at {url}.")
+        return False
+
+    def scrape_and_validate(url: str, label: str) -> int:
+        print(f"Scraping {label} /metrics from {url}...")
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                if resp.status != 200:
+                    print(f"{label} /metrics returned {resp.status}")
+                    return 1
+                body = resp.read()
+        except Exception as e:
+            print(f"Failed to scrape {label} /metrics: {e}")
+            return 1
+
+        print(f"Running promtool on {len(body)} bytes from {label}...")
+        promtool_proc = subprocess.run(
+            [promtool, "check", "metrics"],
+            input=body,
+            capture_output=True,
+        )
+        if promtool_proc.stdout:
+            print(promtool_proc.stdout.decode(errors="replace"))
+        if promtool_proc.stderr:
+            print(promtool_proc.stderr.decode(errors="replace"))
+        if promtool_proc.returncode != 0:
+            print(f"{label} /metrics: promtool reported exposition format problems.")
+            return promtool_proc.returncode
+        print(f"{label} /metrics passes promtool check.")
+        return 0
+
     server_proc = None
+    compiler_proc = None
     try:
         print("Starting server...")
         server_proc = subprocess.Popen(
@@ -97,18 +143,7 @@ def metrics_format():
             stderr=subprocess.PIPE,
         )
 
-        healthy = False
-        for _ in range(30):
-            time.sleep(1)
-            try:
-                with urllib.request.urlopen("http://127.0.0.1:18181/health", timeout=1) as resp:
-                    if resp.status == 200:
-                        healthy = True
-                        break
-            except Exception:
-                continue
-        if not healthy:
-            print("Server never became healthy.")
+        if not wait_for_health("http://127.0.0.1:18181/health", "server"):
             return 1
 
         try:
@@ -116,41 +151,45 @@ def metrics_format():
         except Exception:
             pass
 
-        print("Scraping /metrics...")
-        try:
-            with urllib.request.urlopen("http://127.0.0.1:18181/metrics", timeout=5) as resp:
-                if resp.status != 200:
-                    print(f"/metrics returned {resp.status}")
-                    return 1
-                body = resp.read()
-        except Exception as e:
-            print(f"Failed to scrape /metrics: {e}")
+        rc = scrape_and_validate("http://127.0.0.1:18181/metrics", "server")
+        if rc != 0:
+            return rc
+
+        # Compiler endpoint (CLOACI-T-0591). Shares the postgres fixture
+        # with the server; binds on a separate port so both /metrics
+        # endpoints are independently scrapeable.
+        compiler_home = PROJECT_ROOT / "target" / "metrics-format-check-compiler"
+        if compiler_home.exists():
+            shutil.rmtree(compiler_home)
+        compiler_home.mkdir(parents=True)
+        print("Starting compiler...")
+        compiler_proc = subprocess.Popen(
+            [
+                str(compiler_binary),
+                "--home", str(compiler_home),
+                "--database-url", "postgres://cloacina:cloacina@localhost:5432/cloacina",
+                "--bind", "127.0.0.1:18182",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        if not wait_for_health("http://127.0.0.1:18182/health", "compiler"):
             return 1
 
-        print(f"Running promtool on {len(body)} bytes of exposition data...")
-        promtool_proc = subprocess.run(
-            [promtool, "check", "metrics"],
-            input=body,
-            capture_output=True,
-        )
-        if promtool_proc.stdout:
-            print(promtool_proc.stdout.decode(errors="replace"))
-        if promtool_proc.stderr:
-            print(promtool_proc.stderr.decode(errors="replace"))
+        rc = scrape_and_validate("http://127.0.0.1:18182/metrics", "compiler")
+        if rc != 0:
+            return rc
 
-        if promtool_proc.returncode != 0:
-            print("promtool reported exposition format problems.")
-            return promtool_proc.returncode
-
-        print("/metrics passes promtool check.")
+        print("Both /metrics endpoints pass promtool check.")
         return 0
     finally:
-        if server_proc is not None and server_proc.poll() is None:
-            server_proc.send_signal(signal.SIGINT)
-            try:
-                server_proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                server_proc.kill()
+        for proc in (compiler_proc, server_proc):
+            if proc is not None and proc.poll() is None:
+                proc.send_signal(signal.SIGINT)
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
         subprocess.run(
             ["docker", "compose", "-f", str(compose_file), "down", "-v"],
             capture_output=True,

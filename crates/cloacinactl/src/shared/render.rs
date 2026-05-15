@@ -24,7 +24,22 @@ use crate::shared::error::CliError;
 use crate::OutputFormat;
 
 pub fn list(body: &Value, format: OutputFormat) -> Result<(), CliError> {
-    let items: Vec<Value> = body.as_array().cloned().unwrap_or_default();
+    // CLOACI-T-0594 / API-03: every server list endpoint emits the
+    // unified `{items: [...], total: N}` envelope. The CLI reads
+    // `body.items`; a bare array is still accepted for backwards
+    // compatibility with the (rare) endpoints that return a top-level
+    // array. The old silent `body → body.<key>` fallback that swallowed
+    // real data is removed — a non-list response now errors explicitly.
+    let items: Vec<Value> = if let Some(arr) = body.get("items").and_then(|v| v.as_array()) {
+        arr.clone()
+    } else if let Some(arr) = body.as_array() {
+        arr.clone()
+    } else {
+        return Err(CliError::UserError(format!(
+            "list response is neither an `items` envelope nor a bare array: {}",
+            body
+        )));
+    };
     match format {
         OutputFormat::Json => {
             println!(

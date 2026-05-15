@@ -82,14 +82,67 @@ async fn authenticate_ws(
     source: WsTokenSource,
 ) -> Result<AuthenticatedKey, ApiError> {
     match source {
-        WsTokenSource::Header(token) => validate_token(state, &token)
-            .await
-            .map_err(|_| ApiError::unauthorized("invalid bearer token")),
-        WsTokenSource::QueryTicket(ticket) => state
-            .ws_tickets
-            .consume(&ticket)
-            .await
-            .ok_or_else(|| ApiError::unauthorized("invalid or expired WebSocket ticket")),
+        WsTokenSource::Header(token) => validate_token(state, &token).await.map_err(|_| {
+            record_ws_auth_failure("invalid_signature");
+            ApiError::unauthorized("invalid bearer token")
+        }),
+        WsTokenSource::QueryTicket(ticket) => {
+            state.ws_tickets.consume(&ticket).await.ok_or_else(|| {
+                record_ws_auth_failure("ticket_expired");
+                ApiError::unauthorized("invalid or expired WebSocket ticket")
+            })
+        }
+    }
+}
+
+/// Increment the `cloacina_ws_auth_failures_total` counter with a bounded
+/// `reason` label. The four documented reasons (see I-0099 / T-0588):
+/// `ticket_expired`, `invalid_signature`, `tenant_mismatch`, `not_authorized`.
+fn record_ws_auth_failure(reason: &'static str) {
+    metrics::counter!(
+        "cloacina_ws_auth_failures_total",
+        "reason" => reason,
+    )
+    .increment(1);
+}
+
+/// Record one inbound or outbound WebSocket message. `endpoint` is the
+/// bounded `{accumulator, reactor}` enum; `direction` is `{in, out}`.
+fn record_ws_message(endpoint: &'static str, direction: &'static str) {
+    metrics::counter!(
+        "cloacina_ws_messages_total",
+        "endpoint" => endpoint,
+        "direction" => direction,
+    )
+    .increment(1);
+}
+
+/// RAII guard for `cloacina_ws_connections_active`. Increments on
+/// construction and decrements on Drop so a panic or early return inside
+/// the handler still releases the slot — defends the gauge against leak
+/// bugs of the kind that motivated T-0534.
+struct WsConnectionGuard {
+    endpoint: &'static str,
+}
+
+impl WsConnectionGuard {
+    fn new(endpoint: &'static str) -> Self {
+        metrics::gauge!(
+            "cloacina_ws_connections_active",
+            "endpoint" => endpoint,
+        )
+        .increment(1.0);
+        Self { endpoint }
+    }
+}
+
+impl Drop for WsConnectionGuard {
+    fn drop(&mut self) {
+        metrics::gauge!(
+            "cloacina_ws_connections_active",
+            "endpoint" => self.endpoint,
+        )
+        .decrement(1.0);
     }
 }
 
@@ -108,6 +161,7 @@ pub async fn accumulator_ws(
     let source = match extract_ws_token(request.headers(), &query) {
         Some(s) => s,
         None => {
+            record_ws_auth_failure("not_authorized");
             return ApiError::unauthorized("missing auth token").into_response();
         }
     };
@@ -128,6 +182,7 @@ pub async fn accumulator_ws(
         .check_accumulator_auth(&name, &ctx)
         .await
     {
+        record_ws_auth_failure("tenant_mismatch");
         return ApiError::forbidden(
             "endpoint_access_denied",
             format!("not authorized for accumulator '{}'", name),
@@ -160,6 +215,7 @@ pub async fn reactor_ws(
     let source = match extract_ws_token(request.headers(), &query) {
         Some(s) => s,
         None => {
+            record_ws_auth_failure("not_authorized");
             return ApiError::unauthorized("missing auth token").into_response();
         }
     };
@@ -180,6 +236,7 @@ pub async fn reactor_ws(
         .check_reactor_auth(&name, &ctx)
         .await
     {
+        record_ws_auth_failure("tenant_mismatch");
         return ApiError::forbidden(
             "endpoint_access_denied",
             format!("not authorized for reactor '{}'", name),
@@ -209,10 +266,12 @@ async fn handle_accumulator_socket(
     registry: EndpointRegistry,
 ) {
     debug!(accumulator = %name, key = %auth.name, "accumulator WebSocket connected");
+    let _conn_guard = WsConnectionGuard::new("accumulator");
 
     while let Some(msg) = socket.recv().await {
         match msg {
             Ok(axum::extract::ws::Message::Binary(data)) => {
+                record_ws_message("accumulator", "in");
                 // Forward raw bytes to accumulator — it deserializes JSON internally.
                 let bytes: Vec<u8> = data.into();
                 match registry.send_to_accumulator(&name, bytes).await {
@@ -221,22 +280,28 @@ async fn handle_accumulator_socket(
                     }
                     Err(e) => {
                         warn!(accumulator = %name, error = %e, "failed to forward message");
-                        let _ = socket
+                        if socket
                             .send(axum::extract::ws::Message::Close(Some(
                                 axum::extract::ws::CloseFrame {
                                     code: 4404,
                                     reason: format!("accumulator '{}' not registered", name).into(),
                                 },
                             )))
-                            .await;
+                            .await
+                            .is_ok()
+                        {
+                            record_ws_message("accumulator", "out");
+                        }
                         break;
                     }
                 }
             }
             Ok(axum::extract::ws::Message::Text(_)) => {
+                record_ws_message("accumulator", "in");
                 warn!(accumulator = %name, "text frames not supported — send JSON as binary frame");
             }
             Ok(axum::extract::ws::Message::Close(_)) => {
+                record_ws_message("accumulator", "in");
                 debug!(accumulator = %name, "client sent close frame");
                 break;
             }
@@ -263,6 +328,7 @@ async fn handle_reactor_socket(
     registry: EndpointRegistry,
 ) {
     debug!(reactor = %name, key = %auth.name, "reactor WebSocket connected");
+    let _conn_guard = WsConnectionGuard::new("reactor");
 
     // Get the reactor handle for GetState/Pause/Resume
     let handle = registry.get_reactor_handle(&name).await;
@@ -270,6 +336,7 @@ async fn handle_reactor_socket(
     while let Some(msg) = socket.recv().await {
         match msg {
             Ok(axum::extract::ws::Message::Text(text)) => {
+                record_ws_message("reactor", "in");
                 let response = match serde_json::from_str::<ReactorCommand>(&text) {
                     Ok(cmd) => {
                         process_reactor_command(
@@ -301,8 +368,10 @@ async fn handle_reactor_socket(
                 {
                     break;
                 }
+                record_ws_message("reactor", "out");
             }
             Ok(axum::extract::ws::Message::Close(_)) => {
+                record_ws_message("reactor", "in");
                 debug!(reactor = %name, "client sent close frame");
                 break;
             }

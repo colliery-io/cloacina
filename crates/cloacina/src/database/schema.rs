@@ -375,6 +375,42 @@ mod unified_schema {
     diesel::joinable!(schedule_executions -> schedules (schedule_id));
     diesel::joinable!(schedule_executions -> workflow_executions (workflow_execution_id));
 
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        /// CLOACI-I-0100 / T-0598 — append-only reactor firing event log.
+        /// Written by the reactor runtime alongside the in-process CG dispatch;
+        /// consumed by the subscription poller in the unified scheduler.
+        reactor_firings (id) {
+            id -> DbUuid,
+            reactor_name -> Text,
+            tenant_id -> Text,
+            payload -> Nullable<DbBinary>,
+            fired_at -> DbTimestamp,
+            created_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        /// CLOACI-I-0100 / T-0598 — one row per (reactor, workflow, tenant).
+        /// `last_seen_fired_at` is the watermark the poller advances after
+        /// dispatching a workflow for the corresponding `reactor_firings` row.
+        reactor_trigger_subscriptions (id) {
+            id -> DbUuid,
+            reactor_name -> Text,
+            workflow_name -> Text,
+            tenant_id -> Text,
+            enabled -> DbBool,
+            last_seen_fired_at -> Nullable<DbTimestamp>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
     diesel::allow_tables_to_appear_in_same_query!(
         accumulator_boundaries,
         accumulator_checkpoints,
@@ -383,7 +419,9 @@ mod unified_schema {
         key_trust_acls,
         package_signatures,
         workflow_executions,
+        reactor_firings,
         reactor_state,
+        reactor_trigger_subscriptions,
         recovery_events,
         schedule_executions,
         schedules,

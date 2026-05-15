@@ -4,14 +4,14 @@ level: initiative
 title: "Audit CLI/server contract and add integration tests for every CLI verb"
 short_code: "CLOACI-I-0107"
 created_at: 2026-05-06T11:05:35.281696+00:00
-updated_at: 2026-05-06T11:05:35.281696+00:00
+updated_at: 2026-05-14T17:42:25.713625+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -73,6 +73,16 @@ These are operator-facing contract bugs. They've shipped because no integration 
 - Days 10+: pagination plumb-through; `--follow` decision.
 
 The integration test harness is the load-bearing investment. Plan it for reuse beyond this initiative — future CLI additions should automatically get an integration test.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

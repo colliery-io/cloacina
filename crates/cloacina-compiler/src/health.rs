@@ -23,16 +23,36 @@ use std::sync::Arc;
 use axum::{extract::State, routing::get, Json, Router};
 use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
+use metrics_exporter_prometheus::PrometheusHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 type Registry = Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>;
 
-pub(crate) async fn serve(bind: SocketAddr, registry: Registry, shutdown: CancellationToken) {
+/// Combined HTTP state — registry powers `/v1/status`, the Prometheus
+/// handle renders `/metrics`. Both endpoints sit on the same listener
+/// to avoid a second bound port for a local service.
+#[derive(Clone)]
+struct HttpState {
+    registry: Registry,
+    metrics_handle: PrometheusHandle,
+}
+
+pub(crate) async fn serve(
+    bind: SocketAddr,
+    registry: Registry,
+    metrics_handle: PrometheusHandle,
+    shutdown: CancellationToken,
+) {
+    let state = HttpState {
+        registry,
+        metrics_handle,
+    };
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/status", get(status))
-        .with_state(registry);
+        .route("/metrics", get(metrics))
+        .with_state(state);
 
     let listener = match tokio::net::TcpListener::bind(bind).await {
         Ok(l) => l,
@@ -59,8 +79,8 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok" }))
 }
 
-async fn status(State(registry): State<Registry>) -> Json<serde_json::Value> {
-    match registry.build_queue_stats().await {
+async fn status(State(state): State<HttpState>) -> Json<serde_json::Value> {
+    match state.registry.build_queue_stats().await {
         Ok(stats) => Json(serde_json::json!({
             "status": "ok",
             "pending": stats.pending,
@@ -74,4 +94,18 @@ async fn status(State(registry): State<Registry>) -> Json<serde_json::Value> {
             "error": format!("{}", e),
         })),
     }
+}
+
+/// GET /metrics — Prometheus text exposition. Matches the
+/// `cloacina-server` endpoint: public (no auth) so a Prometheus
+/// scraper can poll it without credential management.
+async fn metrics(State(state): State<HttpState>) -> impl axum::response::IntoResponse {
+    let body = state.metrics_handle.render();
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
+        body,
+    )
 }

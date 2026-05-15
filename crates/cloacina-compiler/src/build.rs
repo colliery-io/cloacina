@@ -716,6 +716,7 @@ mod tests {
                 procs: 4096,
             },
             compiler_instance_id: UniversalUuid::new_v4(),
+            log_retention_days: 7,
         }
     }
 

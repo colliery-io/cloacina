@@ -4,14 +4,14 @@ level: initiative
 title: "Fix cloacina_active_tasks gauge leak and extend SQL-derived gauge pattern"
 short_code: "CLOACI-I-0108"
 created_at: 2026-05-06T11:05:36.453041+00:00
-updated_at: 2026-05-06T11:05:36.453041+00:00
+updated_at: 2026-05-14T14:06:00.023834+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -58,6 +58,16 @@ This initiative is small in scope but high in operability value. It should ship 
 - In the scheduler tick (next to the existing `cloacina_active_workflows` re-seed at `scheduler_loop.rs:166-168`), add `metrics::gauge!("cloacina_active_tasks").set(running_count as f64)` from `task_executions WHERE status = 'Running'`.
 - Add `cloacina_reactor_persist_failures_total{reactor, kind}` and `cloacina_accumulator_persist_failures_total{accumulator, kind}` counters on the CG runtime persist paths.
 - Add a watchdog: if a reactor logs 5 consecutive persist failures, downgrade `ReactorHealth::Live` → `ReactorHealth::Degraded`; surface via `/v1/health/graphs/{name}`.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

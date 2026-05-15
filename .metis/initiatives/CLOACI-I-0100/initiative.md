@@ -4,14 +4,14 @@ level: initiative
 title: "Reactor-triggered workflows — DB-backed subscription fan-out"
 short_code: "CLOACI-I-0100"
 created_at: 2026-04-23T17:05:45.520081+00:00
-updated_at: 2026-04-23T17:05:45.520081+00:00
+updated_at: 2026-05-14T20:19:25.501662+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false

@@ -55,30 +55,50 @@ async fn run_build_with_heartbeat(
                 _ = ticker.tick() => {
                     if let Err(e) = hb_registry.heartbeat_build(package_id).await {
                         warn!(%e, %package_id, "heartbeat update failed");
+                        metrics::counter!("cloacina_compiler_heartbeat_failures_total")
+                            .increment(1);
                     }
                 }
             }
         }
     });
 
+    let build_started = std::time::Instant::now();
     let outcome = crate::build::execute_build(&registry, package_id, config).await;
+    metrics::histogram!("cloacina_compiler_build_duration_seconds")
+        .record(build_started.elapsed().as_secs_f64());
 
     heartbeat_cancel.cancel();
     let _ = heartbeat.await;
 
     match outcome {
         crate::build::BuildOutcome::Success(bytes) => {
+            metrics::counter!(
+                "cloacina_compiler_builds_total",
+                "status" => "ok",
+            )
+            .increment(1);
             if let Err(e) = registry.mark_build_success(package_id, bytes).await {
                 warn!(%e, %package_id, "mark_build_success failed");
             }
         }
         crate::build::BuildOutcome::Failed(err) => {
+            metrics::counter!(
+                "cloacina_compiler_builds_total",
+                "status" => "failed",
+            )
+            .increment(1);
             warn!(%package_id, "build failed");
             if let Err(e) = registry.mark_build_failed(package_id, &err).await {
                 warn!(%e, %package_id, "mark_build_failed failed");
             }
         }
         crate::build::BuildOutcome::TimedOut { elapsed } => {
+            metrics::counter!(
+                "cloacina_compiler_builds_total",
+                "status" => "timed_out",
+            )
+            .increment(1);
             // CLOACI-T-0573: heartbeat was cancelled above; row's
             // build_claimed_at is now stale. The sweeper will reclaim it on
             // its next tick (stale_threshold after the last heartbeat).
@@ -129,8 +149,34 @@ pub(crate) async fn run(
             _ = sweep_ticker.tick() => {
                 match registry.sweep_stale_builds(config.stale_threshold).await {
                     Ok(0) => {}
-                    Ok(n) => info!(reset = n, "swept stale builds"),
+                    Ok(n) => {
+                        info!(reset = n, "swept stale builds");
+                        metrics::counter!("cloacina_compiler_sweep_resets_total")
+                            .increment(n as u64);
+                    }
                     Err(e) => warn!(%e, "sweep_stale_builds failed"),
+                }
+                // SQL-derived queue-depth gauge (REC-06 / I-0108 pattern) —
+                // re-seeded every sweep tick so a panic between
+                // enqueue/dequeue can't drift the gauge. Best-effort:
+                // stats failure logs and the prior tick's value is
+                // retained rather than zeroing.
+                match registry.build_queue_stats().await {
+                    Ok(stats) => {
+                        metrics::gauge!(
+                            "cloacina_compiler_queue_depth",
+                            "state" => "queued",
+                        )
+                        .set(stats.pending as f64);
+                        metrics::gauge!(
+                            "cloacina_compiler_queue_depth",
+                            "state" => "building",
+                        )
+                        .set(stats.building as f64);
+                    }
+                    Err(e) => {
+                        warn!(%e, "build_queue_stats failed; queue_depth gauge not refreshed");
+                    }
                 }
             }
         }

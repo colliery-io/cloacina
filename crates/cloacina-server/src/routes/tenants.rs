@@ -37,15 +37,27 @@ use crate::routes::error::ApiError;
 use crate::AppState;
 
 /// Request body for creating a tenant.
+///
+/// **CLOACI-T-0594 / API-01:** matches the CLI's user-friendly payload
+/// shape. `name` is the canonical tenant identifier — it doubles as the
+/// Postgres schema name and database user name to keep the public API
+/// simple. `description` is operator-facing metadata. `password` is
+/// optional (auto-generated when omitted).
+///
+/// **Breaking change** (release notes): the previous shape
+/// `{schema_name, username, password}` is no longer accepted. Direct
+/// API consumers must migrate to `{name, description?, password?}`.
 #[derive(Deserialize)]
 pub struct CreateTenantRequest {
-    /// Schema name (alphanumeric + underscore, no SQL injection)
-    pub schema_name: String,
-    /// Database username for this tenant
-    pub username: String,
-    /// Optional password (auto-generated if empty)
+    /// Tenant name — doubles as schema name + database username.
+    /// Must be alphanumeric + underscore (validated by DatabaseAdmin).
+    pub name: String,
+    /// Optional operator-facing description.
     #[serde(default)]
-    pub password: String,
+    pub description: Option<String>,
+    /// Optional password (auto-generated if absent).
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 /// POST /tenants — create a new tenant (Postgres schema + user + migrations).
@@ -61,14 +73,21 @@ pub async fn create_tenant(
 
     let admin = DatabaseAdmin::new(state.database.clone());
     let config = TenantConfig {
-        schema_name: body.schema_name.clone(),
-        username: body.username.clone(),
-        password: body.password,
+        // Per CLOACI-T-0594: schema_name == username == public name.
+        // Keeps the public API ergonomic. If we ever need divergence,
+        // the canonical name stays the request `name` field.
+        schema_name: body.name.clone(),
+        username: body.name.clone(),
+        password: body.password.clone().unwrap_or_default(),
     };
 
     match admin.create_tenant(config).await {
         Ok(credentials) => {
-            info!("Created tenant: {}", body.schema_name);
+            info!(
+                tenant = %body.name,
+                description = ?body.description,
+                "Created tenant"
+            );
             // Note: password and connection_string intentionally excluded from
             // response to prevent credential leakage (SEC-08). The caller should
             // supply their own password via the request body, or retrieve it
@@ -76,14 +95,15 @@ pub async fn create_tenant(
             (
                 StatusCode::CREATED,
                 Json(serde_json::json!({
-                    "schema_name": credentials.schema_name,
+                    "name": credentials.schema_name,
                     "username": credentials.username,
+                    "description": body.description,
                 })),
             )
                 .into_response()
         }
         Err(e) => {
-            warn!("Failed to create tenant '{}': {}", body.schema_name, e);
+            warn!("Failed to create tenant '{}': {}", body.name, e);
             ApiError::bad_request("tenant_creation_failed", format!("{}", e)).into_response()
         }
     }
@@ -235,11 +255,20 @@ pub async fn list_tenants(
 
     match admin.list_tenant_schemas().await {
         Ok(schemas) => {
-            let tenants: Vec<_> = schemas
+            let items: Vec<_> = schemas
                 .into_iter()
-                .map(|s| serde_json::json!({"schema_name": s}))
+                .map(|s| serde_json::json!({"name": s}))
                 .collect();
-            Json(serde_json::json!({"tenants": tenants})).into_response()
+            // CLOACI-T-0594 / API-03: unified `{items, total}` list envelope.
+            // CLI's render::list reads body.items consistently across every
+            // list endpoint. Per-tenant schema name is rendered under `name`
+            // to match the CLOACI-T-0594 / API-01 unification.
+            let total = items.len();
+            Json(serde_json::json!({
+                "items": items,
+                "total": total,
+            }))
+            .into_response()
         }
         Err(e) => {
             warn!("Failed to list tenants: {}", e);

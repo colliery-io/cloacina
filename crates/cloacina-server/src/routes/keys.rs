@@ -148,7 +148,13 @@ pub async fn list_keys(
                     })
                 })
                 .collect();
-            Json(serde_json::json!({"keys": items})).into_response()
+            // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
+            let total = items.len();
+            Json(serde_json::json!({
+                "items": items,
+                "total": total,
+            }))
+            .into_response()
         }
         Err(e) => {
             warn!("Failed to list API keys: {}", e);
