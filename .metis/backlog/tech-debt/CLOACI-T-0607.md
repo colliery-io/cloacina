@@ -4,15 +4,15 @@ level: task
 title: "Delete or rewrite continuous-scheduling example (speculative future API)"
 short_code: "CLOACI-T-0607"
 created_at: 2026-05-15T16:39:01.909253+00:00
-updated_at: 2026-05-15T16:39:01.909253+00:00
+updated_at: 2026-05-15T17:48:50.138815+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -95,6 +95,12 @@ If "continuous scheduling" as a demo name still has a story (e.g., showing the r
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
