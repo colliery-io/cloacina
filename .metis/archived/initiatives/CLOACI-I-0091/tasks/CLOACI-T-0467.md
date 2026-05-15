@@ -38,6 +38,8 @@ The payoff: update integration tests to create per-test `Runtime` instances with
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] Integration test fixture creates a `Runtime::new()` per test instead of using globals
 - [ ] Tasks/workflows registered via `runtime.register_task()` instead of `register_task_constructor()`
 - [ ] `DefaultRunner::builder().runtime(runtime).build()` used in tests

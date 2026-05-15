@@ -7,7 +7,7 @@ created_at: 2026-03-28T15:38:56.663995+00:00
 updated_at: 2026-03-29T01:14:26.041876+00:00
 parent: CLOACI-I-0057
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"

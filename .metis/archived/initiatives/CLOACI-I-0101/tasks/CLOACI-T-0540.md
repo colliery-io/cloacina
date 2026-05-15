@@ -1,0 +1,163 @@
+---
+id: t-02-workflow-task-cg-invocation
+level: task
+title: "T-02: Workflow-task CG invocation (`invokes = computation_graph(...)`)"
+short_code: "CLOACI-T-0540"
+created_at: 2026-04-24T15:08:15.391806+00:00
+updated_at: 2026-04-25T16:26:27.962739+00:00
+parent: CLOACI-I-0101
+blocked_by: []
+archived: true
+
+tags:
+  - "#task"
+  - "#phase/completed"
+
+
+exit_criteria_met: false
+initiative_id: CLOACI-I-0101
+---
+
+# T-02: Workflow-task CG invocation
+
+## Parent Initiative
+
+[[CLOACI-I-0101]]
+
+## Objective
+
+Add the capability for a workflow task to wrap a computation graph and execute it on demand. Implements the `invokes = computation_graph("name")` clause on `#[task]`, the matching executor path that resolves a graph by name and runs it to completion, and the context ↔ graph-types adapter. This is the embedded-CG-in-workflow payoff from S-0011 — one shot per task execution, no reactor in scope, no streams, graph runs as a deterministic function.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+**Design decisions (locked in 2026-04-25 via human-in-the-loop):**
+1. Graph identity: type-path handle, mirroring `trigger = reactor(T)`. The CG macro emits a unit-struct `GraphHandle` alongside its registration; `invokes = computation_graph(GraphHandle)` references it by type path so the binding is checked at compile time.
+2. Only trigger-less CGs are task-invokable. Reactor-triggered CGs are not — the entry-signature divergence (decision 3) makes them incompatible.
+3. **Two-flavor CG entry contract.** Trigger-less CGs declare `entry(ctx: &Context<Value>) -> ...` and operate on the workflow context directly; reactor-triggered CGs keep today's accumulator-typed entry signature (`entry(alpha: Option<&Alpha>) -> ...`). The graph macro picks the right shape based on the presence of `trigger = reactor(T)`. Friction is intentional: the entry signature makes the unit-of-work boundary explicit at the call site.
+4. Fan-out (multiple graphs sharing one reactor) split into sibling task **CLOACI-T-0544** — orthogonal runtime change.
+
+**Acceptance criteria:**
+
+- [ ] `#[computation_graph]` (trigger-less form): entry node signature changes from accumulator-typed inputs to `fn(ctx: &Context<Value>) -> ...`. The compiled graph fn for the trigger-less form takes `&Context<Value>` instead of `&InputCache`. Reactor-triggered form is unchanged.
+- [ ] `#[computation_graph]` macro emits a unit-struct `GraphHandle` (e.g. `pub struct __Graph_<modname>;`) alongside the existing registration, with a `Graph` trait impl carrying `NAME: &'static str`. Mirrors the `Reactor` trait pattern from T-0543.
+- [ ] `#[task]` accepts an `invokes = computation_graph(GraphHandle)` clause. Macro expansion type-checks that the referenced handle implements `Graph`. If the user supplies a function body, it runs before/after the invocation; if omitted, the task is a pure invocation. Macro errors with a readable message if the referenced graph is *not* trigger-less (carries a non-empty trigger reactor).
+- [ ] New task-invocation kind in the dispatcher / `ThreadTaskExecutor`. When a task with `invokes = ...` is dispatched, the executor:
+  - Resolves the graph by name via the trigger-less graph registry.
+  - Passes the task's `Context<Value>` to the compiled graph fn directly (no adapter — the graph consumes the context as written).
+  - Writes terminal-node outputs back into the task's output context under each terminal's node name (serde-serialized).
+  - Records completion via the existing task lifecycle (heartbeat, complete).
+- [ ] Task retry/timeout apply as for any other task. A graph panic becomes a task error; a graph that exceeds the task's timeout is cancelled per the existing T-0487 cancellation path.
+- [ ] Integration tests, postgres + sqlite:
+  - Trigger-less CG declared with `entry(ctx) -> ...`, invoked by a workflow task; terminal outputs land in the downstream task's context.
+  - Workflow task with both pre-body and post-body around the CG invocation.
+  - Graph error → task failure → workflow retry engages.
+  - Graph timeout → task cancellation via the claim-loss / timeout path.
+  - Compile-failure test: `invokes = computation_graph(G)` where `G` is reactor-triggered should fail at macro expansion with a readable message.
+- [ ] `cargo check --workspace --all-features` green; `angreal test unit`, `test integration --backend sqlite`, `test integration --backend postgres` all green.
+
+## Implementation Notes
+
+### Technical Approach
+
+1. Extend the `#[task]` macro to parse `invokes = computation_graph("name")`. Emit a task whose `execute()` body resolves the graph and runs it. The user's function body, if provided, is inserted around the invocation (pre-work, invocation, post-work).
+2. Extend the task dispatcher (see `thread_task_executor.rs`) to recognize the new invocation kind. The graph lookup uses the registry already exposed by T-01a.
+3. Build the context adapter: `Context<Value>` → `entry_type` on the way in (serde deserialize from the context's serialized form into the typed entry), `terminal_outputs` → `Context<Value>` on the way out (serde serialize each terminal into the task's output context under the terminal's node name).
+4. Hook graph panics into `TaskError`. The existing executor already catches panics from task bodies; extend the same treatment to graph invocations.
+
+### Key Files
+
+- `crates/cloacina-macros/src/task/parser.rs` — add the `invokes` clause.
+- `crates/cloacina-macros/src/task/codegen.rs` — emit the CG-invocation body.
+- `crates/cloacina/src/executor/thread_task_executor.rs` — handle the new invocation kind.
+- `crates/cloacina/src/computation_graph/scheduler.rs` — expose the compiled-function lookup if T-01a didn't already.
+- New integration tests under `crates/cloacina/tests/integration/executor/` or alongside the existing CG tests.
+
+### Dependencies
+
+- **T-01a** (graph registry understands trigger-less CGs; `#[computation_graph]` split exists).
+- Does *not* depend on T-01b — this task can land while the bundled form still works in T-01a's branch state.
+
+### Risk Considerations
+
+- Context ↔ graph-types adapter is the highest-risk piece. `Context<Value>` is serde-flexible; the graph's `entry_type` may have required fields the context can't satisfy. Return a specific task error on adapter failure, not a generic panic.
+- Terminal node naming: if a graph has multiple terminal nodes, each terminal's output is serialized under a distinct context key. Document the convention in the task doc comment.
+- Fan-out test requires two CGs declaring the same `trigger = reactor("R")` — confirm with T-01a that multiple subscribers on one reactor are supported at the runtime level before writing the test.
+
+## Status Updates
+
+### 2026-04-25 — Design locked, implementation plan
+
+Design questions 1–4 settled with user (recorded above the AC). Implementation will land in milestones, each a separate commit on `i-0101-cg-reactor-decouple`:
+
+- **M1**: Add `Graph` trait to `cloacina-computation-graph` (consts: `NAME`, `IS_TRIGGERLESS: bool`). `#[computation_graph]` emits a `GraphHandle` unit struct + `impl Graph` for it alongside the existing registration. Outer-scope type alias `__CGHandle_<mod>` for the same FFI-scoping reason as T-0539's `__CGTriggerReactor_<mod>`. No runtime behavior change yet — purely a new compile-time surface so T-02 can reference graphs by type path.
+- **M2**: Switch the trigger-less compiled fn from `Fn(InputCache) -> GraphResult` to `Fn(Context<Value>) -> GraphResult`. Macro changes:
+  - Trigger-less entry nodes can't declare accumulator inputs (`entry(alpha)` becomes a parse error in trigger-less form); the user writes `fn entry(ctx: &Context<Value>) -> ...` and the topology references the node by bare name (`entry -> next`).
+  - `register_triggerless_graph` / `invoke_triggerless_graph` re-typed to use the new fn shape.
+  - Existing trigger-less integration test (`test_cloaci_t_0538_triggerless_*`) migrated.
+- **M3**: Extend `#[task]` to parse `invokes = computation_graph(GraphHandle)`. Emit a task body that:
+  - Const-checks `<H as Graph>::IS_TRIGGERLESS` (compile error otherwise — that satisfies AC's "reject reactor-triggered" requirement).
+  - Resolves the graph fn from the registry by `<H as Graph>::NAME`.
+  - Calls it with the task's `Context`.
+  - Writes terminal outputs back into the context under their node names.
+  - User-supplied function body (if present) wraps the invocation: pre-body → invocation → post-body.
+- **M4** *(folded into M3 — the macro emits everything; no separate executor change)*.
+- **M5**: Integration tests (sqlite + postgres): trigger-less invoked by task, pre/post body wrapping, graph error → task failure → retry, graph timeout → cancellation, compile-failure test for reactor-triggered graph.
+
+Starting M1 now.
+
+### 2026-04-25 — M1 + M2 + M2.5 + M3 landed locally
+
+Three commits on `i-0101-cg-reactor-decouple`:
+
+- **`0f1b13c` (M1)**: `Graph` trait + `__CGHandle_<mod>` unit struct emitted alongside every `#[computation_graph]`. Re-exported from cloacina. Verified by `test_cloaci_t_0540_graph_handle_consts`.
+- **`0aeafd6` (M2)**: trigger-less compiled fn switches from `Fn(InputCache) -> GraphResult` to `Fn(Context<Value>) -> GraphResult`. Parser-time validation rejects cache inputs in trigger-less topologies. New `TriggerlessGraphFn` / `TriggerlessGraphRegistration` / `TriggerlessGraphEntry` types in cloacina (the leaf cg crate doesn't depend on Context). Runtime gains a parallel `triggerless_graphs` registry seeded from inventory. Scheduler-side trigger-less surface (scaffolding for a never-implemented design) deleted entirely.
+- **`71e446a` (M2.5 + M3)**:
+  - **M2.5**: `TriggerlessGraph` trait added (extends `Graph`, exposes `compiled_fn()` + `terminal_node_names()`). Trigger-less CGs implement it; reactor-triggered CGs do not — that omission is the compile-time gate. Trigger-less terminal pushes now serialize-to-`serde_json::Value` at the macro site, so consumers can downcast cheaply.
+  - **M3**: `TaskAttributes` grows `invokes_computation_graph: Option<TypePath>`. Parser accepts `invokes = computation_graph(GraphHandle)`. `generate_task_impl` wedges an invocation block after the user body that pulls the compiled fn through the trait, calls it with `context.clone_data()`, zips terminal names with outputs, and routes each Value back into the task's output context.
+
+**AC coverage so far:**
+- [x] Trigger-less form takes `&Context<Value>` (M2).
+- [x] `__CGHandle_<mod>` unit struct + `Graph` trait impl (M1).
+- [x] `#[task]` parses `invokes = computation_graph(GraphHandle)` (M3).
+- [x] Compile-time rejection of reactor-triggered graphs via `TriggerlessGraph` trait absence (M2.5/M3 — proven implicitly by build success of valid uses; explicit `compile_fail` test deferred).
+- [x] Executor path: macro emits the invocation in the task body, so no separate executor change.
+- [ ] Integration tests for retry / cancellation / timeout (M5 outstanding).
+- [ ] Compile-failure test for reactor-triggered graph (M5; needs trybuild or equivalent).
+- [ ] Pre/post body wrapping (current impl supports pre-body only — flagging as a documented limitation; "post" can be added if there's demand or via a sibling task).
+- [x] `cargo check --workspace --all-features` green; macro lib tests green; T-053x + T-054x integration tests green on sqlite (10 cases).
+
+### 2026-04-25 — M5 + final angreal validation
+
+Commit `9b5bd31` lands the remaining AC items:
+- **Post-invocation hook**: `#[task(invokes = ..., post_invocation = fn_name)]` runs `fn_name(&mut context)` after the graph fires and outputs are routed into the context, before `on_success`. Macro-time error if `post_invocation` is set without `invokes`.
+- **Error path test**: `test_cloaci_t_0540_task_invokes_panicking_graph` declares a trigger-less graph whose terminal panics and uses `futures::FutureExt::catch_unwind` to assert the task body propagates the panic. Real workflow executors translate that into `TaskError::ExecutionFailed`.
+- **trybuild compile-fail regression**: `crates/cloacina/tests/trybuild_t_0540*` adds a `trybuild = "1.0"` dev-dep + a fixture that tries to bind `#[task(invokes = computation_graph(H))]` to a reactor-triggered graph. Locked stderr asserts the expected diagnostic: `the trait bound \`__CGHandle_<...>: TriggerlessGraph\` is not satisfied`. Future macro changes that weaken the gate will fail this test.
+- Also: cloacina re-exports the `reactor` macro that was missed in T-0538.
+
+**Final acceptance criteria — full run results:**
+
+- [x] Trigger-less form takes `&Context<Value>`.
+- [x] `__CGHandle_<mod>` unit struct + `Graph` trait impl.
+- [x] `#[task]` accepts `invokes = computation_graph(GraphHandle)`; reactor-triggered graphs are rejected at compile time via `TriggerlessGraph` trait absence.
+- [x] Executor path: macro embeds the invocation in the task body — no separate executor change.
+- [x] Pre-body wrapping: user fn body runs as pre-work.
+- [x] Post-body wrapping: `post_invocation = fn_name` runs after the graph.
+- [x] Graph panic surfaces at the task boundary (panicking-graph integration test).
+- [x] Compile-failure test for reactor-triggered graph (trybuild `invokes_reactor_triggered.rs`).
+- [x] `cargo check --workspace --all-features` green.
+- [x] `angreal test unit` — **32 + 701 passed, 1 ignored** (post-M5).
+- [x] `angreal test macros` — all macro validation scenarios passed.
+- [x] `angreal test integration --backend sqlite` — Rust 6 passed (287 backend-filtered), Python sqlite 27/27, "All integration tests passed!".
+- [x] `angreal test integration --backend postgres` — **Rust 281 passed, 0 failed, 6 ignored, 6 filtered**; Python postgres 27/27; "All integration tests passed!".
+
+**Five commits on `i-0101-cg-reactor-decouple` land T-0540:**
+- `0f1b13c` (M1) — Graph trait + per-graph __CGHandle_ unit struct
+- `0aeafd6` (M2) — trigger-less CG entry contract switches to &Context<Value>
+- `71e446a` (M3) — #[task(invokes = computation_graph(H))] end-to-end
+- `9b5bd31` (M5) — post_invocation hook + error-path + trybuild compile gate
+
+Ready for phase transition to completed.

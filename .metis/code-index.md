@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-14T22:16:44Z | 487 files | JavaScript, Python, Rust
+> Generated: 2026-05-15T01:56:50Z | 487 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1183,7 +1183,7 @@
 -  `check_and_process_reactor_subscriptions` function L858-889 — `(&self) -> Result<(), WorkflowExecutionError>` — Polls the `reactor_trigger_subscriptions` table and dispatches one
 -  `process_reactor_subscription` function L893-1005 — `( &self, sub: &crate::dal::unified::ReactorSubscription, ) -> Result<(), Workflo...` — Drain new firings for one subscription and dispatch each as a
 -  `prune_reactor_firings` function L1012-1038 — `(&self)` — TTL prune of `reactor_firings` (CLOACI-I-0100 / T-0601).
--  `tests` module L1098-1407 — `-` — ```
+-  `tests` module L1098-1410 — `-` — ```
 -  `create_test_cron_schedule` function L1102-1123 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
 -  `create_test_trigger_schedule` function L1125-1146 — `(trigger_name: &str) -> Schedule` — ```
 -  `test_scheduler_config_default` function L1149-1166 — `()` — ```
@@ -1194,18 +1194,18 @@
 -  `test_catchup_policy_run_all` function L1226-1232 — `()` — ```
 -  `test_trigger_schedule_helpers` function L1235-1242 — `()` — ```
 -  `test_trigger_schedule_trigger_name_fallback` function L1245-1257 — `()` — ```
--  `test_scheduler_config_custom` function L1264-1288 — `()` — ```
--  `test_scheduler_config_clone` function L1291-1302 — `()` — ```
--  `test_scheduler_config_debug` function L1305-1310 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_containing_now` function L1317-1328 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1331-1343 — `()` — ```
--  `test_catchup_policy_unknown_defaults_to_skip` function L1350-1353 — `()` — ```
--  `test_catchup_policy_none_defaults_to_skip` function L1356-1361 — `()` — ```
--  `test_catchup_policy_missing_defaults_correctly` function L1364-1370 — `()` — ```
--  `test_cron_schedule_helpers` function L1377-1384 — `()` — ```
--  `test_trigger_schedule_no_poll_interval` function L1387-1392 — `()` — ```
--  `test_trigger_schedule_allows_concurrent` function L1395-1399 — `()` — ```
--  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1402-1406 — `()` — ```
+-  `test_scheduler_config_custom` function L1264-1291 — `()` — ```
+-  `test_scheduler_config_clone` function L1294-1305 — `()` — ```
+-  `test_scheduler_config_debug` function L1308-1313 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_containing_now` function L1320-1331 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1334-1346 — `()` — ```
+-  `test_catchup_policy_unknown_defaults_to_skip` function L1353-1356 — `()` — ```
+-  `test_catchup_policy_none_defaults_to_skip` function L1359-1364 — `()` — ```
+-  `test_catchup_policy_missing_defaults_correctly` function L1367-1373 — `()` — ```
+-  `test_cron_schedule_helpers` function L1380-1387 — `()` — ```
+-  `test_trigger_schedule_no_poll_interval` function L1390-1395 — `()` — ```
+-  `test_trigger_schedule_allows_concurrent` function L1398-1402 — `()` — ```
+-  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1405-1409 — `()` — ```
 
 #### crates/cloacina/src/error.rs
 
@@ -4775,12 +4775,12 @@
 
 #### crates/cloacina/tests/integration/dal/reactor_subscriptions.rs
 
--  `test_firing_round_trip_and_watermark_advance` function L38-93 — `()` — End-to-end: a firing inserted under tenant T for reactor R is
--  `test_fan_out_two_subscriptions_independent` function L100-154 — `()` — Two subscriptions on the same reactor each independently observe
--  `test_tenant_isolation_on_poll` function L160-206 — `()` — Tenancy isolation: tenant A's poller never sees tenant B's
--  `test_at_least_once_on_crash_simulates_redelivery` function L214-248 — `()` — At-least-once on crash: when the dispatcher does not advance the
--  `test_ttl_prune_removes_old_firings_and_documents_gotcha` function L256-306 — `()` — TTL prune deletes old firings.
--  `test_subscribe_is_idempotent` function L313-341 — `()` — `subscribe` is idempotent on the unique `(reactor, workflow,
+-  `test_firing_round_trip_and_watermark_advance` function L38-99 — `()` — End-to-end: a firing inserted under tenant T for reactor R is
+-  `test_fan_out_two_subscriptions_independent` function L106-163 — `()` — Two subscriptions on the same reactor each independently observe
+-  `test_tenant_isolation_on_poll` function L169-215 — `()` — Tenancy isolation: tenant A's poller never sees tenant B's
+-  `test_at_least_once_on_crash_simulates_redelivery` function L223-257 — `()` — At-least-once on crash: when the dispatcher does not advance the
+-  `test_ttl_prune_removes_old_firings_and_documents_gotcha` function L265-312 — `()` — TTL prune deletes old firings.
+-  `test_subscribe_is_idempotent` function L319-344 — `()` — `subscribe` is idempotent on the unique `(reactor, workflow,
 
 #### crates/cloacina/tests/integration/dal/reconciler_e2e_load.rs
 
