@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-15T14:21:30Z | 492 files | JavaScript, Python, Rust
+> Generated: 2026-05-15T15:09:14Z | 492 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4995,15 +4995,15 @@
 -  `WorkflowTask` struct L48-51 — `{ id: String, dependencies: Vec<TaskNamespace> }` — `retry_attempts`.
 -  `WorkflowTask` type L53-60 — `= WorkflowTask` — `retry_attempts`.
 -  `new` function L54-59 — `(id: &str) -> Self` — `retry_attempts`.
--  `WorkflowTask` type L63-76 — `impl Task for WorkflowTask` — `retry_attempts`.
--  `execute` function L64-69 — `( &self, context: Context<Value>, ) -> Result<Context<Value>, TaskError>` — `retry_attempts`.
--  `id` function L70-72 — `(&self) -> &str` — `retry_attempts`.
--  `dependencies` function L73-75 — `(&self) -> &[TaskNamespace]` — `retry_attempts`.
--  `transient_retry_task` function L92-102 — `(_context: &mut Context<Value>) -> Result<(), TaskError>` — `retry_attempts`.
--  `never_retry_task` function L116-123 — `(_context: &mut Context<Value>) -> Result<(), TaskError>` — `retry_attempts`.
--  `run_with_task` function L125-174 — `( task_factory: impl Fn() -> Arc<dyn Task> + Send + Sync + 'static, workflow_nam...` — `retry_attempts`.
--  `test_retry_condition_transient_retries_and_succeeds` function L178-227 — `()` — `retry_attempts`.
--  `test_retry_condition_never_skips_retries` function L231-277 — `()` — `retry_attempts`.
+-  `WorkflowTask` type L63-73 — `impl Task for WorkflowTask` — `retry_attempts`.
+-  `execute` function L64-66 — `(&self, context: Context<Value>) -> Result<Context<Value>, TaskError>` — `retry_attempts`.
+-  `id` function L67-69 — `(&self) -> &str` — `retry_attempts`.
+-  `dependencies` function L70-72 — `(&self) -> &[TaskNamespace]` — `retry_attempts`.
+-  `transient_retry_task` function L89-99 — `(_context: &mut Context<Value>) -> Result<(), TaskError>` — `retry_attempts`.
+-  `never_retry_task` function L113-120 — `(_context: &mut Context<Value>) -> Result<(), TaskError>` — `retry_attempts`.
+-  `run_with_task` function L122-171 — `( task_factory: impl Fn() -> Arc<dyn Task> + Send + Sync + 'static, workflow_nam...` — `retry_attempts`.
+-  `test_retry_condition_transient_retries_and_succeeds` function L175-230 — `()` — `retry_attempts`.
+-  `test_retry_condition_never_skips_retries` function L234-280 — `()` — `retry_attempts`.
 
 #### crates/cloacina/tests/integration/executor/task_execution.rs
 
@@ -5152,8 +5152,8 @@
 
 -  `postgres_tests` module L33-119 — `-` — CLOACI-T-0571 — defense-in-depth signature-existence check.
 -  `sha256_hex` function L43-47 — `(bytes: &[u8]) -> String` — refactor can't silently break the gate.
--  `build_registry` function L53-62 — `(database: cloacina::Database) -> WorkflowRegistryImpl<FilesystemRegistryStorage...` — Build a registry impl backed by the test fixture's database.
--  `test_find_signature_present_and_absent` function L68-118 — `()` — `find_signature` returns false when no row matches, true once a
+-  `build_registry` function L53-63 — `( database: cloacina::Database, ) -> WorkflowRegistryImpl<FilesystemRegistryStor...` — Build a registry impl backed by the test fixture's database.
+-  `test_find_signature_present_and_absent` function L69-118 — `()` — `find_signature` returns false when no row matches, true once a
 
 #### crates/cloacina/tests/integration/signing/security_failures.rs
 
@@ -6400,82 +6400,82 @@
 - pub `resolve` function L60-92 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
 - pub `evict` function L98-101 — `(&self, tenant_id: &str) -> bool` — CLOACI-T-0581: drop the cached `Database` for a tenant.
 - pub `AppState` struct L106-130 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::routes::...` — Shared application state accessible from all route handlers.
-- pub `run` function L176-626 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+- pub `run` function L175-625 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
 -  `TenantDatabaseCache` type L49-102 — `= TenantDatabaseCache` — management, workflow upload, and execution APIs.
 -  `runner_config_for_tenant_cache` function L136-147 — `( reconcile_interval: Option<std::time::Duration>, ) -> cloacina::DefaultRunnerC...` — CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
 -  `validate_security_args` function L155-167 — `( require_signatures: bool, verification_org_id: Option<&uuid::Uuid>, ) -> Resul...` — Validate security-related CLI args at server boot.
--  `request_id_middleware` function L630-658 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L660-787 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
--  `api_request_metrics` function L791-813 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
--  `health` function L816-818 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L821-850 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L853-863 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
--  `fallback_404` function L868-870 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns the canonical `ApiError`
--  `shutdown_signal` function L873-895 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L901-949 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L953-955 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L958-3205 — `-` — management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L966 — `: &str` — management, workflow upload, and execution APIs.
--  `test_state` function L969-1007 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `test_state_with_signature_required` function L1012-1022 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
--  `create_test_api_key` function L1025-1033 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L1036-1051 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L1057-1083 — `()` — management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L1089-1101 — `()` — management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L1105-1117 — `()` — management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L1121-1189 — `()` — management, workflow upload, and execution APIs.
--  `test_scheduler_loop_metrics_emit` function L1193-1269 — `()` — management, workflow upload, and execution APIs.
--  `test_supervisor_health_metrics_emit` function L1273-1357 — `()` — management, workflow upload, and execution APIs.
--  `test_accumulator_metrics_emit` function L1361-1437 — `()` — management, workflow upload, and execution APIs.
--  `test_reactor_metrics_emit` function L1441-1518 — `()` — management, workflow upload, and execution APIs.
--  `test_ws_metrics_emit` function L1522-1601 — `()` — management, workflow upload, and execution APIs.
--  `test_persist_failure_metrics_emit` function L1605-1675 — `()` — management, workflow upload, and execution APIs.
--  `test_i0099_cardinality_within_ceiling` function L1688-1973 — `()` — I-0099 cardinality guard — assert that every `cloacina_*` metric
--  `test_api_request_duration_histogram_emitted` function L1977-2021 — `()` — management, workflow upload, and execution APIs.
--  `test_unprefixed_auth_route_returns_404` function L2034-2049 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
--  `test_auth_no_token_returns_401` function L2055-2067 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L2071-2084 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L2088-2101 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L2105-2118 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L2124-2142 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L2146-2162 — `()` — management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L2166-2181 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L2185-2210 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L2214-2229 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L2233-2247 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L2253-2282 — `()` — management, workflow upload, and execution APIs.
--  `test_list_tenants` function L2286-2306 — `()` — management, workflow upload, and execution APIs.
--  `test_tenant_runner_cache_lru_evicts_oldest` function L2316-2406 — `()` — CLOACI-T-0580: LRU eviction.
--  `test_remove_tenant_idempotent_retry` function L2414-2468 — `()` — CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
--  `test_tenant_runners_share_inventory_arc` function L2476-2561 — `()` — CLOACI-T-0580: two per-tenant runners constructed through the
--  `test_remove_tenant_nonexistent_succeeds` function L2565-2581 — `()` — management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L2585-2621 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L2625-2640 — `()` — management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L2646-2660 — `()` — management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L2664-2677 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L2681-2705 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L2709-2733 — `()` — management, workflow upload, and execution APIs.
--  `fixture_path` function L2736-2741 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L2744-2755 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L2758-2771 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L2775-2801 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L2805-2831 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L2835-2855 — `()` — management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L2861-2875 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L2879-2892 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L2896-2910 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L2914-2927 — `()` — management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L2931-2946 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L2950-2968 — `()` — management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L2974-2988 — `()` — management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L2992-3005 — `()` — management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L3011-3023 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_unsigned_with_require_signatures_returns_403` function L3035-3068 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_signed_with_require_signatures_passes_verification` function L3072-3163 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_default_passes` function L3168-3171 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_org_without_require_passes` function L3174-3179 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_with_org_passes` function L3182-3186 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_without_org_fails` function L3189-3204 — `()` — management, workflow upload, and execution APIs.
+-  `request_id_middleware` function L629-657 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
+-  `build_router` function L659-786 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
+-  `api_request_metrics` function L790-812 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
+-  `health` function L815-817 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L820-849 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L852-862 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
+-  `fallback_404` function L867-869 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns the canonical `ApiError`
+-  `shutdown_signal` function L872-894 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L900-948 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L952-954 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L957-3204 — `-` — management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L965 — `: &str` — management, workflow upload, and execution APIs.
+-  `test_state` function L968-1006 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `test_state_with_signature_required` function L1011-1021 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
+-  `create_test_api_key` function L1024-1032 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L1035-1050 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L1056-1082 — `()` — management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L1088-1100 — `()` — management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L1104-1116 — `()` — management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L1120-1188 — `()` — management, workflow upload, and execution APIs.
+-  `test_scheduler_loop_metrics_emit` function L1192-1268 — `()` — management, workflow upload, and execution APIs.
+-  `test_supervisor_health_metrics_emit` function L1272-1356 — `()` — management, workflow upload, and execution APIs.
+-  `test_accumulator_metrics_emit` function L1360-1436 — `()` — management, workflow upload, and execution APIs.
+-  `test_reactor_metrics_emit` function L1440-1517 — `()` — management, workflow upload, and execution APIs.
+-  `test_ws_metrics_emit` function L1521-1600 — `()` — management, workflow upload, and execution APIs.
+-  `test_persist_failure_metrics_emit` function L1604-1674 — `()` — management, workflow upload, and execution APIs.
+-  `test_i0099_cardinality_within_ceiling` function L1687-1972 — `()` — I-0099 cardinality guard — assert that every `cloacina_*` metric
+-  `test_api_request_duration_histogram_emitted` function L1976-2020 — `()` — management, workflow upload, and execution APIs.
+-  `test_unprefixed_auth_route_returns_404` function L2033-2048 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
+-  `test_auth_no_token_returns_401` function L2054-2066 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L2070-2083 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L2087-2100 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L2104-2117 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L2123-2141 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L2145-2161 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L2165-2180 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L2184-2209 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L2213-2228 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L2232-2246 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L2252-2281 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L2285-2305 — `()` — management, workflow upload, and execution APIs.
+-  `test_tenant_runner_cache_lru_evicts_oldest` function L2315-2405 — `()` — CLOACI-T-0580: LRU eviction.
+-  `test_remove_tenant_idempotent_retry` function L2413-2467 — `()` — CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
+-  `test_tenant_runners_share_inventory_arc` function L2475-2560 — `()` — CLOACI-T-0580: two per-tenant runners constructed through the
+-  `test_remove_tenant_nonexistent_succeeds` function L2564-2580 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L2584-2620 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L2624-2639 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L2645-2659 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L2663-2676 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L2680-2704 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L2708-2732 — `()` — management, workflow upload, and execution APIs.
+-  `fixture_path` function L2735-2740 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L2743-2754 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L2757-2770 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L2774-2800 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L2804-2830 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L2834-2854 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L2860-2874 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L2878-2891 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L2895-2909 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L2913-2926 — `()` — management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L2930-2945 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L2949-2967 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L2973-2987 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L2991-3004 — `()` — management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L3010-3022 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_unsigned_with_require_signatures_returns_403` function L3034-3067 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_signed_with_require_signatures_passes_verification` function L3071-3162 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_default_passes` function L3167-3170 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_org_without_require_passes` function L3173-3178 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_with_org_passes` function L3181-3185 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_without_org_fails` function L3188-3203 — `()` — management, workflow upload, and execution APIs.
 
 #### crates/cloacina-server/src/main.rs
 
@@ -6491,19 +6491,19 @@
 - pub `new` function L99-106 — `(capacity: NonZeroUsize, base_config: DefaultRunnerConfig) -> Self` — Build a new cache with the given LRU cap.
 - pub `with_graph_scheduler` function L114-117 — `(mut self, scheduler: Arc<ComputationGraphScheduler>) -> Self` — CLOACI-T-0581 follow-up: install a shared graph scheduler.
 - pub `shared_runtime` function L121-123 — `(&self) -> Arc<Runtime>` — Get the shared `Runtime` so callers can install graph schedulers,
-- pub `get_or_create` function L135-201 — `( &self, tenant_id: &str, tenant_database: Database, ) -> Result<Arc<DefaultRunn...` — Look up (or construct) the runner for `tenant_id`, bound to
-- pub `evict` function L207-223 — `(&self, tenant_id: &str) -> Result<bool, cloacina::WorkflowExecutionError>` — Explicitly evict a tenant's runner from the cache, awaiting its
-- pub `evict_with_timeout` function L229-269 — `( &self, tenant_id: &str, drain_timeout: std::time::Duration, ) -> EvictOutcome` — CLOACI-T-0581: bounded-drain eviction.
-- pub `shutdown_all` function L274-289 — `(&self) -> HashMap<String, Result<(), String>>` — Shut down every cached runner.
-- pub `len` function L292-294 — `(&self) -> usize` — Current number of cached runners.
-- pub `is_empty` function L297-299 — `(&self) -> bool` — `true` if the cache holds no runners.
+- pub `get_or_create` function L135-200 — `( &self, tenant_id: &str, tenant_database: Database, ) -> Result<Arc<DefaultRunn...` — Look up (or construct) the runner for `tenant_id`, bound to
+- pub `evict` function L206-222 — `(&self, tenant_id: &str) -> Result<bool, cloacina::WorkflowExecutionError>` — Explicitly evict a tenant's runner from the cache, awaiting its
+- pub `evict_with_timeout` function L228-268 — `( &self, tenant_id: &str, drain_timeout: std::time::Duration, ) -> EvictOutcome` — CLOACI-T-0581: bounded-drain eviction.
+- pub `shutdown_all` function L273-288 — `(&self) -> HashMap<String, Result<(), String>>` — Shut down every cached runner.
+- pub `len` function L291-293 — `(&self) -> usize` — Current number of cached runners.
+- pub `is_empty` function L296-298 — `(&self) -> bool` — `true` if the cache holds no runners.
 -  `EvictOutcome` type L70-76 — `= EvictOutcome` — next cache lookup.
--  `TenantRunnerCache` type L95-300 — `= TenantRunnerCache` — next cache lookup.
--  `tests` module L303-332 — `-` — next cache lookup.
--  `cap` function L306-308 — `(n: usize) -> NonZeroUsize` — next cache lookup.
--  `empty_cache_is_empty` function L311-315 — `()` — next cache lookup.
--  `evict_missing_tenant_returns_false` function L318-322 — `()` — next cache lookup.
--  `shared_runtime_is_stable_arc` function L325-331 — `()` — next cache lookup.
+-  `TenantRunnerCache` type L95-299 — `= TenantRunnerCache` — next cache lookup.
+-  `tests` module L302-331 — `-` — next cache lookup.
+-  `cap` function L305-307 — `(n: usize) -> NonZeroUsize` — next cache lookup.
+-  `empty_cache_is_empty` function L310-314 — `()` — next cache lookup.
+-  `evict_missing_tenant_returns_false` function L317-321 — `()` — next cache lookup.
+-  `shared_runtime_is_stable_arc` function L324-330 — `()` — next cache lookup.
 
 ### crates/cloacina-server/src/routes
 
@@ -9714,12 +9714,12 @@
 
 #### examples/features/workflows/conditional-retries/src/main.rs
 
-- pub `conditional_retries_pipeline` module L55-109 — `-` — cargo run -p conditional-retries-example
-- pub `flaky_api_call` function L69-84 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — cargo run -p conditional-retries-example
-- pub `validation_check` function L98-108 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — cargo run -p conditional-retries-example
+- pub `conditional_retries_pipeline` module L55-107 — `-` — cargo run -p conditional-retries-example
+- pub `flaky_api_call` function L69-82 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — cargo run -p conditional-retries-example
+- pub `validation_check` function L96-106 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — cargo run -p conditional-retries-example
 -  `FLAKY_ATTEMPTS` variable L48 — `: AtomicU32` — cargo run -p conditional-retries-example
 -  `VALIDATION_ATTEMPTS` variable L49 — `: AtomicU32` — cargo run -p conditional-retries-example
--  `main` function L112-169 — `() -> Result<(), Box<dyn std::error::Error>>` — cargo run -p conditional-retries-example
+-  `main` function L110-176 — `() -> Result<(), Box<dyn std::error::Error>>` — cargo run -p conditional-retries-example
 
 ### examples/features/workflows/cron-scheduling
 
