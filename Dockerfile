@@ -25,14 +25,21 @@ ARG RUST_VERSION=1.93
 # ---------------------------------------------------------------------------
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
-# Build deps: libpq for diesel/postgres, pkg-config for libpq discovery,
-# git for any vendored deps that resolve git refs at build time.
+# Build deps:
+#   libpq-dev  — diesel/postgres
+#   pkg-config — libpq discovery
+#   git        — vendored deps that resolve git refs at build time
+#   python3 + python3-dev — pyo3-build-config needs a Python interpreter
+#       + headers to link against (cloacina pulls pyo3 via its default
+#       'python' feature; see memory/feedback_python_is_core).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         libpq-dev \
         pkg-config \
         git \
         ca-certificates \
+        python3 \
+        python3-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -51,12 +58,18 @@ RUN cargo build --release --locked --bin cloacina-server
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 
-# Runtime deps: libpq5 for diesel, ca-certificates for any HTTPS calls
-# (e.g. compiler service callbacks, signature verification).
+# Runtime deps:
+#   libpq5         — diesel/postgres
+#   ca-certificates — HTTPS calls (compiler callbacks, signature checks)
+#   libpython3.11  — pyo3 dynamically links libpython; matches the
+#                    python3 we pull in builder/runtime. Without this,
+#                    cloacina-server exits at startup with a libpython
+#                    load error even though Python workflows aren't used.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         libpq5 \
         ca-certificates \
+        libpython3.11 \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user (uid 10001 stays clear of host /etc/passwd).

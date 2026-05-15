@@ -2,6 +2,7 @@
 
 import shutil
 import subprocess
+import sys
 import time
 
 import angreal  # type: ignore
@@ -25,12 +26,15 @@ python_group = angreal.command_group(name="python", about="Python tutorial examp
 
 
 def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite"):
+    # All prints flush=True so CI logs land in order — buffered stdout
+    # has burned us before (tutorial would exit silently between Step 5
+    # and "Executing tutorial N..." with no diagnostic).
     project_root = PROJECT_ROOT
     tutorial_path = project_root / tutorial_rel_path
     python_tutorials_dir = tutorial_path.parent
 
     if not tutorial_path.exists():
-        print(f"ERROR: Tutorial file not found: {tutorial_path}")
+        print(f"ERROR: Tutorial file not found: {tutorial_path}", flush=True)
         return 1
 
     venv_name = f"tutorial-{tutorial_num}-unified"
@@ -38,18 +42,20 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite"):
 
     try:
         if backend == "postgres":
-            print("Starting PostgreSQL container...")
+            print("Starting PostgreSQL container...", flush=True)
             if docker_up() != 0:
                 raise Exception("Failed to start PostgreSQL container")
-            print("Waiting for PostgreSQL to be ready...")
+            print("Waiting for PostgreSQL to be ready...", flush=True)
             time.sleep(10)
             if not check_postgres_container_health():
                 raise Exception("PostgreSQL container is not healthy")
 
-        print("Building cloaca wheel and tutorial venv...")
+        print("Building cloaca wheel and tutorial venv...", flush=True)
         _venv, python_exe, _pip_exe = _build_and_install_cloaca_unified(venv_name)
 
-        print(f"Executing tutorial {tutorial_num}...")
+        print(f"[diagnostic] post-venv: tutorial_num={tutorial_num} backend={backend} "
+              f"venv={venv_path} python={python_exe}", flush=True)
+
         if backend == "sqlite":
             for db_file in project_root.glob(f"python_tutorial_{tutorial_num}.db*"):
                 try:
@@ -57,10 +63,15 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite"):
                 except FileNotFoundError:
                     pass
         elif backend == "postgres":
-            smart_postgres_reset()
+            print("Resetting PostgreSQL schema...", flush=True)
+            reset_ok = smart_postgres_reset()
+            print(f"[diagnostic] smart_postgres_reset returned {reset_ok}", flush=True)
 
+        print(f"Executing tutorial {tutorial_num}...", flush=True)
+        # `python -u` forces unbuffered stdio in the child so CI sees
+        # progress + tracebacks even if the tutorial crashes mid-stream.
         result = subprocess.run(
-            [str(python_exe), str(tutorial_path)],
+            [str(python_exe), "-u", str(tutorial_path)],
             cwd=str(python_tutorials_dir),
             capture_output=True,
             text=True,
@@ -68,20 +79,35 @@ def _run_python_tutorial(tutorial_num, tutorial_rel_path, backend="sqlite"):
         )
 
         if result.returncode == 0:
-            print(f"SUCCESS: Tutorial {tutorial_num} completed.")
-            print(result.stdout)
+            print(f"SUCCESS: Tutorial {tutorial_num} completed.", flush=True)
+            print(result.stdout, flush=True)
             return 0
-        print(f"FAILED: Tutorial {tutorial_num} failed (exit {result.returncode}).")
-        print(result.stderr)
-        if result.stdout:
-            print(result.stdout)
+        print(f"FAILED: Tutorial {tutorial_num} failed (exit {result.returncode}).", flush=True)
+        print("--- tutorial stderr ---", flush=True)
+        print(result.stderr or "(empty)", flush=True)
+        print("--- tutorial stdout ---", flush=True)
+        print(result.stdout or "(empty)", flush=True)
+        print("--- end tutorial output ---", flush=True)
         return 1
 
-    except subprocess.TimeoutExpired:
-        print(f"TIMEOUT: Tutorial {tutorial_num} timed out after 5 minutes")
+    except subprocess.TimeoutExpired as e:
+        print(f"TIMEOUT: Tutorial {tutorial_num} timed out after 5 minutes", flush=True)
+        if e.stdout:
+            print("--- partial stdout ---", flush=True)
+            print(e.stdout.decode("utf-8", errors="replace") if isinstance(e.stdout, bytes) else e.stdout, flush=True)
+        if e.stderr:
+            print("--- partial stderr ---", flush=True)
+            print(e.stderr.decode("utf-8", errors="replace") if isinstance(e.stderr, bytes) else e.stderr, flush=True)
         return 1
     except Exception as e:
-        print(f"ERROR: Tutorial {tutorial_num} setup failed: {e}")
+        # Print BOTH the exception summary AND the full traceback so CI
+        # never has to guess what failed.
+        import traceback as _tb
+        print(f"ERROR: Tutorial {tutorial_num} setup failed: {type(e).__name__}: {e}", flush=True)
+        print("--- traceback ---", flush=True)
+        _tb.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
         return 1
     finally:
         if backend == "postgres":
