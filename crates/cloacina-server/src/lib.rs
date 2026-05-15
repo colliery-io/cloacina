@@ -172,7 +172,6 @@ fn validate_security_args(
 /// is a `RunConfig` struct, tracked as a follow-up. T-0567 added the
 /// `verification_org_id` parameter and pushed us to 8.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub async fn run(
     home: std::path::PathBuf,
     bind: SocketAddr,

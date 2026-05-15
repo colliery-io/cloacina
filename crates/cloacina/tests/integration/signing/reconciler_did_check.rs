@@ -32,8 +32,8 @@
 #[cfg(feature = "postgres")]
 mod postgres_tests {
     use crate::fixtures::get_or_init_fixture;
-    use cloacina::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
     use cloacina::dal::FilesystemRegistryStorage;
+    use cloacina::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
     use cloacina::registry::traits::WorkflowRegistry;
     use cloacina::registry::WorkflowRegistryImpl;
     use serial_test::serial;
@@ -50,8 +50,9 @@ mod postgres_tests {
     /// We don't actually exercise the storage backend here — the test
     /// only touches the signature lookup, which lives on the database
     /// side of the registry.
-    fn build_registry(database: cloacina::Database) -> WorkflowRegistryImpl<FilesystemRegistryStorage>
-    {
+    fn build_registry(
+        database: cloacina::Database,
+    ) -> WorkflowRegistryImpl<FilesystemRegistryStorage> {
         let tmp = TempDir::new().expect("tempdir");
         let storage = FilesystemRegistryStorage::new(tmp.path()).expect("storage");
         // Leak the tempdir so the storage path remains valid for the
@@ -80,11 +81,7 @@ mod postgres_tests {
             .find_signature(&hash)
             .await
             .expect("find_signature(absent)");
-        assert!(
-            !absent,
-            "expected no signature row for fresh hash {}",
-            hash
-        );
+        assert!(!absent, "expected no signature row for fresh hash {}", hash);
 
         // Insert a signature row directly via the signer DAL.
         let signer = cloacina::security::DbPackageSigner::new(cloacina::dal::DAL::new(database));
@@ -111,7 +108,10 @@ mod postgres_tests {
             .find_signature(&other)
             .await
             .expect("find_signature(other)");
-        assert!(!other_absent, "unrelated hash must not match the inserted row");
+        assert!(
+            !other_absent,
+            "unrelated hash must not match the inserted row"
+        );
 
         // Suppress unused-import warnings on the binary type.
         let _bin = UniversalBinary::new(vec![0u8; 1]);

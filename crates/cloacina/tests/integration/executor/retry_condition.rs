@@ -61,10 +61,7 @@ impl WorkflowTask {
 
 #[async_trait::async_trait]
 impl Task for WorkflowTask {
-    async fn execute(
-        &self,
-        context: Context<Value>,
-    ) -> Result<Context<Value>, TaskError> {
+    async fn execute(&self, context: Context<Value>) -> Result<Context<Value>, TaskError> {
         Ok(context)
     }
     fn id(&self) -> &str {
@@ -200,7 +197,9 @@ async fn test_retry_condition_transient_retries_and_succeeds() {
                     .get_all_tasks_for_workflow(UniversalUuid(exec_id))
                     .await
                     .unwrap_or_default();
-                tasks.iter().any(|t| t.status == "Completed" || t.status == "Failed")
+                tasks
+                    .iter()
+                    .any(|t| t.status == "Completed" || t.status == "Failed")
             }
         },
     )
@@ -211,7 +210,11 @@ async fn test_retry_condition_transient_retries_and_succeeds() {
         .get_all_tasks_for_workflow(UniversalUuid(exec_id))
         .await
         .unwrap();
-    assert_eq!(tasks.len(), 1, "exactly one task row tracks the latest attempt");
+    assert_eq!(
+        tasks.len(),
+        1,
+        "exactly one task row tracks the latest attempt"
+    );
     assert_eq!(
         tasks[0].status, "Completed",
         "transient retries should let the task succeed on attempt 3"

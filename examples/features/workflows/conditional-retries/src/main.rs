@@ -66,9 +66,7 @@ pub mod conditional_retries_pipeline {
         retry_jitter = false,
         retry_condition = "transient"
     )]
-    pub async fn flaky_api_call(
-        context: &mut Context<serde_json::Value>,
-    ) -> Result<(), TaskError> {
+    pub async fn flaky_api_call(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let attempt = FLAKY_ATTEMPTS.fetch_add(1, Ordering::SeqCst) + 1;
         if attempt < 3 {
             warn!(attempt, "flaky_api_call: simulated connection refused");
@@ -112,22 +110,28 @@ pub mod conditional_retries_pipeline {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite::memory:".to_string());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite::memory:".to_string());
 
-    info!("Starting conditional-retries example against {}", database_url);
+    info!(
+        "Starting conditional-retries example against {}",
+        cloacina::logging::mask_db_url(&database_url)
+    );
     let runner = DefaultRunner::new(&database_url).await?;
 
     // -------- 1. Transient retries succeed eventually --------
     info!("--- run 1: flaky_api_call (retry_condition = transient) ---");
-    let flaky_workflow =
-        Workflow::builder("conditional_retries_pipeline_flaky")
-            .description("flaky API workflow")
-            .add_task(std::sync::Arc::new(conditional_retries_pipeline::flaky_api_call_task()))
-            .unwrap()
-            .build()
-            .unwrap();
-    let _ = runner.execute("conditional_retries_pipeline_flaky", Context::new()).await;
+    let flaky_workflow = Workflow::builder("conditional_retries_pipeline_flaky")
+        .description("flaky API workflow")
+        .add_task(std::sync::Arc::new(
+            conditional_retries_pipeline::flaky_api_call_task(),
+        ))
+        .unwrap()
+        .build()
+        .unwrap();
+    let _ = runner
+        .execute("conditional_retries_pipeline_flaky", Context::new())
+        .await;
     info!(
         "flaky_api_call attempts: {}",
         FLAKY_ATTEMPTS.load(Ordering::SeqCst)
@@ -135,14 +139,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // -------- 2. Validation errors do NOT retry --------
     info!("--- run 2: validation_check (retry_condition = never) ---");
-    let validation_workflow =
-        Workflow::builder("conditional_retries_pipeline_validation")
-            .description("validation workflow — never retries")
-            .add_task(std::sync::Arc::new(conditional_retries_pipeline::validation_check_task()))
-            .unwrap()
-            .build()
-            .unwrap();
-    let _ = runner.execute("conditional_retries_pipeline_validation", Context::new()).await;
+    let validation_workflow = Workflow::builder("conditional_retries_pipeline_validation")
+        .description("validation workflow — never retries")
+        .add_task(std::sync::Arc::new(
+            conditional_retries_pipeline::validation_check_task(),
+        ))
+        .unwrap()
+        .build()
+        .unwrap();
+    let _ = runner
+        .execute("conditional_retries_pipeline_validation", Context::new())
+        .await;
     info!(
         "validation_check attempts: {}",
         VALIDATION_ATTEMPTS.load(Ordering::SeqCst)
