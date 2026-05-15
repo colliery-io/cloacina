@@ -246,6 +246,243 @@ jobs:
           password: ${{ secrets.PYPI_TOKEN }}
 
   # -----------------------------------------------------------------------
+  # Step 5b: Build + upload cloacinactl release binaries (CLOACI-I-0111 / T-0603)
+  #
+  # Cross-compiles `cloacinactl` for the four supported targets, packages
+  # each as a tarball with a SHA256 sidecar, and uploads them to the
+  # GitHub Release for the tag. Powers `scripts/install.sh`.
+  # -----------------------------------------------------------------------
+
+  build-release-binaries:
+    name: Build Binary (${{ matrix.target }})
+    needs: [verify-version]
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: false
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            cross: false
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            cross: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install libpq (Linux native)
+        if: runner.os == 'Linux' && matrix.cross == false
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+
+      - name: Install libpq (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install libpq
+          echo "PQ_LIB_DIR=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
+      - name: Install cross
+        if: matrix.cross == true
+        run: cargo install cross --locked --version 0.2.5
+
+      - name: Build (native)
+        if: matrix.cross == false
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin cloacinactl
+
+      - name: Build (cross)
+        if: matrix.cross == true
+        run: cross build --release --locked --target ${{ matrix.target }} --bin cloacinactl
+
+      - name: Strip binary
+        if: runner.os == 'Linux' && matrix.cross == false
+        run: strip target/${{ matrix.target }}/release/cloacinactl
+      - name: Strip binary (macOS)
+        if: runner.os == 'macOS'
+        run: strip -x target/${{ matrix.target }}/release/cloacinactl
+
+      - name: Package tarball + sha256 sidecar
+        id: pack
+        env:
+          TAG_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_REF#refs/tags/}"
+          asset="cloacinactl-${tag}-${{ matrix.target }}.tar.gz"
+          mkdir -p dist
+          tar -C "target/${{ matrix.target }}/release" -czf "dist/${asset}" cloacinactl
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd dist && sha256sum "${asset}" > "${asset}.sha256")
+          else
+            (cd dist && shasum -a 256 "${asset}" > "${asset}.sha256")
+          fi
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact (intra-workflow)
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/cloacinactl-*
+          retention-days: 14
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/cloacinactl-*.tar.gz
+            dist/cloacinactl-*.tar.gz.sha256
+          fail_on_unmatched_files: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # -----------------------------------------------------------------------
+  # Step 5c: Build + push cloacina-server Docker image (CLOACI-I-0111 / T-0604)
+  #
+  # Multi-arch build via buildx, pushed to ghcr.io/<owner>/cloacina-server.
+  # Tags applied: <semver>, <major>.<minor>, latest.
+  # -----------------------------------------------------------------------
+
+  publish-docker:
+    name: Publish cloacina-server image
+    needs: [verify-version]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute tags
+        id: tags
+        env:
+          TAG_REF: ${{ github.ref }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_REF#refs/tags/}"     # vX.Y.Z
+          version="${tag#v}"              # X.Y.Z
+          major_minor="${version%.*}"     # X.Y
+          owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          image="ghcr.io/${owner_lc}/cloacina-server"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag_list<<EOF"
+            echo "${image}:${version}"
+            echo "${image}:${major_minor}"
+            echo "${image}:latest"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tag_list }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (--version against linux/amd64)
+        env:
+          IMAGE: ${{ steps.tags.outputs.image }}
+        run: |
+          set -euo pipefail
+          # The amd64 manifest is the runner's native arch; pull and
+          # exercise --version. Verifies the entrypoint, the binary
+          # actually runs, and clap reports the build version.
+          docker run --rm "${IMAGE}:latest" --version
+
+  # -----------------------------------------------------------------------
+  # Step 5d: Publish Helm chart (CLOACI-I-0111 / T-0605)
+  #
+  # Packages charts/cloacina-server and pushes it as an OCI artifact to
+  # ghcr.io/<owner>/charts/cloacina-server. Runs after publish-docker so
+  # the image referenced by the chart's appVersion is guaranteed present.
+  # -----------------------------------------------------------------------
+
+  publish-helm:
+    name: Publish Helm chart
+    needs: [verify-version, publish-docker]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Set tag-derived chart version
+        env:
+          TAG_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_REF#refs/tags/}"
+          version="${tag#v}"
+          # Sync chart's `version` and `appVersion` to the release tag.
+          # Chart's own internal versioning resumes its independent path
+          # on the next non-release commit.
+          sed -i -E "s/^version: .*/version: ${version}/" charts/cloacina-server/Chart.yaml
+          sed -i -E "s/^appVersion: .*/appVersion: \"${version}\"/" charts/cloacina-server/Chart.yaml
+          grep -E "^(version|appVersion):" charts/cloacina-server/Chart.yaml
+
+      - name: Log in to ghcr.io (Helm OCI push)
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${GITHUB_TOKEN}" | helm registry login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Lint chart
+        run: helm lint charts/cloacina-server
+
+      - name: Package chart
+        run: |
+          mkdir -p dist-charts
+          helm package charts/cloacina-server --destination dist-charts
+
+      - name: Push chart to ghcr.io
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          chart_pkg=$(ls dist-charts/cloacina-server-*.tgz | head -n1)
+          [ -n "${chart_pkg}" ] || { echo "no chart package found" >&2; exit 1; }
+          helm push "${chart_pkg}" "oci://ghcr.io/${owner_lc}/charts"
+
+  # -----------------------------------------------------------------------
   # Step 6: Cache hygiene
   #
   # Tag-scoped caches are write-once: they're only re-used if you re-run
@@ -256,7 +493,7 @@ jobs:
 
   prune-tag-caches:
     name: Prune Tag-Scoped Caches
-    needs: [publish-cargo, publish-pypi]
+    needs: [publish-cargo, publish-pypi, build-release-binaries, publish-docker, publish-helm]
     if: always() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

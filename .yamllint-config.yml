@@ -1,6 +1,11 @@
 ---
 # https://yamllint.readthedocs.io/en/stable/
 extends: default
+# Helm chart templates use Go templating ({{ ... }}) which yamllint
+# treats as malformed YAML flow braces. Exclude the templates dir;
+# `helm lint` in CI covers it instead.
+ignore: |
+  charts/*/templates/
 rules:
   line-length:
     max: 500

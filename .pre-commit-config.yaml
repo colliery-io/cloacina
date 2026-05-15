@@ -21,6 +21,9 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # Helm templates use Go templating ({{ ... }}) so they are not
+        # valid YAML standalone. helm lint covers them in CI.
+        exclude: ^charts/.*/templates/.*\.yaml$
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:

@@ -41,6 +41,7 @@ jobs:
       workflows: ${{ steps.filter.outputs.workflows }}
       harness: ${{ steps.filter.outputs.harness }}
       examples: ${{ steps.filter.outputs.examples }}
+      charts: ${{ steps.filter.outputs.charts }}
     steps:
       - uses: actions/checkout@v4
 
@@ -65,6 +66,8 @@ jobs:
               - '.angreal/**'
             examples:
               - 'examples/**'
+            charts:
+              - 'charts/**'
 
   # Quick gate - only runs if code, harness, or workflows changed
   quick-checks:
@@ -132,3 +135,159 @@ jobs:
       needs.changes.outputs.workflows == 'true' ||
       needs.changes.outputs.examples == 'true'
     uses: ./.github/workflows/examples-docs.yml
+
+  # Helm chart lint + template (CLOACI-I-0111 / T-0605)
+  helm-chart:
+    name: Helm chart lint
+    needs: changes
+    if: |
+      needs.changes.outputs.charts == 'true' ||
+      needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: helm lint
+        run: helm lint charts/cloacina-server
+
+      - name: helm template (BYO Postgres via database.url)
+        run: |
+          helm template cloacina charts/cloacina-server \
+            --set database.url=postgres://u:p@h:5432/d \
+            > /tmp/render-byo.yaml
+          test -s /tmp/render-byo.yaml
+
+      - name: helm template (BYO Postgres via secret ref)
+        run: |
+          helm template cloacina charts/cloacina-server \
+            --set databaseUrlSecretRef.name=cloacina-db \
+            > /tmp/render-secret.yaml
+          test -s /tmp/render-secret.yaml
+
+      - name: helm template (bundled Postgres)
+        run: |
+          # No `helm dependency update` — Bitnami subchart pull would hit
+          # the network on every PR. We assert the conditional dep wiring
+          # without actually rendering the subchart.
+          helm template cloacina charts/cloacina-server \
+            --set postgresql.enabled=true \
+            --set postgresql.auth.password=test \
+            > /tmp/render-bundled.yaml || true
+          # The render fails because the subchart isn't vendored; that's
+          # expected in CI. We only assert that our own templates parse.
+          helm template cloacina charts/cloacina-server \
+            --set databaseUrlSecretRef.name=stub \
+            --set ingress.enabled=true \
+            --set serviceMonitor.enabled=true \
+            > /tmp/render-extras.yaml
+          test -s /tmp/render-extras.yaml
+
+      - name: Validate fail-fast on missing database wiring
+        run: |
+          set +e
+          helm template cloacina charts/cloacina-server > /tmp/render-fail.yaml 2> /tmp/render-fail.err
+          rc=$?
+          set -e
+          if [ "${rc}" = "0" ]; then
+            echo "expected helm template to fail when no database is configured" >&2
+            exit 1
+          fi
+          grep -q "configure exactly one of" /tmp/render-fail.err || {
+            echo "expected validateDatabase fail message in stderr" >&2
+            cat /tmp/render-fail.err >&2
+            exit 1
+          }
+
+  # End-to-end Helm chart install on a kind cluster (CLOACI-I-0111 / T-0605).
+  # Builds the cloacina-server image, loads it into kind, helm-installs the
+  # chart with bundled Postgres, and verifies /v1/health returns 200.
+  helm-chart-e2e:
+    name: Helm chart e2e (kind)
+    needs: [helm-chart, changes]
+    if: |
+      needs.changes.outputs.charts == 'true' ||
+      needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build cloacina-server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: cloacina-server:e2e
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: cloacina-helm-e2e
+          wait: 120s
+
+      - name: Load image into kind
+        run: kind load docker-image cloacina-server:e2e --name cloacina-helm-e2e
+
+      - name: helm dependency update
+        run: helm dependency update charts/cloacina-server
+
+      - name: helm install (bundled postgres)
+        run: |
+          set -euo pipefail
+          PASSWORD=$(openssl rand -hex 16)
+          helm install cloacina charts/cloacina-server \
+            --namespace cloacina-e2e --create-namespace \
+            --set image.repository=cloacina-server \
+            --set image.tag=e2e \
+            --set image.pullPolicy=Never \
+            --set postgresql.enabled=true \
+            --set postgresql.auth.password="${PASSWORD}" \
+            --wait --timeout=8m
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/cloacina-cloacina-server \
+            -n cloacina-e2e --timeout=5m
+
+      - name: Curl /v1/health from inside the cluster
+        run: |
+          set -euo pipefail
+          # `kubectl run` with curlimages/curl, --rm cleans up the pod.
+          kubectl run healthcheck \
+            -n cloacina-e2e \
+            --rm --restart=Never -i \
+            --image=curlimages/curl:8.10.1 \
+            --command -- curl -fsS -o /dev/null -w "HTTP %{http_code}\n" \
+            http://cloacina-cloacina-server:8080/v1/health \
+          | tee /tmp/health.out
+          grep -q "HTTP 200" /tmp/health.out
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== pods ==="
+          kubectl get pods -n cloacina-e2e
+          echo "=== events ==="
+          kubectl get events -n cloacina-e2e --sort-by=.lastTimestamp
+          echo "=== server logs ==="
+          kubectl logs -l app.kubernetes.io/instance=cloacina \
+            -n cloacina-e2e --tail=200 || true
+          echo "=== describe ==="
+          kubectl describe pods -l app.kubernetes.io/instance=cloacina \
+            -n cloacina-e2e || true
