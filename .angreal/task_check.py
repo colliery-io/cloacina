@@ -15,8 +15,20 @@ PROJECT_ROOT = Path(angreal.get_root()).parent
 check = angreal.command_group(name="check", about="commands for checking code quality")
 
 
+# Cargo projects that aren't real build targets — skipped by `check all-crates`:
+# - compiler-{broken,happy}-rust: templates with `__WORKSPACE__` placeholder
+#   paths, rewritten at compiler-e2e test time.
+# - validation-failures: intentionally fails to compile (negative-test demo).
+SKIP_CRATES = {
+    "examples/fixtures/compiler-broken-rust",
+    "examples/fixtures/compiler-happy-rust",
+    "examples/features/workflows/validation-failures",
+}
+
+
 def find_all_cargo_projects() -> List[Path]:
-    """Find all Cargo.toml files tracked by git."""
+    """Find all Cargo.toml files tracked by git, excluding templates and
+    intentionally-broken demos."""
     try:
         result = subprocess.run(
             ["git", "ls-files", "--", "*/Cargo.toml", "Cargo.toml"],
@@ -28,9 +40,13 @@ def find_all_cargo_projects() -> List[Path]:
 
         paths = []
         for line in result.stdout.strip().split('\n'):
-            if line:
-                project_path = PROJECT_ROOT / Path(line).parent
-                paths.append(project_path)
+            if not line:
+                continue
+            rel_dir = str(Path(line).parent)
+            if rel_dir in SKIP_CRATES:
+                continue
+            project_path = PROJECT_ROOT / Path(line).parent
+            paths.append(project_path)
 
         return sorted(paths)
     except subprocess.CalledProcessError as e:
