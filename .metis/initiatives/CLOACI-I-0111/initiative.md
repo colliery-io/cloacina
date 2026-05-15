@@ -4,14 +4,14 @@ level: initiative
 title: "Distribution: install script, Docker image, Helm chart"
 short_code: "CLOACI-I-0111"
 created_at: 2026-05-14T22:44:02.988342+00:00
-updated_at: 2026-05-14T22:52:25.078124+00:00
+updated_at: 2026-05-15T00:26:46.352226+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/ready"
 
 
 exit_criteria_met: false

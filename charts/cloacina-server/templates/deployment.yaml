@@ -1,0 +1,117 @@
+{{- include "cloacina-server.validateDatabase" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloacina-server.fullname" . }}
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "cloacina-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloacina-server.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cloacina-server
+          image: {{ include "cloacina-server.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--bind"
+            - {{ .Values.server.bind | quote }}
+            - "--tenant-runner-cache-size"
+            - {{ .Values.server.tenantRunnerCacheSize | quote }}
+            - "--tenant-deletion-drain-timeout-s"
+            - {{ .Values.server.tenantDeletionDrainTimeoutSeconds | quote }}
+            {{- if .Values.server.requireSignatures }}
+            - "--require-signatures"
+            {{- end }}
+            {{- if .Values.server.verificationOrgId }}
+            - "--verification-org-id"
+            - {{ .Values.server.verificationOrgId | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- if .Values.postgresql.enabled }}
+            - name: DATABASE_URL
+              value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}"
+            {{- else if .Values.databaseUrlSecretRef.name }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.databaseUrlSecretRef.name }}
+                  key: {{ .Values.databaseUrlSecretRef.key }}
+            {{- else }}
+            - name: DATABASE_URL
+              value: {{ .Values.database.url | quote }}
+            {{- end }}
+            {{- if .Values.apiKeySecretRef.name }}
+            - name: CLOACINA_BOOTSTRAP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiKeySecretRef.name }}
+                  key: {{ .Values.apiKeySecretRef.key }}
+            {{- end }}
+            {{- with .Values.server.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: home
+              mountPath: /home/cloacina
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # readOnlyRootFilesystem requires emptyDirs for any writable paths.
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

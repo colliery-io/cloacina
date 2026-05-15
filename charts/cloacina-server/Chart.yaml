@@ -1,0 +1,39 @@
+---
+apiVersion: v2
+name: cloacina-server
+description: |
+  Cloacina HTTP API server — multi-tenant workflow orchestration
+  backed by Postgres. Pairs with the official cloacina-server image
+  published to ghcr.io.
+type: application
+
+# Chart's own semver. Bump per chart change; not coupled to appVersion
+# beyond the convention that chart majors track app majors.
+version: 0.1.0
+
+# Tracks the cloacina-server release the default image.tag points at.
+# Override via --set image.tag=X.Y.Z when pinning to a specific server release.
+appVersion: "0.6.1"
+
+home: https://cloacina.dev
+sources:
+  - https://github.com/colliery-software/cloacina
+
+maintainers:
+  - name: Colliery Software
+    url: https://github.com/colliery-software
+
+keywords:
+  - workflow
+  - orchestration
+  - postgres
+  - rust
+
+# Bitnami postgresql is a soft dependency — disabled by default so
+# operators wire their own managed Postgres. Enable via
+# `--set postgresql.enabled=true` for an in-cluster Postgres.
+dependencies:
+  - name: postgresql
+    version: "16.x.x"
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: postgresql.enabled

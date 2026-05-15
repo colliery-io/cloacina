@@ -1,0 +1,20 @@
+# Default helm ignore patterns + repo-specific carve-outs.
+.DS_Store
+.git/
+.gitignore
+.bzr/
+.hg/
+.hgignore
+.svn/
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.project
+.idea/
+*.tmproj
+.vscode/
+
+# Keep CI helpers out of the packaged chart
+ci/

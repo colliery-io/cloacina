@@ -4,14 +4,14 @@ level: task
 title: "T-03: Helm chart for cloacina-server"
 short_code: "CLOACI-T-0605"
 created_at: 2026-05-14T22:45:17.785379+00:00
-updated_at: 2026-05-14T22:45:17.785379+00:00
+updated_at: 2026-05-15T00:26:45.408584+00:00
 parent: CLOACI-I-0111
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -45,6 +45,10 @@ Helm chart for `cloacina-server` published as an OCI artifact to `ghcr.io/collie
    - Bring-your-own-Postgres + bundled-Postgres value examples
    - Ingress / TLS notes
    - Upgrade procedure
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
