@@ -4,19 +4,18 @@ level: task
 title: "Conditional Retries - Add retry_condition parameter to task configuration"
 short_code: "CLOACI-T-0042"
 created_at: 2025-12-13T14:58:58.066041+00:00
-updated_at: 2025-12-13T14:58:58.066041+00:00
-parent:
+updated_at: 2026-05-15T14:23:13.464252+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
-strategy_id: NULL
 initiative_id: NULL
 ---
 
@@ -38,6 +37,12 @@ Allow tasks to specify conditional retry logic based on failure types, rather th
 - **User Value**: Prevents unnecessary retries on non-recoverable errors (validation, permissions), reducing wasted compute and faster failure feedback
 - **Business Value**: More efficient resource utilization, clearer error handling semantics
 - **Effort Estimate**: M
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
