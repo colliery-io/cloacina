@@ -152,6 +152,12 @@ jobs:
         with:
           version: v3.15.0
 
+      - name: helm dependency update
+        # Vendors Bitnami postgresql subchart (conditional dep). Required
+        # before `helm template` even when the dep's condition is false —
+        # helm validates dep presence regardless of condition resolution.
+        run: helm dependency update charts/cloacina-server
+
       - name: helm lint
         run: helm lint charts/cloacina-server
 
@@ -171,15 +177,14 @@ jobs:
 
       - name: helm template (bundled Postgres)
         run: |
-          # No `helm dependency update` — Bitnami subchart pull would hit
-          # the network on every PR. We assert the conditional dep wiring
-          # without actually rendering the subchart.
           helm template cloacina charts/cloacina-server \
             --set postgresql.enabled=true \
             --set postgresql.auth.password=test \
-            > /tmp/render-bundled.yaml || true
-          # The render fails because the subchart isn't vendored; that's
-          # expected in CI. We only assert that our own templates parse.
+            > /tmp/render-bundled.yaml
+          test -s /tmp/render-bundled.yaml
+
+      - name: helm template (extras — ingress + serviceMonitor)
+        run: |
           helm template cloacina charts/cloacina-server \
             --set databaseUrlSecretRef.name=stub \
             --set ingress.enabled=true \
