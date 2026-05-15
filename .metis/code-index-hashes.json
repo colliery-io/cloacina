@@ -403,8 +403,6 @@
     "examples/features/workflows/registry-execution/src/main.rs": "05949c9269e84145782c7041073d0c27f5efa40e214995e6f1900cf0319076fa",
     "examples/features/workflows/simple-packaged/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",
     "examples/features/workflows/simple-packaged/src/lib.rs": "52c5305d3d4f92680b767154bc063ed2bb3be636f0d4bbf0329712359a17176b",
-    "examples/features/workflows/simple-packaged/tests/ffi_tests.rs": "2d6bf7d3176807902df1ff85a4d0670f428f7e90c100736ea31ffcac3dcaba59",
-    "examples/features/workflows/simple-packaged/tests/host_managed_registry_tests.rs": "66e010927496c493a514a2888843772c3d30a0ddf61947ff65b035521d5ceb52",
     "examples/features/workflows/validation-failures/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",
     "examples/features/workflows/validation-failures/src/circular_dependency.rs": "e7a85fbf807c2388daff339b16f826f20f0aadaf8a526519d9349ade88a72df6",
     "examples/features/workflows/validation-failures/src/duplicate_task_ids.rs": "6aa3d19aafb89aebccf463227408b7e26c56e3fdc57fcd177ceaf3b5b82f1005",
