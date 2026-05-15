@@ -88,6 +88,14 @@ pub struct DefaultRunnerConfig {
     registry_enable_startup_reconciliation: bool,
     registry_storage_path: Option<std::path::PathBuf>,
     registry_storage_backend: String,
+    /// CLOACI-T-0571: defense-in-depth signature existence check.
+    /// When true, the reconciler refuses to load packages with no
+    /// matching `package_signatures` row.
+    require_signatures: bool,
+    /// Trusted org UUID forwarded to the reconciler for audit logging
+    /// when the existence check fails. Mirrors `cloacina-server`'s
+    /// `--verification-org-id`.
+    verification_org_id: Option<crate::UniversalUuid>,
     enable_claiming: bool,
     heartbeat_interval: Duration,
     stale_claim_sweep_interval: Duration,
@@ -208,6 +216,18 @@ impl DefaultRunnerConfig {
         self.registry_storage_path.as_deref()
     }
 
+    /// CLOACI-T-0571: when true, the reconciler refuses to load packages
+    /// with no matching `package_signatures` row.
+    pub fn require_signatures(&self) -> bool {
+        self.require_signatures
+    }
+
+    /// Trusted org UUID forwarded to the reconciler for audit logging
+    /// when the signature-existence check fails.
+    pub fn verification_org_id(&self) -> Option<crate::UniversalUuid> {
+        self.verification_org_id
+    }
+
     /// Registry storage backend type.
     pub fn registry_storage_backend(&self) -> &str {
         &self.registry_storage_backend
@@ -290,6 +310,8 @@ impl Default for DefaultRunnerConfigBuilder {
                 registry_enable_startup_reconciliation: true,
                 registry_storage_path: None,
                 registry_storage_backend: "filesystem".to_string(),
+                require_signatures: false,
+                verification_org_id: None,
                 enable_claiming: true,
                 heartbeat_interval: Duration::from_secs(10),
                 stale_claim_sweep_interval: Duration::from_secs(30),
@@ -432,6 +454,23 @@ impl DefaultRunnerConfigBuilder {
     /// Sets the registry storage backend.
     pub fn registry_storage_backend(mut self, value: impl Into<String>) -> Self {
         self.config.registry_storage_backend = value.into();
+        self
+    }
+
+    /// CLOACI-T-0571: enable the reconciler's defense-in-depth
+    /// signature-existence check. Mirrors `cloacina-server`'s
+    /// `--require-signatures` CLI flag.
+    pub fn require_signatures(mut self, value: bool) -> Self {
+        self.config.require_signatures = value;
+        self
+    }
+
+    /// CLOACI-T-0571: trusted org UUID forwarded to the reconciler so
+    /// signature-existence-check failures are audit-logged with the
+    /// correct org_id. Mirrors `cloacina-server`'s
+    /// `--verification-org-id` CLI flag.
+    pub fn verification_org_id(mut self, value: Option<crate::UniversalUuid>) -> Self {
+        self.config.verification_org_id = value;
         self
     }
 

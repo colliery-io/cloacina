@@ -65,6 +65,18 @@ pub struct ReconcilerConfig {
 
     /// Default tenant ID to use for package loading
     pub default_tenant_id: String,
+
+    /// Defense-in-depth: when true, the reconciler refuses to load any
+    /// `workflow_packages` row that has no companion `package_signatures`
+    /// row (CLOACI-T-0571). The upload route is the strong gate
+    /// (CLOACI-I-0103); this catches direct DB inserts that bypass it.
+    pub require_signatures: bool,
+
+    /// Trusted org UUID used as the `org_id` field on the audit-log
+    /// entry when a signature-existence check fails. None when
+    /// `require_signatures` is false. Mirrors
+    /// `cloacina-server`'s `--verification-org-id` CLI flag.
+    pub verification_org_id: Option<crate::UniversalUuid>,
 }
 
 impl Default for ReconcilerConfig {
@@ -75,6 +87,8 @@ impl Default for ReconcilerConfig {
             package_operation_timeout: Duration::from_secs(30),
             continue_on_package_error: true,
             default_tenant_id: "public".to_string(),
+            require_signatures: false,
+            verification_org_id: None,
         }
     }
 }
@@ -656,6 +670,8 @@ mod tests {
             package_operation_timeout: Duration::from_secs(120),
             continue_on_package_error: false,
             default_tenant_id: "tenant-42".to_string(),
+            require_signatures: false,
+            verification_org_id: None,
         };
 
         assert_eq!(config.reconcile_interval, Duration::from_secs(60));
