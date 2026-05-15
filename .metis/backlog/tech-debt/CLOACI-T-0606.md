@@ -4,15 +4,15 @@ level: task
 title: "Port event-triggers example to runtime-scoped trigger registry"
 short_code: "CLOACI-T-0606"
 created_at: 2026-05-15T16:39:00.861852+00:00
-updated_at: 2026-05-15T16:39:00.861852+00:00
+updated_at: 2026-05-15T18:13:38.505269+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -85,6 +85,12 @@ The demo concept (user-defined poll triggers with context passing, deduplication
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

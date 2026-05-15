@@ -16,351 +16,230 @@
 
 //! # Event Triggers
 //!
-//! This module defines custom triggers that poll for conditions and fire
-//! workflows when those conditions are met.
+//! User-defined event triggers, each written as an async function and
+//! decorated with `#[trigger]`. The macro generates the underlying
+//! `Trigger` impl + a zero-arg constructor, then submits the constructor
+//! to the runtime inventory so `Runtime::new()` auto-registers it.
 //!
-//! ## Triggers Demonstrated
+//! Because the macro builds a unit struct, any state the poll body needs
+//! has to live in module-level statics (atomics, `OnceLock<Mutex<…>>`,
+//! etc.). That's intentional — triggers are conceptually singletons per
+//! process, and the inventory-driven registry expects no constructor
+//! args.
 //!
-//! 1. **FileWatcherTrigger** - Polls for new files in a directory
-//! 2. **QueueDepthTrigger** - Fires when a queue exceeds a threshold
-//! 3. **HealthCheckTrigger** - Fires when a service becomes unhealthy
+//! ## Triggers demonstrated
+//!
+//! 1. **`file_watcher`** — every fifth poll, simulate a new file landing
+//!    on disk and fire `process_file_workflow`.
+//! 2. **`queue_monitor`** — fire `process_queue_workflow` whenever the
+//!    synthetic queue depth crosses a threshold.
+//! 3. **`service_health`** — fire `alert_workflow` after three
+//!    consecutive simulated failures.
 
-use async_trait::async_trait;
-use cloacina::trigger::{Trigger, TriggerError, TriggerResult};
-use cloacina::Context;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use cloacina::trigger;
+use cloacina_workflow::Context;
+use cloacina_workflow::{TriggerError, TriggerResult};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tracing::{debug, info};
 
-/// Counter for simulating file arrivals
-static FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+// ----------------------------------------------------------------------
+// Module-level state.
+//
+// Each #[trigger] expands to a unit struct + a zero-arg factory the
+// runtime registers via the inventory crate. There's no `self` to hang
+// instance state from, so polling state lives here as plain atomics.
+// ----------------------------------------------------------------------
 
-/// Counter for simulating queue depth
+/// Pseudo-counter for the file watcher's poll loop. We pretend a new
+/// file lands on disk every fifth poll.
+static FILE_POLL_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Pseudo-counter for the queue depth simulation.
+static QUEUE_TICK: AtomicUsize = AtomicUsize::new(0);
+
+/// Latest queue depth — exposed for log output, not strictly needed.
 static QUEUE_DEPTH: AtomicUsize = AtomicUsize::new(0);
 
-/// Flag for simulating service health
-static SERVICE_HEALTHY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// Synthetic service-health state. Flipped by the health-check trigger
+/// based on a tick counter.
+static SERVICE_HEALTHY: AtomicBool = AtomicBool::new(true);
+
+/// Consecutive-failure counter for the health check. Reset on first
+/// successful poll after a fire and on each successful poll.
+static HEALTH_FAILURE_STREAK: AtomicUsize = AtomicUsize::new(0);
+
+// ----------------------------------------------------------------------
+// Tuning knobs.
+//
+// In a real demo these would come from config; hardcoding keeps the
+// example focused on the trigger model rather than configuration
+// scaffolding.
+// ----------------------------------------------------------------------
+
+/// Synthetic queue threshold — fire `process_queue_workflow` whenever the
+/// simulated depth crosses this value.
+const QUEUE_THRESHOLD: usize = 10;
+
+/// Synthetic health-check threshold — fire `alert_workflow` after this
+/// many consecutive simulated failures.
+const HEALTH_FAILURE_THRESHOLD: usize = 3;
 
 // ============================================================================
-// File Watcher Trigger
+// 1. File-watcher trigger
 // ============================================================================
+//
+// Pretend a new file lands in `/data/inbox` every fifth poll. Real
+// production code would `std::fs::read_dir` or call an object-storage
+// API; the macro form is identical either way.
 
-/// A trigger that polls for new files in a simulated directory.
-///
-/// In a real application, this would check a filesystem directory or
-/// cloud storage bucket for new files.
-#[derive(Debug, Clone)]
-pub struct FileWatcherTrigger {
-    name: String,
-    poll_interval: Duration,
-    watch_path: String,
-}
-
-impl FileWatcherTrigger {
-    /// Creates a new file watcher trigger.
-    pub fn new(name: &str, watch_path: &str, poll_interval: Duration) -> Self {
-        Self {
-            name: name.to_string(),
-            poll_interval,
-            watch_path: watch_path.to_string(),
-        }
+#[trigger(
+    on = "file_processing_workflow",
+    poll_interval = "2s",
+    allow_concurrent = false,
+    name = "file_watcher"
+)]
+async fn file_watcher() -> Result<TriggerResult, TriggerError> {
+    let count = FILE_POLL_COUNTER.fetch_add(1, Ordering::SeqCst);
+    if count % 5 != 4 {
+        debug!("file_watcher: no new files (poll #{})", count);
+        return Ok(TriggerResult::Skip);
     }
 
-    /// Simulates checking for new files.
-    /// In production, this would use std::fs or an async filesystem library.
-    async fn check_for_new_files(&self) -> Option<String> {
-        // Simulate file arrival every few polls
-        let count = FILE_COUNTER.fetch_add(1, Ordering::SeqCst);
-        if count % 5 == 4 {
-            // Every 5th poll, "find" a new file
-            let filename = format!("data_file_{}.csv", chrono::Utc::now().timestamp());
-            info!(
-                "FileWatcherTrigger: Found new file '{}' in '{}'",
-                filename, self.watch_path
-            );
-            Some(filename)
-        } else {
-            debug!(
-                "FileWatcherTrigger: No new files in '{}' (poll #{})",
-                self.watch_path, count
-            );
-            None
-        }
-    }
-}
+    let filename = format!("data_file_{}.csv", chrono::Utc::now().timestamp());
+    info!(
+        "file_watcher: found new file '{}' in /data/inbox",
+        filename
+    );
 
-#[async_trait]
-impl Trigger for FileWatcherTrigger {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn poll_interval(&self) -> Duration {
-        self.poll_interval
-    }
-
-    fn allow_concurrent(&self) -> bool {
-        // Don't allow concurrent processing of the same file
-        false
-    }
-
-    async fn poll(&self) -> Result<TriggerResult, TriggerError> {
-        if let Some(filename) = self.check_for_new_files().await {
-            // Create context with file information
-            let mut ctx = Context::new();
-            ctx.insert("filename", serde_json::json!(filename))
-                .map_err(|e| TriggerError::PollError {
-                    message: format!("Failed to insert filename: {}", e),
-                })?;
-            ctx.insert("watch_path", serde_json::json!(self.watch_path.clone()))
-                .map_err(|e| TriggerError::PollError {
-                    message: format!("Failed to insert watch_path: {}", e),
-                })?;
-            ctx.insert(
-                "discovered_at",
-                serde_json::json!(chrono::Utc::now().to_rfc3339()),
-            )
-            .map_err(|e| TriggerError::PollError {
-                message: format!("Failed to insert discovered_at: {}", e),
-            })?;
-
-            Ok(TriggerResult::Fire(Some(ctx)))
-        } else {
-            Ok(TriggerResult::Skip)
-        }
-    }
-}
-
-// ============================================================================
-// Queue Depth Trigger
-// ============================================================================
-
-/// A trigger that fires when a queue exceeds a depth threshold.
-///
-/// This demonstrates monitoring patterns where workflows are triggered
-/// based on system metrics rather than time.
-#[derive(Debug, Clone)]
-pub struct QueueDepthTrigger {
-    name: String,
-    poll_interval: Duration,
-    queue_name: String,
-    threshold: usize,
-}
-
-impl QueueDepthTrigger {
-    /// Creates a new queue depth trigger.
-    pub fn new(name: &str, queue_name: &str, threshold: usize, poll_interval: Duration) -> Self {
-        Self {
-            name: name.to_string(),
-            poll_interval,
-            queue_name: queue_name.to_string(),
-            threshold,
-        }
-    }
-
-    /// Simulates checking queue depth.
-    /// In production, this would query a message queue like RabbitMQ, SQS, etc.
-    async fn get_queue_depth(&self) -> usize {
-        // Simulate varying queue depth
-        let base = QUEUE_DEPTH.fetch_add(3, Ordering::SeqCst);
-        // Oscillate between 0 and 20
-        let depth = (base % 21).min(20 - (base % 21).min(20));
-        debug!(
-            "QueueDepthTrigger: Queue '{}' depth = {}",
-            self.queue_name, depth
-        );
-        depth
-    }
-}
-
-#[async_trait]
-impl Trigger for QueueDepthTrigger {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn poll_interval(&self) -> Duration {
-        self.poll_interval
-    }
-
-    fn allow_concurrent(&self) -> bool {
-        // Allow concurrent executions for queue processing
-        true
-    }
-
-    async fn poll(&self) -> Result<TriggerResult, TriggerError> {
-        let depth = self.get_queue_depth().await;
-
-        if depth >= self.threshold {
-            info!(
-                "QueueDepthTrigger: Queue '{}' depth ({}) exceeds threshold ({})",
-                self.queue_name, depth, self.threshold
-            );
-
-            let mut ctx = Context::new();
-            ctx.insert("queue_name", serde_json::json!(self.queue_name.clone()))
-                .map_err(|e| TriggerError::PollError {
-                    message: format!("Failed to insert queue_name: {}", e),
-                })?;
-            ctx.insert("queue_depth", serde_json::json!(depth))
-                .map_err(|e| TriggerError::PollError {
-                    message: format!("Failed to insert queue_depth: {}", e),
-                })?;
-            ctx.insert("threshold", serde_json::json!(self.threshold))
-                .map_err(|e| TriggerError::PollError {
-                    message: format!("Failed to insert threshold: {}", e),
-                })?;
-
-            Ok(TriggerResult::Fire(Some(ctx)))
-        } else {
-            Ok(TriggerResult::Skip)
-        }
-    }
-}
-
-// ============================================================================
-// Health Check Trigger
-// ============================================================================
-
-/// A trigger that fires when a service becomes unhealthy.
-///
-/// This demonstrates reactive patterns where workflows are triggered
-/// in response to failures or anomalies.
-#[derive(Debug, Clone)]
-pub struct HealthCheckTrigger {
-    name: String,
-    poll_interval: Duration,
-    service_name: String,
-    consecutive_failures: Arc<AtomicUsize>,
-    failure_threshold: usize,
-}
-
-impl HealthCheckTrigger {
-    /// Creates a new health check trigger.
-    pub fn new(
-        name: &str,
-        service_name: &str,
-        failure_threshold: usize,
-        poll_interval: Duration,
-    ) -> Self {
-        Self {
-            name: name.to_string(),
-            poll_interval,
-            service_name: service_name.to_string(),
-            consecutive_failures: Arc::new(AtomicUsize::new(0)),
-            failure_threshold,
-        }
-    }
-
-    /// Simulates checking service health.
-    /// In production, this would make HTTP health check requests.
-    async fn check_service_health(&self) -> bool {
-        // Toggle health every 10 polls for demonstration
-        let counter = FILE_COUNTER.load(Ordering::SeqCst);
-        let healthy = counter % 15 < 10;
-        SERVICE_HEALTHY.store(healthy, Ordering::SeqCst);
-        healthy
-    }
-}
-
-#[async_trait]
-impl Trigger for HealthCheckTrigger {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn poll_interval(&self) -> Duration {
-        self.poll_interval
-    }
-
-    fn allow_concurrent(&self) -> bool {
-        // Don't allow concurrent recovery workflows
-        false
-    }
-
-    async fn poll(&self) -> Result<TriggerResult, TriggerError> {
-        let healthy = self.check_service_health().await;
-
-        if healthy {
-            // Reset failure counter on success
-            self.consecutive_failures.store(0, Ordering::SeqCst);
-            debug!(
-                "HealthCheckTrigger: Service '{}' is healthy",
-                self.service_name
-            );
-            return Ok(TriggerResult::Skip);
-        }
-
-        // Increment failure counter
-        let failures = self.consecutive_failures.fetch_add(1, Ordering::SeqCst) + 1;
-        debug!(
-            "HealthCheckTrigger: Service '{}' unhealthy ({} consecutive failures)",
-            self.service_name, failures
-        );
-
-        if failures >= self.failure_threshold {
-            info!(
-                "HealthCheckTrigger: Service '{}' has {} consecutive failures (threshold: {})",
-                self.service_name, failures, self.failure_threshold
-            );
-
-            // Reset counter after triggering
-            self.consecutive_failures.store(0, Ordering::SeqCst);
-
-            let mut ctx = Context::new();
-            ctx.insert("service_name", serde_json::json!(self.service_name.clone()))
-                .map_err(|e| TriggerError::PollError {
-                    message: format!("Failed to insert service_name: {}", e),
-                })?;
-            ctx.insert("consecutive_failures", serde_json::json!(failures))
-                .map_err(|e| TriggerError::PollError {
-                    message: format!("Failed to insert consecutive_failures: {}", e),
-                })?;
-            ctx.insert(
-                "detected_at",
-                serde_json::json!(chrono::Utc::now().to_rfc3339()),
-            )
-            .map_err(|e| TriggerError::PollError {
-                message: format!("Failed to insert detected_at: {}", e),
-            })?;
-
-            Ok(TriggerResult::Fire(Some(ctx)))
-        } else {
-            Ok(TriggerResult::Skip)
-        }
-    }
-}
-
-// ============================================================================
-// Constructor Functions
-// ============================================================================
-
-/// Creates the file watcher trigger for the file processing workflow.
-pub fn create_file_watcher_trigger() -> FileWatcherTrigger {
-    FileWatcherTrigger::new(
-        "file_watcher",
-        "/data/inbox",
-        Duration::from_secs(2), // Poll every 2 seconds for demo
+    let mut ctx = Context::new();
+    ctx.insert("filename", serde_json::json!(filename))
+        .map_err(|e| TriggerError::PollError {
+            message: format!("insert filename: {}", e),
+        })?;
+    ctx.insert("watch_path", serde_json::json!("/data/inbox"))
+        .map_err(|e| TriggerError::PollError {
+            message: format!("insert watch_path: {}", e),
+        })?;
+    ctx.insert(
+        "discovered_at",
+        serde_json::json!(chrono::Utc::now().to_rfc3339()),
     )
+    .map_err(|e| TriggerError::PollError {
+        message: format!("insert discovered_at: {}", e),
+    })?;
+
+    Ok(TriggerResult::Fire(Some(ctx)))
 }
 
-/// Creates the queue depth trigger for the queue processing workflow.
-pub fn create_queue_depth_trigger() -> QueueDepthTrigger {
-    QueueDepthTrigger::new(
-        "queue_monitor",
-        "order_queue",
-        10, // Fire when queue depth exceeds 10
-        Duration::from_secs(3),
-    )
+// ============================================================================
+// 2. Queue-depth trigger
+// ============================================================================
+//
+// Synthesizes a depth that oscillates between 0 and 20. Whenever the
+// depth meets or exceeds the threshold we fire. `allow_concurrent = true`
+// because draining a queue is generally safe in parallel.
+
+#[trigger(
+    on = "queue_processing_workflow",
+    poll_interval = "3s",
+    allow_concurrent = true,
+    name = "queue_monitor"
+)]
+async fn queue_monitor() -> Result<TriggerResult, TriggerError> {
+    // Generate a depth that bounces between 0 and 20 over time.
+    let tick = QUEUE_TICK.fetch_add(3, Ordering::SeqCst);
+    let raw = tick % 21;
+    let depth = raw.min(20usize.saturating_sub(raw));
+    QUEUE_DEPTH.store(depth, Ordering::SeqCst);
+
+    debug!("queue_monitor: order_queue depth = {}", depth);
+
+    if depth < QUEUE_THRESHOLD {
+        return Ok(TriggerResult::Skip);
+    }
+
+    info!(
+        "queue_monitor: order_queue depth ({}) exceeds threshold ({})",
+        depth, QUEUE_THRESHOLD
+    );
+
+    let mut ctx = Context::new();
+    ctx.insert("queue_name", serde_json::json!("order_queue"))
+        .map_err(|e| TriggerError::PollError {
+            message: format!("insert queue_name: {}", e),
+        })?;
+    ctx.insert("queue_depth", serde_json::json!(depth))
+        .map_err(|e| TriggerError::PollError {
+            message: format!("insert queue_depth: {}", e),
+        })?;
+    ctx.insert("threshold", serde_json::json!(QUEUE_THRESHOLD))
+        .map_err(|e| TriggerError::PollError {
+            message: format!("insert threshold: {}", e),
+        })?;
+
+    Ok(TriggerResult::Fire(Some(ctx)))
 }
 
-/// Creates the health check trigger for the recovery workflow.
-pub fn create_health_check_trigger() -> HealthCheckTrigger {
-    HealthCheckTrigger::new(
-        "service_health",
-        "payment_service",
-        3, // Fire after 3 consecutive failures
-        Duration::from_secs(2),
+// ============================================================================
+// 3. Health-check trigger
+// ============================================================================
+//
+// Polls a synthetic service. Service goes unhealthy for 5 ticks every 15.
+// Fires `alert_workflow` after `HEALTH_FAILURE_THRESHOLD` consecutive
+// failures, then resets the streak.
+
+#[trigger(
+    on = "service_recovery_workflow",
+    poll_interval = "2s",
+    allow_concurrent = false,
+    name = "service_health"
+)]
+async fn service_health() -> Result<TriggerResult, TriggerError> {
+    // Reuse file_watcher's tick so the health pattern lines up with the
+    // demo's overall timeline; in production each trigger would have its
+    // own clock or call out to a real probe.
+    let tick = FILE_POLL_COUNTER.load(Ordering::SeqCst);
+    let healthy = tick % 15 < 10;
+    SERVICE_HEALTHY.store(healthy, Ordering::SeqCst);
+
+    if healthy {
+        HEALTH_FAILURE_STREAK.store(0, Ordering::SeqCst);
+        debug!("service_health: payment_service healthy");
+        return Ok(TriggerResult::Skip);
+    }
+
+    let failures = HEALTH_FAILURE_STREAK.fetch_add(1, Ordering::SeqCst) + 1;
+    debug!(
+        "service_health: payment_service unhealthy (streak={})",
+        failures
+    );
+
+    if failures < HEALTH_FAILURE_THRESHOLD {
+        return Ok(TriggerResult::Skip);
+    }
+
+    info!(
+        "service_health: payment_service has {} consecutive failures (threshold {})",
+        failures, HEALTH_FAILURE_THRESHOLD
+    );
+    HEALTH_FAILURE_STREAK.store(0, Ordering::SeqCst);
+
+    let mut ctx = Context::new();
+    ctx.insert("service_name", serde_json::json!("payment_service"))
+        .map_err(|e| TriggerError::PollError {
+            message: format!("insert service_name: {}", e),
+        })?;
+    ctx.insert("consecutive_failures", serde_json::json!(failures))
+        .map_err(|e| TriggerError::PollError {
+            message: format!("insert consecutive_failures: {}", e),
+        })?;
+    ctx.insert(
+        "detected_at",
+        serde_json::json!(chrono::Utc::now().to_rfc3339()),
     )
+    .map_err(|e| TriggerError::PollError {
+        message: format!("insert detected_at: {}", e),
+    })?;
+
+    Ok(TriggerResult::Fire(Some(ctx)))
 }
