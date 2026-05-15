@@ -202,3 +202,92 @@ jobs:
             cat /tmp/render-fail.err >&2
             exit 1
           }
+
+  # End-to-end Helm chart install on a kind cluster (CLOACI-I-0111 / T-0605).
+  # Builds the cloacina-server image, loads it into kind, helm-installs the
+  # chart with bundled Postgres, and verifies /v1/health returns 200.
+  helm-chart-e2e:
+    name: Helm chart e2e (kind)
+    needs: [helm-chart, changes]
+    if: |
+      needs.changes.outputs.charts == 'true' ||
+      needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build cloacina-server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: cloacina-server:e2e
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: cloacina-helm-e2e
+          wait: 120s
+
+      - name: Load image into kind
+        run: kind load docker-image cloacina-server:e2e --name cloacina-helm-e2e
+
+      - name: helm dependency update
+        run: helm dependency update charts/cloacina-server
+
+      - name: helm install (bundled postgres)
+        run: |
+          set -euo pipefail
+          PASSWORD=$(openssl rand -hex 16)
+          helm install cloacina charts/cloacina-server \
+            --namespace cloacina-e2e --create-namespace \
+            --set image.repository=cloacina-server \
+            --set image.tag=e2e \
+            --set image.pullPolicy=Never \
+            --set postgresql.enabled=true \
+            --set postgresql.auth.password="${PASSWORD}" \
+            --wait --timeout=8m
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/cloacina-cloacina-server \
+            -n cloacina-e2e --timeout=5m
+
+      - name: Curl /v1/health from inside the cluster
+        run: |
+          set -euo pipefail
+          # `kubectl run` with curlimages/curl, --rm cleans up the pod.
+          kubectl run healthcheck \
+            -n cloacina-e2e \
+            --rm --restart=Never -i \
+            --image=curlimages/curl:8.10.1 \
+            --command -- curl -fsS -o /dev/null -w "HTTP %{http_code}\n" \
+            http://cloacina-cloacina-server:8080/v1/health \
+          | tee /tmp/health.out
+          grep -q "HTTP 200" /tmp/health.out
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== pods ==="
+          kubectl get pods -n cloacina-e2e
+          echo "=== events ==="
+          kubectl get events -n cloacina-e2e --sort-by=.lastTimestamp
+          echo "=== server logs ==="
+          kubectl logs -l app.kubernetes.io/instance=cloacina \
+            -n cloacina-e2e --tail=200 || true
+          echo "=== describe ==="
+          kubectl describe pods -l app.kubernetes.io/instance=cloacina \
+            -n cloacina-e2e || true
