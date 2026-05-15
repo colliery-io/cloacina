@@ -49,9 +49,12 @@ WORKDIR /build
 COPY . .
 
 # Release build, locked to ensure reproducibility against the committed
-# Cargo.lock. `--bin cloacina-server` keeps us from accidentally compiling
-# every binary in the workspace.
-RUN cargo build --release --locked --bin cloacina-server
+# Cargo.lock. `-p cloacina-server` scopes feature resolution to that
+# crate's dep tree — without it, cargo unifies features across the whole
+# workspace and ends up activating cloacina's `kafka` default feature,
+# which pulls rdkafka-sys and demands cmake + c++ + libsasl2 in the
+# builder. cloacina-server itself only needs postgres.
+RUN cargo build --release --locked -p cloacina-server --bin cloacina-server
 
 # ---------------------------------------------------------------------------
 # Stage 2: runtime
