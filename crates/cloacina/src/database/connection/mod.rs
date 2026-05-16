@@ -64,6 +64,10 @@ pub use backend::{DbConnection, DbConnectionManager, DbPool};
 #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
 pub use backend::{DbConnection, DbPool};
 
+#[cfg(feature = "sqlite")]
+use std::sync::Arc;
+#[cfg(feature = "sqlite")]
+use tempfile::NamedTempFile;
 use thiserror::Error;
 use tracing::info;
 use url::Url;
@@ -176,6 +180,13 @@ pub struct Database {
     backend: BackendType,
     /// The PostgreSQL schema name for multi-tenant isolation (ignored for SQLite)
     schema: Option<String>,
+    /// Backing tempfile when the user requested `:memory:` (or
+    /// `sqlite://:memory:`). Held via Arc so every Database clone keeps the
+    /// file alive; when the last clone drops, NamedTempFile::Drop deletes
+    /// the file. See `materialize_sqlite_connection` for why we substitute
+    /// a real tempfile for in-memory requests.
+    #[cfg(feature = "sqlite")]
+    _memory_tempfile: Option<Arc<NamedTempFile>>,
 }
 
 impl std::fmt::Debug for Database {
@@ -287,10 +298,13 @@ impl Database {
                     pool: AnyPool::Postgres(pool),
                     backend,
                     schema: validated_schema,
+                    #[cfg(feature = "sqlite")]
+                    _memory_tempfile: None,
                 })
             }
             BackendType::Sqlite => {
-                let connection_url = Self::build_sqlite_url(connection_string);
+                let (connection_url, memory_tempfile) =
+                    Self::materialize_sqlite_connection(connection_string)?;
                 let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
                 let sqlite_pool_size = 1;
                 let pool = SqlitePool::builder(manager)
@@ -310,6 +324,7 @@ impl Database {
                     pool: AnyPool::Sqlite(pool),
                     backend,
                     schema: validated_schema,
+                    _memory_tempfile: memory_tempfile,
                 })
             }
         }
@@ -338,13 +353,16 @@ impl Database {
                 pool,
                 backend: BackendType::Postgres,
                 schema: validated_schema,
+                #[cfg(feature = "sqlite")]
+                _memory_tempfile: None,
             });
         }
 
         #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
         {
             let _ = backend; // suppress unused warning
-            let connection_url = Self::build_sqlite_url(connection_string);
+            let (connection_url, memory_tempfile) =
+                Self::materialize_sqlite_connection(connection_string)?;
             let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
             let sqlite_pool_size = 1;
             let pool = SqlitePool::builder(manager)
@@ -364,6 +382,7 @@ impl Database {
                 pool,
                 backend: BackendType::Sqlite,
                 schema: validated_schema,
+                _memory_tempfile: memory_tempfile,
             });
         }
     }
@@ -414,14 +433,58 @@ impl Database {
         Ok(url.to_string())
     }
 
-    /// Builds a SQLite connection URL.
-    fn build_sqlite_url(connection_string: &str) -> String {
-        // Strip sqlite:// prefix if present
-        if let Some(path) = connection_string.strip_prefix("sqlite://") {
-            path.to_string()
-        } else {
-            connection_string.to_string()
+    /// Resolve a SQLite connection string into (url, optional tempfile owner).
+    ///
+    /// `:memory:` (with or without the `sqlite://` prefix) is substituted
+    /// for a per-Database tempfile on disk. This is the only reliable way
+    /// to get multi-connection sharing under diesel — the standard
+    /// `file::memory:?cache=shared` form requires `SQLITE_OPEN_URI`, which
+    /// diesel's open path doesn't set. Without that flag, sqlite silently
+    /// creates a file literally named `:memory:` in CWD and the supposed
+    /// "shared cache" never happens.
+    ///
+    /// The returned `NamedTempFile` must be held for the lifetime of the
+    /// Database (we wrap it in `Arc` and stash it on `Self` so Clone'd
+    /// Databases share ownership and the file is deleted only when the
+    /// last clone drops).
+    ///
+    /// Returns `(url, Some(handle))` for `:memory:` requests; otherwise
+    /// `(url, None)` and the file path passes through unchanged.
+    #[cfg(feature = "sqlite")]
+    fn materialize_sqlite_connection(
+        connection_string: &str,
+    ) -> Result<(String, Option<Arc<NamedTempFile>>), DatabaseError> {
+        let stripped = connection_string
+            .strip_prefix("sqlite://")
+            .unwrap_or(connection_string);
+        if stripped != ":memory:" {
+            return Ok((stripped.to_string(), None));
         }
+
+        // Build a tempfile in the system temp dir. We use NamedTempFile so
+        // the path is stable across pool connection opens. The file gets
+        // unlinked on Drop.
+        let tempfile =
+            NamedTempFile::new().map_err(|e| DatabaseError::PoolCreation {
+                backend: "SQLite",
+                source: Box::new(e),
+            })?;
+        let path = tempfile
+            .path()
+            .to_str()
+            .ok_or_else(|| DatabaseError::PoolCreation {
+                backend: "SQLite",
+                source: Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "tempfile path is not valid UTF-8",
+                )),
+            })?
+            .to_string();
+        info!(
+            "SQLite `:memory:` substituted with tempfile path '{}' (per-Database, cleaned on drop)",
+            path
+        );
+        Ok((path, Some(Arc::new(tempfile))))
     }
 
     /// Runs pending database migrations for the appropriate backend.
@@ -841,23 +904,53 @@ mod tests {
         assert!(Url::parse("not-a-url").is_err());
     }
 
+    #[cfg(feature = "sqlite")]
     #[test]
-    fn test_sqlite_connection_strings() {
-        // Test file path
-        let url = Database::build_sqlite_url("/path/to/database.db");
+    fn test_sqlite_connection_strings_passthrough() {
+        // Plain file paths pass through unchanged + no tempfile owner.
+        let (url, owner) =
+            Database::materialize_sqlite_connection("/path/to/database.db").unwrap();
         assert_eq!(url, "/path/to/database.db");
+        assert!(owner.is_none());
 
-        // Test in-memory database
-        let url = Database::build_sqlite_url(":memory:");
-        assert_eq!(url, ":memory:");
-
-        // Test relative path
-        let url = Database::build_sqlite_url("./database.db");
+        let (url, owner) =
+            Database::materialize_sqlite_connection("./database.db").unwrap();
         assert_eq!(url, "./database.db");
+        assert!(owner.is_none());
 
-        // Test sqlite:// prefix stripping
-        let url = Database::build_sqlite_url("sqlite:///path/to/db.sqlite");
+        // sqlite:// prefix is stripped.
+        let (url, owner) =
+            Database::materialize_sqlite_connection("sqlite:///path/to/db.sqlite").unwrap();
         assert_eq!(url, "/path/to/db.sqlite");
+        assert!(owner.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_sqlite_memory_substitutes_tempfile() {
+        // `:memory:` (with or without prefix) becomes a real tempfile path,
+        // and the NamedTempFile owner is returned so the caller can keep
+        // the file alive for the Database's lifetime.
+        for input in [":memory:", "sqlite://:memory:"] {
+            let (url, owner) = Database::materialize_sqlite_connection(input).unwrap();
+            assert_ne!(url, ":memory:", "input '{}' was not substituted", input);
+            let owner = owner
+                .unwrap_or_else(|| panic!("input '{}' returned no tempfile owner", input));
+            assert!(
+                std::path::Path::new(&url).exists(),
+                "substituted path '{}' for input '{}' does not exist on disk",
+                url,
+                input
+            );
+            // Drop the owner — file should disappear.
+            drop(owner);
+            assert!(
+                !std::path::Path::new(&url).exists(),
+                "tempfile '{}' for input '{}' was not cleaned on owner drop",
+                url,
+                input
+            );
+        }
     }
 
     #[test]
