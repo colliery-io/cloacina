@@ -26,15 +26,25 @@ ARG RUST_VERSION=1.93
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
 # Build deps:
-#   libpq-dev  — diesel/postgres
-#   pkg-config — libpq discovery
-#   git        — vendored deps that resolve git refs at build time
-#   python3 + python3-dev — pyo3-build-config needs a Python interpreter
-#       + headers to link against (cloacina pulls pyo3 via its default
-#       'python' feature; see memory/feedback_python_is_core).
+#   libpq-dev    — diesel/postgres
+#   pkg-config   — libpq discovery
+#   git          — vendored deps that resolve git refs at build time
+#   python3 + python3-dev — pyo3-build-config needs an interpreter +
+#                  headers (cloacina pulls pyo3 via its default 'python'
+#                  feature; Python support is a core capability).
+#   cmake, c++ (build-essential), libsasl2-dev, libssl-dev — rdkafka-sys
+#                  clones + compiles librdkafka from source. cloacina's
+#                  `kafka` default feature pulls it, since the kafka
+#                  stream accumulator (`#[stream_accumulator(type =
+#                  "kafka", ...)]`) is a first-class accumulator type,
+#                  not an opt-in extra.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
         libpq-dev \
+        libsasl2-dev \
+        libssl-dev \
         pkg-config \
         git \
         ca-certificates \
@@ -49,12 +59,12 @@ WORKDIR /build
 COPY . .
 
 # Release build, locked to ensure reproducibility against the committed
-# Cargo.lock. `-p cloacina-server` scopes feature resolution to that
-# crate's dep tree — without it, cargo unifies features across the whole
-# workspace and ends up activating cloacina's `kafka` default feature,
-# which pulls rdkafka-sys and demands cmake + c++ + libsasl2 in the
-# builder. cloacina-server itself only needs postgres.
-RUN cargo build --release --locked -p cloacina-server --bin cloacina-server
+# Cargo.lock. The full default feature set (postgres + sqlite + macros +
+# kafka) is on — kafka in particular is a first-class accumulator type
+# and operators expect `cloacina-server` to handle workflows that use it
+# without re-rolling the image. Builder above installs the rdkafka
+# build chain (cmake, c++, libsasl2-dev, libssl-dev) accordingly.
+RUN cargo build --release --locked --bin cloacina-server
 
 # ---------------------------------------------------------------------------
 # Stage 2: runtime
@@ -62,17 +72,20 @@ RUN cargo build --release --locked -p cloacina-server --bin cloacina-server
 FROM debian:bookworm-slim AS runtime
 
 # Runtime deps:
-#   libpq5         — diesel/postgres
+#   libpq5          — diesel/postgres
 #   ca-certificates — HTTPS calls (compiler callbacks, signature checks)
-#   libpython3.11  — pyo3 dynamically links libpython; matches the
-#                    python3 we pull in builder/runtime. Without this,
-#                    cloacina-server exits at startup with a libpython
-#                    load error even though Python workflows aren't used.
+#   libpython3.11   — pyo3 dynamically links libpython.
+#   libsasl2-2, libssl3 — librdkafka (bundled by rdkafka-sys) dyn-links
+#                   SSL + SASL for kafka producer/consumer auth. Without
+#                   these, the binary loads but kafka connection setup
+#                   fails at runtime with a libsasl2.so.* not-found.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         libpq5 \
         ca-certificates \
         libpython3.11 \
+        libsasl2-2 \
+        libssl3 \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user (uid 10001 stays clear of host /etc/passwd).
