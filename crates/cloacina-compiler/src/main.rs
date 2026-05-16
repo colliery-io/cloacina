@@ -133,6 +133,12 @@ struct Cli {
         default_value_t = 256
     )]
     build_rlimit_procs: u64,
+
+    /// Number of daily-rotated log files to retain on disk. `0` disables
+    /// pruning entirely (unbounded — explicit opt-out). Default 14 days.
+    /// CLOACI-I-0109 / T-0592.
+    #[arg(long, default_value_t = 14)]
+    log_retention_days: u64,
 }
 
 /// Parse a byte-size string with an optional `K`/`M`/`G` suffix (base-1024).
@@ -214,6 +220,7 @@ async fn main() -> Result<()> {
         // specific compiler instance (e.g. when chasing flake or kill
         // events across a worker pool).
         compiler_instance_id: cloacina::UniversalUuid::new_v4(),
+        log_retention_days: cli.log_retention_days,
     };
 
     run(config).await

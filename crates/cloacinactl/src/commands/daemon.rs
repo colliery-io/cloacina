@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
-use tracing_appender::rolling;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use cloacina::registry::{
@@ -123,6 +123,7 @@ pub async fn run(
     watch_dirs: Vec<PathBuf>,
     poll_interval_ms: u64,
     verbose: bool,
+    log_retention_days: u64,
 ) -> Result<()> {
     // 1. Initialize home directory and logging
     std::fs::create_dir_all(&home)
@@ -139,7 +140,22 @@ pub async fn run(
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
     };
 
-    let file_appender = rolling::daily(&logs_dir, "cloacina.log");
+    // Daily-rotated file appender with optional retention via
+    // `max_log_files`. `log_retention_days == 0` disables pruning per
+    // operator opt-out. CLOACI-T-0592.
+    let mut log_builder = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("cloacina")
+        .filename_suffix("log");
+    if log_retention_days > 0 {
+        log_builder = log_builder.max_log_files(log_retention_days as usize);
+    }
+    let file_appender = log_builder.build(&logs_dir).with_context(|| {
+        format!(
+            "Failed to build rolling log appender in {}",
+            logs_dir.display()
+        )
+    })?;
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::registry()

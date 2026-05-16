@@ -40,7 +40,7 @@ def get_rust_feature_directories():
 
     Scans the hierarchical structure:
       features/workflows/cron-scheduling/
-      features/computation-graphs/continuous-scheduling/
+      features/computation-graphs/packaged-graph/
     """
     features_dir = PROJECT_ROOT / "examples" / "features"
     if not features_dir.exists():

@@ -28,7 +28,7 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::ge
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{info, warn};
-use tracing_appender::rolling;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use cloacina::computation_graph::registry::EndpointRegistry;
@@ -183,6 +183,7 @@ pub async fn run(
     reconcile_interval: Option<std::time::Duration>,
     tenant_runner_cache_size: usize,
     tenant_deletion_drain_timeout: std::time::Duration,
+    log_retention_days: u64,
 ) -> Result<()> {
     // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
     validate_security_args(require_signatures, verification_org_id.as_ref())?;
@@ -213,7 +214,23 @@ pub async fn run(
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
     };
 
-    let file_appender = rolling::daily(&logs_dir, "cloacina-server.log");
+    // Daily-rotated file appender with optional retention via
+    // `max_log_files`. `log_retention_days == 0` disables pruning per
+    // operator opt-out; otherwise the appender keeps the most recent N
+    // files. CLOACI-T-0592.
+    let mut log_builder = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("cloacina-server")
+        .filename_suffix("log");
+    if log_retention_days > 0 {
+        log_builder = log_builder.max_log_files(log_retention_days as usize);
+    }
+    let file_appender = log_builder.build(&logs_dir).with_context(|| {
+        format!(
+            "Failed to build rolling log appender in {}",
+            logs_dir.display()
+        )
+    })?;
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // Build the base subscriber with stderr + file layers
@@ -302,6 +319,147 @@ pub async fn run(
     metrics::describe_histogram!("cloacina_task_duration_seconds", "Task execution duration");
     metrics::describe_gauge!("cloacina_active_workflows", "Currently active workflows");
     metrics::describe_gauge!("cloacina_active_tasks", "Currently active tasks");
+    metrics::describe_counter!(
+        "cloacina_scheduler_claim_attempts_total",
+        "Total task claim attempts by the executor. outcome is `claimed` (claim succeeded), \
+         `contended` (another runner already held the claim), or `empty` (scheduler tick \
+         found no ready tasks to dispatch)."
+    );
+    metrics::describe_counter!(
+        "cloacina_scheduler_heartbeat_writes_total",
+        "Total successful heartbeat writes by the executor's per-task heartbeat loop. \
+         Failed heartbeats are recorded only in logs."
+    );
+    metrics::describe_counter!(
+        "cloacina_scheduler_stale_claims_swept_total",
+        "Total stale claims released by the stale-claim sweeper. Each increment \
+         corresponds to one task whose runner heartbeat had expired and was reset to Ready."
+    );
+    metrics::describe_counter!(
+        "cloacina_supervisor_restarts_total",
+        "Total computation-graph supervisor restarts. Labels: graph (graph name), \
+         component (`reactor` or accumulator name), reason \
+         (`panic` | `error` | `shutdown_timeout`). `shutdown_timeout` is emitted \
+         from the graceful-shutdown path; the supervision loop only observes \
+         `panic` (JoinError::is_panic) and `error` (any other terminated handle)."
+    );
+    metrics::describe_gauge!(
+        "cloacina_component_health",
+        "Current computation-graph component health, expressed as a one-of \
+         indicator. For each (graph, component) tuple the gauge is `1` on the \
+         component's current state and `0` on every other state. State label is \
+         bounded: `healthy | degraded | starting | stopped | crashed`. \
+         Re-emitted every supervisor tick from the existing ReactorHealth / \
+         AccumulatorHealth watch channels (projected via `as_state_label()`)."
+    );
+    metrics::describe_counter!(
+        "cloacina_accumulator_events_total",
+        "Total events processed by computation-graph accumulators. \
+         `kind` is bounded to `passthrough | stream | polling | batch`; \
+         `graph` is the deployed graph name (or `embedded` for runtimes \
+         without a DAL); `accumulator` is the declared accumulator name."
+    );
+    metrics::describe_histogram!(
+        "cloacina_accumulator_emit_duration_seconds",
+        "End-to-end emit latency for each accumulator event: time from the \
+         event arriving on the merge channel through `process()` + boundary \
+         send + checkpoint persistence."
+    );
+    metrics::describe_gauge!(
+        "cloacina_accumulator_buffer_depth",
+        "Current internal buffer size for buffered accumulators. Meaningful \
+         for `batch` and stateful `stream` kinds; `passthrough` and `polling` \
+         emit `0` from runtime startup so dashboards see a stable series \
+         per (graph, accumulator)."
+    );
+    metrics::describe_counter!(
+        "cloacina_accumulator_checkpoint_writes_total",
+        "Total successful checkpoint writes via `CheckpointHandle::save` or \
+         `persist_boundary`. Failed writes are recorded in logs and do not \
+         increment this counter."
+    );
+    metrics::describe_counter!(
+        "cloacina_reactor_fires_total",
+        "Total reactor fires (graph executions). `strategy` ∈ \
+         `when_any | when_all | sequential` — projects the two-axis \
+         (criteria × input_strategy) design onto a single bounded label."
+    );
+    metrics::describe_counter!(
+        "cloacina_reactor_firings_total",
+        "Total `reactor_firings` rows written by the reactor on each \
+         fire (CLOACI-I-0100 / T-0599). One row per fire feeds the \
+         subscription poller; this counter mirrors successful row \
+         writes only — DAL failures land in logs."
+    );
+    metrics::describe_counter!(
+        "cloacina_reactor_firings_pruned_total",
+        "Total `reactor_firings` rows deleted by the unified scheduler's \
+         TTL prune sweep (CLOACI-I-0100 / T-0601). Unlabeled — single \
+         global counter is sufficient."
+    );
+    metrics::describe_histogram!(
+        "cloacina_reactor_fire_duration_seconds",
+        "Wall-clock duration of the user's compiled graph body (the time \
+         inside `(graph)(snapshot).await`). Excludes cache lookup and \
+         persistence overhead."
+    );
+    metrics::describe_gauge!(
+        "cloacina_reactor_cache_age_seconds",
+        "Age in seconds of the most-recent emission per source held in the \
+         reactor's input cache. Refreshed on every boundary arrival (every \
+         known source is re-emitted, so sources that fall silent show \
+         increasing staleness). Sources that have never emitted are absent \
+         from the gauge until their first boundary."
+    );
+    metrics::describe_counter!(
+        "cloacina_reactor_deduped_events_total",
+        "Total boundary events the reactor rejected as duplicates of an \
+         already-seen emission sequence. Reserved for the reactor-side dedup \
+         path that follows T-0413's persistence work — see I-0099 / T-0587 \
+         for the rollout plan."
+    );
+    metrics::describe_gauge!(
+        "cloacina_ws_connections_active",
+        "Currently open WebSocket connections by endpoint. `endpoint` is \
+         bounded `{accumulator, reactor}`. RAII-guarded so a panic inside a \
+         handler still decrements on Drop — defends against the leak shape \
+         that motivated T-0534."
+    );
+    metrics::describe_counter!(
+        "cloacina_ws_messages_total",
+        "Total WebSocket messages by `endpoint` (`accumulator` | `reactor`) \
+         and `direction` (`in` | `out`). Counts framed messages — ping/pong \
+         heartbeats handled by axum are excluded."
+    );
+    metrics::describe_counter!(
+        "cloacina_ws_auth_failures_total",
+        "Total rejected WebSocket upgrade requests by bounded `reason`: \
+         `ticket_expired`, `invalid_signature`, `tenant_mismatch`, \
+         `not_authorized`."
+    );
+    metrics::describe_counter!(
+        "cloacina_reactor_persist_failures_total",
+        "Total `persist_reactor_state` failures, broken down by branch. \
+         `kind` ∈ `cache_serialize`, `dirty_serialize`, `seq_serialize`, \
+         `save`. The reactor downgrades to `ReactorHealth::Degraded` after \
+         5 consecutive failures (any kind) and recovers on the next success. \
+         See CLOACI-I-0108 / T-0590."
+    );
+    metrics::describe_counter!(
+        "cloacina_accumulator_persist_failures_total",
+        "Total accumulator persist failures, broken down by call site. \
+         `kind` ∈ `checkpoint` (polling-accumulator save), `boundary` \
+         (persist_boundary), `batch_buffer` (batch accumulator buffer save). \
+         Replaces the silent `let _ = persist_*` patterns flagged as OPS-15."
+    );
+    metrics::describe_counter!(
+        "cloacina_context_merge_failures_total",
+        "Total failures merging dependency contexts into a task's input \
+         context. `kind` ∈ `parse` (dependency context JSON failed to \
+         deserialize — fails the task as `ContextLoadFailed`), `merge` \
+         (Context API rejected an insert/update — counted but does not \
+         fail the task). Closes COR-11."
+    );
 
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let mut runner_builder = DefaultRunnerConfig::builder();
@@ -309,6 +467,13 @@ pub async fn run(
     if let Some(interval) = reconcile_interval {
         runner_builder = runner_builder.registry_reconcile_interval(interval);
     }
+    // CLOACI-T-0571: forward the verification config into the runner so the
+    // reconciler's defense-in-depth signature-existence check fires even
+    // when packages reach `workflow_packages` via paths other than the
+    // upload route.
+    runner_builder = runner_builder
+        .require_signatures(require_signatures)
+        .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
     let runner_config = runner_builder
         .build()
         .context("Invalid runner configuration")?;
@@ -568,18 +733,21 @@ fn build_router(state: AppState) -> Router {
             crate::routes::auth::require_auth,
         ));
 
-    // Computation graph health routes — behind auth
+    // Computation graph health routes — behind auth.
+    // CLOACI-T-0595 / API-08: paths are relative to the `/v1` nest below
+    // (previously these used absolute `/v1/...` and were merged at the
+    // top level, bypassing the `/v1` nest's middleware contract).
     let graph_health_routes = Router::new()
         .route(
-            "/v1/health/accumulators",
+            "/health/accumulators",
             get(crate::routes::health_graphs::list_accumulators),
         )
         .route(
-            "/v1/health/graphs",
+            "/health/graphs",
             get(crate::routes::health_graphs::list_graphs),
         )
         .route(
-            "/v1/health/graphs/{name}",
+            "/health/graphs/{name}",
             get(crate::routes::health_graphs::get_graph),
         )
         .route_layer(middleware::from_fn_with_state(
@@ -587,23 +755,26 @@ fn build_router(state: AppState) -> Router {
             crate::routes::auth::require_auth,
         ));
 
-    // WebSocket routes — auth handled in the handler (before upgrade)
+    // WebSocket routes — auth handled in the handler (before upgrade).
+    // Relative paths so they nest cleanly under `/v1` per API-08.
     let ws_routes = Router::new()
         .route(
-            "/v1/ws/accumulator/{name}",
+            "/ws/accumulator/{name}",
             get(crate::routes::ws::accumulator_ws),
         )
-        .route("/v1/ws/reactor/{name}", get(crate::routes::ws::reactor_ws));
+        .route("/ws/reactor/{name}", get(crate::routes::ws::reactor_ws));
+
+    // All of v1 in a single nest — API-08 invariant: anything served
+    // under `/v1/*` shares the same middleware stack.
+    let v1 = auth_routes.merge(graph_health_routes).merge(ws_routes);
 
     // Public routes — no auth
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
-        // All authenticated routes under /v1/
-        .nest("/v1", auth_routes)
-        .merge(graph_health_routes)
-        .merge(ws_routes)
+        // All v1 routes (auth + graph health + ws) under one nest.
+        .nest("/v1", v1)
         .fallback(fallback_404)
         // Body size limit: 100MB (matches PackageValidator)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
@@ -690,12 +861,11 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
-/// Fallback for unmatched routes — returns 404 JSON
+/// Fallback for unmatched routes — returns the canonical `ApiError`
+/// envelope (CLOACI-T-0595 / API-06) so every server error matches the
+/// same shape regardless of which handler (or no handler) produced it.
 async fn fallback_404() -> impl IntoResponse {
-    (
-        StatusCode::NOT_FOUND,
-        Json(serde_json::json!({"error": "not found"})),
-    )
+    crate::routes::error::ApiError::not_found("not_found", "no route matches this request")
 }
 
 /// Wait for shutdown signal (SIGINT or SIGTERM)
@@ -1019,6 +1189,790 @@ mod tests {
 
     #[tokio::test]
     #[serial]
+    async fn test_scheduler_loop_metrics_emit() {
+        let state = test_state().await;
+
+        // Emit each new scheduler-loop metric exactly as the production code does.
+        // Mirrors:
+        //   - executor/thread_task_executor.rs claim_for_runner → {claimed, contended}
+        //   - execution_planner/scheduler_loop.rs dispatch_ready_tasks (no work) → empty
+        //   - executor/thread_task_executor.rs heartbeat loop on Ok
+        //   - execution_planner/stale_claim_sweeper.rs after mark_ready succeeds
+        metrics::counter!(
+            "cloacina_scheduler_claim_attempts_total",
+            "outcome" => "claimed",
+        )
+        .increment(1);
+        metrics::counter!(
+            "cloacina_scheduler_claim_attempts_total",
+            "outcome" => "contended",
+        )
+        .increment(1);
+        metrics::counter!(
+            "cloacina_scheduler_claim_attempts_total",
+            "outcome" => "empty",
+        )
+        .increment(1);
+        metrics::counter!("cloacina_scheduler_heartbeat_writes_total").increment(1);
+        metrics::counter!("cloacina_scheduler_stale_claims_swept_total").increment(1);
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+
+        // Each new metric registered with describe_counter! and emitted at least once
+        // must appear in the exposition output.
+        assert!(
+            text.contains("cloacina_scheduler_claim_attempts_total"),
+            "Missing claim_attempts_total in /metrics output:\n{}",
+            text
+        );
+        // All three outcome label values must be present.
+        for outcome in ["claimed", "contended", "empty"] {
+            assert!(
+                text.contains(&format!(
+                    "cloacina_scheduler_claim_attempts_total{{outcome=\"{}\"}}",
+                    outcome
+                )),
+                "Missing outcome={} label in claim_attempts_total. Got:\n{}",
+                outcome,
+                text
+            );
+        }
+        assert!(
+            text.contains("cloacina_scheduler_heartbeat_writes_total"),
+            "Missing heartbeat_writes_total in /metrics output:\n{}",
+            text
+        );
+        assert!(
+            text.contains("cloacina_scheduler_stale_claims_swept_total"),
+            "Missing stale_claims_swept_total in /metrics output:\n{}",
+            text
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_supervisor_health_metrics_emit() {
+        let state = test_state().await;
+
+        // Emit each new supervisor / health metric exactly as the production
+        // code does. Mirrors:
+        //   - computation_graph/scheduler.rs check_and_restart_failed →
+        //     supervisor_restarts_total at reactor + accumulator restart paths
+        //   - computation_graph/scheduler.rs emit_health_metrics →
+        //     component_health gauge from supervision tick
+        metrics::counter!(
+            "cloacina_supervisor_restarts_total",
+            "graph" => "test_graph",
+            "component" => "reactor",
+            "reason" => "panic",
+        )
+        .increment(1);
+        metrics::counter!(
+            "cloacina_supervisor_restarts_total",
+            "graph" => "test_graph",
+            "component" => "acc_a",
+            "reason" => "error",
+        )
+        .increment(1);
+
+        for state_label in ["healthy", "degraded", "starting", "stopped", "crashed"] {
+            let value = if state_label == "healthy" { 1.0 } else { 0.0 };
+            metrics::gauge!(
+                "cloacina_component_health",
+                "graph" => "test_graph",
+                "component" => "reactor",
+                "state" => state_label,
+            )
+            .set(value);
+        }
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+
+        assert!(
+            text.contains("cloacina_supervisor_restarts_total"),
+            "Missing supervisor_restarts_total in /metrics output:\n{}",
+            text
+        );
+        // Both bounded reasons must round-trip through the exporter.
+        for reason in ["panic", "error"] {
+            assert!(
+                text.contains(&format!("reason=\"{}\"", reason)),
+                "Missing reason={} in supervisor restarts. Got:\n{}",
+                reason,
+                text
+            );
+        }
+        assert!(
+            text.contains("cloacina_component_health"),
+            "Missing component_health gauge in /metrics output:\n{}",
+            text
+        );
+        // Exactly one state==1 invariant: assert all five state values appear
+        // (one as 1, four as 0).
+        for state_label in ["healthy", "degraded", "starting", "stopped", "crashed"] {
+            assert!(
+                text.contains(&format!("state=\"{}\"", state_label)),
+                "Missing state={} in component_health. Got:\n{}",
+                state_label,
+                text
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_accumulator_metrics_emit() {
+        let state = test_state().await;
+
+        // Emit each accumulator metric exactly as the production runtimes do.
+        for kind in ["passthrough", "stream", "polling", "batch"] {
+            metrics::counter!(
+                "cloacina_accumulator_events_total",
+                "graph" => "test_graph",
+                "accumulator" => format!("acc_{}", kind),
+                "kind" => kind,
+            )
+            .increment(1);
+            metrics::histogram!(
+                "cloacina_accumulator_emit_duration_seconds",
+                "graph" => "test_graph",
+                "accumulator" => format!("acc_{}", kind),
+            )
+            .record(0.001);
+        }
+        metrics::gauge!(
+            "cloacina_accumulator_buffer_depth",
+            "graph" => "test_graph",
+            "accumulator" => "acc_batch",
+        )
+        .set(42.0);
+        metrics::counter!(
+            "cloacina_accumulator_checkpoint_writes_total",
+            "graph" => "test_graph",
+            "accumulator" => "acc_passthrough",
+        )
+        .increment(1);
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+
+        // All four kind label values must round-trip
+        for kind in ["passthrough", "stream", "polling", "batch"] {
+            assert!(
+                text.contains(&format!("kind=\"{}\"", kind)),
+                "Missing kind={} in accumulator_events_total. Got:\n{}",
+                kind,
+                text
+            );
+        }
+        assert!(
+            text.contains("cloacina_accumulator_emit_duration_seconds"),
+            "Missing emit_duration histogram in /metrics output:\n{}",
+            text
+        );
+        assert!(
+            text.contains("cloacina_accumulator_buffer_depth"),
+            "Missing buffer_depth gauge in /metrics output:\n{}",
+            text
+        );
+        assert!(
+            text.contains("cloacina_accumulator_checkpoint_writes_total"),
+            "Missing checkpoint_writes_total in /metrics output:\n{}",
+            text
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_reactor_metrics_emit() {
+        let state = test_state().await;
+
+        for strategy in ["when_any", "when_all", "sequential"] {
+            metrics::counter!(
+                "cloacina_reactor_fires_total",
+                "graph" => "test_graph",
+                "reactor" => "test_reactor",
+                "strategy" => strategy,
+            )
+            .increment(1);
+        }
+        metrics::histogram!(
+            "cloacina_reactor_fire_duration_seconds",
+            "graph" => "test_graph",
+            "reactor" => "test_reactor",
+        )
+        .record(0.002);
+        for source in ["src_a", "src_b"] {
+            metrics::gauge!(
+                "cloacina_reactor_cache_age_seconds",
+                "graph" => "test_graph",
+                "reactor" => "test_reactor",
+                "source" => source,
+            )
+            .set(1.5);
+        }
+        metrics::counter!(
+            "cloacina_reactor_deduped_events_total",
+            "graph" => "test_graph",
+            "reactor" => "test_reactor",
+            "source" => "src_a",
+        )
+        .increment(1);
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+
+        for strategy in ["when_any", "when_all", "sequential"] {
+            assert!(
+                text.contains(&format!("strategy=\"{}\"", strategy)),
+                "Missing strategy={} in reactor_fires_total. Got:\n{}",
+                strategy,
+                text
+            );
+        }
+        assert!(
+            text.contains("cloacina_reactor_fire_duration_seconds"),
+            "Missing fire_duration histogram in /metrics output:\n{}",
+            text
+        );
+        assert!(
+            text.contains("cloacina_reactor_cache_age_seconds"),
+            "Missing cache_age gauge in /metrics output:\n{}",
+            text
+        );
+        assert!(
+            text.contains("cloacina_reactor_deduped_events_total"),
+            "Missing deduped_events counter in /metrics output:\n{}",
+            text
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_ws_metrics_emit() {
+        let state = test_state().await;
+
+        for endpoint in ["accumulator", "reactor"] {
+            metrics::gauge!(
+                "cloacina_ws_connections_active",
+                "endpoint" => endpoint,
+            )
+            .set(1.0);
+            for direction in ["in", "out"] {
+                metrics::counter!(
+                    "cloacina_ws_messages_total",
+                    "endpoint" => endpoint,
+                    "direction" => direction,
+                )
+                .increment(1);
+            }
+        }
+        for reason in [
+            "ticket_expired",
+            "invalid_signature",
+            "tenant_mismatch",
+            "not_authorized",
+        ] {
+            metrics::counter!(
+                "cloacina_ws_auth_failures_total",
+                "reason" => reason,
+            )
+            .increment(1);
+        }
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+
+        for endpoint in ["accumulator", "reactor"] {
+            assert!(
+                text.contains(&format!("endpoint=\"{}\"", endpoint)),
+                "Missing endpoint={} label. Got:\n{}",
+                endpoint,
+                text
+            );
+        }
+        for direction in ["in", "out"] {
+            assert!(
+                text.contains(&format!("direction=\"{}\"", direction)),
+                "Missing direction={} label in ws_messages_total. Got:\n{}",
+                direction,
+                text
+            );
+        }
+        for reason in [
+            "ticket_expired",
+            "invalid_signature",
+            "tenant_mismatch",
+            "not_authorized",
+        ] {
+            assert!(
+                text.contains(&format!("reason=\"{}\"", reason)),
+                "Missing reason={} in ws_auth_failures_total. Got:\n{}",
+                reason,
+                text
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_persist_failure_metrics_emit() {
+        let state = test_state().await;
+
+        for kind in [
+            "cache_serialize",
+            "dirty_serialize",
+            "seq_serialize",
+            "save",
+        ] {
+            metrics::counter!(
+                "cloacina_reactor_persist_failures_total",
+                "graph" => "test_graph",
+                "reactor" => "test_reactor",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+        for kind in ["checkpoint", "boundary", "batch_buffer"] {
+            metrics::counter!(
+                "cloacina_accumulator_persist_failures_total",
+                "graph" => "test_graph",
+                "accumulator" => "acc0",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+
+        for kind in [
+            "cache_serialize",
+            "dirty_serialize",
+            "seq_serialize",
+            "save",
+        ] {
+            assert!(
+                text.contains(&format!(
+                    "cloacina_reactor_persist_failures_total{{graph=\"test_graph\",kind=\"{}\"",
+                    kind
+                )) || text.contains(&format!("kind=\"{}\"", kind)),
+                "Missing kind={} in reactor_persist_failures_total. Got:\n{}",
+                kind,
+                text
+            );
+        }
+        for kind in ["checkpoint", "boundary", "batch_buffer"] {
+            assert!(
+                text.contains(&format!("kind=\"{}\"", kind)),
+                "Missing kind={} in accumulator_persist_failures_total. Got:\n{}",
+                kind,
+                text
+            );
+        }
+    }
+
+    /// I-0099 cardinality guard — assert that every `cloacina_*` metric
+    /// introduced by the initiative stays under a fixed series ceiling.
+    ///
+    /// Emits each metric exactly as the production code does, scrapes
+    /// `/metrics`, then groups all exposition lines by metric name and
+    /// asserts each metric's distinct label-set count is below the
+    /// documented limit. Caught here, this protects against the
+    /// "someone added `tenant_id` as a label" failure mode that motivates
+    /// the cardinality discipline in I-0099.
+    #[tokio::test]
+    #[serial]
+    async fn test_i0099_cardinality_within_ceiling() {
+        use std::collections::HashMap;
+
+        let state = test_state().await;
+
+        // Exercise every I-0099 metric at least once across the full label
+        // domain so /metrics reflects realistic cardinality.
+        for outcome in ["claimed", "contended", "empty"] {
+            metrics::counter!(
+                "cloacina_scheduler_claim_attempts_total",
+                "outcome" => outcome,
+            )
+            .increment(1);
+        }
+        metrics::counter!("cloacina_scheduler_heartbeat_writes_total").increment(1);
+        metrics::counter!("cloacina_scheduler_stale_claims_swept_total").increment(1);
+
+        for reason in ["panic", "error", "shutdown_timeout"] {
+            metrics::counter!(
+                "cloacina_supervisor_restarts_total",
+                "graph" => "g0",
+                "component" => "reactor",
+                "reason" => reason,
+            )
+            .increment(1);
+        }
+        for state_label in ["healthy", "degraded", "starting", "stopped", "crashed"] {
+            metrics::gauge!(
+                "cloacina_component_health",
+                "graph" => "g0",
+                "component" => "reactor",
+                "state" => state_label,
+            )
+            .set(if state_label == "healthy" { 1.0 } else { 0.0 });
+        }
+
+        for kind in ["passthrough", "stream", "polling", "batch"] {
+            metrics::counter!(
+                "cloacina_accumulator_events_total",
+                "graph" => "g0",
+                "accumulator" => "acc0",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+        metrics::histogram!(
+            "cloacina_accumulator_emit_duration_seconds",
+            "graph" => "g0",
+            "accumulator" => "acc0",
+        )
+        .record(0.001);
+        metrics::gauge!(
+            "cloacina_accumulator_buffer_depth",
+            "graph" => "g0",
+            "accumulator" => "acc0",
+        )
+        .set(0.0);
+        metrics::counter!(
+            "cloacina_accumulator_checkpoint_writes_total",
+            "graph" => "g0",
+            "accumulator" => "acc0",
+        )
+        .increment(1);
+
+        for strategy in ["when_any", "when_all", "sequential"] {
+            metrics::counter!(
+                "cloacina_reactor_fires_total",
+                "graph" => "g0",
+                "reactor" => "r0",
+                "strategy" => strategy,
+            )
+            .increment(1);
+        }
+        metrics::histogram!(
+            "cloacina_reactor_fire_duration_seconds",
+            "graph" => "g0",
+            "reactor" => "r0",
+        )
+        .record(0.001);
+        metrics::gauge!(
+            "cloacina_reactor_cache_age_seconds",
+            "graph" => "g0",
+            "reactor" => "r0",
+            "source" => "src_a",
+        )
+        .set(1.0);
+        metrics::counter!(
+            "cloacina_reactor_deduped_events_total",
+            "graph" => "g0",
+            "reactor" => "r0",
+            "source" => "src_a",
+        )
+        .increment(1);
+
+        for endpoint in ["accumulator", "reactor"] {
+            metrics::gauge!(
+                "cloacina_ws_connections_active",
+                "endpoint" => endpoint,
+            )
+            .set(1.0);
+            for direction in ["in", "out"] {
+                metrics::counter!(
+                    "cloacina_ws_messages_total",
+                    "endpoint" => endpoint,
+                    "direction" => direction,
+                )
+                .increment(1);
+            }
+        }
+        for reason in [
+            "ticket_expired",
+            "invalid_signature",
+            "tenant_mismatch",
+            "not_authorized",
+        ] {
+            metrics::counter!(
+                "cloacina_ws_auth_failures_total",
+                "reason" => reason,
+            )
+            .increment(1);
+        }
+
+        // I-0108 persist-failure counters — included so the cardinality
+        // guard covers them as well.
+        for kind in [
+            "cache_serialize",
+            "dirty_serialize",
+            "seq_serialize",
+            "save",
+        ] {
+            metrics::counter!(
+                "cloacina_reactor_persist_failures_total",
+                "graph" => "g0",
+                "reactor" => "r0",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+        for kind in ["checkpoint", "boundary", "batch_buffer"] {
+            metrics::counter!(
+                "cloacina_accumulator_persist_failures_total",
+                "graph" => "g0",
+                "accumulator" => "acc0",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+        // I-0110 / COR-11: context-merge failure counter — bounded
+        // `kind ∈ parse | merge`. Included in the cardinality guard so
+        // future additions don't sneak in an unbounded label.
+        for kind in ["parse", "merge"] {
+            metrics::counter!(
+                "cloacina_context_merge_failures_total",
+                "kind" => kind,
+            )
+            .increment(1);
+        }
+        // I-0100 / T-0599: reactor firings counter — labels are
+        // `graph | reactor` (typically the same value, derived from the
+        // package's reactor name). Bounded by the loaded reactor set,
+        // not by request-time data.
+        metrics::counter!(
+            "cloacina_reactor_firings_total",
+            "graph" => "g0",
+            "reactor" => "r0",
+        )
+        .increment(1);
+        // I-0100 / T-0601: TTL prune counter — unlabeled.
+        metrics::counter!("cloacina_reactor_firings_pruned_total").increment(1);
+
+        // Scrape and parse
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+
+        // Documented ceilings — per-metric distinct label-set count.
+        // Derived from the bounded enum products in I-0099:
+        //   scheduler_claim_attempts_total = 3 outcomes
+        //   scheduler_heartbeat_writes_total = 1
+        //   scheduler_stale_claims_swept_total = 1
+        //   supervisor_restarts_total ≤ 3 reasons × small graph/component fan-out
+        //   component_health = 5 states × small graph/component fan-out
+        //   accumulator_events_total ≤ 4 kinds × small graph/accumulator fan-out
+        //   reactor_fires_total ≤ 3 strategies × small graph/reactor fan-out
+        //   ws_connections_active = 2 endpoints
+        //   ws_messages_total = 2 endpoints × 2 directions = 4
+        //   ws_auth_failures_total = 4 reasons
+        //
+        // The ceiling below accommodates the per-test cardinality (one
+        // graph/reactor/accumulator name) plus a safety margin. Inflated
+        // labels (e.g., tenant_id, event keys) would push any of these
+        // metrics far above the ceiling.
+        let mut series_count: HashMap<&str, usize> = HashMap::new();
+        for line in text.lines() {
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+            // Capture metric name up to '{' or whitespace.
+            let name_end = line
+                .find('{')
+                .or_else(|| line.find(' '))
+                .unwrap_or(line.len());
+            let name = &line[..name_end];
+            // Strip Prometheus histogram suffixes so all buckets of one
+            // histogram count as the same metric for our purposes.
+            let canonical: &str = if let Some(stripped) = name.strip_suffix("_bucket") {
+                stripped
+            } else if let Some(stripped) = name.strip_suffix("_sum") {
+                stripped
+            } else if let Some(stripped) = name.strip_suffix("_count") {
+                stripped
+            } else {
+                name
+            };
+            if canonical.starts_with("cloacina_") {
+                *series_count.entry(canonical).or_insert(0) += 1;
+            }
+        }
+
+        // Generous per-metric ceiling — every I-0099 metric should be far
+        // below this. If a regression inflates labels (tenant_id, event
+        // keys, raw paths), this assertion fails loudly.
+        let ceiling = 64usize;
+        for (metric, count) in &series_count {
+            assert!(
+                *count <= ceiling,
+                "I-0099 cardinality guard: {} has {} distinct label sets, \
+                 exceeds ceiling {}. A new label may be unbounded — check \
+                 docs/operations/metrics.md and ensure all labels are \
+                 enum-bounded or derived from package metadata.",
+                metric,
+                count,
+                ceiling
+            );
+        }
+
+        // Sanity: every I-0099 metric we just emitted should appear in the
+        // scrape — if a metric is missing the cardinality assertion was
+        // vacuous for it.
+        for expected in [
+            "cloacina_scheduler_claim_attempts_total",
+            "cloacina_scheduler_heartbeat_writes_total",
+            "cloacina_scheduler_stale_claims_swept_total",
+            "cloacina_supervisor_restarts_total",
+            "cloacina_component_health",
+            "cloacina_accumulator_events_total",
+            "cloacina_accumulator_emit_duration_seconds",
+            "cloacina_accumulator_buffer_depth",
+            "cloacina_accumulator_checkpoint_writes_total",
+            "cloacina_reactor_fires_total",
+            "cloacina_reactor_fire_duration_seconds",
+            "cloacina_reactor_cache_age_seconds",
+            "cloacina_reactor_deduped_events_total",
+            "cloacina_ws_connections_active",
+            "cloacina_ws_messages_total",
+            "cloacina_ws_auth_failures_total",
+            "cloacina_reactor_persist_failures_total",
+            "cloacina_accumulator_persist_failures_total",
+            "cloacina_context_merge_failures_total",
+            "cloacina_reactor_firings_total",
+            "cloacina_reactor_firings_pruned_total",
+        ] {
+            assert!(
+                series_count.contains_key(expected),
+                "I-0099 metric {} missing from /metrics scrape — \
+                 cardinality assertion was vacuous for it. \
+                 Series found: {:?}",
+                expected,
+                series_count.keys().collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn test_api_request_duration_histogram_emitted() {
         let state = test_state().await;
         let app = build_router(state);
@@ -1300,14 +2254,15 @@ mod tests {
         let token = create_test_api_key(&state).await;
         let app = build_router(state);
 
-        let schema = format!(
+        let name = format!(
             "test_{}",
             uuid::Uuid::new_v4().to_string().replace('-', "_")
         );
+        // CLOACI-T-0594 / API-01: request body now uses `{name, description?, password?}`.
         let body_json = serde_json::json!({
-            "schema_name": schema,
-            "username": schema,
-            "password": "testpass123"
+            "name": name,
+            "description": "integration test tenant",
+            "password": "testpass123",
         });
 
         let req = axum::http::Request::builder()
@@ -1320,7 +2275,9 @@ mod tests {
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
-        assert_eq!(body["schema_name"], schema);
+        // Response keys reflect the new shape — `name` (the canonical
+        // identifier) replaces `schema_name`.
+        assert_eq!(body["name"], name);
     }
 
     #[tokio::test]
@@ -1338,7 +2295,13 @@ mod tests {
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body["tenants"].as_array().is_some());
+        // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
+        assert!(
+            body["items"].as_array().is_some(),
+            "list_tenants must return items envelope; got {:?}",
+            body
+        );
+        assert!(body["total"].as_u64().is_some());
     }
 
     /// CLOACI-T-0580: LRU eviction. With a cache cap of 2, cycling
@@ -1379,8 +2342,7 @@ mod tests {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "schema_name": s,
-                        "username": s,
+                        "name": s,
                         "password": "testpass123",
                     })
                     .to_string(),
@@ -1465,8 +2427,7 @@ mod tests {
             .header("content-type", "application/json")
             .body(Body::from(
                 serde_json::json!({
-                    "schema_name": schema,
-                    "username": schema,
+                    "name": schema,
                     "password": "testpass123",
                 })
                 .to_string(),
@@ -1532,8 +2493,7 @@ mod tests {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({
-                        "schema_name": s,
-                        "username": s,
+                        "name": s,
                         "password": "testpass123",
                     })
                     .to_string(),
@@ -1630,9 +2590,8 @@ mod tests {
             uuid::Uuid::new_v4().to_string().replace('-', "_")
         );
         let body_json = serde_json::json!({
-            "schema_name": schema,
-            "username": schema,
-            "password": "testpass123"
+            "name": schema,
+            "password": "testpass123",
         });
 
         // Create

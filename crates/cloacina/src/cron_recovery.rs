@@ -208,8 +208,20 @@ impl CronRecoveryService {
 
         let execution_age = Utc::now() - scheduled_time;
 
-        // Check if execution is too old to recover
-        if execution_age > chrono::Duration::from_std(self.config.max_recovery_age).unwrap() {
+        // Check if execution is too old to recover. `from_std` returns
+        // `Err` only when the duration overflows chrono's range (~290 yr);
+        // treat that as "max recovery age is effectively infinite" rather
+        // than panicking — a poisoned config value must not crash the
+        // recovery loop. CLOACI-I-0110 / COR-06.
+        let max_recovery_age = chrono::Duration::from_std(self.config.max_recovery_age)
+            .unwrap_or_else(|e| {
+                warn!(
+                    "max_recovery_age out of chrono::Duration range ({:?}): {}; treating as MAX",
+                    self.config.max_recovery_age, e
+                );
+                chrono::Duration::MAX
+            });
+        if execution_age > max_recovery_age {
             warn!(
                 "Execution {} is too old to recover (age: {:?}), abandoning",
                 execution.id, execution_age

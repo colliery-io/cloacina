@@ -49,6 +49,7 @@ pub mod checkpoint;
 pub mod context;
 pub mod execution_event;
 pub mod models;
+pub mod reactor_subscriptions;
 pub mod recovery_event;
 pub mod schedule;
 pub mod schedule_execution;
@@ -65,6 +66,7 @@ pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
 pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
 pub use execution_event::ExecutionEventDAL;
+pub use reactor_subscriptions::{ReactorFiring, ReactorSubscription, ReactorSubscriptionsDAL};
 pub use recovery_event::RecoveryEventDAL;
 pub use schedule::ScheduleDAL;
 pub use schedule_execution::{ScheduleExecutionDAL, ScheduleExecutionStats};
@@ -183,6 +185,12 @@ impl DAL {
     /// Returns a workflow packages DAL for package operations.
     pub fn workflow_packages(&self) -> WorkflowPackagesDAL<'_> {
         WorkflowPackagesDAL::new(self)
+    }
+
+    /// Returns a reactor subscriptions DAL for reactor-triggered workflow
+    /// fan-out (CLOACI-I-0100 / T-0598).
+    pub fn reactor_subscriptions(&self) -> ReactorSubscriptionsDAL<'_> {
+        ReactorSubscriptionsDAL::new(self)
     }
 
     /// Creates a workflow registry implementation with the given storage backend.

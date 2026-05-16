@@ -42,14 +42,15 @@
 //! ```
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::trigger::register_trigger;
 use cloacina::{task, workflow, Context, TaskError};
 use std::time::Duration;
 use tracing::info;
 
+// Triggers live in their own module. Each one is decorated with
+// `#[trigger]`, which submits a `TriggerEntry` to the inventory crate at
+// compile time; `Runtime::new()` (inside `DefaultRunner`) seeds itself
+// from that inventory so no explicit `register_trigger()` call is needed.
 mod triggers;
-
-use triggers::*;
 
 // ============================================================================
 // File Processing Workflow
@@ -361,16 +362,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("DefaultRunner initialized with trigger scheduling enabled");
 
-    // Workflows are auto-registered by #[workflow] attribute macro
+    // Workflows + triggers are auto-registered: `#[workflow]` and
+    // `#[trigger]` each submit their constructors to the inventory crate
+    // at compile time, and `Runtime::new()` walks the inventory during
+    // `DefaultRunner::with_config`.
 
-    info!("Workflows registered successfully");
+    info!("Workflows + triggers auto-registered from #[workflow]/#[trigger]");
 
-    // Register triggers in the global registry
-    register_triggers();
-
-    info!("Triggers registered successfully");
-
-    // Register triggers with the scheduler (persists to database)
+    // Persist trigger → workflow schedule rows so the unified scheduler
+    // picks them up on its poll loop. This is the only piece the user
+    // still has to wire by hand for an in-process demo; packaged
+    // workflows go through the reconciler instead.
     register_trigger_schedules(&runner).await?;
 
     info!("");
@@ -411,85 +413,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Register triggers in the global trigger registry.
-fn register_triggers() {
-    // File watcher trigger
-    let file_trigger = create_file_watcher_trigger();
-    register_trigger(file_trigger);
-    info!("Registered: file_watcher trigger");
-
-    // Queue depth trigger
-    let queue_trigger = create_queue_depth_trigger();
-    register_trigger(queue_trigger);
-    info!("Registered: queue_monitor trigger");
-
-    // Health check trigger
-    let health_trigger = create_health_check_trigger();
-    register_trigger(health_trigger);
-    info!("Registered: service_health trigger");
-}
-
-/// Register trigger schedules with the runner (persists configuration to DB).
+/// Persist a `schedules` row for each trigger so the unified scheduler
+/// knows which workflow to dispatch when the trigger fires.
+///
+/// `Runtime::new()` has already seeded the trigger registry from the
+/// inventory entries emitted by `#[trigger]`; we look each one up by
+/// name and ask the unified scheduler to upsert its schedule row.
 async fn register_trigger_schedules(
     runner: &DefaultRunner,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use cloacina::database::universal_types::UniversalBool;
-    use cloacina::models::schedule::NewSchedule;
-    use cloacina::trigger::get_trigger;
+    let scheduler = runner
+        .unified_scheduler()
+        .await
+        .ok_or("unified scheduler not enabled — check enable_trigger_scheduling()")?;
+    let runtime = runner.runtime();
 
-    // Get access to the DAL through the runner
-    let dal = runner.dal();
+    // (trigger name, target workflow). The trigger name comes from the
+    // `name = "..."` attribute on the #[trigger] macro; the workflow name
+    // mirrors the `on = "..."` attribute.
+    let bindings = [
+        ("file_watcher", "file_processing_workflow"),
+        ("queue_monitor", "queue_processing_workflow"),
+        ("service_health", "service_recovery_workflow"),
+    ];
 
-    // Register file watcher -> file processing workflow
-    if let Some(trigger) = get_trigger("file_watcher") {
-        let schedule = dal
-            .schedule()
-            .upsert_trigger(NewSchedule::trigger(
-                trigger.name(),
-                "file_processing_workflow",
-                trigger.poll_interval(),
-            ))
+    for (trigger_name, workflow_name) in bindings {
+        let trigger = runtime
+            .get_trigger(trigger_name)
+            .ok_or_else(|| format!("trigger '{}' not in runtime inventory", trigger_name))?;
+        let schedule = scheduler
+            .register_trigger(trigger.as_ref(), workflow_name)
             .await?;
         info!(
             "Registered schedule: {} -> {} (ID: {})",
-            trigger.name(),
-            "file_processing_workflow",
-            schedule.id
-        );
-    }
-
-    // Register queue monitor -> queue processing workflow
-    if let Some(trigger) = get_trigger("queue_monitor") {
-        let mut new_schedule = NewSchedule::trigger(
-            trigger.name(),
-            "queue_processing_workflow",
-            trigger.poll_interval(),
-        );
-        new_schedule.allow_concurrent = Some(UniversalBool::new(true)); // Allow concurrent queue processing
-        let schedule = dal.schedule().upsert_trigger(new_schedule).await?;
-        info!(
-            "Registered schedule: {} -> {} (ID: {})",
-            trigger.name(),
-            "queue_processing_workflow",
-            schedule.id
-        );
-    }
-
-    // Register health check -> service recovery workflow
-    if let Some(trigger) = get_trigger("service_health") {
-        let schedule = dal
-            .schedule()
-            .upsert_trigger(NewSchedule::trigger(
-                trigger.name(),
-                "service_recovery_workflow",
-                trigger.poll_interval(),
-            ))
-            .await?;
-        info!(
-            "Registered schedule: {} -> {} (ID: {})",
-            trigger.name(),
-            "service_recovery_workflow",
-            schedule.id
+            trigger_name, workflow_name, schedule.id
         );
     }
 

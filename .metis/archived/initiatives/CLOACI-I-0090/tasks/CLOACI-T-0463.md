@@ -36,6 +36,8 @@ Extract `src/python/` from the `cloacina` core crate into a new `crates/cloacina
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] New `crates/cloacina-python/` crate with `crate-type = ["cdylib"]`
 - [ ] All files from `crates/cloacina/src/python/` moved to the new crate
 - [ ] `crates/cloacina/Cargo.toml` no longer has `cdylib` in crate-type

@@ -86,7 +86,12 @@ pub async fn list_accumulators(
         })
         .collect();
 
-    Json(serde_json::json!({ "accumulators": accumulators }))
+    // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
+    let total = accumulators.len();
+    Json(serde_json::json!({
+        "items": accumulators,
+        "total": total,
+    }))
 }
 
 /// GET /v1/health/graphs — list loaded graphs visible to the caller.
@@ -118,7 +123,12 @@ pub async fn list_graphs(
         })
         .collect();
 
-    Json(serde_json::json!({ "graphs": graphs }))
+    // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
+    let total = graphs.len();
+    Json(serde_json::json!({
+        "items": graphs,
+        "total": total,
+    }))
 }
 
 /// GET /v1/health/graphs/{name} — single graph health, gated by caller

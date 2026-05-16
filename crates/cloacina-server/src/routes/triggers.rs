@@ -23,9 +23,22 @@ use axum::{
 };
 use tracing::warn;
 
+use axum::extract::Query;
+use serde::Deserialize;
+
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
+
+/// Query string for `list_triggers` — CLOACI-T-0596 / API-10 pagination.
+#[derive(Deserialize, Default)]
+pub struct ListTriggersQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+const DEFAULT_TRIGGERS_LIMIT: i64 = 100;
+const MAX_TRIGGERS_LIMIT: i64 = 1000;
 
 /// GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
 ///
@@ -36,9 +49,27 @@ pub async fn list_triggers(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
+    Query(q): Query<ListTriggersQuery>,
 ) -> impl IntoResponse {
     if !auth.can_access_tenant(&tenant_id) {
         return AuthenticatedKey::forbidden_response().into_response();
+    }
+
+    // CLOACI-T-0596 / API-10: client-bounded pagination. Defaults match
+    // the historical hardcoded `LIMIT 100`; explicit caps prevent a
+    // pathological `?limit=1000000` from pulling the entire table.
+    let limit = q.limit.unwrap_or(DEFAULT_TRIGGERS_LIMIT);
+    if !(1..=MAX_TRIGGERS_LIMIT).contains(&limit) {
+        return ApiError::bad_request(
+            "invalid_pagination",
+            format!("limit must be 1..={}", MAX_TRIGGERS_LIMIT),
+        )
+        .into_response();
+    }
+    let offset = q.offset.unwrap_or(0);
+    if offset < 0 {
+        return ApiError::bad_request("invalid_pagination", "offset must be >= 0".to_string())
+            .into_response();
     }
 
     let tenant_db = match state
@@ -58,7 +89,7 @@ pub async fn list_triggers(
     };
     let dal = cloacina::dal::DAL::new(tenant_db);
 
-    match dal.schedule().list(None, false, 100, 0).await {
+    match dal.schedule().list(None, false, limit, offset).await {
         Ok(schedules) => {
             let items: Vec<_> = schedules
                 .into_iter()
@@ -77,9 +108,14 @@ pub async fn list_triggers(
                     })
                 })
                 .collect();
+            // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
+            // tenant_id retained at the top level for backward compatibility
+            // with operator dashboards that key off it.
+            let total = items.len();
             Json(serde_json::json!({
                 "tenant_id": tenant_id,
-                "schedules": items,
+                "items": items,
+                "total": total,
             }))
             .into_response()
         }

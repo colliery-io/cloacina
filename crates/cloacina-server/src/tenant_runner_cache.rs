@@ -171,9 +171,8 @@ impl TenantRunnerCache {
             if let Some(existing) = cache.get(tenant_id) {
                 return Ok(existing.clone());
             }
-            let prev = cache.push(tenant_id.to_string(), runner.clone());
             // `lru::LruCache::push` returns the evicted entry (if any).
-            prev.map(|(k, v)| (k, v))
+            cache.push(tenant_id.to_string(), runner.clone())
         };
         if let Some((evicted_id, evicted_runner)) = evicted {
             if evicted_id == tenant_id {

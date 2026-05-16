@@ -19,4 +19,5 @@ pub mod context_merging;
 pub mod defer_until;
 pub mod multi_tenant;
 pub mod pause_resume;
+pub mod retry_condition;
 pub mod task_execution;

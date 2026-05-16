@@ -154,6 +154,28 @@ enum RuntimeMessage {
             >,
         >,
     },
+    // CLOACI-I-0100 / T-0600 — reactor subscription registration API.
+    SubscribeWorkflowToReactor {
+        reactor: String,
+        workflow: String,
+        tenant: Option<String>,
+        response_tx: oneshot::Sender<Result<String, cloacina::executor::WorkflowExecutionError>>,
+    },
+    UnsubscribeWorkflowFromReactor {
+        reactor: String,
+        workflow: String,
+        tenant: Option<String>,
+        response_tx: oneshot::Sender<Result<bool, cloacina::executor::WorkflowExecutionError>>,
+    },
+    ListReactorSubscriptions {
+        tenant: Option<String>,
+        response_tx: oneshot::Sender<
+            Result<
+                Vec<cloacina::dal::unified::ReactorSubscription>,
+                cloacina::executor::WorkflowExecutionError,
+            >,
+        >,
+    },
     Shutdown,
 }
 
@@ -336,6 +358,26 @@ fn schedule_to_trigger_dict(
     dict.set_item("last_poll_at", schedule.last_poll_at.map(|t| t.to_string()))?;
     dict.set_item("created_at", schedule.created_at.to_string())?;
     dict.set_item("updated_at", schedule.updated_at.to_string())?;
+    Ok(dict.into())
+}
+
+/// Convert a ReactorSubscription to a Python dict (CLOACI-I-0100 / T-0600).
+fn reactor_subscription_to_dict(
+    sub: cloacina::dal::unified::ReactorSubscription,
+    py: Python,
+) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new(py);
+    dict.set_item("id", sub.id.to_string())?;
+    dict.set_item("reactor_name", &sub.reactor_name)?;
+    dict.set_item("workflow_name", &sub.workflow_name)?;
+    dict.set_item("tenant_id", &sub.tenant_id)?;
+    dict.set_item("enabled", sub.enabled.is_true())?;
+    dict.set_item(
+        "last_seen_fired_at",
+        sub.last_seen_fired_at.map(|t| t.to_string()),
+    )?;
+    dict.set_item("created_at", sub.created_at.to_string())?;
+    dict.set_item("updated_at", sub.updated_at.to_string())?;
     Ok(dict.into())
 }
 
@@ -623,6 +665,45 @@ async fn run_event_loop(
                         }
                     }
                     .await;
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::SubscribeWorkflowToReactor {
+                reactor,
+                workflow,
+                tenant,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = runner
+                        .subscribe_workflow_to_reactor(&reactor, &workflow, tenant.as_deref())
+                        .await
+                        .map(|uuid| uuid.to_string());
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::UnsubscribeWorkflowFromReactor {
+                reactor,
+                workflow,
+                tenant,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = runner
+                        .unsubscribe_workflow_from_reactor(&reactor, &workflow, tenant.as_deref())
+                        .await;
+                    let _ = response_tx.send(result);
+                });
+            }
+            RuntimeMessage::ListReactorSubscriptions {
+                tenant,
+                response_tx,
+            } => {
+                let runner = runner.clone();
+                tokio::spawn(async move {
+                    let result = runner.list_reactor_subscriptions(tenant.as_deref()).await;
                     let _ = response_tx.send(result);
                 });
             }
@@ -1116,6 +1197,97 @@ impl PyDefaultRunner {
         executions
             .into_iter()
             .map(|e| trigger_execution_to_dict(e, py))
+            .collect()
+    }
+
+    // ========================================================================
+    // Reactor Subscription Management (CLOACI-I-0100 / T-0600)
+    // ========================================================================
+
+    /// Subscribe a workflow to a reactor's firings.
+    ///
+    /// Each future fire of `reactor` (within `tenant`) will dispatch
+    /// `workflow` via the unified scheduler's reactor poll tick. The
+    /// dispatched workflow's input context carries the boundary cache
+    /// from the firing.
+    ///
+    /// Idempotent — calling twice with the same `(reactor, workflow,
+    /// tenant)` returns the existing subscription id.
+    ///
+    /// # Arguments
+    /// * `reactor` - The reactor name.
+    /// * `workflow` - The workflow to dispatch on each firing.
+    /// * `tenant` - Tenant scope. Defaults to `"public"` if omitted.
+    #[pyo3(signature = (reactor, workflow, tenant=None))]
+    pub fn subscribe_workflow_to_reactor(
+        &self,
+        reactor: String,
+        workflow: String,
+        tenant: Option<String>,
+        py: Python,
+    ) -> PyResult<String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        let message = RuntimeMessage::SubscribeWorkflowToReactor {
+            reactor,
+            workflow,
+            tenant,
+            response_tx,
+        };
+        self.send_and_recv(
+            message,
+            response_rx,
+            py,
+            "Failed to subscribe workflow to reactor",
+        )
+    }
+
+    /// Remove a workflow-to-reactor subscription.
+    ///
+    /// Returns True if a row was deleted, False if no subscription
+    /// matched `(reactor, workflow, tenant)`.
+    #[pyo3(signature = (reactor, workflow, tenant=None))]
+    pub fn unsubscribe_workflow_from_reactor(
+        &self,
+        reactor: String,
+        workflow: String,
+        tenant: Option<String>,
+        py: Python,
+    ) -> PyResult<bool> {
+        let (response_tx, response_rx) = oneshot::channel();
+        let message = RuntimeMessage::UnsubscribeWorkflowFromReactor {
+            reactor,
+            workflow,
+            tenant,
+            response_tx,
+        };
+        self.send_and_recv(
+            message,
+            response_rx,
+            py,
+            "Failed to unsubscribe workflow from reactor",
+        )
+    }
+
+    /// List enabled reactor subscriptions for a tenant.
+    #[pyo3(signature = (tenant=None))]
+    pub fn list_reactor_subscriptions(
+        &self,
+        tenant: Option<String>,
+        py: Python,
+    ) -> PyResult<Vec<PyObject>> {
+        let (response_tx, response_rx) = oneshot::channel();
+        let message = RuntimeMessage::ListReactorSubscriptions {
+            tenant,
+            response_tx,
+        };
+        let subs = self.send_and_recv(
+            message,
+            response_rx,
+            py,
+            "Failed to list reactor subscriptions",
+        )?;
+        subs.into_iter()
+            .map(|s| reactor_subscription_to_dict(s, py))
             .collect()
     }
 

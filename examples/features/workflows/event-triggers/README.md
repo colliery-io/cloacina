@@ -12,41 +12,94 @@ Event triggers enable **event-driven workflow execution** by:
 
 ## Key Concepts
 
-### Trigger Trait
+### The `#[trigger]` Macro
 
-Triggers implement the `Trigger` trait:
+Define a trigger by annotating an async function. The macro generates
+the underlying `Trigger` impl + a zero-arg constructor, and submits the
+constructor to the inventory crate so `DefaultRunner` auto-registers it
+on startup.
 
 ```rust
-#[async_trait]
-pub trait Trigger: Send + Sync {
-    fn name(&self) -> &str;
-    fn poll_interval(&self) -> Duration;
-    fn allow_concurrent(&self) -> bool;
-    async fn poll(&self) -> Result<TriggerResult, TriggerError>;
+use cloacina::trigger;
+use cloacina_workflow::{Context, TriggerError, TriggerResult};
+
+#[trigger(
+    on = "file_processing_workflow",
+    poll_interval = "2s",
+    allow_concurrent = false,
+    name = "file_watcher",
+)]
+async fn file_watcher() -> Result<TriggerResult, TriggerError> {
+    // poll body — returns Skip or Fire(Some(ctx))
 }
 ```
+
+Attributes:
+
+| key | meaning |
+|-----|---------|
+| `on` | name of the workflow to dispatch when the trigger fires |
+| `poll_interval` | how often the scheduler polls this trigger (`"100ms"`, `"5s"`, `"2m"`, `"1h"`) |
+| `cron` | mutually exclusive with `poll_interval`; cron expression for time-based firing |
+| `allow_concurrent` | `false` (default) deduplicates by context hash; `true` lets independent executions run in parallel |
+| `name` | optional override; defaults to the function name |
 
 ### TriggerResult
 
-The `poll()` function returns one of:
-- `TriggerResult::Skip` - Don't fire, continue polling
-- `TriggerResult::Fire(Option<Context>)` - Fire the workflow with optional context
+The `poll()` body returns one of:
+- `TriggerResult::Skip` — don't fire, continue polling
+- `TriggerResult::Fire(Option<Context>)` — fire the workflow with optional context
+
+### Stateful Triggers
+
+The macro generates a unit struct, so the poll body has no `self`. Any
+state lives in module-level statics:
+
+```rust
+static FILE_POLL_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+#[trigger(on = "file_processing_workflow", poll_interval = "2s")]
+async fn file_watcher() -> Result<TriggerResult, TriggerError> {
+    let count = FILE_POLL_COUNTER.fetch_add(1, Ordering::SeqCst);
+    // ... use count to drive synthetic behaviour ...
+    Ok(TriggerResult::Skip)
+}
+```
 
 ### Context Passing
 
-Triggers can pass context data to workflows, enabling dynamic behavior:
+Triggers can pass context data to workflows:
 
 ```rust
-async fn poll(&self) -> Result<TriggerResult, TriggerError> {
-    if let Some(filename) = self.check_for_new_files().await {
-        let mut ctx = Context::new();
-        ctx.insert("filename", serde_json::json!(filename))?;
-        Ok(TriggerResult::Fire(Some(ctx)))
-    } else {
-        Ok(TriggerResult::Skip)
-    }
+let mut ctx = Context::new();
+ctx.insert("filename", serde_json::json!(filename))?;
+Ok(TriggerResult::Fire(Some(ctx)))
+```
+
+### Deduplication
+
+When `allow_concurrent = false`, the scheduler hashes the context. If an
+execution with the same context hash is already running, the trigger
+won't fire again until it completes.
+
+### Wiring to schedules
+
+`#[trigger]` registers the *trigger* with the runtime; it does NOT
+persist the schedule row that the unified scheduler polls. For
+in-process examples, you do that explicitly through the unified
+scheduler:
+
+```rust
+let scheduler = runner.unified_scheduler().await.unwrap();
+let runtime = runner.runtime();
+for (name, workflow) in [("file_watcher", "file_processing_workflow")] {
+    let trigger = runtime.get_trigger(name).unwrap();
+    scheduler.register_trigger(trigger.as_ref(), workflow).await?;
 }
 ```
+
+For packaged workflows (`.cloacina` cdylibs), the registry reconciler
+handles schedule rows automatically when the package loads.
 
 ### Deduplication
 

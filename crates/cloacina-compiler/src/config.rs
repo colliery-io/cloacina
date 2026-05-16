@@ -101,6 +101,10 @@ pub struct CompilerConfig {
     /// builds against a specific compiler instance during forensics.
     /// CLOACI-T-0576.
     pub compiler_instance_id: UniversalUuid,
+
+    /// Number of daily-rotated log files to retain on disk. `0` disables
+    /// pruning (unbounded). CLOACI-I-0109 / T-0592.
+    pub log_retention_days: u64,
 }
 
 impl CompilerConfig {

@@ -1,0 +1,195 @@
+---
+# Default values for cloacina-server.
+# CLOACI-I-0111 / T-0605.
+
+# ---------------------------------------------------------------------------
+# Image
+# ---------------------------------------------------------------------------
+image:
+  repository: ghcr.io/colliery-software/cloacina-server
+  # Defaults to .Chart.AppVersion when empty so a `helm install` without
+  # --set image.tag pins to the chart's stated app version.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# Replicas + scheduling
+# ---------------------------------------------------------------------------
+replicaCount: 1
+
+# Strategy. RollingUpdate is the right default — server is HTTP-stateless
+# (state lives in Postgres), connections drain naturally.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ---------------------------------------------------------------------------
+# Resources — modest defaults; bump for production load.
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# Database
+#
+# Two paths:
+#   1. database.url  — bring-your-own-Postgres. Recommended for prod.
+#                       Set databaseUrlSecretRef instead if the URL contains
+#                       credentials you don't want in values.
+#   2. postgresql.enabled=true — install Bitnami's postgresql subchart in-cluster.
+#                       Convenient for demos and dev clusters.
+# ---------------------------------------------------------------------------
+database:
+  # Plaintext URL. Mutually exclusive with databaseUrlSecretRef.
+  url: ""
+
+databaseUrlSecretRef:
+  # Name of an existing Secret holding the DATABASE_URL value.
+  name: ""
+  # Key inside that Secret.
+  key: DATABASE_URL
+
+# Bundled Postgres (Bitnami). Disabled by default — most operators bring
+# their own managed Postgres.
+postgresql:
+  enabled: false
+  auth:
+    username: cloacina
+    password: cloacina
+    database: cloacina
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+# ---------------------------------------------------------------------------
+# API key bootstrap
+#
+# On first start cloacina-server generates an admin API key and prints it
+# to stdout. To pin a known value, store it in a Secret and reference it
+# here — the chart wires it as CLOACINA_BOOTSTRAP_KEY.
+# ---------------------------------------------------------------------------
+apiKeySecretRef:
+  name: ""
+  key: bootstrap-key
+
+# ---------------------------------------------------------------------------
+# Server CLI knobs
+# ---------------------------------------------------------------------------
+server:
+  bind: "0.0.0.0:8080"
+  # When true, `cloacina-server` rejects unsigned packages.
+  requireSignatures: false
+  # Trusted org UUID for signature verification — required if requireSignatures.
+  verificationOrgId: ""
+  # LRU cap on per-tenant DefaultRunner instances.
+  tenantRunnerCacheSize: 256
+  # Drain timeout (seconds) for in-flight workflows during tenant deletion.
+  tenantDeletionDrainTimeoutSeconds: 30
+  # Extra environment vars merged into the container's env list.
+  # Example:
+  #   extraEnv:
+  #     - name: RUST_LOG
+  #       value: info,cloacina=debug
+  extraEnv: []
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: cloacina.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # - secretName: cloacina-tls
+  #   hosts:
+  #     - cloacina.example.com
+
+# ---------------------------------------------------------------------------
+# Probes — kubelet hits /health (liveness, startup) and /ready (readiness).
+# Server registers both at the root, not under /v1/.
+# ---------------------------------------------------------------------------
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 5
+  failureThreshold: 60
+
+# ---------------------------------------------------------------------------
+# Pod / container security
+#
+# The image runs as uid/gid 10001 by default; reflect that here so any
+# admission controller (PodSecurity, Kyverno) is happy.
+# ---------------------------------------------------------------------------
+podSecurityContext:
+  fsGroup: 10001
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# A small writable volume for /home/cloacina (cloacina-server writes
+# nothing critical there but readOnlyRootFilesystem still requires
+# emptyDirs for any tmp use).
+podAnnotations: {}
+podLabels: {}
+
+# ---------------------------------------------------------------------------
+# ServiceMonitor (Prometheus operator)
+# ---------------------------------------------------------------------------
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}

@@ -229,9 +229,12 @@ pub async fn list_workflows(
                     })
                 })
                 .collect();
+            // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
+            let total = items.len();
             Json(serde_json::json!({
                 "tenant_id": tenant_id,
-                "workflows": items,
+                "items": items,
+                "total": total,
             }))
             .into_response()
         }

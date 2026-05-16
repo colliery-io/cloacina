@@ -81,6 +81,12 @@ struct Cli {
         default_value_t = 30
     )]
     tenant_deletion_drain_timeout_s: u64,
+
+    /// Number of daily-rotated log files to retain on disk. `0` disables
+    /// pruning entirely (unbounded — explicit opt-out). Default 14 days.
+    /// CLOACI-I-0109 / T-0592.
+    #[arg(long, default_value_t = 14)]
+    log_retention_days: u64,
 }
 
 fn default_home() -> PathBuf {
@@ -103,6 +109,7 @@ async fn main() -> Result<()> {
         cli.reconcile_interval_s.map(std::time::Duration::from_secs),
         cli.tenant_runner_cache_size,
         std::time::Duration::from_secs(cli.tenant_deletion_drain_timeout_s),
+        cli.log_retention_days,
     )
     .await
 }

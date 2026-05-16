@@ -1,0 +1,45 @@
+cloacina-server has been installed.
+
+Chart:    {{ .Chart.Name }} {{ .Chart.Version }}
+App:      {{ .Chart.AppVersion }}
+Image:    {{ include "cloacina-server.image" . }}
+Release:  {{ .Release.Name }} (namespace: {{ .Release.Namespace }})
+
+1. Wait for the pod to become ready:
+
+    kubectl --namespace {{ .Release.Namespace }} \
+      rollout status deployment/{{ include "cloacina-server.fullname" . }}
+
+2. Find the bootstrap API key (printed once on first startup):
+
+    kubectl --namespace {{ .Release.Namespace }} \
+      logs deployment/{{ include "cloacina-server.fullname" . }} | \
+      grep -i "bootstrap"
+
+   Or pin one ahead of time via `--set apiKeySecretRef.name=...`.
+
+{{- if .Values.ingress.enabled }}
+
+3. Ingress is enabled — your server is reachable at:
+{{- range .Values.ingress.hosts }}
+    http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+
+3. Ingress is disabled. To reach the server from your laptop:
+
+    kubectl --namespace {{ .Release.Namespace }} \
+      port-forward svc/{{ include "cloacina-server.fullname" . }} 8080:{{ .Values.service.port }}
+
+   Then `curl http://localhost:8080/v1/health` should return 200.
+{{- end }}
+
+{{- if .Values.postgresql.enabled }}
+
+NOTE: Bundled Postgres is installed in this release. The default
+credentials in values.yaml are for demo use only — set
+`postgresql.auth.password` (and ideally use `--set-string`) before
+deploying anywhere durable.
+{{- end }}
+
+Docs:    https://cloacina.dev/platform/how-to-guides/deploying-to-kubernetes

@@ -218,10 +218,18 @@ jobs:
             backend: postgres
           - tutorial: "02"
             backend: postgres
-          - tutorial: "03"
-            backend: postgres
-          - tutorial: "04"
-            backend: postgres
+          # Tutorials 03 + 04 hardcode `sqlite://:memory:` regardless of
+          # the --backend flag, so the postgres lane was running the same
+          # in-memory sqlite path twice. After I-0100 added reactor-poll
+          # ticks to the unified scheduler, that path also started racing
+          # with migrations under sqlite's pool-of-1 (`no such table:
+          # workflow_executions`). Sqlite lane covers them; postgres lane
+          # is redundant and flaky. Re-enable once the tutorials honor the
+          # backend flag (or move to a configurable URL).
+          # - tutorial: "03"
+          #   backend: postgres
+          # - tutorial: "04"
+          #   backend: postgres
           - tutorial: "05"
             backend: postgres
           - tutorial: "06"

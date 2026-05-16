@@ -44,6 +44,12 @@ enum DaemonVerb {
         /// Reconciler poll interval in milliseconds.
         #[arg(long, default_value = "500")]
         poll_interval: u64,
+
+        /// Number of daily-rotated log files to retain on disk. `0`
+        /// disables pruning entirely (unbounded — explicit opt-out).
+        /// Default 14 days. CLOACI-I-0109 / T-0592.
+        #[arg(long, default_value_t = 14)]
+        log_retention_days: u64,
     },
     /// Stop a running daemon via PID file + SIGTERM.
     Stop {
@@ -63,7 +69,8 @@ impl DaemonCmd {
             DaemonVerb::Start {
                 watch_dirs,
                 poll_interval,
-            } => start::run(globals, watch_dirs, poll_interval).await,
+                log_retention_days,
+            } => start::run(globals, watch_dirs, poll_interval, log_retention_days).await,
             DaemonVerb::Stop { force } => stop::run(globals, force).await,
             DaemonVerb::Status => status::run(globals).await,
             DaemonVerb::Health => health::run(globals).await,

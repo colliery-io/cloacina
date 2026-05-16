@@ -113,6 +113,15 @@ impl DefaultRunner {
             max_acceptable_delay: Duration::from_secs(300),
             trigger_base_poll_interval: self.config.trigger_base_poll_interval(),
             trigger_poll_timeout: self.config.trigger_poll_timeout(),
+            // CLOACI-I-0100 / T-0599 — defaults match the unified
+            // scheduler's base tick rate; runtime override can ship later.
+            reactor_poll_interval: self.config.trigger_base_poll_interval(),
+            reactor_poll_batch_limit: 100,
+            // CLOACI-I-0100 / T-0601 — prune `reactor_firings` rows
+            // older than 7 days, sweep every hour. Tunable via
+            // `SchedulerConfig` for tests / niche deployments.
+            reactor_firings_prune_interval: Duration::from_secs(60 * 60),
+            reactor_firings_retention: Duration::from_secs(7 * 24 * 60 * 60),
         };
 
         let dal = DAL::new(self.database.clone());
@@ -184,6 +193,11 @@ impl DefaultRunner {
             package_operation_timeout: Duration::from_secs(30),
             continue_on_package_error: true,
             default_tenant_id: "public".to_string(),
+            // CLOACI-T-0571: forward signature-existence-check config
+            // from the runner so server mode picks up the same gating
+            // already plumbed via --require-signatures + --verification-org-id.
+            require_signatures: self.config.require_signatures(),
+            verification_org_id: self.config.verification_org_id(),
         };
 
         let workflow_registry_result = match self.config.registry_storage_backend() {

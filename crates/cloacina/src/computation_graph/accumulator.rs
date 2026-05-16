@@ -64,6 +64,21 @@ impl std::fmt::Display for AccumulatorHealth {
     }
 }
 
+impl AccumulatorHealth {
+    /// Project the AccumulatorHealth state machine onto the bounded
+    /// `cloacina_component_health` gauge label values
+    /// (`starting | healthy | degraded`). See I-0099 / T-0585 for the
+    /// rationale: operators want a small, cross-component vocabulary;
+    /// per-component nuance lives in /v1/health endpoints.
+    pub fn as_state_label(&self) -> &'static str {
+        match self {
+            Self::Starting | Self::Connecting => "starting",
+            Self::Live | Self::SocketOnly => "healthy",
+            Self::Disconnected => "degraded",
+        }
+    }
+}
+
 /// Create a health reporting channel for an accumulator.
 pub fn health_channel() -> (
     watch::Sender<AccumulatorHealth>,
@@ -162,11 +177,24 @@ impl CheckpointHandle {
     pub async fn save<T: Serialize>(&self, state: &T) -> Result<(), AccumulatorError> {
         let bytes = types::serialize(state)
             .map_err(|e| AccumulatorError::Checkpoint(format!("serialization failed: {}", e)))?;
-        self.dal
+        let result = self
+            .dal
             .checkpoint()
             .save_checkpoint(&self.graph_name, &self.accumulator_name, bytes)
             .await
-            .map_err(|e| AccumulatorError::Checkpoint(e.to_string()))
+            .map_err(|e| AccumulatorError::Checkpoint(e.to_string()));
+        // Only count successful writes — failed checkpoints surface via
+        // `cloacina_accumulator_events_total` already (the event still
+        // emitted) plus the warning log emitted by the caller.
+        if result.is_ok() {
+            metrics::counter!(
+                "cloacina_accumulator_checkpoint_writes_total",
+                "graph" => self.graph_name.clone(),
+                "accumulator" => self.accumulator_name.clone(),
+            )
+            .increment(1);
+        }
+        result
     }
 
     /// Load previously persisted accumulator state.
@@ -364,6 +392,19 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource>(
     // Report starting health
     set_health(&ctx, AccumulatorHealth::Starting);
 
+    // Passthrough/stream accumulators don't buffer — seed the gauge at 0 so
+    // dashboards have a stable series per (graph, accumulator).
+    set_accumulator_buffer_depth(&ctx, 0.0);
+
+    // Kind label is fixed at runtime startup: with an event source we are
+    // stream-backed, otherwise passthrough. Hardcoded into the bounded enum
+    // documented on `cloacina_accumulator_events_total`.
+    let kind: &'static str = if event_source.is_some() {
+        "stream"
+    } else {
+        "passthrough"
+    };
+
     // Initialize — may restore state from checkpoint
     if let Err(e) = acc.init(&ctx).await {
         tracing::error!(name = %ctx.name, "accumulator init failed: {}", e);
@@ -421,6 +462,7 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource>(
     loop {
         tokio::select! {
             Some(event) = event_rx.recv() => {
+                let emit_started = std::time::Instant::now();
                 if let Some(boundary) = acc.process(event) {
                     if let Err(e) = ctx.output.send(&boundary).await {
                         tracing::error!(name = %ctx.name, "boundary send failed: {}", e);
@@ -428,6 +470,7 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource>(
                         persist_boundary(&ctx, &boundary).await;
                     }
                 }
+                record_accumulator_event(&ctx, kind, emit_started);
             }
             _ = shutdown_proc.changed() => {
                 tracing::debug!(name = %ctx.name, "processor task shutting down");
@@ -477,6 +520,8 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
     socket_rx: mpsc::Receiver<Vec<u8>>,
 ) {
     set_health(&ctx, AccumulatorHealth::Starting);
+    // Polling accumulators don't buffer — emit a stable 0 series for dashboards.
+    set_accumulator_buffer_depth(&ctx, 0.0);
 
     // Restore last poll output from checkpoint and emit to reactor
     if let Some(ref handle) = ctx.checkpoint {
@@ -508,6 +553,7 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
     loop {
         tokio::select! {
             _ = timer.tick() => {
+                let emit_started = std::time::Instant::now();
                 if let Some(output) = poller.poll().await {
                     if let Err(e) = ctx.output.send(&output).await {
                         tracing::error!(name = %ctx.name, "polling boundary send failed: {}", e);
@@ -517,12 +563,15 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
                         if let Some(ref handle) = ctx.checkpoint {
                             if let Err(e) = handle.save(&output).await {
                                 tracing::warn!(name = %ctx.name, "polling checkpoint save failed: {}", e);
+                                record_accumulator_persist_failure(&ctx, "checkpoint");
                             }
                         }
                     }
+                    record_accumulator_event(&ctx, "polling", emit_started);
                 }
             }
             Some(bytes) = socket_rx.recv() => {
+                let emit_started = std::time::Instant::now();
                 // Socket receives JSON from external sources
                 match serde_json::from_slice::<P::Output>(&bytes) {
                     Ok(output) => {
@@ -536,6 +585,7 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
                         tracing::warn!(name = %ctx.name, "socket deserialize error: {}", e);
                     }
                 }
+                record_accumulator_event(&ctx, "polling", emit_started);
             }
             _ = shutdown.changed() => {
                 tracing::debug!(name = %ctx.name, "polling accumulator shutting down");
@@ -597,6 +647,7 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
     config: BatchAccumulatorConfig,
 ) {
     set_health(&ctx, AccumulatorHealth::Starting);
+    set_accumulator_buffer_depth(&ctx, 0.0);
 
     // Restore buffered events from checkpoint if available
     let mut buffer: Vec<Vec<u8>> = Vec::new();
@@ -606,6 +657,7 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
                 buffer = raw_events;
                 if !buffer.is_empty() {
                     tracing::info!(name = %ctx.name, events = buffer.len(), "batch buffer restored from checkpoint");
+                    set_accumulator_buffer_depth(&ctx, buffer.len() as f64);
                 }
             }
             Ok(None) => {}
@@ -632,17 +684,20 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
         tokio::select! {
             Some(bytes) = socket_rx.recv() => {
                 buffer.push(bytes);
+                set_accumulator_buffer_depth(&ctx, buffer.len() as f64);
                 // Persist buffer snapshot for crash resilience
                 persist_batch_buffer(&ctx, &buffer).await;
                 // Check size threshold
                 if let Some(max) = config.max_buffer_size {
                     if buffer.len() >= max {
                         flush_batch(&mut acc, &mut buffer, &ctx).await;
+                        set_accumulator_buffer_depth(&ctx, 0.0);
                     }
                 }
             }
             Some(()) = flush_rx.recv() => {
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
+                set_accumulator_buffer_depth(&ctx, 0.0);
                 // Clear checkpoint after flush (buffer is empty)
                 persist_batch_buffer(&ctx, &[]).await;
             }
@@ -653,11 +708,13 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
                 }
             } => {
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
+                set_accumulator_buffer_depth(&ctx, 0.0);
             }
             _ = shutdown.changed() => {
                 tracing::debug!(name = %ctx.name, "batch accumulator shutting down, draining buffer");
                 // Drain remaining buffer on shutdown
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
+                set_accumulator_buffer_depth(&ctx, 0.0);
                 break;
             }
         }
@@ -669,6 +726,7 @@ async fn persist_batch_buffer(ctx: &AccumulatorContext, buffer: &[Vec<u8>]) {
     if let Some(ref handle) = ctx.checkpoint {
         if let Err(e) = handle.save(&buffer.to_vec()).await {
             tracing::warn!(name = %ctx.name, "batch buffer checkpoint failed: {}", e);
+            record_accumulator_persist_failure(ctx, "batch_buffer");
         }
     }
 }
@@ -682,6 +740,7 @@ async fn flush_batch<B: BatchAccumulator>(
     if buffer.is_empty() {
         return;
     }
+    let emit_started = std::time::Instant::now();
     let batch = std::mem::take(buffer);
     let count = batch.len();
     if let Some(output) = acc.process_batch(batch) {
@@ -692,6 +751,10 @@ async fn flush_batch<B: BatchAccumulator>(
             persist_boundary(ctx, &output).await;
         }
     }
+    // One emit_total + emit_duration per flush — operators see flush rate
+    // and per-flush latency, while `cloacina_accumulator_buffer_depth` shows
+    // the size that drove the flush.
+    record_accumulator_event(ctx, "batch", emit_started);
 }
 
 // =============================================================================
@@ -705,6 +768,68 @@ fn set_health(ctx: &AccumulatorContext, health: AccumulatorHealth) {
     }
 }
 
+/// Increment `cloacina_accumulator_persist_failures_total{graph,accumulator,kind}`
+/// with a bounded `kind ∈ {checkpoint, boundary, batch_buffer}` label.
+/// Replaces the silent `let _ = persist_*` failure paths flagged as OPS-15
+/// (CLOACI-I-0108 / T-0590).
+fn record_accumulator_persist_failure(ctx: &AccumulatorContext, kind: &'static str) {
+    metrics::counter!(
+        "cloacina_accumulator_persist_failures_total",
+        "graph" => graph_label(ctx),
+        "accumulator" => ctx.name.clone(),
+        "kind" => kind,
+    )
+    .increment(1);
+}
+
+/// Derive the bounded `graph` metric label for an accumulator. When the
+/// checkpoint handle is present (production / DAL-backed deployments) we use
+/// the deployed graph name; embedded / test runtimes without a DAL fall
+/// back to the `embedded` sentinel so the label space stays closed.
+fn graph_label(ctx: &AccumulatorContext) -> String {
+    ctx.checkpoint
+        .as_ref()
+        .map(|c| c.graph_name().to_string())
+        .unwrap_or_else(|| "embedded".to_string())
+}
+
+/// Record one accumulator event and its emit duration. Called by each
+/// runtime once per event processed; `kind` is set by the runtime
+/// (`passthrough` / `stream` / `polling` / `batch`).
+fn record_accumulator_event(
+    ctx: &AccumulatorContext,
+    kind: &'static str,
+    emit_started: std::time::Instant,
+) {
+    let graph = graph_label(ctx);
+    metrics::counter!(
+        "cloacina_accumulator_events_total",
+        "graph" => graph.clone(),
+        "accumulator" => ctx.name.clone(),
+        "kind" => kind,
+    )
+    .increment(1);
+    metrics::histogram!(
+        "cloacina_accumulator_emit_duration_seconds",
+        "graph" => graph,
+        "accumulator" => ctx.name.clone(),
+    )
+    .record(emit_started.elapsed().as_secs_f64());
+}
+
+/// Update the `cloacina_accumulator_buffer_depth` gauge. Only batch and
+/// stateful stream accumulators have meaningful buffers; the other kinds
+/// emit `0` from runtime startup so dashboards see a consistent series
+/// per `(graph, accumulator)` tuple.
+fn set_accumulator_buffer_depth(ctx: &AccumulatorContext, depth: f64) {
+    metrics::gauge!(
+        "cloacina_accumulator_buffer_depth",
+        "graph" => graph_label(ctx),
+        "accumulator" => ctx.name.clone(),
+    )
+    .set(depth);
+}
+
 /// Persist last-emitted boundary with sequence number to DAL (best-effort, logs on failure).
 async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) {
     if let Some(ref handle) = ctx.checkpoint {
@@ -712,17 +837,29 @@ async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) 
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!(name = %ctx.name, "boundary persistence serialization failed: {}", e);
+                record_accumulator_persist_failure(ctx, "boundary");
                 return;
             }
         };
         let seq = ctx.output.sequence_number() as i64;
-        if let Err(e) = handle
+        match handle
             .dal()
             .checkpoint()
             .save_boundary(handle.graph_name(), handle.accumulator_name(), bytes, seq)
             .await
         {
-            tracing::warn!(name = %ctx.name, "boundary persistence failed: {}", e);
+            Ok(_) => {
+                metrics::counter!(
+                    "cloacina_accumulator_checkpoint_writes_total",
+                    "graph" => handle.graph_name().to_string(),
+                    "accumulator" => handle.accumulator_name().to_string(),
+                )
+                .increment(1);
+            }
+            Err(e) => {
+                tracing::warn!(name = %ctx.name, "boundary persistence failed: {}", e);
+                record_accumulator_persist_failure(ctx, "boundary");
+            }
         }
     }
 }

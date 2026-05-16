@@ -2,9 +2,12 @@
 Code quality checking tasks for Cloacina.
 """
 
+import concurrent.futures
+import os
+import shutil
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple
 
 import angreal  # type: ignore
 
@@ -15,8 +18,20 @@ PROJECT_ROOT = Path(angreal.get_root()).parent
 check = angreal.command_group(name="check", about="commands for checking code quality")
 
 
+# Cargo projects that aren't real build targets — skipped by `check all-crates`:
+# - compiler-{broken,happy}-rust: templates with `__WORKSPACE__` placeholder
+#   paths, rewritten at compiler-e2e test time.
+# - validation-failures: intentionally fails to compile (negative-test demo).
+SKIP_CRATES = {
+    "examples/fixtures/compiler-broken-rust",
+    "examples/fixtures/compiler-happy-rust",
+    "examples/features/workflows/validation-failures",
+}
+
+
 def find_all_cargo_projects() -> List[Path]:
-    """Find all Cargo.toml files tracked by git."""
+    """Find all Cargo.toml files tracked by git, excluding templates and
+    intentionally-broken demos."""
     try:
         result = subprocess.run(
             ["git", "ls-files", "--", "*/Cargo.toml", "Cargo.toml"],
@@ -28,9 +43,13 @@ def find_all_cargo_projects() -> List[Path]:
 
         paths = []
         for line in result.stdout.strip().split('\n'):
-            if line:
-                project_path = PROJECT_ROOT / Path(line).parent
-                paths.append(project_path)
+            if not line:
+                continue
+            rel_dir = str(Path(line).parent)
+            if rel_dir in SKIP_CRATES:
+                continue
+            project_path = PROJECT_ROOT / Path(line).parent
+            paths.append(project_path)
 
         return sorted(paths)
     except subprocess.CalledProcessError as e:
@@ -83,13 +102,78 @@ def extract_warnings(stderr: str) -> List[str]:
     return warnings
 
 
-def check_single_crate(project_path: Path, show_warnings: bool = True) -> Dict:
-    """Check a single crate with cargo check and cargo build."""
+def _is_standalone_workspace(project_path: Path) -> bool:
+    """True iff the project declares its own `[workspace]` and therefore
+    builds into its OWN `target/` (not the repo-root shared one).
+
+    Cleaning the workspace-root `target/` mid-run would destroy other
+    crates' build state, so we only sweep targets for standalone projects.
+    """
+    try:
+        if project_path.resolve() == PROJECT_ROOT.resolve():
+            return False
+    except OSError:
+        return False
+    manifest = project_path / "Cargo.toml"
+    if not manifest.is_file():
+        return False
+    try:
+        for raw in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw.strip()
+            if line.startswith("[workspace]"):
+                return True
+            # Stop scanning once we hit another section header — workspace
+            # declarations always appear before [package] / [dependencies]
+            # in the manifests we ship.
+            if line.startswith("[") and line not in ("[workspace]",):
+                # Keep scanning past comments; only stop on actual sections.
+                if not line.startswith("[["):
+                    # Heuristic: workspace is typically declared first.
+                    # We've passed it without seeing it, so it's not here.
+                    return False
+    except OSError:
+        return False
+    return False
+
+
+def _sweep_target(project_path: Path) -> int:
+    """Remove the project's local `target/` if present. Returns bytes freed.
+    Only called for standalone-workspace projects."""
+    target = project_path / "target"
+    if not target.is_dir():
+        return 0
+    freed = 0
+    for p in target.rglob("*"):
+        try:
+            if p.is_file() and not p.is_symlink():
+                freed += p.stat().st_size
+        except (FileNotFoundError, PermissionError):
+            continue
+    try:
+        shutil.rmtree(target)
+    except (FileNotFoundError, PermissionError):
+        return 0
+    return freed
+
+
+def check_single_crate(
+    project_path: Path,
+    show_warnings: bool = True,
+    cleanup: bool = True,
+) -> Dict:
+    """Check a single crate with cargo check and cargo build.
+
+    `cleanup=True` deletes the project's local `target/` after the build
+    completes — but ONLY for standalone-workspace projects (each example
+    has its own `target/`). Workspace-member crates under `crates/` share
+    the repo-root `target/` and are never swept here.
+    """
     relative_path = str(project_path.relative_to(PROJECT_ROOT))
     result = {
         "path": relative_path,
         "check": {"success": False, "warnings": [], "errors": []},
         "build": {"success": False, "warnings": [], "errors": []},
+        "freed_bytes": 0,
     }
 
     # Run cargo check
@@ -108,6 +192,11 @@ def check_single_crate(project_path: Path, show_warnings: bool = True) -> Dict:
             result["build"]["errors"] = [stderr.strip()]
     else:
         result["build"]["errors"] = ["Skipped due to check failure"]
+
+    # Sweep the local target/ — only if this is a standalone workspace
+    # (so we don't clobber crates that share the repo-root target/).
+    if cleanup and _is_standalone_workspace(project_path):
+        result["freed_bytes"] = _sweep_target(project_path)
 
     return result
 
@@ -201,10 +290,24 @@ def crate(path: str, no_warnings=False):
         return 0
 
 
+def _default_jobs() -> int:
+    """Default parallelism: 1/4 of cores, clamped to [2, 8].
+
+    Cargo itself parallelizes within a single build, so running too many
+    concurrent cargo invocations over-subscribes the box. The workspace
+    members share `target/` and serialize on cargo's build lock anyway —
+    the parallel wins come from the example crates that each have their
+    own `target/`. Empirically `cpu_count // 4` balances throughput
+    against memory pressure during link steps.
+    """
+    cpu = os.cpu_count() or 4
+    return max(2, min(8, cpu // 4))
+
+
 @check()
 @angreal.command(
     name="all-crates",
-    about="run cargo check and build on all crates (workspace and standalone)",
+    about="run cargo check and build on all crates (workspace and standalone) in parallel",
     when_to_use=["before commits", "CI validation", "comprehensive code quality checks", "finding compilation issues across codebase"],
     when_not_to_use=["quick local testing", "when focusing on specific crate", "during active development of single component"]
 )
@@ -222,8 +325,30 @@ def crate(path: str, no_warnings=False):
     takes_value=False,
     is_flag=True
 )
-def all_crates(warnings_only=False, no_warnings=False):
-    """Check all crates systematically."""
+@angreal.argument(
+    name="jobs",
+    long="jobs",
+    short="j",
+    help="parallel cargo invocations (default: cpu_count/4, clamped [2,8])",
+    takes_value=True,
+)
+@angreal.argument(
+    name="serial",
+    long="serial",
+    help="force serial execution (equivalent to --jobs 1)",
+    takes_value=False,
+    is_flag=True,
+)
+@angreal.argument(
+    name="no_clean",
+    long="no-clean",
+    help="keep per-example target/ dirs after build (default: sweep to reclaim disk)",
+    takes_value=False,
+    is_flag=True,
+)
+def all_crates(warnings_only=False, no_warnings=False, jobs=None, serial=False, no_clean=False):
+    """Check all crates in parallel. Workspace members serialize on cargo's
+    build lock; standalone example crates parallelize cleanly."""
     print("🔍 Finding all cargo projects...")
     projects = find_all_cargo_projects()
 
@@ -231,43 +356,94 @@ def all_crates(warnings_only=False, no_warnings=False):
         print("❌ No cargo projects found")
         return 1
 
-    print(f"Found {len(projects)} projects\n")
-
-    results = []
-    failed_crates = []
-
-    for project in projects:
+    # Resolve parallelism.
+    if serial:
+        worker_count = 1
+    else:
         try:
-            result = check_single_crate(project, show_warnings=not no_warnings)
-            results.append(result)
+            worker_count = int(jobs) if jobs is not None else _default_jobs()
+        except (TypeError, ValueError):
+            worker_count = _default_jobs()
+        worker_count = max(1, worker_count)
 
-            # Show individual results based on filtering
-            if warnings_only:
-                # Only show if there are warnings or errors
-                total_warnings = len(result["check"]["warnings"]) + len(result["build"]["warnings"])
-                has_errors = result["check"]["errors"] or (result["build"]["errors"] and result["build"]["errors"][0] != "Skipped due to check failure")
-                if total_warnings > 0 or has_errors:
-                    print_crate_result(result, show_warnings=not no_warnings)
-            else:
-                # Show all results
-                print_crate_result(result, show_warnings=not no_warnings)
+    print(f"Found {len(projects)} projects (running {worker_count} in parallel)\n")
 
-            # Track failures for exit code
-            if not result["check"]["success"] or not result["build"]["success"]:
-                failed_crates.append(result["path"])
+    results: List[Dict] = []
+    failed_crates: List[str] = []
+    completed = 0
+    total = len(projects)
 
+    show_warnings = not no_warnings
+    cleanup = not no_clean
+
+    # Run cargo check+build across `worker_count` threads. `run_cargo_command`
+    # blocks in subprocess.run; the GIL is released for the duration, so a
+    # plain ThreadPoolExecutor is the right tool — no need for processes.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
+        future_to_project = {
+            pool.submit(check_single_crate, project, show_warnings, cleanup): project
+            for project in projects
+        }
+        try:
+            for future in concurrent.futures.as_completed(future_to_project):
+                project = future_to_project[future]
+                rel = str(project.relative_to(PROJECT_ROOT))
+                completed += 1
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    print(f"❌ [{completed}/{total}] {rel}: orchestration error: {exc}")
+                    failed_crates.append(rel)
+                    continue
+
+                results.append(result)
+                if not result["check"]["success"] or not result["build"]["success"]:
+                    failed_crates.append(result["path"])
+
+                # Compact progress line: status only for green crates so the
+                # log stays readable; full per-crate detail rendered in the
+                # sorted re-print below for anything noisy.
+                check_ok = result["check"]["success"]
+                build_ok = result["build"]["success"]
+                if check_ok and build_ok and not (result["check"]["warnings"] or result["build"]["warnings"]):
+                    print(f"✅ [{completed}/{total}] {result['path']}")
         except KeyboardInterrupt:
-            print("\n⚠️  Interrupted by user")
+            print("\n⚠️  Interrupted by user — cancelling pending jobs")
+            for f in future_to_project:
+                f.cancel()
             return 1
-        except Exception as e:
-            print(f"❌ Error checking {project.relative_to(PROJECT_ROOT)}: {e}")
-            failed_crates.append(str(project.relative_to(PROJECT_ROOT)))
+
+    # Re-print noisy crates in stable (alphabetical) order so the report
+    # is reproducible across runs regardless of completion order.
+    results.sort(key=lambda r: r["path"])
+    print()
+    for result in results:
+        check_ok = result["check"]["success"]
+        build_ok = result["build"]["success"]
+        has_warnings = bool(result["check"]["warnings"] or result["build"]["warnings"])
+
+        if warnings_only:
+            total_w = len(result["check"]["warnings"]) + len(result["build"]["warnings"])
+            has_err = result["check"]["errors"] or (
+                result["build"]["errors"]
+                and result["build"]["errors"][0] != "Skipped due to check failure"
+            )
+            if total_w == 0 and not has_err:
+                continue
+            print_crate_result(result, show_warnings=show_warnings)
+            continue
+
+        # Default mode: re-print anything that wasn't already shown as a
+        # bare-green status line.
+        if not (check_ok and build_ok and not has_warnings):
+            print_crate_result(result, show_warnings=show_warnings)
 
     # Print summary
     total_projects = len(results)
     check_failures = sum(1 for r in results if not r["check"]["success"])
     build_failures = sum(1 for r in results if not r["build"]["success"])
     total_warnings = sum(len(r["check"]["warnings"]) + len(r["build"]["warnings"]) for r in results)
+    total_freed = sum(r.get("freed_bytes", 0) for r in results)
 
     print(f"\n{'='*60}")
     print("SUMMARY")
@@ -276,6 +452,18 @@ def all_crates(warnings_only=False, no_warnings=False):
     print(f"Check failures: {check_failures}")
     print(f"Build failures: {build_failures}")
     print(f"Total warnings: {total_warnings}")
+    if cleanup and total_freed > 0:
+        # Pretty-print bytes reclaimed.
+        size = float(total_freed)
+        unit = "B"
+        for u in ("KB", "MB", "GB", "TB"):
+            if size < 1024:
+                break
+            size /= 1024
+            unit = u
+        print(f"Disk reclaimed: {size:.1f} {unit} (per-example target/ dirs swept)")
+    elif not cleanup:
+        print("Disk reclaim: disabled (--no-clean)")
 
     if failed_crates:
         print("\nFailed crates:")

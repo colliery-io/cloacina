@@ -26,20 +26,23 @@ pub async fn run(
     release: bool,
     sign: Option<&Path>,
 ) -> Result<(), CliError> {
+    // CLOACI-T-0596 / API-05: `--sign` not yet implemented; fail-hard
+    // before doing the build so the operator catches the gap. See
+    // package/pack.rs for the matching error message.
+    if let Some(key_path) = sign {
+        return Err(CliError::UserError(format!(
+            "--sign {} is not yet implemented — package signing is tracked under I-0103. \
+             Remove --sign and re-run, or wait for the signing-side completion.",
+            key_path.display()
+        )));
+    }
+
     super::build::run(dir, release)?;
 
     let tmp = TempDir::new().map_err(CliError::Io)?;
     let pkg_path = tmp.path().join("package.cloacina");
     let produced = fidius_core::package::pack_package(dir, Some(&pkg_path))
         .map_err(|e| CliError::UserError(format!("pack_package failed: {e}")))?;
-
-    if let Some(key_path) = sign {
-        eprintln!(
-            "note: --sign {} accepted but ignored — detached signature side-car generation is \
-             not implemented in the CLI yet.",
-            key_path.display()
-        );
-    }
 
     super::upload::run(globals, &produced.path).await
 }

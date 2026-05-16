@@ -127,6 +127,53 @@ impl RegistryReconciler {
                 version: metadata.version.clone(),
             })?;
 
+        // CLOACI-T-0571: defense-in-depth signature existence check.
+        // When `require_signatures` is on, refuse to load any package
+        // whose source bytes have no matching `package_signatures` row.
+        // The upload route is the strong verification gate (CLOACI-I-0103);
+        // this catches direct DB inserts that bypass it.
+        if self.config.require_signatures {
+            let package_hash = {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(&loaded_workflow.package_data);
+                format!("{:x}", hasher.finalize())
+            };
+            let has_sig = self
+                .registry
+                .find_signature(&package_hash)
+                .await
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!(
+                        "signature-existence check failed for {} v{}: {}",
+                        metadata.package_name, metadata.version, e
+                    ),
+                })?;
+            if !has_sig {
+                let msg = format!(
+                    "no signature row present for package {} v{} (hash {}); \
+                     refusing to load (require_signatures=true)",
+                    metadata.package_name, metadata.version, package_hash
+                );
+                tracing::warn!(
+                    package_name = %metadata.package_name,
+                    package_version = %metadata.version,
+                    package_hash = %package_hash,
+                    "{}",
+                    msg
+                );
+                if let Some(org_id) = self.config.verification_org_id {
+                    crate::security::audit::log_package_load_failure(
+                        org_id,
+                        &format!("{} v{}", metadata.package_name, metadata.version),
+                        &msg,
+                        "missing_signature",
+                    );
+                }
+                return Err(RegistryError::RegistrationFailed { message: msg });
+            }
+        }
+
         // --- Step 1: write archive to a temp file ---
         let work_dir = tempfile::TempDir::new().map_err(|e| RegistryError::RegistrationFailed {
             message: format!("Failed to create temp dir: {}", e),

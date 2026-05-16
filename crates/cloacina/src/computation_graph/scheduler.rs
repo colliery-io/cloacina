@@ -258,6 +258,45 @@ struct RunningGraph {
 /// Maximum consecutive failures before a component is permanently abandoned.
 const MAX_RECOVERY_ATTEMPTS: u32 = 5;
 
+/// All possible label values for the `state` label on
+/// `cloacina_component_health`. Used by the supervisor to ensure exactly
+/// one state is `1` per (graph, component) by zeroing every other label
+/// value on each tick. Keep in sync with the docs / decomposition in
+/// I-0099.
+const COMPONENT_HEALTH_STATES: &[&str] = &["healthy", "degraded", "starting", "stopped", "crashed"];
+
+/// Emit the `cloacina_component_health` gauge for a single component, setting
+/// `current` to `1.0` and every other label value in
+/// [`COMPONENT_HEALTH_STATES`] to `0.0`. Centralizing this here keeps the
+/// "exactly one state per (graph, component)" invariant from drifting as
+/// new emit sites are added.
+fn emit_component_health(graph: &str, component: &str, current: &'static str) {
+    for state in COMPONENT_HEALTH_STATES {
+        let value = if *state == current { 1.0 } else { 0.0 };
+        metrics::gauge!(
+            "cloacina_component_health",
+            "graph" => graph.to_string(),
+            "component" => component.to_string(),
+            "state" => *state,
+        )
+        .set(value);
+    }
+}
+
+/// Classify a finished [`JoinHandle`] result into the bounded `reason`
+/// label values for `cloacina_supervisor_restarts_total`.
+///
+/// Only `panic` and `error` are observable from the supervisor; the
+/// `shutdown_timeout` variant is emitted by the graceful-shutdown path
+/// (I-0099 / T-0585).
+fn classify_join_result(result: Result<(), tokio::task::JoinError>) -> &'static str {
+    match result {
+        Ok(_) => "error",
+        Err(e) if e.is_panic() => "panic",
+        Err(_) => "error",
+    }
+}
+
 /// Base delay for exponential backoff (doubles on each failure, capped at 60s).
 const BACKOFF_BASE_SECS: u64 = 1;
 
@@ -419,7 +458,8 @@ impl ComputationGraphScheduler {
         .with_graph_name(reactor_name.clone())
         .with_health(reactor_health_tx)
         .with_expected_sources(expected_sources)
-        .with_accumulator_health(acc_health_rxs);
+        .with_accumulator_health(acc_health_rxs)
+        .with_tenant_id(tenant_id.clone());
 
         if let Some(ref dal) = self.dal {
             reactor = reactor.with_dal(dal.clone());
@@ -742,12 +782,24 @@ impl ComputationGraphScheduler {
                 .ok_or_else(|| format!("reactor '{}' not loaded", reactor_name))?
         };
 
+        // Capture graph names for health-metric "stopped" emission. Use the
+        // endpoint-registry keys (which include the reactor's own name and
+        // back-compat graph aliases) so every graph the reactor served sees
+        // a stop signal in the gauge.
+        let graph_labels: Vec<String> = running.endpoint_registry_keys.clone();
+
         let _ = running.shutdown_tx.send(true);
         let _ =
             tokio::time::timeout(std::time::Duration::from_secs(5), running.reactor_handle).await;
+        for label in &graph_labels {
+            emit_component_health(label, "reactor", "stopped");
+        }
 
         for (acc_name, handle) in running.accumulator_handles {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+            for label in &graph_labels {
+                emit_component_health(label, &acc_name, "stopped");
+            }
             self.registry.deregister_accumulator(&acc_name).await;
         }
 
@@ -862,12 +914,21 @@ impl ComputationGraphScheduler {
                     .or_insert(0);
                 *failures += 1;
 
+                // Take ownership of the finished handle so we can inspect the
+                // JoinError (panic vs ordinary exit) without blocking. The
+                // handle is replaced by `tokio::spawn(reactor.run())` below;
+                // the dummy stays in place only briefly while we read the
+                // result.
+                let dead = std::mem::replace(&mut running.reactor_handle, tokio::spawn(async {}));
+                let reason = classify_join_result(dead.await);
+
                 if *failures > MAX_RECOVERY_ATTEMPTS {
                     error!(
                         graph = %graph_name,
                         failures = *failures,
                         "reactor permanently failed — circuit breaker open"
                     );
+                    emit_component_health(graph_name, "reactor", "crashed");
                     continue;
                 }
 
@@ -944,7 +1005,8 @@ impl ComputationGraphScheduler {
                 .with_graph_name(graph_name.clone())
                 .with_health(reactor_health_tx)
                 .with_expected_sources(expected_sources)
-                .with_accumulator_health(restart_acc_health_rxs);
+                .with_accumulator_health(restart_acc_health_rxs)
+                .with_tenant_id(running.declaration.tenant_id.clone());
                 if let Some(ref dal) = self.dal {
                     reactor = reactor.with_dal(dal.clone());
                 }
@@ -991,6 +1053,14 @@ impl ComputationGraphScheduler {
                 running.reactor_health_rx = Some(reactor_health_rx);
                 running.last_success.insert(reactor_key, now);
 
+                metrics::counter!(
+                    "cloacina_supervisor_restarts_total",
+                    "graph" => graph_name.clone(),
+                    "component" => "reactor",
+                    "reason" => reason,
+                )
+                .increment(1);
+                emit_component_health(graph_name, "reactor", "starting");
                 restarted += 1;
                 info!(graph = %graph_name, "reactor restarted successfully");
             } else {
@@ -1004,6 +1074,11 @@ impl ComputationGraphScheduler {
                         let failures = running.failure_counts.entry(acc_key.clone()).or_insert(0);
                         *failures += 1;
 
+                        // Non-blocking — handle is already finished. Inspect
+                        // JoinError to attribute panic vs error in the
+                        // restart counter label.
+                        let reason = classify_join_result(handle.await);
+
                         if *failures > MAX_RECOVERY_ATTEMPTS {
                             error!(
                                 graph = %graph_name,
@@ -1011,6 +1086,7 @@ impl ComputationGraphScheduler {
                                 failures = *failures,
                                 "accumulator permanently failed — circuit breaker open"
                             );
+                            emit_component_health(graph_name, &acc_name, "crashed");
                             // Don't add handle back — accumulator is abandoned
                             continue;
                         }
@@ -1068,6 +1144,14 @@ impl ComputationGraphScheduler {
 
                             running.last_success.insert(acc_key, now);
                             let restarted_name = acc_name.clone();
+                            metrics::counter!(
+                                "cloacina_supervisor_restarts_total",
+                                "graph" => graph_name.clone(),
+                                "component" => restarted_name.clone(),
+                                "reason" => reason,
+                            )
+                            .increment(1);
+                            emit_component_health(graph_name, &restarted_name, "starting");
                             new_handles.push((acc_name, new_handle));
                             restarted += 1;
                             changed = true;
@@ -1125,6 +1209,7 @@ impl ComputationGraphScheduler {
                         if restarted > 0 {
                             info!("supervision check: restarted {} tasks", restarted);
                         }
+                        scheduler.emit_health_metrics().await;
                     }
                     _ = shutdown_rx.changed() => {
                         tracing::debug!("supervision loop shutting down");
@@ -1133,6 +1218,47 @@ impl ComputationGraphScheduler {
                 }
             }
         })
+    }
+
+    /// Walk every loaded graph and emit the current
+    /// `cloacina_component_health` gauge for its reactor and accumulators.
+    ///
+    /// Health values are derived from the existing watch channels
+    /// (`ReactorHealth`, `AccumulatorHealth`) projected onto the bounded
+    /// `state` label vocabulary via `as_state_label()`. Called once per
+    /// supervision tick so the gauge tracks the state machine without
+    /// requiring an event-driven emitter wired into every health-write
+    /// site.
+    pub async fn emit_health_metrics(&self) {
+        let reactors = self.reactors.read().await;
+        for (reactor_name, running) in reactors.iter() {
+            let graph_labels = if running.endpoint_registry_keys.is_empty() {
+                vec![reactor_name.clone()]
+            } else {
+                running.endpoint_registry_keys.clone()
+            };
+
+            let reactor_state = running
+                .reactor_health_rx
+                .as_ref()
+                .map(|rx| rx.borrow().as_state_label())
+                .unwrap_or("healthy");
+            for label in &graph_labels {
+                emit_component_health(label, "reactor", reactor_state);
+            }
+
+            for (acc_name, _) in &running.accumulator_handles {
+                let acc_state = self
+                    .registry
+                    .get_accumulator_health(acc_name)
+                    .await
+                    .map(|h| h.as_state_label())
+                    .unwrap_or("healthy");
+                for label in &graph_labels {
+                    emit_component_health(label, acc_name, acc_state);
+                }
+            }
+        }
     }
 
     /// Record a recovery event in the DAL (best-effort, logs on failure).
