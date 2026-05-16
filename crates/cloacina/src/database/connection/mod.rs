@@ -464,11 +464,10 @@ impl Database {
         // Build a tempfile in the system temp dir. We use NamedTempFile so
         // the path is stable across pool connection opens. The file gets
         // unlinked on Drop.
-        let tempfile =
-            NamedTempFile::new().map_err(|e| DatabaseError::PoolCreation {
-                backend: "SQLite",
-                source: Box::new(e),
-            })?;
+        let tempfile = NamedTempFile::new().map_err(|e| DatabaseError::PoolCreation {
+            backend: "SQLite",
+            source: Box::new(e),
+        })?;
         let path = tempfile
             .path()
             .to_str()
@@ -908,13 +907,11 @@ mod tests {
     #[test]
     fn test_sqlite_connection_strings_passthrough() {
         // Plain file paths pass through unchanged + no tempfile owner.
-        let (url, owner) =
-            Database::materialize_sqlite_connection("/path/to/database.db").unwrap();
+        let (url, owner) = Database::materialize_sqlite_connection("/path/to/database.db").unwrap();
         assert_eq!(url, "/path/to/database.db");
         assert!(owner.is_none());
 
-        let (url, owner) =
-            Database::materialize_sqlite_connection("./database.db").unwrap();
+        let (url, owner) = Database::materialize_sqlite_connection("./database.db").unwrap();
         assert_eq!(url, "./database.db");
         assert!(owner.is_none());
 
@@ -934,8 +931,8 @@ mod tests {
         for input in [":memory:", "sqlite://:memory:"] {
             let (url, owner) = Database::materialize_sqlite_connection(input).unwrap();
             assert_ne!(url, ":memory:", "input '{}' was not substituted", input);
-            let owner = owner
-                .unwrap_or_else(|| panic!("input '{}' returned no tempfile owner", input));
+            let owner =
+                owner.unwrap_or_else(|| panic!("input '{}' returned no tempfile owner", input));
             assert!(
                 std::path::Path::new(&url).exists(),
                 "substituted path '{}' for input '{}' does not exist on disk",
