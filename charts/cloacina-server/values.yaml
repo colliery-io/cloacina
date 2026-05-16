@@ -132,11 +132,12 @@ ingress:
   #     - cloacina.example.com
 
 # ---------------------------------------------------------------------------
-# Probes — exercised by the kubelet against /v1/health.
+# Probes — kubelet hits /health (liveness, startup) and /ready (readiness).
+# Server registers both at the root, not under /v1/.
 # ---------------------------------------------------------------------------
 livenessProbe:
   httpGet:
-    path: /v1/health
+    path: /health
     port: http
   initialDelaySeconds: 15
   periodSeconds: 20
@@ -145,7 +146,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /v1/health
+    path: /ready
     port: http
   initialDelaySeconds: 5
   periodSeconds: 10
@@ -154,7 +155,7 @@ readinessProbe:
 
 startupProbe:
   httpGet:
-    path: /v1/health
+    path: /health
     port: http
   periodSeconds: 5
   failureThreshold: 60

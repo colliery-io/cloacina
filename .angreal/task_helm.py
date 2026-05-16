@@ -9,7 +9,7 @@ Two surfaces:
   - `angreal helm test`       — slow: builds the cloacina-server image,
                                 spins up a kind cluster, loads the image,
                                 helm-installs the chart with bundled
-                                Postgres, port-forwards, curls /v1/health,
+                                Postgres, port-forwards, curls /health,
                                 tears the cluster down. End-to-end.
 
 Prerequisites for `helm test`:
@@ -125,7 +125,7 @@ def _wait_rollout(deploy_name: str, namespace: str, timeout: str = "5m") -> None
 
 
 def _kubectl_get_health(namespace: str, service: str) -> bool:
-    """Run a curl pod against the service and check /v1/health → 200."""
+    """Run a curl pod against the service and check /health → 200."""
     cmd = [
         "kubectl", "run", f"healthcheck-{uuid.uuid4().hex[:4]}",
         "-n", namespace,
@@ -133,7 +133,7 @@ def _kubectl_get_health(namespace: str, service: str) -> bool:
         "--image=curlimages/curl:8.10.1",
         "--",
         "curl", "-fsSL", "-o", "/dev/null", "-w", "%{http_code}",
-        f"http://{service}:8080/v1/health",
+        f"http://{service}:8080/health",
     ]
     print(f"$ {' '.join(cmd)}", flush=True)
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -149,7 +149,7 @@ def _kubectl_get_health(namespace: str, service: str) -> bool:
 @helm()
 @angreal.command(
     name="test",
-    about="end-to-end helm chart install on a kind cluster + /v1/health curl",
+    about="end-to-end helm chart install on a kind cluster + /health curl",
 )
 def helm_test():
     _check_tool("docker", "install Docker Desktop or colima")
@@ -198,7 +198,7 @@ def helm_test():
         ])
 
         # Step 6: rollout + health probe.
-        print("\n--- 6. Verify pod ready + /v1/health ---\n")
+        print("\n--- 6. Verify pod ready + /health ---\n")
         _wait_rollout(f"{RELEASE_NAME}-cloacina-server", NAMESPACE, timeout="5m")
         # Settle a beat so probes pass at least once.
         time.sleep(3)
@@ -211,10 +211,10 @@ def helm_test():
                 "-l", f"app.kubernetes.io/instance={RELEASE_NAME}",
                 "-n", NAMESPACE, "--tail=200",
             ], check=False)
-            print("\n✗ /v1/health did not return 200", file=sys.stderr)
+            print("\n✗ /health did not return 200", file=sys.stderr)
             sys.exit(1)
 
-        print("\n✓ chart installed, pod ready, /v1/health = 200")
+        print("\n✓ chart installed, pod ready, /health = 200")
 
     finally:
         # Always tear the cluster down — leftovers eat host resources fast.

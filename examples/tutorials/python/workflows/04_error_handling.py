@@ -323,7 +323,11 @@ with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
             "retry_effectiveness": {
                 "attempted": retry_results.get("attempted", 0),
                 "recovered": retry_results.get("successful", 0),
-                "recovery_rate": retry_results.get("successful", 0) / retry_results.get("attempted", 1)
+                # `.get("attempted", 1)` only protects against a missing key;
+                # if retry_failed_fetches found nothing to retry, attempted is
+                # explicitly 0 (not missing) and we'd hit ZeroDivisionError.
+                # Coerce 0 → 1 so the rate stays defined as 0%.
+                "recovery_rate": retry_results.get("successful", 0) / (retry_results.get("attempted", 0) or 1)
             },
             "processing_errors": {
                 "validation_errors": len(processing_result.get("validation_errors", [])),

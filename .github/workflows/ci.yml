@@ -210,7 +210,7 @@ jobs:
 
   # End-to-end Helm chart install on a kind cluster (CLOACI-I-0111 / T-0605).
   # Builds the cloacina-server image, loads it into kind, helm-installs the
-  # chart with bundled Postgres, and verifies /v1/health returns 200.
+  # chart with bundled Postgres, and verifies /health returns 200.
   helm-chart-e2e:
     name: Helm chart e2e (kind)
     needs: [helm-chart, changes]
@@ -277,7 +277,7 @@ jobs:
           kubectl rollout status deployment/cloacina-cloacina-server \
             -n cloacina-e2e --timeout=5m
 
-      - name: Curl /v1/health from inside the cluster
+      - name: Curl /health from inside the cluster
         run: |
           set -euo pipefail
           # `kubectl run` with curlimages/curl, --rm cleans up the pod.
@@ -286,7 +286,7 @@ jobs:
             --rm --restart=Never -i \
             --image=curlimages/curl:8.10.1 \
             --command -- curl -fsS -o /dev/null -w "HTTP %{http_code}\n" \
-            http://cloacina-cloacina-server:8080/v1/health \
+            http://cloacina-cloacina-server:8080/health \
           | tee /tmp/health.out
           grep -q "HTTP 200" /tmp/health.out
 
