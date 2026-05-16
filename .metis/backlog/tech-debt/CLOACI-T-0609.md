@@ -1,10 +1,10 @@
 ---
-id: move-cloacina-kafka-out-of-default
+id: add-rdkafka-build-deps-to-cloacina
 level: task
 title: "Add rdkafka build deps to cloacina-server Dockerfile (keep kafka as a default capability)"
 short_code: "CLOACI-T-0609"
 created_at: 2026-05-16T00:53:30.076692+00:00
-updated_at: 2026-05-16T03:17:44.987742+00:00
+updated_at: 2026-05-16T03:47:05.859453+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

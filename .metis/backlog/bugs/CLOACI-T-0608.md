@@ -4,15 +4,15 @@ level: task
 title: "Fix sqlite :memory: + I-0100 reactor poll race; re-enable tutorials 03/04 on postgres lane"
 short_code: "CLOACI-T-0608"
 created_at: 2026-05-16T00:53:30.076692+00:00
-updated_at: 2026-05-16T00:53:30.076692+00:00
+updated_at: 2026-05-16T03:47:49.299900+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -72,4 +72,24 @@ Tutorials 03 and 04 are excluded from the postgres lane in
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-05-16** — Root-caused: with diesel's sqlite open path (no
+`SQLITE_OPEN_URI`), every `:memory:` connection gets its own private
+database. `max_size = 1` kept it latent; I-0100's new reactor poll
+loop made concurrent connection-use detectable.
+
+Fix landed: substitute `:memory:` requests for a per-Database
+`NamedTempFile` on disk, wrapped in `Arc` so every Database clone
+keeps the file alive and the last drop deletes it. Pool connections
+all open the same real file → real sharing, no URI gotchas.
+
+`file::memory:?cache=shared` was considered but rejected: it requires
+`SQLITE_OPEN_URI` which diesel doesn't set, so it silently creates a
+file literally named `:memory:` in CWD without any shared cache.
+
+Postgres lane re-enabled for tutorials 03 + 04 in same PR.
+
+Unit tests added:
+- `test_sqlite_connection_strings_passthrough` (file paths + sqlite://
+  prefix stripping)
+- `test_sqlite_memory_substitutes_tempfile` (substitution + cleanup on
+  owner drop, both `:memory:` and `sqlite://:memory:` inputs)
