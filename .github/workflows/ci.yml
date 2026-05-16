@@ -68,6 +68,10 @@ jobs:
               - 'examples/**'
             charts:
               - 'charts/**'
+              # Dockerfile is the basis for the helm e2e image — touch it,
+              # rebuild + re-run the kind install.
+              - 'Dockerfile'
+              - '.dockerignore'
 
   # Quick gate - only runs if code, harness, or workflows changed
   quick-checks:
