@@ -120,7 +120,7 @@ The `merge_channel_capacity` (1024 by default) is larger because it is the inter
 
 ### The `Latest` input strategy
 
-The benchmark uses `Latest` input strategy: if 10 events arrive while the reactor is executing a graph, only the 10th value is in the cache when the next execution starts. This is why ~7,600-7,900 graph fires are observed for ~10,000 events pushed at 1ms intervals — some boundaries collapse because the reactor is busy. This is the correct behavior for reactive workloads. If every event must produce exactly one graph execution, use `Sequential` strategy (at the cost of higher per-event latency as the queue builds up).
+The benchmark uses `Latest` input strategy: if 10 events arrive while the reactor is executing a graph, only the 10th value is in the cache when the next execution starts. This is why ~7,600-7,900 graph fires are observed for ~10,000 events pushed at 1ms intervals — some boundaries collapse because the reactor is busy. This is the correct behavior for event-driven workloads. If every event must produce exactly one graph execution, use `Sequential` strategy (at the cost of higher per-event latency as the queue builds up).
 
 ## Running Benchmarks
 

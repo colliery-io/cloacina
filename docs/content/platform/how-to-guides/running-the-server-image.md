@@ -14,13 +14,13 @@ pulling, configuring, and running it.
 
 ```sh
 # Latest stable release
-docker pull ghcr.io/colliery-software/cloacina-server:latest
+docker pull ghcr.io/colliery-io/cloacina-server:latest
 
 # Pin to a specific version
-docker pull ghcr.io/colliery-software/cloacina-server:0.6.0
+docker pull ghcr.io/colliery-io/cloacina-server:0.6.1
 
 # Track main (rebuilt every night at 03:00 UTC)
-docker pull ghcr.io/colliery-software/cloacina-server:nightly
+docker pull ghcr.io/colliery-io/cloacina-server:nightly
 ```
 
 The image is multi-arch (`linux/amd64` + `linux/arm64`); Docker selects
@@ -44,7 +44,7 @@ required env var.
 docker run --rm \
   -e DATABASE_URL=postgres://cloacina:cloacina@host.docker.internal:5432/cloacina \
   -p 8080:8080 \
-  ghcr.io/colliery-software/cloacina-server:latest
+  ghcr.io/colliery-io/cloacina-server:latest
 ```
 
 On startup it auto-runs migrations and (on first boot) generates a
@@ -85,7 +85,7 @@ services:
       retries: 12
 
   cloacina-server:
-    image: ghcr.io/colliery-software/cloacina-server:latest
+    image: ghcr.io/colliery-io/cloacina-server:latest
     depends_on:
       postgres:
         condition: service_healthy

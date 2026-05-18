@@ -57,13 +57,13 @@ chrono = "0.4"
 ```
 
 {{< hint type=warning title=Important >}}
-Normally you'd use `cloacina = "0.1.0"` in Cargo.toml. For these tutorials, we're using path dependencies to vendor code locally.
+Normally you'd use `cloacina = "0.6.1"` in Cargo.toml. For these tutorials, we're using path dependencies to vendor code locally.
 
 The path must be relative to your project. Examples:
 - Next to Cloacina: `path = "../cloacina"`
 - In subdirectory: `path = "../../../cloacina"`
 
-Note: Use `version = "0.1.0"` when available on crates.io.
+Note: Use `version = "0.6.1"` when available on crates.io.
 {{< /hint >}}
 
 Cloacina supports both PostgreSQL and SQLite backends. The backend is selected automatically at runtime based on your connection URL - no feature flags needed.

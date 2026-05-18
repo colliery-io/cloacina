@@ -16,7 +16,7 @@ In this tutorial you'll build a market maker that routes each market event to on
 
 ## Prerequisites
 
-- Completion of [Tutorial 09 — Full Reactive Pipeline]({{< ref "/computation-graphs/tutorials/library/09-full-pipeline/" >}})
+- Completion of [Tutorial 09 — Full Multi-Source Pipeline]({{< ref "/computation-graphs/tutorials/library/09-full-pipeline/" >}})
 
 ## The complete example
 
@@ -310,7 +310,7 @@ You've implemented a routed computation graph:
 - Only one branch executes per graph invocation — `GraphResult::Completed` holds the output from whichever branch ran
 - `downcast_ref` for each possible terminal type handles either case
 
-This completes the Rust library tutorial series for computation graphs. You've gone from a hand-called compiled function all the way to a fully reactive, multi-source, routed pipeline.
+This completes the Rust library tutorial series for computation graphs. You've gone from a hand-called compiled function all the way to a fully event-driven, multi-source, routed pipeline.
 
 ## Related resources
 

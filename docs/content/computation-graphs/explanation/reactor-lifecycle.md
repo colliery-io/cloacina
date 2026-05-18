@@ -42,8 +42,9 @@ A loaded reactor is recorded in two places:
    holds a `RunningGraph` per loaded reactor. It owns the spawned
    reactor task, the spawned accumulator tasks, the manual-command
    channel, the subscriber map, and the endpoint-registry keys
-   under which the reactor is registered for `cloacinactl
-   reactor force-fire` style operator commands.
+   under which the reactor is registered for operator commands
+   (force-fire via the WebSocket `/v1/ws/reactor/{name}` endpoint
+   with `{"type":"ForceFire"}`).
 
 2. **The host runtime registry** — `Runtime` holds a *constructor*
    per reactor name, in `runtime.reactor_names()`. Constructors are
@@ -70,7 +71,8 @@ The reconciler runs step 3 of the [pipeline]({{< ref "/platform/explanation/reco
    - Spawn accumulator tasks and connect their output sockets to
      the reactor's boundary-receiver.
    - Register the reactor under its declared name in the endpoint
-     registry, so `cloacinactl reactor force-fire <name>` resolves.
+     registry, so the WebSocket `/v1/ws/reactor/{name}` `ForceFire`
+     command resolves.
 4. Record the reactor name in `PackageState::reactor_names` so
    unload knows what to tear down.
 

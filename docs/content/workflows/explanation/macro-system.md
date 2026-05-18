@@ -109,7 +109,7 @@ The macro system requires several dependencies to be explicitly included in your
 
 ```toml
 [dependencies]
-cloacina = { version = "0.1.0", features = ["macros"] }
+cloacina = { version = "0.6.1", features = ["macros"] }
 async-trait = "0.1"    # Required for async task definitions
 serde_json = "1.0"    # Required for context data
 chrono = "0.4"        # Required for timestamps in errors and state tracking

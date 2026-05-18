@@ -161,16 +161,16 @@ packaged = []
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina-computation-graph = "0.3"
-cloacina-macros = "0.3"
-cloacina-workflow-plugin = "0.3"
+cloacina-computation-graph = "0.6.1"
+cloacina-macros = "0.6.1"
+cloacina-workflow-plugin = "0.6.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["full"] }
 
 [build-dependencies]
-cloacina-build = "0.3"
+cloacina-build = "0.6.1"
 ```
 
 `build.rs`:

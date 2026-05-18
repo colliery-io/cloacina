@@ -58,7 +58,7 @@ async fn validation_check(context: &mut Context<Value>) -> Result<(), TaskError>
 ```
 
 A runnable end-to-end example lives at
-[`examples/features/workflows/conditional-retries`](https://github.com/colliery-software/cloacina/tree/main/examples/features/workflows/conditional-retries).
+[`examples/features/workflows/conditional-retries`](https://github.com/colliery-io/cloacina/tree/main/examples/features/workflows/conditional-retries).
 
 ## Python
 
@@ -85,7 +85,7 @@ with cloaca.WorkflowBuilder("flaky_pipeline") as builder:
 ```
 
 End-to-end coverage:
-[`tests/python/test_scenario_33_retry_condition.py`](https://github.com/colliery-software/cloacina/blob/main/tests/python/test_scenario_33_retry_condition.py).
+[`tests/python/test_scenario_33_retry_condition.py`](https://github.com/colliery-io/cloacina/blob/main/tests/python/test_scenario_33_retry_condition.py).
 
 ## Custom substring patterns
 
@@ -127,4 +127,4 @@ on first error." `retry_attempts = 1, retry_condition = "all"` means
 
 - [`retry_attempts`, `retry_delay_ms`, `retry_backoff` reference](../reference/) — the rest of the retry-policy knobs
 - [`cloacina_workflow::RetryPolicy`](https://docs.rs/cloacina-workflow) — the underlying policy struct
-- Source: [`crates/cloacina-workflow/src/retry.rs`](https://github.com/colliery-software/cloacina/blob/main/crates/cloacina-workflow/src/retry.rs)
+- Source: [`crates/cloacina-workflow/src/retry.rs`](https://github.com/colliery-io/cloacina/blob/main/crates/cloacina-workflow/src/retry.rs)

@@ -29,13 +29,13 @@ This starts PostgreSQL 16 on port 5432 with credentials `cloacina:cloacina` and 
 ### Step 2: Start the API Server
 
 ```bash
-cloacinactl serve --database-url postgresql://cloacina:cloacina@localhost:5432/cloacina
+cloacinactl server start --database-url postgresql://cloacina:cloacina@localhost:5432/cloacina
 ```
 
 The server binds to `0.0.0.0:8080` by default. To change the bind address:
 
 ```bash
-cloacinactl serve \
+cloacinactl server start \
   --database-url postgresql://cloacina:cloacina@localhost:5432/cloacina \
   --bind 127.0.0.1:9090
 ```
@@ -75,7 +75,7 @@ The server generates a random key and writes it to `~/.cloacina/bootstrap-key`. 
 Provide a specific key on first startup:
 
 ```bash
-cloacinactl serve \
+cloacinactl server start \
   --database-url postgresql://... \
   --bootstrap-key "my-secret-admin-key-here"
 ```
@@ -84,7 +84,7 @@ cloacinactl serve \
 
 ```bash
 export CLOACINA_BOOTSTRAP_KEY="my-secret-admin-key-here"
-cloacinactl serve --database-url postgresql://...
+cloacinactl server start --database-url postgresql://...
 ```
 
 In all cases, the plaintext key is written to `~/.cloacina/bootstrap-key` (mode `0600`). On subsequent startups, the bootstrap step is skipped because keys already exist.
@@ -165,13 +165,13 @@ cloacinactl config set database_url "postgresql://cloacina:secret@db.example.com
 For production, bind to all interfaces on a specific port:
 
 ```bash
-cloacinactl serve --bind 0.0.0.0:8080
+cloacinactl server start --bind 0.0.0.0:8080
 ```
 
 For local-only access (behind a reverse proxy on the same host):
 
 ```bash
-cloacinactl serve --bind 127.0.0.1:8080
+cloacinactl server start --bind 127.0.0.1:8080
 ```
 
 ### Logging
@@ -179,7 +179,7 @@ cloacinactl serve --bind 127.0.0.1:8080
 The server writes logs to both stderr and `~/.cloacina/logs/cloacina-server.log` (daily rotation, JSON format). Control verbosity with `RUST_LOG`:
 
 ```bash
-RUST_LOG=info cloacinactl serve --database-url postgresql://...
+RUST_LOG=info cloacinactl server start --database-url postgresql://...
 ```
 
 Use `--verbose` for debug-level output during troubleshooting.

@@ -24,7 +24,7 @@ The reactor stores incoming boundaries in a cache keyed by source name. How it h
 
 ### When to use Latest (the default)
 
-Latest is the correct choice for most reactive pipelines:
+Latest is the correct choice for most event-driven pipelines:
 
 - Price feeds, sensor readings, configuration — you want the most current value
 - High-throughput sources where intermediate values have no meaning on their own

@@ -6,7 +6,7 @@ weight: 35
 
 # Computation Graph Reference
 
-Computation graphs are Cloacina's reactive data processing primitive. A graph defines a DAG of async node functions that execute when upstream data arrives. Two macros work together:
+Computation graphs are Cloacina's event-driven data processing primitive. A graph defines a DAG of async node functions that execute when upstream data arrives. Two macros work together:
 
 - **`#[reactor]`** declares a firing criterion as a top-level primitive — a named bundle of accumulators plus a `criteria = when_any(...) | when_all(...)` expression.
 - **`#[computation_graph]`** compiles a module of node functions into a single async function and subscribes it to a reactor via `trigger = reactor("name")`.
@@ -815,66 +815,8 @@ socket_tx.send(serialize(&my_event).unwrap()).await.unwrap();
 
 ## Global Registry
 
-The global registry stores computation graph constructors for embedded-mode auto-discovery. Graphs register themselves at program startup via `#[ctor]`. `#[ctor]` runs the annotated function automatically at program startup, before `main()`, ensuring graphs are registered without explicit initialization.
+<!-- TODO(DOC-F): rewrite this section. I-0096 removed the `#[ctor]`-based global registration path (see the "Registration & Discovery" section above at line ~200 for the current inventory-based story). The `register_computation_graph_constructor`, `global_computation_graph_registry`, `deregister_computation_graph` symbols may have been renamed or made internal. Verify against `crates/cloacina/src/computation_graph/global_registry.rs` and `crates/cloacina/src/runtime.rs:80-152`. Document the inventory-driven path: `inventory::submit!(ComputationGraphEntry { ... })` at compile time, walked by `Runtime::seed_from_inventory()` at startup. -->
 
-### Registration
-
-```rust
-use cloacina::computation_graph::{
-    register_computation_graph_constructor,
-    ComputationGraphRegistration,
-};
-
-register_computation_graph_constructor(
-    "my_graph".to_string(),
-    || ComputationGraphRegistration {
-        graph_fn: Arc::new(|cache| Box::pin(async move {
-            my_graph_compiled(&cache).await
-        })),
-        accumulator_names: vec!["alpha".to_string(), "beta".to_string()],
-        reaction_mode: "when_any".to_string(),
-    },
-);
-```
-
-### Querying
-
-```rust
-// List all registered graph names
-let names: Vec<String> = list_registered_graphs();
-
-// Access the registry directly
-let registry = global_computation_graph_registry();
-let lock = registry.read();
-if let Some(constructor) = lock.get("my_graph") {
-    let registration = constructor();
-    // registration.graph_fn, .accumulator_names, .reaction_mode
-}
-
-// Remove a graph
-deregister_computation_graph("my_graph");
-```
-
-### ComputationGraphRegistration
-
-```rust
-pub struct ComputationGraphRegistration {
-    /// The compiled graph function.
-    pub graph_fn: CompiledGraphFn,
-    /// Accumulator names declared in the graph topology.
-    pub accumulator_names: Vec<String>,
-    /// Reaction mode: "when_any" or "when_all".
-    pub reaction_mode: String,
-}
-```
-
-The `CompiledGraphFn` type alias:
-
-```rust
-pub type CompiledGraphFn = Arc<
-    dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + Send + Sync
->;
-```
 
 ---
 
@@ -892,8 +834,8 @@ default = []
 packaged = ["cloacina-computation-graph", "cloacina-workflow-plugin", "tokio"]
 
 [dependencies]
-cloacina-computation-graph = { version = "0.1" }
-cloacina-workflow-plugin = { version = "0.1", optional = true }
+cloacina-computation-graph = { version = "0.6.1" }
+cloacina-workflow-plugin = { version = "0.6.1", optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 
 [lib]

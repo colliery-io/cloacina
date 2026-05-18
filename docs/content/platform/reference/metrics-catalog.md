@@ -1,4 +1,10 @@
-# Prometheus Metrics
+---
+title: "Metrics Catalog"
+description: "Complete reference for every cloacina_* and cloacina_compiler_* Prometheus metric: name, type, labels, meaning, and example PromQL."
+weight: 15
+---
+
+# Metrics Catalog
 
 Both `cloacina-server` and `cloacina-compiler` expose metrics in the
 standard Prometheus text exposition format at `GET /metrics`. Both
@@ -6,10 +12,9 @@ endpoints are public (no auth) so Prometheus can scrape them without
 credential management.
 
 `cloacinactl daemon` does **not** expose `/metrics` — it's a
-hobbyist-tier local process per [ADR
-CLOACI-A-0005](../../.metis/adrs/CLOACI-A-0005-deployment-mode-trust-model-hobbyist-daemon-vs-enterprise-server.md);
-observe it via logs. If a "daemon-as-service" deployment mode emerges,
-revisit.
+hobbyist-tier local process per ADR-0005 (Deployment-Mode Trust
+Model); observe it via logs. If a "daemon-as-service" deployment mode
+emerges, revisit.
 
 The exposition format of both binaries is version-checked in CI via
 `angreal test metrics-format`, which boots each one and pipes `/metrics`
@@ -39,7 +44,7 @@ used as labels. Adding a new metric should preserve this invariant; see
 | `cloacina_accumulator_checkpoint_writes_total` | `graph`, `accumulator` | Total successful checkpoint writes via `CheckpointHandle::save` or `persist_boundary`. Failed writes appear only in logs. |
 | `cloacina_reactor_fires_total` | `graph`, `reactor`, `strategy` | Total reactor fires (graph executions). `strategy` ∈ `when_any`, `when_all`, `sequential` — projects the (criteria × input_strategy) axes onto a single bounded label. |
 | `cloacina_reactor_deduped_events_total` | `graph`, `reactor`, `source` | Boundary events the reactor rejected as duplicates of an already-seen emission sequence. **Reserved** — the reactor-side dedup path lands as a follow-up to T-0413; the metric is registered today so dashboards and alert rules can be authored against the eventual name. |
-| `cloacina_ws_messages_total` | `endpoint`, `direction` | WebSocket framed messages by `endpoint` (`accumulator` | `reactor`) and `direction` (`in` | `out`). Ping/pong handled by axum are excluded. |
+| `cloacina_ws_messages_total` | `endpoint`, `direction` | WebSocket framed messages by `endpoint` (`accumulator` \| `reactor`) and `direction` (`in` \| `out`). Ping/pong handled by axum are excluded. |
 | `cloacina_ws_auth_failures_total` | `reason` | Rejected WebSocket upgrade requests. `reason` ∈ `ticket_expired`, `invalid_signature`, `tenant_mismatch`, `not_authorized`. |
 | `cloacina_reactor_persist_failures_total` | `graph`, `reactor`, `kind` | Reactor state-persistence failures. `kind` ∈ `cache_serialize`, `dirty_serialize`, `seq_serialize`, `save`. The reactor downgrades to `Degraded` after 5 consecutive failures and recovers on the next success. |
 | `cloacina_accumulator_persist_failures_total` | `graph`, `accumulator`, `kind` | Accumulator persist failures. `kind` ∈ `checkpoint` (polling save), `boundary` (persist_boundary), `batch_buffer` (batch buffer save). |
@@ -192,21 +197,19 @@ histogram_quantile(
 
 ## Current gaps
 
-Computation-graph observability for the full reactive stack ships in
-[CLOACI-I-0099](../../.metis/initiatives/CLOACI-I-0099/initiative.md).
-The remaining gaps are reactor-side dedup wiring (the
-`cloacina_reactor_deduped_events_total` metric is registered but its
-emit path lands as a follow-up to T-0413) and any operator-defined
+Computation-graph observability for the full event-driven stack ships
+in CLOACI-I-0099. The remaining gaps are reactor-side dedup wiring
+(the `cloacina_reactor_deduped_events_total` metric is registered but
+its emit path lands as a follow-up to T-0413) and any operator-defined
 SLO/alert rules (out of scope for the metrics surface itself).
 Operators running CG workloads should rely on logs plus
-`/v1/health/reactors` and `/v1/health/accumulators` for observability
-until [CLOACI-I-0099 (Computation Graph Observability)](../../.metis/initiatives/CLOACI-I-0099/initiative.md)
-lands. Scheduler-loop signals (claim attempts, heartbeat writes, stale
-claim sweeps) are now covered by the `cloacina_scheduler_*` family
-above. See I-0099 for the remaining planned metric set.
+`/v1/health/graphs` and `/v1/health/accumulators` for observability
+until CLOACI-I-0099 (Computation Graph Observability) is fully
+realized. Scheduler-loop signals (claim attempts, heartbeat writes,
+stale claim sweeps) are now covered by the `cloacina_scheduler_*`
+family above. See I-0099 for the remaining planned metric set.
 
-The audit that produced the current state is
-[CLOACI-T-0498](../../.metis/CLOACI-T-0498.md).
+The audit that produced the current state is CLOACI-T-0498.
 
 ## Adding a metric
 
@@ -224,3 +227,10 @@ When introducing a new metric:
    or dashboard.
 4. Run `angreal test metrics-format` locally before pushing. The same
    check runs in CI (`metrics-format` job in `.github/workflows/cloacina.yml`).
+
+## Related
+
+- [Compiler + Server Deployment Runbook]({{< ref "/platform/how-to-guides/compiler-deployment-runbook" >}}) — how to deploy and operate the metric-emitting binaries.
+- [Performance Tuning]({{< ref "/platform/how-to-guides/performance-tuning" >}}) — uses these metrics to drive tuning decisions.
+- [Workflows: Observability]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}) — workflow-author perspective on which metrics matter when.
+- ADR-0005 — Deployment-mode trust model (`/metrics` posture per deployment mode).

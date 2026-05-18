@@ -17,7 +17,7 @@ curl -fsSL https://get.cloacina.dev/install.sh | bash
 ```
 
 That downloads the latest release tarball for your OS + arch from
-[GitHub Releases](https://github.com/colliery-software/cloacina/releases),
+[GitHub Releases](https://github.com/colliery-io/cloacina/releases),
 verifies its SHA256, and installs the binary to `~/.cloacina/bin`. If
 that directory isn't on your `$PATH`, the installer prints the line to
 add to your shell rc.
@@ -25,7 +25,7 @@ add to your shell rc.
 ### Pinning a version
 
 ```sh
-curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.6.0
+curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.6.1
 ```
 
 Use a specific tag from the releases page. Any release that has the
@@ -90,7 +90,7 @@ Then remove the PATH-add line from your shell rc if you added one.
 If your platform isn't covered above, install with cargo:
 
 ```sh
-cargo install --git https://github.com/colliery-software/cloacina cloacinactl
+cargo install --git https://github.com/colliery-io/cloacina cloacinactl
 ```
 
 This builds from the `main` branch tip. Pass `--tag vX.Y.Z` to pin a release.

@@ -258,7 +258,7 @@ Until that lands, the Phase 1 posture in this guide is your bound.
 
 ## Related
 
-- [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) — TLS termination for the `cloacinactl serve` server. Separate concern from the compiler.
+- [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) — TLS termination for the `cloacinactl server start` server. Separate concern from the compiler.
 - [Use cloacina-compiler Locally]({{< ref "/platform/how-to-guides/use-cloacina-compiler-locally" >}}) — local laptop / CI path, no service.
 - [ADR-0005 — Deployment-mode trust model](https://github.com/colliery-io/cloacina/blob/main/.metis/adrs/CLOACI-A-0005.md) — why the compiler is Linux-only, single-tenant build.
 - [CLOACI-I-0104](https://github.com/colliery-io/cloacina/blob/main/.metis/initiatives/CLOACI-I-0104.md) — Phase 1 hardening initiative.

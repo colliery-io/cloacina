@@ -251,4 +251,4 @@ After wiring observability:
 - [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — full endpoint surface, including `/metrics` semantics and the operational-caveats section.
 - [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) — TLS termination + reverse proxy; how to gate `/metrics` if needed.
 - [Daemon Status & Health]({{< ref "/platform/reference/cli" >}}#daemon-status) — full `daemon status` output reference.
-- [Operations: Metrics](https://github.com/colliery-io/cloacina/blob/main/docs/operations/metrics.md) — operations-handbook complement, with PromQL recipes.
+- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — every `cloacina_*` metric with labels, descriptions, and PromQL recipes.

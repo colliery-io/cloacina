@@ -70,7 +70,7 @@ edition = "2021"
 
 [dependencies]
 cloacina = { path = "../../cloacina" }
-cloacina-ctl = { path = "../../cloacina-ctl" }
+cloacinactl = { path = "../../cloacinactl" }
 tokio = { version = "1.35", features = ["full"] }
 serde_json = "1.0"
 tempfile = "3.8"
@@ -83,7 +83,7 @@ chrono = "0.4"
 The registry demo requires:
 
 1. **cloacina** for workflow execution and database storage
-2. **cloacina-ctl** for package building functionality
+2. **cloacinactl** for package building functionality
 3. **tokio** for async runtime
 4. **tracing-subscriber** for detailed logging
 5. **chrono** for cron scheduling support

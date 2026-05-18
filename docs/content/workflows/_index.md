@@ -22,7 +22,7 @@ Use Cloacina as a Rust library embedded directly in your application. Define tas
 
 ### Service (Server/Daemon)
 
-Deploy Cloacina as a standalone service (`cloacinactl serve` or `cloacinactl daemon`). Upload packaged workflows via HTTP API, manage tenants, and execute via REST. Best for:
+Deploy Cloacina as a standalone service (`cloacinactl server start` or `cloacinactl daemon`). Upload packaged workflows via HTTP API, manage tenants, and execute via REST. Best for:
 
 - Multi-tenant SaaS platforms
 - Centralized workflow management

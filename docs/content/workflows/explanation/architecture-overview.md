@@ -44,12 +44,12 @@ Key behaviors:
 - **Graceful shutdown**: SIGINT/SIGTERM triggers a drain of in-flight pipelines with a configurable timeout
 - **Dual logging**: Human-readable logs to stderr, structured JSON logs to `~/.cloacina/logs/`
 
-### API Server (`cloacinactl serve`)
+### API Server (`cloacinactl server start`)
 
 A multi-tenant HTTP API backed by PostgreSQL. This mode is for teams that need centralized workflow management with authentication, tenant isolation, and programmatic control.
 
 ```bash
-cloacinactl serve --bind 0.0.0.0:8080 --database-url postgresql://user:pass@db/cloacina
+cloacinactl server start --bind 0.0.0.0:8080 --database-url postgresql://user:pass@db/cloacina
 ```
 
 The server starts an axum HTTP server with:

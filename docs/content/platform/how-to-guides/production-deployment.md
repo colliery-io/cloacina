@@ -5,7 +5,7 @@ weight: 30
 
 # How to Deploy Cloacina in Production
 
-This guide covers deploying `cloacinactl serve` behind a TLS-terminating reverse proxy.
+This guide covers deploying `cloacinactl server start` behind a TLS-terminating reverse proxy.
 
 ## Prerequisites
 
@@ -15,7 +15,7 @@ This guide covers deploying `cloacinactl serve` behind a TLS-terminating reverse
 
 ## Why a Reverse Proxy?
 
-`cloacinactl serve` binds plain HTTP. All traffic — including API keys, tenant credentials, and workflow package uploads — is transmitted in cleartext without a reverse proxy providing TLS termination.
+`cloacinactl server start` binds plain HTTP. All traffic — including API keys, tenant credentials, and workflow package uploads — is transmitted in cleartext without a reverse proxy providing TLS termination.
 
 A reverse proxy also provides:
 - TLS termination with automatic certificate renewal (Caddy)
@@ -76,12 +76,12 @@ server {
 
 ```bash
 # Basic start
-cloacinactl serve \
+cloacinactl server start \
   --database-url "postgres://user:pass@localhost:5432/cloacina" \
   --bind 127.0.0.1:8080
 
 # With explicit bootstrap key
-cloacinactl serve \
+cloacinactl server start \
   --database-url "postgres://user:pass@localhost:5432/cloacina" \
   --bind 127.0.0.1:8080 \
   --bootstrap-key "clk_your_bootstrap_key_here"

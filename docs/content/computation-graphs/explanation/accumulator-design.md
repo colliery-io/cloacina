@@ -208,6 +208,6 @@ This is a deliberate non-goal. Owning complex stream processing would mean ownin
 
 ## Further Reading
 
-- [Architecture]({{< ref "architecture" >}}) — the full reactive model and how accumulators fit into it
+- [Architecture]({{< ref "architecture" >}}) — the full event-driven model and how accumulators fit into it
 - [Packaging & FFI]({{< ref "packaging" >}}) — how packaged graphs expose accumulators via FFI
 - [Performance Characteristics]({{< ref "performance" >}}) — throughput numbers for stream and batch accumulator types

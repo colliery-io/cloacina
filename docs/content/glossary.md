@@ -36,7 +36,7 @@ The core Rust workflow orchestration and computation graph engine. Cloacina prov
 
 ### Computation Graph
 
-A reactive, streaming computation model where nodes process data flowing through directed edges. Unlike workflows, computation graphs are event-driven, in-process, and compiled. They fire when reaction criteria are met, processing correlated data from multiple sources in a single execution. See [Computation Graph Architecture]({{< ref "/computation-graphs/explanation/architecture" >}}).
+An event-driven, streaming computation model where nodes process data flowing through directed edges. Unlike workflows, computation graphs are in-process and compiled, firing as a single traversal when reaction criteria are met, processing correlated data from multiple sources in a single execution. See [Computation Graph Architecture]({{< ref "/computation-graphs/explanation/architecture" >}}).
 
 ### Context
 

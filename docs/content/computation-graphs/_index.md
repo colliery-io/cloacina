@@ -6,7 +6,7 @@ weight: 20
 
 # Computation Graphs
 
-The computation graph system is Cloacina's reactive execution engine. It wires data sources through accumulators into compiled graph functions that fire automatically when new data arrives.
+The computation graph system is Cloacina's event-driven execution engine. It wires data sources through accumulators into compiled graph functions that fire automatically when new data arrives.
 
 ## Run Modes
 
@@ -16,7 +16,7 @@ Define computation graphs with the `#[computation_graph]` macro, wire accumulato
 
 - Real-time data processing pipelines
 - Market data and signal processing
-- Applications needing reactive computation
+- Applications needing event-driven computation
 
 [Library Tutorials →]({{< ref "/computation-graphs/tutorials/library" >}})
 
@@ -26,7 +26,7 @@ Deploy computation graphs as packaged plugins, receive events via WebSocket or K
 
 - Production streaming pipelines
 - External event ingestion
-- Multi-tenant reactive workloads
+- Multi-tenant event-driven workloads
 
 [Service Tutorials →]({{< ref "/computation-graphs/tutorials/service" >}})
 

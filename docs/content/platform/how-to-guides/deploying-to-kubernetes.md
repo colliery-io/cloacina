@@ -7,7 +7,7 @@ weight: 57
 # Deploying to Kubernetes (Helm)
 
 The official Helm chart for `cloacina-server` is published as an OCI
-artifact to `ghcr.io/colliery-software/charts/cloacina-server`. This
+artifact to `ghcr.io/colliery-io/charts/cloacina-server`. This
 page covers install, configuration, and upgrade.
 
 ## Prerequisites
@@ -22,7 +22,7 @@ page covers install, configuration, and upgrade.
 
 ```sh
 helm install cloacina \
-  oci://ghcr.io/colliery-software/charts/cloacina-server \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
   --set database.url=postgres://cloacina:cloacina@postgres.svc:5432/cloacina
 ```
@@ -34,7 +34,7 @@ kubectl create secret generic cloacina-db \
   --from-literal=DATABASE_URL=postgres://cloacina:s3cr3t@postgres.svc:5432/cloacina
 
 helm install cloacina \
-  oci://ghcr.io/colliery-software/charts/cloacina-server \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
   --set databaseUrlSecretRef.name=cloacina-db
 ```
@@ -43,7 +43,7 @@ helm install cloacina \
 
 ```sh
 helm install cloacina \
-  oci://ghcr.io/colliery-software/charts/cloacina-server \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
   --set postgresql.enabled=true \
   --set postgresql.auth.password=$(openssl rand -hex 16)
@@ -65,7 +65,7 @@ kubectl create secret generic cloacina-bootstrap \
   --from-literal=bootstrap-key=$(openssl rand -hex 32)
 
 helm upgrade --install cloacina \
-  oci://ghcr.io/colliery-software/charts/cloacina-server \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
   --set apiKeySecretRef.name=cloacina-bootstrap \
   --reuse-values
@@ -94,7 +94,7 @@ ingress:
 
 ```sh
 helm upgrade --install cloacina \
-  oci://ghcr.io/colliery-software/charts/cloacina-server \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
   --values values-prod.yaml
 ```
@@ -117,7 +117,7 @@ See `values.yaml` for the full reference.
 
 ```sh
 helm upgrade --install cloacina \
-  oci://ghcr.io/colliery-software/charts/cloacina-server \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
   --reuse-values \
   --set serviceMonitor.enabled=true
@@ -131,7 +131,7 @@ watches your namespace.
 
 ```sh
 helm upgrade cloacina \
-  oci://ghcr.io/colliery-software/charts/cloacina-server \
+  oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.2.0 \
   --reuse-values
 ```

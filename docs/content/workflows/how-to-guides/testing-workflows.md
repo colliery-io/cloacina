@@ -175,7 +175,7 @@ async fn test_inspect_outcomes() {
 
 ## Testing with BoundaryEmitter (Continuous Feature)
 
-If you're testing continuous/reactive tasks, enable the `continuous` feature and use `BoundaryEmitter` to simulate detector output.
+If you're testing continuous/event-driven tasks, enable the `continuous` feature and use `BoundaryEmitter` to simulate detector output.
 
 ```toml
 [dev-dependencies]

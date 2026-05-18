@@ -448,14 +448,14 @@ The `#[computation_graph]` macro expands into code that references types from th
 2. **For packaged mode** (standalone cdylib), add the dependency explicitly:
    ```toml
    [dependencies]
-   cloacina-computation-graph = { version = "0.4" }
-   cloacina-macros = { version = "0.4" }
+   cloacina-computation-graph = { version = "0.6.1" }
+   cloacina-macros = { version = "0.6.1" }
    ```
 
 3. **Verify the feature flags** — computation graph support requires the `macros` feature:
    ```toml
    [dependencies]
-   cloacina = { version = "0.4", features = ["macros"] }
+   cloacina = { version = "0.6.1", features = ["macros"] }
    ```
 
 ---
@@ -865,9 +865,9 @@ This is typically caused by:
      `cloacina/src/database/connection.rs`. That file no longer exists
      (`connection/` is now a directory) and the `ctor` dependency has
      been dropped. The crash has not recurred; if it does, this
-     pattern is the known-good mitigation. See
-     [docs/SIGSEGV_TROUBLESHOOTING.md](https://github.com/colliery-io/cloacina/blob/main/docs/SIGSEGV_TROUBLESHOOTING.md)
-     for the historical record.
+     pattern is the known-good mitigation. See the [Native crash
+     troubleshooting (historical)](#native-crash-troubleshooting-historical)
+     subsection below for the full record and alternative approaches.
    - Test packages were cached with `OnceLock` to force the forking
      `package_workflow()` build to run before any DB connection init.
      If the crash returns, restoring this caching pattern is a quick
@@ -878,6 +878,51 @@ This is typically caused by:
    - The SIGSEGV typically occurs during program exit when OpenSSL cleanup races with connection pool threads.
    - Disable ASLR for reproducible crashes: `setarch $(uname -m) -R python -c "import cloaca"`
    - Try AddressSanitizer: `RUSTFLAGS="-Z sanitizer=address" cargo build`
+
+#### Native crash troubleshooting (historical)
+
+> **Historical document, merged from `docs/SIGSEGV_TROUBLESHOOTING.md`
+> during CLOACI-I-0112 (DOC-H operations fold-in).** The `#[ctor]`-based
+> OpenSSL early-init workaround described above was removed during the
+> I-0096 ctor → inventory flip. The historical root-cause notes and
+> alternative approaches are preserved here in case the failure mode
+> resurfaces in CI or with a different libpq/OpenSSL combination.
+
+**Historical root cause.** Tests that call `package_workflow()` spawn
+cargo subprocesses via `fork()`. When this happens after the database
+connection pool has initialized OpenSSL/libpq, the fork can cause
+SIGSEGV on Linux due to OpenSSL's unsafe atexit handler. See
+[diesel#3441](https://github.com/diesel-rs/diesel/issues/3441).
+
+**Alternative approaches to try if the symptom resurfaces and the
+current fixes above don't resolve it:**
+
+1. **Pre-build test packages before test run** — use a `build.rs` or
+   pre-commit hook to build packages before tests start; store as
+   static test fixtures.
+2. **Disable ASLR in CI for debugging** — run with
+   `setarch $(uname -m) -R cargo test ...`. Makes the crash reproducible
+   if it's ASLR-dependent.
+3. **Use AddressSanitizer or ThreadSanitizer** — build with
+   `RUSTFLAGS="-Z sanitizer=address"` or `sanitizer=thread`. May reveal
+   the actual memory issue.
+4. **Use diesel_async** — switch from sync diesel with deadpool to
+   diesel_async. Different connection handling may avoid the issue.
+5. **Investigate bundled pq-sys behavior** — check whether
+   `pq-sys/bundled` has different OpenSSL linking behavior. May need
+   to match OpenSSL versions more carefully.
+6. **Isolated subprocess spawning** — spawn package builds in
+   completely isolated processes (not `fork`). Use `std::process::Command`
+   with explicit environment clearing.
+7. **Lazy database initialization** — delay database pool creation
+   until after all subprocess work is done. Restructure tests to do
+   all forking first.
+
+**Additional historical debugging notes:** check `ldd` output (Linux)
+or `otool -L` (macOS) on the loaded `cloaca` shared object to verify
+which OpenSSL version is linked — the SIGSEGV signature is consistent
+with a libpq ↔ OpenSSL version mismatch where the cleanup ordering at
+exit races with the connection pool drop path.
 
 ---
 

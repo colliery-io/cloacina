@@ -116,7 +116,8 @@ Background services that consume connections:
 - Cron scheduler: 1 connection per poll
 - Registry reconciler: 1 connection per reconcile cycle
 - Stale claim sweeper: 1 connection per sweep
-- Recovery manager: 1 connection during recovery
+- Stale-claim sweeper (sole task-recovery path post-T-0502): 1 connection per sweep
+- Cron recovery service: 1 connection during cron recovery cycles
 
 A practical formula:
 
@@ -336,7 +337,7 @@ let config = DefaultRunnerConfig::builder()
 
 ## 7. Computation Graph Performance
 
-Computation graphs run as long-lived reactive pipelines separate from the workflow scheduler. Their performance characteristics differ from request-response workflows. Workflows are batch-oriented with database-backed state; computation graphs are streaming with in-memory state. Workflow tuning focuses on database throughput; CG tuning focuses on channel capacity and reactor latency.
+Computation graphs run as long-lived event-driven pipelines separate from the workflow scheduler. Their performance characteristics differ from request-response workflows. Workflows are batch-oriented with database-backed state; computation graphs are streaming with in-memory state. Workflow tuning focuses on database throughput; CG tuning focuses on channel capacity and reactor latency.
 
 ### Boundary channel capacity
 

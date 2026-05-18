@@ -139,7 +139,7 @@ cloacina-testing = { path = "../crates/cloacina-testing", features = ["continuou
 
 ### BoundaryEmitter
 
-Simulates detector output for testing continuous/reactive tasks. Produces a `Context` matching the format an accumulator's `drain()` would produce.
+Simulates detector output for testing continuous/event-driven tasks. Produces a `Context` matching the format an accumulator's `drain()` would produce.
 
 ```rust
 pub struct BoundaryEmitter { /* private */ }

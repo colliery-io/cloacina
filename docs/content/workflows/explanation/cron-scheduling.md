@@ -316,40 +316,8 @@ impl CronRecovery {
 
 ### Missed Execution Handling
 
-```rust
-impl CronScheduler {
-    async fn handle_missed_executions(&self) -> Result<(), CronError> {
-        let now = Utc::now();
-        let grace_period = Duration::minutes(5);
+<!-- TODO(DOC-E): rewrite this section to use the real `CatchupPolicy::Skip / CatchupPolicy::RunAll` enum from `crates/cloacina/src/models/schedule.rs`. The previous version invented a `MissedExecutionPolicy` type that does not exist in the codebase. The actual mechanics: per-schedule `catchup_policy` column on `cron_schedules`; cron recovery service inspects `last_executed_at` against `cron_expression` and either runs missed instances (`RunAll`) or skips to the next due time (`Skip`). See `crates/cloacina/src/cron_trigger_scheduler.rs:471-484` and `crates/cloacina/src/cron_recovery.rs:87-410`. -->
 
-        // Find schedules that should have executed but didn't
-        let missed = self.dal
-            .find_missed_schedules(now - grace_period)
-            .await?;
-
-        for schedule in missed {
-            // Decide whether to execute late or skip
-            match self.missed_execution_policy(&schedule) {
-                MissedExecutionPolicy::Execute => {
-                    // Execute immediately
-                    self.submit_immediate_execution(&schedule).await?;
-                },
-                MissedExecutionPolicy::Skip => {
-                    // Log and skip, update next execution time
-                    warn!("Skipping missed execution for schedule: {}", schedule.id);
-                    self.update_next_execution_time(&schedule).await?;
-                },
-                MissedExecutionPolicy::ExecuteWithDelay => {
-                    // Execute with a small delay to avoid system overload
-                    self.submit_delayed_execution(&schedule).await?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-```
 
 ## Cron Expression Parsing
 
@@ -463,72 +431,8 @@ fn calculate_next_with_dst_awareness(
 
 ## Distributed Execution
 
-### Leader Election
+<!-- TODO(DOC-E): rewrite this section to describe the real coordination mechanism. There is no `DistributedCronScheduler`, no `DistributedCronExecutor`, no `try_acquire_leader_lease`, no `renew_leader_lease`, no `select_executor_node` — these types and methods were fabricated in the previous version of this doc. Real coordination: multiple schedulers share work via atomic `claim_and_update` updates on `cron_schedules` rows (no leader election; any scheduler that wins the row owns that schedule's next firing). See `crates/cloacina/src/cron_trigger_scheduler.rs` and the "Guaranteed Execution Architecture" explanation doc. -->
 
-```rust
-impl DistributedCronScheduler {
-    async fn try_acquire_leadership(&self) -> Result<bool, CronError> {
-        let lease_duration = Duration::minutes(5);
-        let leader_id = self.node_id.clone();
-
-        // Atomic leadership acquisition
-        let acquired = self.dal.try_acquire_leader_lease(
-            &leader_id,
-            lease_duration
-        ).await?;
-
-        if acquired {
-            info!("Acquired cron scheduler leadership");
-            self.start_lease_renewal_task().await?;
-        }
-
-        Ok(acquired)
-    }
-
-    async fn renew_leadership(&self) -> Result<(), CronError> {
-        let lease_duration = Duration::minutes(5);
-
-        let renewed = self.dal.renew_leader_lease(
-            &self.node_id,
-            lease_duration
-        ).await?;
-
-        if !renewed {
-            warn!("Failed to renew leadership, stepping down");
-            self.step_down().await?;
-        }
-
-        Ok(())
-    }
-}
-```
-
-### Work Distribution
-
-```rust
-impl DistributedCronExecutor {
-    async fn distribute_execution(
-        &self,
-        execution: CronExecution
-    ) -> Result<(), CronError> {
-        // Find available executor nodes
-        let available_nodes = self.dal
-            .get_available_executor_nodes()
-            .await?;
-
-        if available_nodes.is_empty() {
-            // Execute locally
-            return self.execute_locally(execution).await;
-        }
-
-        // Select node based on load balancing strategy
-        let selected_node = self.select_executor_node(&available_nodes)?;
-
-        // Submit execution to selected node
-        self.submit_to_node(&selected_node, execution).await
-    }
-}
-```
 
 ## Performance Considerations
 
@@ -574,73 +478,8 @@ WHERE status = 'running' AND completion_time IS NULL;
 
 ## Monitoring and Observability
 
-### Metrics Collection
+<!-- TODO(DOC-E): replace this section. Previous content invented a `CronMetrics` struct with a `collect()` method and a `HealthStatus` enum — neither exists in the codebase. Actual cron observability is via the `cloacina_*` Prometheus metric namespace established in I-0099 and the SQL-derived `cloacina_active_tasks` gauge per I-0108. See `crates/cloacina-server/src/lib.rs:301-321` for emission sites and `docs/content/platform/reference/metrics-catalog.md` (created by DOC-H) for the full catalog. -->
 
-```rust
-#[derive(Debug, Clone)]
-pub struct CronMetrics {
-    pub total_schedules: u64,
-    pub active_schedules: u64,
-    pub executions_per_minute: f64,
-    pub average_execution_time: Duration,
-    pub failed_executions_rate: f64,
-    pub recovery_events: u64,
-}
-
-impl CronMetrics {
-    async fn collect(dal: &CronDal) -> Result<Self, CronError> {
-        let total_schedules = dal.count_total_schedules().await?;
-        let active_schedules = dal.count_active_schedules().await?;
-
-        let recent_window = Utc::now() - Duration::hours(1);
-        let recent_executions = dal
-            .count_executions_since(recent_window)
-            .await?;
-
-        let executions_per_minute = recent_executions as f64 / 60.0;
-
-        // Calculate other metrics...
-
-        Ok(CronMetrics {
-            total_schedules,
-            active_schedules,
-            executions_per_minute,
-            // ... other fields
-        })
-    }
-}
-```
-
-### Health Checks
-
-```rust
-pub async fn cron_health_check(scheduler: &CronScheduler) -> HealthStatus {
-    let mut issues = Vec::new();
-
-    // Check if scheduler is running
-    if !scheduler.is_running().await {
-        issues.push("Scheduler not running".to_string());
-    }
-
-    // Check for excessive missed executions
-    let missed_count = scheduler.count_missed_executions().await.unwrap_or(0);
-    if missed_count > 10 {
-        issues.push(format!("High missed execution count: {}", missed_count));
-    }
-
-    // Check for stalled executions
-    let stalled_count = scheduler.count_stalled_executions().await.unwrap_or(0);
-    if stalled_count > 5 {
-        issues.push(format!("Stalled executions detected: {}", stalled_count));
-    }
-
-    if issues.is_empty() {
-        HealthStatus::Healthy
-    } else {
-        HealthStatus::Unhealthy(issues)
-    }
-}
-```
 
 ## Best Practices
 

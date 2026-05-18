@@ -69,7 +69,7 @@ The `fidius_plugin_registry!()` macro exports the single C symbol `fidius_get_re
 
 ## Host Loading
 
-The host (cloacina-ctl and the runtime) loads plugins using `fidius_host::load_library()`:
+The host (cloacinactl and the runtime) loads plugins using `fidius_host::load_library()`:
 
 ```rust
 let handle = fidius_host::load_library::<dyn CloacinaPlugin>(path)?;

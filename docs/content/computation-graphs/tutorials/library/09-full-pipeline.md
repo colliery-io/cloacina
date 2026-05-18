@@ -1,10 +1,10 @@
 ---
-title: "09 - Full Reactive Pipeline"
+title: "09 - Full Multi-Source Pipeline"
 description: "Connect two accumulators to a single reactor and handle optional multi-source inputs in a computation graph"
 weight: 30
 ---
 
-In this tutorial you'll build a full reactive pipeline with two independent data sources — an order book feed and a pricing feed — both flowing into a single reactor. The graph fires whenever either source delivers new data, combining both into a trading signal.
+In this tutorial you'll build a full event-driven multi-source pipeline with two independent data sources — an order book feed and a pricing feed — both flowing into a single reactor. The graph fires whenever either source delivers new data, combining both into a trading signal.
 
 ## What you'll learn
 
@@ -317,7 +317,7 @@ Total fires: 4
 
 ## Summary
 
-You've built a full multi-source reactive pipeline:
+You've built a full event-driven multi-source pipeline:
 
 - Two accumulators share one boundary channel using `boundary_tx.clone()` for all but the last
 - Each accumulator uses its own `BoundarySender` with a distinct `SourceName`

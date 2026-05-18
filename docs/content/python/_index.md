@@ -19,7 +19,7 @@ pip install cloaca[postgres]    # PostgreSQL only
 ## Features
 
 - **Workflow orchestration** — Define tasks with `@task`, build workflows with `WorkflowBuilder`, execute with `DefaultRunner`
-- **Computation graphs** — Define reactive graphs with decorators, wire accumulators, push events
+- **Computation graphs** — Define event-driven graphs with decorators, wire accumulators, push events
 - **Multi-tenancy** — PostgreSQL schema isolation via `DatabaseAdmin`
 - **Cron scheduling** — Time-based workflow execution
 - **Event triggers** — Condition-based workflow firing

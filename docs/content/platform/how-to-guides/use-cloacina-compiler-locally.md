@@ -186,4 +186,4 @@ specific reconciler step (cron triggers / custom triggers / reactors
 - [`package!()` Macro Reference]({{< ref "/platform/reference/package-shell-macro" >}}) — what the cdylib actually exports.
 - [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — what happens when a package is loaded.
 - [CLI Reference]({{< ref "/platform/reference/cli" >}}) — full `cloacinactl package` flag list.
-- [Compiler Deployment Runbook](https://github.com/colliery-io/cloacina/blob/main/docs/operations/compiler-deployment.md) — running `cloacina-compiler` as a service.
+- [Compiler Deployment Runbook]({{< ref "/platform/how-to-guides/compiler-deployment-runbook" >}}) — running `cloacina-compiler` as a service.

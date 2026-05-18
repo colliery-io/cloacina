@@ -9,7 +9,7 @@ Cloacina's computation graph system is a graph scheduling engine built alongside
 
 ## Why a Separate System?
 
-The unified scheduler (cron + triggers) is designed for workloads where tasks are discrete, retryable units that can be distributed across many worker processes. It uses database claims, heartbeats, and polling as its coordination primitives. These characteristics are exactly what make it unsuitable for reactive workloads.
+The unified scheduler (cron + triggers) is designed for workloads where tasks are discrete, retryable units that can be distributed across many worker processes. It uses database claims, heartbeats, and polling as its coordination primitives. These characteristics are exactly what make it unsuitable for event-driven workloads.
 
 Consider a market-making system with three real-time data feeds: an order book, a pricing model, and a running exposure tracker. Each feed produces events continuously. A decision engine needs the latest value from all three every time any one changes. The decision does not fit the cron/trigger model:
 
@@ -108,7 +108,7 @@ loop {
 }
 ```
 
-The reactor is single-threaded within its loop — it does not execute the graph concurrently with receiving boundaries. This is deliberate: the `latest` input strategy collapses concurrent updates into one slot per source, so intermediate values that arrive during graph execution are captured for the next fire. Boundaries are not lost; they update the cache. This is the correct behavior for reactive workloads where stale intermediate states have no value.
+The reactor is single-threaded within its loop — it does not execute the graph concurrently with receiving boundaries. This is deliberate: the `latest` input strategy collapses concurrent updates into one slot per source, so intermediate values that arrive during graph execution are captured for the next fire. Boundaries are not lost; they update the cache. This is the correct behavior for event-driven workloads where stale intermediate states have no value.
 
 For workloads where every boundary must produce exactly one graph execution, the `sequential` input strategy preserves order.
 

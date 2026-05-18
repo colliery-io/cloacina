@@ -148,7 +148,7 @@ Additional resources:
 - [API Reference](https://docs.rs/cloacina) (Rust docs)
 - [Tutorials](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials)
 - [Feature Examples](https://github.com/colliery-io/cloacina/tree/main/examples/features)
-- [Compiler + Server Deployment Runbook](docs/operations/compiler-deployment.md)
+- [Compiler + Server Deployment Runbook](https://colliery-io.github.io/cloacina/platform/how-to-guides/compiler-deployment-runbook/)
 
 ## Contributing
 

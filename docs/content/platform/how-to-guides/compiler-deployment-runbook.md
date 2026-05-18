@@ -1,3 +1,9 @@
+---
+title: "Compiler + Server Deployment Runbook"
+description: "Long-form runbook for deploying the cloacina-server and cloacina-compiler pair across bare-metal, Docker Compose, and Kubernetes."
+weight: 60
+---
+
 # Compiler + Server Deployment Runbook
 
 Cloacina runs as two paired processes: `cloacina-server` (HTTP API +
@@ -7,6 +13,9 @@ through the shared database; no sidecar RPC, no leader election.
 This runbook covers how to deploy the pair in three environments —
 local bare-metal, Docker Compose, and Kubernetes — plus the config
 knobs you'll want to know about and the "a build is stuck" playbook.
+
+The short-form how-to is [`running-the-compiler.md`]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) — covers the threat model and vendor-curation
+posture. This runbook focuses on multi-process deploy mechanics.
 
 ## Why two binaries
 
@@ -72,47 +81,34 @@ docker compose -f deploy/docker-compose/cloacina.yml up -d
 docker compose -f deploy/docker-compose/cloacina-sqlite.yml up -d
 ```
 
-Image tags pin to `:latest` until the T-0501 release pipeline starts
-publishing versioned images to `ghcr.io/colliery-io`. Pin to a
-concrete tag in real deployments — `:latest` is a maintenance
-hazard, not a contract.
+Images are published to `ghcr.io/colliery-io/cloacina-server` and
+`ghcr.io/colliery-io/cloacina-compiler` on every release tag (per
+I-0111). Pin to a concrete tag in real deployments — `:latest` is
+a maintenance hazard, not a contract.
 
 Dockerfiles used by those images live in `deploy/docker/`:
 
 - `server.Dockerfile` — debian-slim runtime, no Rust toolchain.
+  Includes the `rdkafka` build deps (T-0609) so Kafka stream
+  accumulators work in containerized server deployments.
 - `compiler.Dockerfile` — `rust:1.85-bookworm` (toolchain included).
 
-## Kubernetes sketch
+## Kubernetes
 
-Not a Helm chart — that ships with T-0501. The topology is plain
-and the YAML is small:
+The official Helm chart for `cloacina-server` is published as an OCI
+artifact at `ghcr.io/colliery-io/charts/cloacina-server` (per T-0610,
+which embeds a local Postgres subchart so the chart no longer depends
+on the Bitnami `postgresql` chart). See
+[Deploying to Kubernetes (Helm)]({{< ref "/platform/how-to-guides/deploying-to-kubernetes" >}}) for the chart-driven install path.
 
-- **`StatefulSet` postgres** — one replica, PVC-backed.
-- **`Deployment` cloacina-server** — N replicas, HPA-friendly.
-  Stateless from the pod's perspective; all state lives in Postgres.
-- **`Deployment` cloacina-compiler** — N replicas. No leader
-  election — the atomic claim query handles coordination. Scale
-  with queue depth (pending + building).
+The Helm chart currently ships the server only — the compiler is not
+yet templated. For a server+compiler topology on K8s, layer your own
+`Deployment` for the compiler on top of the chart install. A minimal
+sketch:
 
 ```yaml
-# Server — trimmed, omit probes/resources for brevity
-apiVersion: apps/v1
-kind: Deployment
-metadata: { name: cloacina-server }
-spec:
-  replicas: 2
-  selector: { matchLabels: { app: cloacina-server } }
-  template:
-    metadata: { labels: { app: cloacina-server } }
-    spec:
-      containers:
-        - name: server
-          image: ghcr.io/colliery-io/cloacina-server:latest
-          args: ["--bind", "0.0.0.0:8080", "--database-url", "$(DATABASE_URL)"]
-          envFrom: [{ secretRef: { name: cloacina-db } }]
-          ports: [{ containerPort: 8080 }]
----
-# Compiler — structurally identical, no leader election needed
+# Server lifecycle is owned by the Helm chart; this is just the
+# compiler Deployment to lay on top.
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: cloacina-compiler }
@@ -139,6 +135,8 @@ Service with a round-robin endpoint if so.
 All tunables default to sensible values; adjust only when you have
 evidence the defaults are wrong.
 
+### Compiler
+
 | Flag | Default | Notes |
 |---|---|---|
 | `--poll-interval-ms` | `2000` | How often the build loop polls for pending rows. Lower = snappier pickup, more DB traffic. |
@@ -146,8 +144,47 @@ evidence the defaults are wrong.
 | `--stale-threshold-s` | `60` | If `build_claimed_at` is older than this, the sweeper resets the row to `pending`. Should be ≥ 3× `--heartbeat-interval-s`. |
 | `--sweep-interval-s` | `30` | How often the sweeper checks for stale rows. |
 | `--cargo-flag` | `build --release --lib` | Repeatable. Override for debug builds, custom features, etc. |
-| `--bind` | `127.0.0.1:9000` | Local `/health` + `/v1/status` endpoint. |
+| `--bind` | `127.0.0.1:9000` | Local `/health`, `/v1/status`, and `/metrics` endpoint. |
 | `tmp_root` (env / config) | `$CLOACINA_HOME/build-tmp` | Where source archives are unpacked during builds. |
+| `--log-retention-days` | `7` | Per I-0109; rotates compiler structured logs. |
+
+The compiler hardening flags from I-0104 (`--frozen --offline` cargo
+defaults, `setrlimit`-based resource limits, configurable per-build
+timeout) are documented in [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) — they're the security-relevant knobs and live with the
+threat model rather than here.
+
+### Server
+
+The server publishes `/metrics` on the same port as the API
+(unauthenticated, by design). Key deployment-relevant flags are
+documented in [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}) and the full set is in [CLI Reference]({{< ref "/platform/reference/cli" >}}).
+
+For signature enforcement, the server accepts `--require-signatures`
+and `--verification-org-id <UUID>` (per I-0103) to enforce
+fail-closed package-signature verification at the canonical load
+path; the dedicated `require-signed-packages` how-to is written by
+DOC-C of the CLOACI-I-0112 initiative.
+
+For tenant decommissioning, `DELETE /v1/tenants/{name}` performs the
+4-step teardown orchestration (revoke keys → evict runner cache →
+evict DB cache → drop schema) per I-0106 / T-0581, gated by
+`--tenant-deletion-drain-timeout-s`. The dedicated
+`decommission-a-tenant` how-to is written by DOC-C of the
+CLOACI-I-0112 initiative.
+
+## Observability
+
+Both `cloacina-server` and `cloacina-compiler` expose Prometheus
+metrics at `GET /metrics`. The full catalog of `cloacina_*` and
+`cloacina_compiler_*` metrics — with PromQL examples — lives in
+[Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}).
+
+Operationally useful at the compiler tier:
+
+- `cloacina_compiler_builds_total{status}` — build outcome counter.
+- `cloacina_compiler_queue_depth{state="queued"|"building"}` — SQL-derived gauge; cannot drift on crash.
+- `cloacina_compiler_sweep_resets_total` — stale builds reclaimed.
+  Sustained non-zero rate indicates worker crashes or hung builds.
 
 ## Playbook: "a build is stuck"
 
@@ -157,7 +194,7 @@ evidence the defaults are wrong.
 
 2. **Inspect** — `cloacinactl package inspect <id>` surfaces
    `build_status` and `build_error`. This hits the tenant route
-   `/tenants/{tenant}/workflows/{id}` which bypasses the
+   `/v1/tenants/{tenant}/workflows/{id}` which bypasses the
    success-only filter for UUIDs.
 
 3. **If `build_status = building`** — a compiler claimed it and
@@ -180,7 +217,14 @@ evidence the defaults are wrong.
 
 ## References
 
+- [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) — short-form how-to with threat model and vendor curation.
+- [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}) — server-specific deployment.
+- [Deploying to Kubernetes (Helm)]({{< ref "/platform/how-to-guides/deploying-to-kubernetes" >}}) — chart-driven install.
+- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — all `cloacina_*` and `cloacina_compiler_*` metrics.
 - **ADR-0004** — Compiler Service Architecture.
 - **CLOACI-I-0097** — The initiative that built this.
-- **CLOACI-S-0010** — Full spec: schema, state machine, claim
-  protocol, heartbeat, sweeper semantics.
+- **CLOACI-S-0010** — Full spec: schema, state machine, claim protocol, heartbeat, sweeper semantics.
+- **CLOACI-I-0104** — Compiler hardening Phase 1 (offline builds, resource limits, timeouts).
+- **CLOACI-I-0109** — Compiler `/metrics` endpoint and `--log-retention-days`.
+- **CLOACI-I-0111** — Distribution: install script, Docker image, Helm chart.
+- **CLOACI-T-0610** — Embedded Postgres subchart in the Helm chart.
