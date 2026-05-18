@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-15T17:49:28Z | 489 files | JavaScript, Python, Rust
+> Generated: 2026-05-18T13:02:44Z | 492 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -228,6 +228,7 @@
 │   │           │   ├── cron_basic.rs
 │   │           │   ├── dependency_resolution.rs
 │   │           │   ├── mod.rs
+│   │           │   ├── reactor_predicate.rs
 │   │           │   ├── stale_claims.rs
 │   │           │   └── trigger_rules.rs
 │   │           ├── signing/
@@ -465,6 +466,10 @@
 ├── examples/
 │   ├── features/
 │   │   ├── computation-graphs/
+│   │   │   ├── filtered-reactor/
+│   │   │   │   ├── build.rs
+│   │   │   │   └── src/
+│   │   │   │       └── main.rs
 │   │   │   ├── packaged-graph/
 │   │   │   │   ├── build.rs
 │   │   │   │   └── src/
@@ -1160,72 +1165,82 @@
 #### crates/cloacina/src/cron_trigger_scheduler.rs
 
 - pub `SchedulerConfig` struct L65-90 — `{ cron_poll_interval: Duration, max_catchup_executions: usize, max_acceptable_de...` — Configuration for the unified scheduler.
-- pub `Scheduler` struct L133-150 — `{ dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, config: SchedulerConfig, s...` — Unified scheduler for both cron and trigger-based workflow execution.
-- pub `new` function L160-178 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, config: SchedulerConfig, s...` — Creates a new unified scheduler.
-- pub `with_defaults` function L181-188 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, shutdown: watch::Receiver<...` — Creates a new unified scheduler with default configuration.
-- pub `run_polling_loop` function L202-268 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Runs the main polling loop.
-- pub `register_trigger` function L1053-1066 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<Schedule, Valid...` — Registers a trigger with the scheduler.
-- pub `disable_trigger` function L1069-1080 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
-- pub `enable_trigger` function L1083-1094 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
+- pub `Scheduler` struct L133-156 — `{ dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, config: SchedulerConfig, s...` — Unified scheduler for both cron and trigger-based workflow execution.
+- pub `new` function L171-190 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, config: SchedulerConfig, s...` — Creates a new unified scheduler.
+- pub `with_defaults` function L193-200 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, shutdown: watch::Receiver<...` — Creates a new unified scheduler with default configuration.
+- pub `run_polling_loop` function L214-280 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Runs the main polling loop.
+- pub `poll_reactor_subscriptions_once` function L875-877 — `(&self) -> Result<(), WorkflowExecutionError>` — Polls the `reactor_trigger_subscriptions` table and dispatches one
+- pub `register_trigger` function L1181-1194 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<Schedule, Valid...` — Registers a trigger with the scheduler.
+- pub `disable_trigger` function L1197-1208 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
+- pub `enable_trigger` function L1211-1222 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
 -  `SchedulerConfig` type L92-106 — `impl Default for SchedulerConfig` — ```
 -  `default` function L93-105 — `() -> Self` — ```
--  `Scheduler` type L152-1095 — `= Scheduler` — ```
--  `check_and_execute_cron_schedules` function L275-302 — `(&self) -> Result<(), WorkflowExecutionError>` — Checks for due cron schedules and executes them.
--  `process_cron_schedule` function L305-436 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<(), WorkflowExecut...` — Processes a single cron schedule using the saga pattern.
--  `is_cron_schedule_active` function L439-451 — `(&self, schedule: &Schedule, now: DateTime<Utc>) -> bool` — Checks if a cron schedule is within its active time window.
--  `calculate_execution_times` function L454-499 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<Utc>>...` — Calculates execution times based on the schedule's catchup policy.
--  `calculate_next_run` function L502-521 — `( &self, schedule: &Schedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc>, W...` — Calculates the next run time for a cron schedule.
--  `execute_cron_workflow` function L524-576 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the workflow executor.
--  `create_cron_execution_audit` function L579-600 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Creates an audit record for a cron execution.
--  `check_and_process_triggers` function L607-658 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Checks all enabled triggers and processes those that are due.
--  `process_trigger` function L661-785 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
--  `create_trigger_execution_audit` function L788-814 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
--  `execute_trigger_workflow` function L817-846 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the workflow executor.
--  `check_and_process_reactor_subscriptions` function L858-889 — `(&self) -> Result<(), WorkflowExecutionError>` — Polls the `reactor_trigger_subscriptions` table and dispatches one
--  `process_reactor_subscription` function L893-1005 — `( &self, sub: &crate::dal::unified::ReactorSubscription, ) -> Result<(), Workflo...` — Drain new firings for one subscription and dispatch each as a
--  `prune_reactor_firings` function L1012-1038 — `(&self)` — TTL prune of `reactor_firings` (CLOACI-I-0100 / T-0601).
--  `tests` module L1098-1410 — `-` — ```
--  `create_test_cron_schedule` function L1102-1123 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
--  `create_test_trigger_schedule` function L1125-1146 — `(trigger_name: &str) -> Schedule` — ```
--  `test_scheduler_config_default` function L1149-1166 — `()` — ```
--  `test_is_cron_schedule_active_no_window` function L1169-1189 — `()` — ```
--  `test_is_cron_schedule_active_with_start_date_future` function L1192-1202 — `()` — ```
--  `test_is_cron_schedule_active_with_end_date_past` function L1205-1215 — `()` — ```
--  `test_catchup_policy_from_schedule` function L1218-1223 — `()` — ```
--  `test_catchup_policy_run_all` function L1226-1232 — `()` — ```
--  `test_trigger_schedule_helpers` function L1235-1242 — `()` — ```
--  `test_trigger_schedule_trigger_name_fallback` function L1245-1257 — `()` — ```
--  `test_scheduler_config_custom` function L1264-1291 — `()` — ```
--  `test_scheduler_config_clone` function L1294-1305 — `()` — ```
--  `test_scheduler_config_debug` function L1308-1313 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_containing_now` function L1320-1331 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1334-1346 — `()` — ```
--  `test_catchup_policy_unknown_defaults_to_skip` function L1353-1356 — `()` — ```
--  `test_catchup_policy_none_defaults_to_skip` function L1359-1364 — `()` — ```
--  `test_catchup_policy_missing_defaults_correctly` function L1367-1373 — `()` — ```
--  `test_cron_schedule_helpers` function L1380-1387 — `()` — ```
--  `test_trigger_schedule_no_poll_interval` function L1390-1395 — `()` — ```
--  `test_trigger_schedule_allows_concurrent` function L1398-1402 — `()` — ```
--  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1405-1409 — `()` — ```
+-  `PredicateCache` type L160-161 — `= Arc<parking_lot::Mutex<HashMap<UniversalUuid, (String, Arc<cel_interpreter::Pr...` — CLOACI-T-0602 — alias to satisfy clippy::type_complexity on the
+-  `Scheduler` type L163-1223 — `= Scheduler` — ```
+-  `check_and_execute_cron_schedules` function L287-314 — `(&self) -> Result<(), WorkflowExecutionError>` — Checks for due cron schedules and executes them.
+-  `process_cron_schedule` function L317-448 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<(), WorkflowExecut...` — Processes a single cron schedule using the saga pattern.
+-  `is_cron_schedule_active` function L451-463 — `(&self, schedule: &Schedule, now: DateTime<Utc>) -> bool` — Checks if a cron schedule is within its active time window.
+-  `calculate_execution_times` function L466-511 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<Utc>>...` — Calculates execution times based on the schedule's catchup policy.
+-  `calculate_next_run` function L514-533 — `( &self, schedule: &Schedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc>, W...` — Calculates the next run time for a cron schedule.
+-  `execute_cron_workflow` function L536-588 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the workflow executor.
+-  `create_cron_execution_audit` function L591-612 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Creates an audit record for a cron execution.
+-  `check_and_process_triggers` function L619-670 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Checks all enabled triggers and processes those that are due.
+-  `process_trigger` function L673-797 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
+-  `create_trigger_execution_audit` function L800-826 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
+-  `execute_trigger_workflow` function L829-858 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the workflow executor.
+-  `check_and_process_reactor_subscriptions` function L879-910 — `(&self) -> Result<(), WorkflowExecutionError>` — ```
+-  `process_reactor_subscription` function L914-1088 — `( &self, sub: &crate::dal::unified::ReactorSubscription, ) -> Result<(), Workflo...` — Drain new firings for one subscription and dispatch each as a
+-  `evaluate_predicate` function L1109-1133 — `( &self, sub_id: UniversalUuid, expr: &str, context: &Context<serde_json::Value>...` — Evaluate a CEL predicate for a subscription firing
+-  `prune_reactor_firings` function L1140-1166 — `(&self)` — TTL prune of `reactor_firings` (CLOACI-I-0100 / T-0601).
+-  `eval_cel_predicate_program` function L1228-1260 — `( program: &cel_interpreter::Program, context: &Context<serde_json::Value>, ) ->...` — Evaluate a compiled CEL `Program` against a workflow context, returning
+-  `tests` module L1263-1642 — `-` — ```
+-  `create_test_cron_schedule` function L1267-1288 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
+-  `create_test_trigger_schedule` function L1290-1311 — `(trigger_name: &str) -> Schedule` — ```
+-  `test_scheduler_config_default` function L1314-1331 — `()` — ```
+-  `test_is_cron_schedule_active_no_window` function L1334-1354 — `()` — ```
+-  `test_is_cron_schedule_active_with_start_date_future` function L1357-1367 — `()` — ```
+-  `test_is_cron_schedule_active_with_end_date_past` function L1370-1380 — `()` — ```
+-  `test_catchup_policy_from_schedule` function L1383-1388 — `()` — ```
+-  `test_catchup_policy_run_all` function L1391-1397 — `()` — ```
+-  `test_trigger_schedule_helpers` function L1400-1407 — `()` — ```
+-  `test_trigger_schedule_trigger_name_fallback` function L1410-1422 — `()` — ```
+-  `test_scheduler_config_custom` function L1429-1456 — `()` — ```
+-  `test_scheduler_config_clone` function L1459-1470 — `()` — ```
+-  `test_scheduler_config_debug` function L1473-1478 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_containing_now` function L1485-1496 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1499-1511 — `()` — ```
+-  `test_catchup_policy_unknown_defaults_to_skip` function L1518-1521 — `()` — ```
+-  `test_catchup_policy_none_defaults_to_skip` function L1524-1529 — `()` — ```
+-  `test_catchup_policy_missing_defaults_correctly` function L1532-1538 — `()` — ```
+-  `test_cron_schedule_helpers` function L1545-1552 — `()` — ```
+-  `test_trigger_schedule_no_poll_interval` function L1555-1560 — `()` — ```
+-  `test_trigger_schedule_allows_concurrent` function L1563-1567 — `()` — ```
+-  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1570-1574 — `()` — ```
+-  `ctx_with_payload` function L1580-1586 — `(items: &[(&str, serde_json::Value)]) -> Context<serde_json::Value>` — ```
+-  `cel_predicate_true_when_payload_matches` function L1589-1599 — `()` — ```
+-  `cel_predicate_false_when_payload_does_not_match` function L1602-1606 — `()` — ```
+-  `cel_predicate_skips_bookkeeping_keys_from_payload` function L1609-1621 — `()` — ```
+-  `cel_predicate_non_bool_result_is_error` function L1624-1633 — `()` — ```
+-  `cel_compile_rejects_malformed_expressions` function L1636-1641 — `()` — ```
 
 #### crates/cloacina/src/error.rs
 
 - pub `ContextError` enum L132-153 — `Serialization | KeyNotFound | TypeMismatch | KeyExists | Database | ConnectionPo...` — Errors that can occur during context operations.
 - pub `RegistrationError` enum L175-184 — `DuplicateTaskId | InvalidTaskId | RegistrationFailed` — Errors that can occur during task registration.
-- pub `ValidationError` enum L191-249 — `CyclicDependency | MissingDependency | DuplicateTaskId | EmptyWorkflow | Invalid...` — Errors that can occur during Workflow and dependency validation.
-- pub `ExecutorError` enum L265-304 — `Database | ConnectionPool | TaskNotFound | TaskExecution | Context | TaskTimeout...` — Errors that can occur during task execution.
-- pub `WorkflowError` enum L316-340 — `DuplicateTask | TaskNotFound | InvalidDependency | CyclicDependency | Unreachabl...` — Errors that can occur during workflow construction and management.
-- pub `SubgraphError` enum L347-353 — `TaskNotFound | UnsupportedOperation` — Errors that can occur when creating Workflow subgraphs.
+- pub `ValidationError` enum L191-254 — `CyclicDependency | MissingDependency | DuplicateTaskId | EmptyWorkflow | Invalid...` — Errors that can occur during Workflow and dependency validation.
+- pub `ExecutorError` enum L270-309 — `Database | ConnectionPool | TaskNotFound | TaskExecution | Context | TaskTimeout...` — Errors that can occur during task execution.
+- pub `WorkflowError` enum L321-345 — `DuplicateTask | TaskNotFound | InvalidDependency | CyclicDependency | Unreachabl...` — Errors that can occur during workflow construction and management.
+- pub `SubgraphError` enum L352-358 — `TaskNotFound | UnsupportedOperation` — Errors that can occur when creating Workflow subgraphs.
 -  `ContextError` type L155-168 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
 -  `from` function L156-167 — `(err: cloacina_workflow::ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `ValidationError` type L251-255 — `= ValidationError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L252-254 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `ContextError` type L257-261 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L258-260 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `ExecutorError` type L306-310 — `= ExecutorError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L307-309 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `TaskError` type L356-379 — `= TaskError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L357-378 — `(error: ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `ValidationError` type L256-260 — `= ValidationError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L257-259 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `ContextError` type L262-266 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L263-265 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `ExecutorError` type L311-315 — `= ExecutorError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L312-314 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `TaskError` type L361-384 — `= TaskError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L362-383 — `(error: ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
 
 #### crates/cloacina/src/graph.rs
 
@@ -1739,33 +1754,33 @@
 #### crates/cloacina/src/dal/unified/reactor_subscriptions.rs
 
 - pub `ReactorFiring` struct L46-53 — `{ id: UniversalUuid, reactor_name: String, tenant_id: String, payload: Option<Un...` — One reactor firing event.
-- pub `ReactorSubscription` struct L57-66 — `{ id: UniversalUuid, reactor_name: String, workflow_name: String, tenant_id: Str...` — One subscription binding a workflow to a reactor's firings.
-- pub `ReactorSubscriptionsDAL` struct L70-72 — `{ dal: &'a DAL }` — Data access layer for reactor subscriptions + firings.
-- pub `new` function L75-77 — `(dal: &'a DAL) -> Self` — cron-triggered workflows).
-- pub `insert_firing` function L86-100 — `( &self, reactor: &str, tenant: &str, payload: Option<Vec<u8>>, fired_at: Univer...` — Insert a firing row.
-- pub `poll_unconsumed` function L177-191 — `( &self, tenant: &str, reactor: &str, after: Option<UniversalTimestamp>, limit: ...` — Poll firings for a subscription.
-- pub `prune_firings_older_than` function L263-272 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — TTL prune.
-- pub `subscribe` function L323-334 — `( &self, reactor: &str, workflow: &str, tenant: &str, ) -> Result<Uuid, Validati...` — Create a subscription.
-- pub `advance_watermark` function L435-447 — `( &self, subscription_id: Uuid, new_last_seen: UniversalTimestamp, ) -> Result<(...` — Advance the watermark for a subscription.
-- pub `unsubscribe` function L510-521 — `( &self, reactor: &str, workflow: &str, tenant: &str, ) -> Result<bool, Validati...` — Remove a subscription.
-- pub `list_all_enabled` function L587-593 — `(&self) -> Result<Vec<ReactorSubscription>, ValidationError>` — List all enabled subscriptions across every tenant.
-- pub `list_subscriptions` function L634-643 — `( &self, tenant: &str, ) -> Result<Vec<ReactorSubscription>, ValidationError>` — List enabled subscriptions for a tenant.
--  `insert_firing_postgres` function L103-136 — `( &self, reactor: &str, tenant: &str, payload: Option<Vec<u8>>, fired_at: Univer...` — cron-triggered workflows).
--  `insert_firing_sqlite` function L139-172 — `( &self, reactor: &str, tenant: &str, payload: Option<Vec<u8>>, fired_at: Univer...` — cron-triggered workflows).
--  `poll_unconsumed_postgres` function L194-225 — `( &self, tenant: &str, reactor: &str, after: Option<UniversalTimestamp>, limit: ...` — cron-triggered workflows).
--  `poll_unconsumed_sqlite` function L228-259 — `( &self, tenant: &str, reactor: &str, after: Option<UniversalTimestamp>, limit: ...` — cron-triggered workflows).
--  `prune_firings_older_than_postgres` function L275-293 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — cron-triggered workflows).
--  `prune_firings_older_than_sqlite` function L296-314 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — cron-triggered workflows).
--  `subscribe_postgres` function L337-378 — `( &self, reactor: &str, workflow: &str, tenant: &str, ) -> Result<Uuid, Validati...` — cron-triggered workflows).
--  `subscribe_sqlite` function L381-430 — `( &self, reactor: &str, workflow: &str, tenant: &str, ) -> Result<Uuid, Validati...` — cron-triggered workflows).
--  `advance_watermark_postgres` function L450-477 — `( &self, subscription_id: Uuid, new_last_seen: UniversalTimestamp, ) -> Result<(...` — cron-triggered workflows).
--  `advance_watermark_sqlite` function L480-507 — `( &self, subscription_id: Uuid, new_last_seen: UniversalTimestamp, ) -> Result<(...` — cron-triggered workflows).
--  `unsubscribe_postgres` function L524-552 — `( &self, reactor: &str, workflow: &str, tenant: &str, ) -> Result<bool, Validati...` — cron-triggered workflows).
--  `unsubscribe_sqlite` function L555-583 — `( &self, reactor: &str, workflow: &str, tenant: &str, ) -> Result<bool, Validati...` — cron-triggered workflows).
--  `list_all_enabled_postgres` function L596-612 — `(&self) -> Result<Vec<ReactorSubscription>, ValidationError>` — cron-triggered workflows).
--  `list_all_enabled_sqlite` function L615-631 — `(&self) -> Result<Vec<ReactorSubscription>, ValidationError>` — cron-triggered workflows).
--  `list_subscriptions_postgres` function L646-667 — `( &self, tenant: &str, ) -> Result<Vec<ReactorSubscription>, ValidationError>` — cron-triggered workflows).
--  `list_subscriptions_sqlite` function L670-691 — `( &self, tenant: &str, ) -> Result<Vec<ReactorSubscription>, ValidationError>` — cron-triggered workflows).
+- pub `ReactorSubscription` struct L57-71 — `{ id: UniversalUuid, reactor_name: String, workflow_name: String, tenant_id: Str...` — One subscription binding a workflow to a reactor's firings.
+- pub `ReactorSubscriptionsDAL` struct L75-77 — `{ dal: &'a DAL }` — Data access layer for reactor subscriptions + firings.
+- pub `new` function L80-82 — `(dal: &'a DAL) -> Self` — cron-triggered workflows).
+- pub `insert_firing` function L91-105 — `( &self, reactor: &str, tenant: &str, payload: Option<Vec<u8>>, fired_at: Univer...` — Insert a firing row.
+- pub `poll_unconsumed` function L182-196 — `( &self, tenant: &str, reactor: &str, after: Option<UniversalTimestamp>, limit: ...` — Poll firings for a subscription.
+- pub `prune_firings_older_than` function L268-277 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — TTL prune.
+- pub `subscribe` function L334-356 — `( &self, reactor: &str, workflow: &str, tenant: &str, predicate: Option<&str>, )...` — Create a subscription.
+- pub `advance_watermark` function L482-494 — `( &self, subscription_id: Uuid, new_last_seen: UniversalTimestamp, ) -> Result<(...` — Advance the watermark for a subscription.
+- pub `unsubscribe` function L557-568 — `( &self, reactor: &str, workflow: &str, tenant: &str, ) -> Result<bool, Validati...` — Remove a subscription.
+- pub `list_all_enabled` function L634-640 — `(&self) -> Result<Vec<ReactorSubscription>, ValidationError>` — List all enabled subscriptions across every tenant.
+- pub `list_subscriptions` function L681-690 — `( &self, tenant: &str, ) -> Result<Vec<ReactorSubscription>, ValidationError>` — List enabled subscriptions for a tenant.
+-  `insert_firing_postgres` function L108-141 — `( &self, reactor: &str, tenant: &str, payload: Option<Vec<u8>>, fired_at: Univer...` — cron-triggered workflows).
+-  `insert_firing_sqlite` function L144-177 — `( &self, reactor: &str, tenant: &str, payload: Option<Vec<u8>>, fired_at: Univer...` — cron-triggered workflows).
+-  `poll_unconsumed_postgres` function L199-230 — `( &self, tenant: &str, reactor: &str, after: Option<UniversalTimestamp>, limit: ...` — cron-triggered workflows).
+-  `poll_unconsumed_sqlite` function L233-264 — `( &self, tenant: &str, reactor: &str, after: Option<UniversalTimestamp>, limit: ...` — cron-triggered workflows).
+-  `prune_firings_older_than_postgres` function L280-298 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — cron-triggered workflows).
+-  `prune_firings_older_than_sqlite` function L301-319 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — cron-triggered workflows).
+-  `subscribe_postgres` function L359-407 — `( &self, reactor: &str, workflow: &str, tenant: &str, predicate: Option<String>,...` — cron-triggered workflows).
+-  `subscribe_sqlite` function L410-477 — `( &self, reactor: &str, workflow: &str, tenant: &str, predicate: Option<String>,...` — cron-triggered workflows).
+-  `advance_watermark_postgres` function L497-524 — `( &self, subscription_id: Uuid, new_last_seen: UniversalTimestamp, ) -> Result<(...` — cron-triggered workflows).
+-  `advance_watermark_sqlite` function L527-554 — `( &self, subscription_id: Uuid, new_last_seen: UniversalTimestamp, ) -> Result<(...` — cron-triggered workflows).
+-  `unsubscribe_postgres` function L571-599 — `( &self, reactor: &str, workflow: &str, tenant: &str, ) -> Result<bool, Validati...` — cron-triggered workflows).
+-  `unsubscribe_sqlite` function L602-630 — `( &self, reactor: &str, workflow: &str, tenant: &str, ) -> Result<bool, Validati...` — cron-triggered workflows).
+-  `list_all_enabled_postgres` function L643-659 — `(&self) -> Result<Vec<ReactorSubscription>, ValidationError>` — cron-triggered workflows).
+-  `list_all_enabled_sqlite` function L662-678 — `(&self) -> Result<Vec<ReactorSubscription>, ValidationError>` — cron-triggered workflows).
+-  `list_subscriptions_postgres` function L693-714 — `( &self, tenant: &str, ) -> Result<Vec<ReactorSubscription>, ValidationError>` — cron-triggered workflows).
+-  `list_subscriptions_sqlite` function L717-738 — `( &self, tenant: &str, ) -> Result<Vec<ReactorSubscription>, ValidationError>` — cron-triggered workflows).
 
 #### crates/cloacina/src/dal/unified/recovery_event.rs
 
@@ -2280,12 +2295,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L1122-1124 — `-`
-- pub `postgres` module L1130-1132 — `-`
-- pub `sqlite` module L1135-1137 — `-`
--  `unified_schema` module L25-437 — `-`
--  `postgres_schema` module L446-820 — `-`
--  `sqlite_schema` module L823-1117 — `-`
+- pub `unified` module L1126-1128 — `-`
+- pub `postgres` module L1134-1136 — `-`
+- pub `sqlite` module L1139-1141 — `-`
+-  `unified_schema` module L25-441 — `-`
+-  `postgres_schema` module L450-824 — `-`
+-  `sqlite_schema` module L827-1121 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -2423,40 +2438,41 @@
 
 #### crates/cloacina/src/database/connection/mod.rs
 
-- pub `DatabaseError` enum L83-103 — `PoolCreation | InvalidUrl | Schema | Migration` — Errors that can occur during database operations.
-- pub `set_strict_search_path` function L121-123 — `(enabled: bool)` — Set the process-wide strict-search-path flag.
-- pub `is_strict_search_path` function L126-128 — `() -> bool` — Read the process-wide strict-search-path flag.
-- pub `Database` struct L172-179 — `{ pool: AnyPool, backend: BackendType, schema: Option<String> }` — Represents a pool of database connections.
-- pub `new` function L207-209 — `(connection_string: &str, database_name: &str, max_size: u32) -> Self` — Creates a new database connection pool with automatic backend detection.
-- pub `new_with_schema` function L227-235 — `( connection_string: &str, database_name: &str, max_size: u32, schema: Option<&s...` — Creates a new database connection pool with optional schema support.
-- pub `try_new_with_schema` function L253-369 — `( connection_string: &str, _database_name: &str, max_size: u32, schema: Option<&...` — Creates a new database connection pool with optional schema support.
-- pub `backend` function L372-374 — `(&self) -> BackendType` — Returns the detected backend type.
-- pub `schema` function L377-379 — `(&self) -> Option<&str>` — Returns the schema name if set.
-- pub `pool` function L382-384 — `(&self) -> AnyPool` — Returns a clone of the connection pool.
-- pub `get_connection` function L387-389 — `(&self) -> AnyPool` — Alias for `pool()` for backward compatibility.
-- pub `close` function L405-408 — `(&self)` — Closes the connection pool, releasing all database connections.
-- pub `run_migrations` function L430-505 — `(&self) -> Result<(), String>` — Runs pending database migrations for the appropriate backend.
-- pub `setup_schema` function L517-569 — `(&self, schema: &str) -> Result<(), String>` — Sets up the PostgreSQL schema for multi-tenant isolation.
-- pub `get_connection_with_schema` function L579-714 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection with the schema search path set.
-- pub `get_postgres_connection` function L720-727 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection.
-- pub `get_sqlite_connection` function L733-761 — `( &self, ) -> Result< deadpool::managed::Object<SqliteManager>, deadpool::manage...` — Gets a SQLite connection.
+- pub `DatabaseError` enum L87-107 — `PoolCreation | InvalidUrl | Schema | Migration` — Errors that can occur during database operations.
+- pub `set_strict_search_path` function L125-127 — `(enabled: bool)` — Set the process-wide strict-search-path flag.
+- pub `is_strict_search_path` function L130-132 — `() -> bool` — Read the process-wide strict-search-path flag.
+- pub `Database` struct L176-190 — `{ pool: AnyPool, backend: BackendType, schema: Option<String>, _memory_tempfile:...` — Represents a pool of database connections.
+- pub `new` function L218-220 — `(connection_string: &str, database_name: &str, max_size: u32) -> Self` — Creates a new database connection pool with automatic backend detection.
+- pub `new_with_schema` function L238-246 — `( connection_string: &str, database_name: &str, max_size: u32, schema: Option<&s...` — Creates a new database connection pool with optional schema support.
+- pub `try_new_with_schema` function L264-388 — `( connection_string: &str, _database_name: &str, max_size: u32, schema: Option<&...` — Creates a new database connection pool with optional schema support.
+- pub `backend` function L391-393 — `(&self) -> BackendType` — Returns the detected backend type.
+- pub `schema` function L396-398 — `(&self) -> Option<&str>` — Returns the schema name if set.
+- pub `pool` function L401-403 — `(&self) -> AnyPool` — Returns a clone of the connection pool.
+- pub `get_connection` function L406-408 — `(&self) -> AnyPool` — Alias for `pool()` for backward compatibility.
+- pub `close` function L424-427 — `(&self)` — Closes the connection pool, releasing all database connections.
+- pub `run_migrations` function L492-567 — `(&self) -> Result<(), String>` — Runs pending database migrations for the appropriate backend.
+- pub `setup_schema` function L579-631 — `(&self, schema: &str) -> Result<(), String>` — Sets up the PostgreSQL schema for multi-tenant isolation.
+- pub `get_connection_with_schema` function L641-776 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection with the schema search path set.
+- pub `get_postgres_connection` function L782-789 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection.
+- pub `get_sqlite_connection` function L795-823 — `( &self, ) -> Result< deadpool::managed::Object<SqliteManager>, deadpool::manage...` — Gets a SQLite connection.
 -  `backend` module L51 — `-` — Database connection management module supporting both PostgreSQL and SQLite.
 -  `schema_validation` module L52 — `-` — ```
--  `STRICT_SEARCH_PATH` variable L116-117 — `: std::sync::atomic::AtomicBool` — Process-wide strict-search-path flag.
--  `CurrentSchemaRow` struct L135-138 — `{ s: Option<String> }` — Row shape for the `SELECT current_schema()` defense-in-depth probe.
--  `search_path_pool_error` function L144-159 — `( tenant_schema: &str, cause: &str, ) -> deadpool::managed::PoolError<deadpool_d...` — Construct a `PoolError::Backend` carrying a CLOACI-T-0582 search_path
--  `Database` type L181-189 — `= Database` — ```
--  `fmt` function L182-188 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
--  `Database` type L191-762 — `= Database` — ```
--  `build_postgres_url` function L411-415 — `(base_url: &str, database_name: &str) -> Result<String, url::ParseError>` — Builds a PostgreSQL connection URL.
--  `build_sqlite_url` function L418-425 — `(connection_string: &str) -> String` — Builds a SQLite connection URL.
--  `tests` module L765-911 — `-` — ```
--  `strict_search_path_default_off` function L778-785 — `()` — ```
--  `strict_search_path_set_round_trip` function L788-795 — `()` — ```
--  `search_path_pool_error_carries_tenant_and_cause` function L799-815 — `()` — ```
--  `test_postgres_url_parsing_scenarios` function L818-842 — `()` — ```
--  `test_sqlite_connection_strings` function L845-861 — `()` — ```
--  `test_backend_type_detection` function L864-910 — `()` — ```
+-  `STRICT_SEARCH_PATH` variable L120-121 — `: std::sync::atomic::AtomicBool` — Process-wide strict-search-path flag.
+-  `CurrentSchemaRow` struct L139-142 — `{ s: Option<String> }` — Row shape for the `SELECT current_schema()` defense-in-depth probe.
+-  `search_path_pool_error` function L148-163 — `( tenant_schema: &str, cause: &str, ) -> deadpool::managed::PoolError<deadpool_d...` — Construct a `PoolError::Backend` carrying a CLOACI-T-0582 search_path
+-  `Database` type L192-200 — `= Database` — ```
+-  `fmt` function L193-199 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
+-  `Database` type L202-824 — `= Database` — ```
+-  `build_postgres_url` function L430-434 — `(base_url: &str, database_name: &str) -> Result<String, url::ParseError>` — Builds a PostgreSQL connection URL.
+-  `materialize_sqlite_connection` function L454-487 — `( connection_string: &str, ) -> Result<(String, Option<Arc<NamedTempFile>>), Dat...` — Resolve a SQLite connection string into (url, optional tempfile owner).
+-  `tests` module L827-1001 — `-` — ```
+-  `strict_search_path_default_off` function L840-847 — `()` — ```
+-  `strict_search_path_set_round_trip` function L850-857 — `()` — ```
+-  `search_path_pool_error_carries_tenant_and_cause` function L861-877 — `()` — ```
+-  `test_postgres_url_parsing_scenarios` function L880-904 — `()` — ```
+-  `test_sqlite_connection_strings_passthrough` function L908-923 — `()` — ```
+-  `test_sqlite_memory_substitutes_tempfile` function L927-951 — `()` — ```
+-  `test_backend_type_detection` function L954-1000 — `()` — ```
 
 #### crates/cloacina/src/database/connection/schema_validation.rs
 
@@ -3708,11 +3724,11 @@
 
 #### crates/cloacina/src/runner/default_runner/reactor_subscriptions_api.rs
 
-- pub `subscribe_workflow_to_reactor` function L53-70 — `( &self, reactor: &str, workflow: &str, tenant: Option<&str>, ) -> Result<Uuid, ...` — Subscribe a workflow to a reactor's firings.
-- pub `unsubscribe_workflow_from_reactor` function L74-91 — `( &self, reactor: &str, workflow: &str, tenant: Option<&str>, ) -> Result<bool, ...` — Remove a workflow-to-reactor subscription.
-- pub `list_reactor_subscriptions` function L94-109 — `( &self, tenant: Option<&str>, ) -> Result<Vec<ReactorSubscription>, WorkflowExe...` — List enabled reactor subscriptions for a tenant.
+- pub `subscribe_workflow_to_reactor` function L75-93 — `( &self, reactor: &str, workflow: &str, tenant: Option<&str>, predicate: Option<...` — Subscribe a workflow to a reactor's firings.
+- pub `unsubscribe_workflow_from_reactor` function L97-114 — `( &self, reactor: &str, workflow: &str, tenant: Option<&str>, ) -> Result<bool, ...` — Remove a workflow-to-reactor subscription.
+- pub `list_reactor_subscriptions` function L117-132 — `( &self, tenant: Option<&str>, ) -> Result<Vec<ReactorSubscription>, WorkflowExe...` — List enabled reactor subscriptions for a tenant.
 -  `DEFAULT_TENANT` variable L35 — `: &str` — Default tenant used when the caller passes `None`.
--  `DefaultRunner` type L37-110 — `= DefaultRunner` — callback (`@trigger(reactor=...)`) is a follow-up surface.
+-  `DefaultRunner` type L37-133 — `= DefaultRunner` — callback (`@trigger(reactor=...)`) is a follow-up surface.
 
 #### crates/cloacina/src/runner/default_runner/service_manager.rs
 
@@ -4788,6 +4804,8 @@
 -  `test_at_least_once_on_crash_simulates_redelivery` function L223-257 — `()` — At-least-once on crash: when the dispatcher does not advance the
 -  `test_ttl_prune_removes_old_firings_and_documents_gotcha` function L265-312 — `()` — TTL prune deletes old firings.
 -  `test_subscribe_is_idempotent` function L319-344 — `()` — `subscribe` is idempotent on the unique `(reactor, workflow,
+-  `test_subscribe_rejects_invalid_cel_predicate` function L353-379 — `()` — Bad CEL is rejected at subscribe time, before any DB row is written.
+-  `test_subscribe_persists_predicate_and_upserts_on_re_subscribe` function L385-448 — `()` — Valid CEL persists, and re-subscribe upserts the predicate so the
 
 #### crates/cloacina/tests/integration/dal/reconciler_e2e_load.rs
 
@@ -5081,9 +5099,30 @@
 -  `basic_scheduling` module L17 — `-`
 -  `cron_basic` module L18 — `-`
 -  `dependency_resolution` module L20 — `-`
--  `recovery` module L21 — `-`
+-  `reactor_predicate` module L21 — `-`
 -  `stale_claims` module L22 — `-`
 -  `trigger_rules` module L23 — `-`
+
+#### crates/cloacina/tests/integration/scheduler/reactor_predicate.rs
+
+-  `RecordingExecutor` struct L58-66 — `{ calls: Mutex<Vec<(String, Option<serde_json::Value>)>>, inner_runner: Mutex<Op...` — Stub executor that records every `execute_async` call.
+-  `RecordingExecutor` type L68-84 — `= RecordingExecutor` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `snapshot` function L69-71 — `(&self) -> Vec<(String, Option<serde_json::Value>)>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `set_inner` function L73-75 — `(&self, runner: DefaultRunner)` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `inner` function L77-83 — `(&self) -> DefaultRunner` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `RecordingExecutor` type L87-154 — `impl WorkflowExecutor for RecordingExecutor` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `execute` function L88-94 — `( &self, _workflow_name: &str, _context: Context<serde_json::Value>, ) -> Result...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `execute_async` function L96-111 — `( &self, workflow_name: &str, context: Context<serde_json::Value>, ) -> Result<W...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `get_execution_status` function L113-118 — `( &self, _execution_id: Uuid, ) -> Result<WorkflowStatus, WorkflowExecutionError...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `get_execution_result` function L119-124 — `( &self, _execution_id: Uuid, ) -> Result<WorkflowExecutionResult, WorkflowExecu...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `cancel_execution` function L125-127 — `(&self, _execution_id: Uuid) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `pause_execution` function L128-134 — `( &self, _execution_id: Uuid, _reason: Option<&str>, ) -> Result<(), WorkflowExe...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `resume_execution` function L135-137 — `(&self, _execution_id: Uuid) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `execute_with_callback` function L138-145 — `( &self, _workflow_name: &str, _context: Context<serde_json::Value>, _callback: ...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `list_executions` function L146-150 — `( &self, ) -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `shutdown` function L151-153 — `(&self) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `build_firing_payload` function L159-164 — `(source: &str, value: serde_json::Value) -> Vec<u8>` — Build a `(source -> JSON-encoded bytes)` map into the bincode form
+-  `test_predicate_filters_dispatch_and_advances_watermark_for_skips` function L176-314 — `()` — End-to-end: subscribe with a CEL filter, insert two firings (one
 
 #### crates/cloacina/tests/integration/scheduler/stale_claims.rs
 
@@ -5779,86 +5818,86 @@
 #### crates/cloacina-python/src/bindings/runner.rs
 
 - pub `ShutdownError` enum L34-46 — `ChannelClosed | ThreadPanic | Timeout` — Errors that can occur during async runtime shutdown
-- pub `PyWorkflowResult` struct L250-252 — `{ inner: cloacina::executor::WorkflowExecutionResult }` — Python wrapper for WorkflowExecutionResult
-- pub `status` function L257-259 — `(&self) -> String`
-- pub `start_time` function L262-264 — `(&self) -> String`
-- pub `end_time` function L267-269 — `(&self) -> Option<String>`
-- pub `final_context` function L272-275 — `(&self) -> PyContext`
-- pub `error_message` function L278-280 — `(&self) -> Option<&str>`
-- pub `__repr__` function L282-288 — `(&self) -> String`
-- pub `from_result` function L292-294 — `(result: cloacina::executor::WorkflowExecutionResult) -> Self`
-- pub `PyDefaultRunner` struct L787-789 — `{ runtime_handle: Mutex<AsyncRuntimeHandle> }` — Python wrapper for DefaultRunner
-- pub `new` function L822-839 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
-- pub `with_config` function L843-859 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
-- pub `with_schema` function L870-904 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `execute` function L907-921 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyW...` — Execute a workflow by name with context
-- pub `shutdown` function L924-940 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
-- pub `register_cron_workflow` function L955-970 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
-- pub `list_cron_schedules` function L978-998 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
-- pub `set_cron_schedule_enabled` function L1001-1014 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
-- pub `delete_cron_schedule` function L1017-1024 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
-- pub `get_cron_schedule` function L1027-1036 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
-- pub `update_cron_schedule` function L1039-1054 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
-- pub `get_cron_execution_history` function L1057-1081 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
-- pub `get_cron_execution_stats` function L1087-1110 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
-- pub `list_trigger_schedules` function L1118-1138 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
-- pub `get_trigger_schedule` function L1141-1157 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
-- pub `set_trigger_enabled` function L1160-1173 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
-- pub `get_trigger_execution_history` function L1177-1201 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
-- pub `subscribe_workflow_to_reactor` function L1222-1242 — `( &self, reactor: String, workflow: String, tenant: Option<String>, py: Python, ...` — Subscribe a workflow to a reactor's firings.
-- pub `unsubscribe_workflow_from_reactor` function L1249-1269 — `( &self, reactor: String, workflow: String, tenant: Option<String>, py: Python, ...` — Remove a workflow-to-reactor subscription.
-- pub `list_reactor_subscriptions` function L1273-1292 — `( &self, tenant: Option<String>, py: Python, ) -> PyResult<Vec<PyObject>>` — List enabled reactor subscriptions for a tenant.
-- pub `__repr__` function L1298-1300 — `(&self) -> String`
-- pub `__enter__` function L1302-1304 — `(slf: PyRef<Self>) -> PyRef<Self>`
-- pub `__exit__` function L1306-1315 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...`
+- pub `PyWorkflowResult` struct L252-254 — `{ inner: cloacina::executor::WorkflowExecutionResult }` — Python wrapper for WorkflowExecutionResult
+- pub `status` function L259-261 — `(&self) -> String`
+- pub `start_time` function L264-266 — `(&self) -> String`
+- pub `end_time` function L269-271 — `(&self) -> Option<String>`
+- pub `final_context` function L274-277 — `(&self) -> PyContext`
+- pub `error_message` function L280-282 — `(&self) -> Option<&str>`
+- pub `__repr__` function L284-290 — `(&self) -> String`
+- pub `from_result` function L294-296 — `(result: cloacina::executor::WorkflowExecutionResult) -> Self`
+- pub `PyDefaultRunner` struct L795-797 — `{ runtime_handle: Mutex<AsyncRuntimeHandle> }` — Python wrapper for DefaultRunner
+- pub `new` function L830-847 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
+- pub `with_config` function L851-867 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
+- pub `with_schema` function L878-912 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `execute` function L915-929 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyW...` — Execute a workflow by name with context
+- pub `shutdown` function L932-948 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
+- pub `register_cron_workflow` function L963-978 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
+- pub `list_cron_schedules` function L986-1006 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
+- pub `set_cron_schedule_enabled` function L1009-1022 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
+- pub `delete_cron_schedule` function L1025-1032 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
+- pub `get_cron_schedule` function L1035-1044 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
+- pub `update_cron_schedule` function L1047-1062 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
+- pub `get_cron_execution_history` function L1065-1089 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
+- pub `get_cron_execution_stats` function L1095-1118 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
+- pub `list_trigger_schedules` function L1126-1146 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
+- pub `get_trigger_schedule` function L1149-1165 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
+- pub `set_trigger_enabled` function L1168-1181 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
+- pub `get_trigger_execution_history` function L1185-1209 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
+- pub `subscribe_workflow_to_reactor` function L1251-1273 — `( &self, reactor: String, workflow: String, tenant: Option<String>, when: Option...` — Subscribe a workflow to a reactor's firings.
+- pub `unsubscribe_workflow_from_reactor` function L1280-1300 — `( &self, reactor: String, workflow: String, tenant: Option<String>, py: Python, ...` — Remove a workflow-to-reactor subscription.
+- pub `list_reactor_subscriptions` function L1304-1323 — `( &self, tenant: Option<String>, py: Python, ) -> PyResult<Vec<PyObject>>` — List enabled reactor subscriptions for a tenant.
+- pub `__repr__` function L1329-1331 — `(&self) -> String`
+- pub `__enter__` function L1333-1335 — `(slf: PyRef<Self>) -> PyRef<Self>`
+- pub `__exit__` function L1337-1346 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...`
 -  `SHUTDOWN_TIMEOUT` variable L30 — `: Duration` — Timeout for waiting on runtime thread shutdown
--  `RuntimeMessage` enum L49-180 — `Execute | RegisterCronWorkflow | ListCronSchedules | SetCronScheduleEnabled | De...` — Message types for communication with the async runtime thread
--  `AsyncRuntimeHandle` struct L183-186 — `{ tx: mpsc::UnboundedSender<RuntimeMessage>, thread_handle: Option<thread::JoinH...` — Handle to the background async runtime thread
--  `AsyncRuntimeHandle` type L188-238 — `= AsyncRuntimeHandle`
--  `shutdown` function L190-237 — `(&mut self) -> Result<(), ShutdownError>` — Shutdown the runtime thread and wait for it to complete
--  `AsyncRuntimeHandle` type L240-246 — `impl Drop for AsyncRuntimeHandle`
--  `drop` function L241-245 — `(&mut self)`
--  `PyWorkflowResult` type L255-289 — `= PyWorkflowResult`
--  `PyWorkflowResult` type L291-295 — `= PyWorkflowResult`
--  `parse_schedule_id` function L302-316 — `( schedule_id: &str, ) -> Result< cloacina::database::universal_types::Universal...` — Parse a schedule ID string into a UniversalUuid.
--  `schedule_to_cron_dict` function L319-341 — `( schedule: cloacina::models::schedule::Schedule, py: Python, ) -> PyResult<PyOb...` — Convert a cron Schedule to a Python dict.
--  `schedule_to_trigger_dict` function L344-362 — `( schedule: cloacina::models::schedule::Schedule, py: Python, ) -> PyResult<PyOb...` — Convert a trigger Schedule to a Python dict.
--  `reactor_subscription_to_dict` function L365-382 — `( sub: cloacina::dal::unified::ReactorSubscription, py: Python, ) -> PyResult<Py...` — Convert a ReactorSubscription to a Python dict (CLOACI-I-0100 / T-0600).
--  `cron_execution_to_dict` function L385-404 — `( execution: cloacina::models::schedule::ScheduleExecution, py: Python, ) -> PyR...` — Convert a cron ScheduleExecution to a Python dict.
--  `trigger_execution_to_dict` function L407-426 — `( execution: cloacina::models::schedule::ScheduleExecution, py: Python, ) -> PyR...` — Convert a trigger ScheduleExecution to a Python dict.
--  `run_event_loop` function L431-716 — `( runner: Arc<cloacina::DefaultRunner>, mut rx: mpsc::UnboundedReceiver<RuntimeM...` — The single event loop that dispatches RuntimeMessages to the DefaultRunner.
--  `spawn_runtime` function L723-779 — `(create_runner: F) -> PyResult<PyDefaultRunner>` — Spawn a background thread running a Tokio runtime with a DefaultRunner
--  `PyDefaultRunner` type L792-816 — `= PyDefaultRunner` — Internal (non-Python) helpers.
--  `send_and_recv` function L796-815 — `( &self, message: RuntimeMessage, response_rx: oneshot::Receiver<Result<T, cloac...` — Send a message to the runtime thread and block until a response arrives.
--  `PyDefaultRunner` type L819-1316 — `= PyDefaultRunner`
--  `tests` module L1320-1810 — `-`
--  `unique_sqlite_url` function L1324-1329 — `() -> String`
--  `test_runner_repr` function L1333-1340 — `()`
--  `test_runner_shutdown` function L1344-1350 — `()`
--  `test_runner_context_manager` function L1354-1366 — `()`
--  `test_runner_list_cron_schedules_empty` function L1370-1380 — `()`
--  `test_runner_list_trigger_schedules_empty` function L1384-1394 — `()`
--  `test_runner_get_trigger_schedule_not_found` function L1398-1407 — `()`
--  `test_runner_register_cron_workflow` function L1411-1428 — `()`
--  `test_runner_list_cron_schedules_after_register` function L1432-1452 — `()`
--  `test_runner_get_cron_schedule` function L1456-1476 — `()`
--  `test_runner_set_cron_schedule_enabled` function L1480-1502 — `()`
--  `test_runner_delete_cron_schedule` function L1506-1528 — `()`
--  `test_runner_update_cron_schedule` function L1532-1556 — `()`
--  `test_runner_get_cron_execution_history_empty` function L1560-1580 — `()`
--  `test_runner_get_cron_execution_stats` function L1584-1596 — `()`
--  `test_runner_set_cron_schedule_enabled_invalid_id` function L1600-1609 — `()`
--  `test_runner_set_trigger_enabled` function L1613-1622 — `()`
--  `test_runner_get_trigger_execution_history` function L1626-1636 — `()`
--  `test_workflow_result_completed` function L1640-1671 — `()`
--  `test_workflow_result_failed` function L1675-1694 — `()`
--  `test_runner_execute_nonexistent_workflow` function L1698-1711 — `()`
--  `test_runner_get_cron_execution_stats_invalid_date` function L1722-1731 — `()`
--  `test_runner_list_cron_schedules_enabled_only` function L1735-1764 — `()`
--  `test_with_schema_rejects_sqlite` function L1770-1774 — `()`
--  `test_with_schema_rejects_empty_schema` function L1778-1785 — `()`
--  `test_with_schema_rejects_invalid_chars` function L1789-1796 — `()`
--  `test_shutdown_error_display` function L1800-1809 — `()`
+-  `RuntimeMessage` enum L49-182 — `Execute | RegisterCronWorkflow | ListCronSchedules | SetCronScheduleEnabled | De...` — Message types for communication with the async runtime thread
+-  `AsyncRuntimeHandle` struct L185-188 — `{ tx: mpsc::UnboundedSender<RuntimeMessage>, thread_handle: Option<thread::JoinH...` — Handle to the background async runtime thread
+-  `AsyncRuntimeHandle` type L190-240 — `= AsyncRuntimeHandle`
+-  `shutdown` function L192-239 — `(&mut self) -> Result<(), ShutdownError>` — Shutdown the runtime thread and wait for it to complete
+-  `AsyncRuntimeHandle` type L242-248 — `impl Drop for AsyncRuntimeHandle`
+-  `drop` function L243-247 — `(&mut self)`
+-  `PyWorkflowResult` type L257-291 — `= PyWorkflowResult`
+-  `PyWorkflowResult` type L293-297 — `= PyWorkflowResult`
+-  `parse_schedule_id` function L304-318 — `( schedule_id: &str, ) -> Result< cloacina::database::universal_types::Universal...` — Parse a schedule ID string into a UniversalUuid.
+-  `schedule_to_cron_dict` function L321-343 — `( schedule: cloacina::models::schedule::Schedule, py: Python, ) -> PyResult<PyOb...` — Convert a cron Schedule to a Python dict.
+-  `schedule_to_trigger_dict` function L346-364 — `( schedule: cloacina::models::schedule::Schedule, py: Python, ) -> PyResult<PyOb...` — Convert a trigger Schedule to a Python dict.
+-  `reactor_subscription_to_dict` function L367-384 — `( sub: cloacina::dal::unified::ReactorSubscription, py: Python, ) -> PyResult<Py...` — Convert a ReactorSubscription to a Python dict (CLOACI-I-0100 / T-0600).
+-  `cron_execution_to_dict` function L387-406 — `( execution: cloacina::models::schedule::ScheduleExecution, py: Python, ) -> PyR...` — Convert a cron ScheduleExecution to a Python dict.
+-  `trigger_execution_to_dict` function L409-428 — `( execution: cloacina::models::schedule::ScheduleExecution, py: Python, ) -> PyR...` — Convert a trigger ScheduleExecution to a Python dict.
+-  `run_event_loop` function L433-724 — `( runner: Arc<cloacina::DefaultRunner>, mut rx: mpsc::UnboundedReceiver<RuntimeM...` — The single event loop that dispatches RuntimeMessages to the DefaultRunner.
+-  `spawn_runtime` function L731-787 — `(create_runner: F) -> PyResult<PyDefaultRunner>` — Spawn a background thread running a Tokio runtime with a DefaultRunner
+-  `PyDefaultRunner` type L800-824 — `= PyDefaultRunner` — Internal (non-Python) helpers.
+-  `send_and_recv` function L804-823 — `( &self, message: RuntimeMessage, response_rx: oneshot::Receiver<Result<T, cloac...` — Send a message to the runtime thread and block until a response arrives.
+-  `PyDefaultRunner` type L827-1347 — `= PyDefaultRunner`
+-  `tests` module L1351-1841 — `-`
+-  `unique_sqlite_url` function L1355-1360 — `() -> String`
+-  `test_runner_repr` function L1364-1371 — `()`
+-  `test_runner_shutdown` function L1375-1381 — `()`
+-  `test_runner_context_manager` function L1385-1397 — `()`
+-  `test_runner_list_cron_schedules_empty` function L1401-1411 — `()`
+-  `test_runner_list_trigger_schedules_empty` function L1415-1425 — `()`
+-  `test_runner_get_trigger_schedule_not_found` function L1429-1438 — `()`
+-  `test_runner_register_cron_workflow` function L1442-1459 — `()`
+-  `test_runner_list_cron_schedules_after_register` function L1463-1483 — `()`
+-  `test_runner_get_cron_schedule` function L1487-1507 — `()`
+-  `test_runner_set_cron_schedule_enabled` function L1511-1533 — `()`
+-  `test_runner_delete_cron_schedule` function L1537-1559 — `()`
+-  `test_runner_update_cron_schedule` function L1563-1587 — `()`
+-  `test_runner_get_cron_execution_history_empty` function L1591-1611 — `()`
+-  `test_runner_get_cron_execution_stats` function L1615-1627 — `()`
+-  `test_runner_set_cron_schedule_enabled_invalid_id` function L1631-1640 — `()`
+-  `test_runner_set_trigger_enabled` function L1644-1653 — `()`
+-  `test_runner_get_trigger_execution_history` function L1657-1667 — `()`
+-  `test_workflow_result_completed` function L1671-1702 — `()`
+-  `test_workflow_result_failed` function L1706-1725 — `()`
+-  `test_runner_execute_nonexistent_workflow` function L1729-1742 — `()`
+-  `test_runner_get_cron_execution_stats_invalid_date` function L1753-1762 — `()`
+-  `test_runner_list_cron_schedules_enabled_only` function L1766-1795 — `()`
+-  `test_with_schema_rejects_sqlite` function L1801-1805 — `()`
+-  `test_with_schema_rejects_empty_schema` function L1809-1816 — `()`
+-  `test_with_schema_rejects_invalid_chars` function L1820-1827 — `()`
+-  `test_shutdown_error_display` function L1831-1840 — `()`
 
 #### crates/cloacina-python/src/bindings/trigger.rs
 
@@ -9605,6 +9644,25 @@
 -  `y` function L2 — `function y(e)`
 -  `z` function L2 — `function z(e,t)`
 
+### examples/features/computation-graphs/filtered-reactor
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/features/computation-graphs/filtered-reactor/build.rs
+
+-  `main` function L1-3 — `()`
+
+### examples/features/computation-graphs/filtered-reactor/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/features/computation-graphs/filtered-reactor/src/main.rs
+
+- pub `alert_workflow` module L58-74 — `-` — ```
+- pub `emit_alert` function L62-73 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — ```
+-  `build_firing_payload` function L84-89 — `(source: &str, value: serde_json::Value) -> Vec<u8>` — Build a `(source -> JSON-encoded bytes)` map into the bincode form
+-  `main` function L96-179 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
+
 ### examples/features/computation-graphs/packaged-graph
 
 > *Semantic summary to be generated by AI agent.*
@@ -9762,59 +9820,35 @@
 
 #### examples/features/workflows/event-triggers/src/main.rs
 
-- pub `file_processing_workflow` module L62-133 — `-` — ```
-- pub `validate_file` function L67-86 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Validates and parses an incoming file.
-- pub `process_file` function L90-111 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Processes the validated file data.
-- pub `archive_file` function L115-132 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Archives the processed file.
-- pub `queue_processing_workflow` module L143-216 — `-` — ```
-- pub `drain_queue` function L148-171 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Drains messages from the queue.
-- pub `process_messages` function L175-193 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Processes the drained messages.
-- pub `ack_messages` function L197-215 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Acknowledges processed messages.
-- pub `service_recovery_workflow` module L226-337 — `-` — ```
-- pub `diagnose_failure` function L231-257 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Diagnoses the service failure.
-- pub `restart_service` function L261-280 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Attempts to restart the service.
-- pub `verify_recovery` function L284-306 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Verifies service health after restart.
-- pub `notify_incident` function L310-336 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Sends notification about the incident.
--  `triggers` module L50 — `-` — ```
--  `main` function L340-412 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
--  `register_triggers` function L415-430 — `()` — Register triggers in the global trigger registry.
--  `register_trigger_schedules` function L433-497 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
+- pub `file_processing_workflow` module L63-134 — `-` — ```
+- pub `validate_file` function L68-87 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Validates and parses an incoming file.
+- pub `process_file` function L91-112 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Processes the validated file data.
+- pub `archive_file` function L116-133 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Archives the processed file.
+- pub `queue_processing_workflow` module L144-217 — `-` — ```
+- pub `drain_queue` function L149-172 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Drains messages from the queue.
+- pub `process_messages` function L176-194 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Processes the drained messages.
+- pub `ack_messages` function L198-216 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Acknowledges processed messages.
+- pub `service_recovery_workflow` module L227-338 — `-` — ```
+- pub `diagnose_failure` function L232-258 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Diagnoses the service failure.
+- pub `restart_service` function L262-281 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Attempts to restart the service.
+- pub `verify_recovery` function L285-307 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Verifies service health after restart.
+- pub `notify_incident` function L311-337 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Sends notification about the incident.
+-  `triggers` module L53 — `-` — ```
+-  `main` function L341-414 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
+-  `register_trigger_schedules` function L422-454 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Persist a `schedules` row for each trigger so the unified scheduler
 
 #### examples/features/workflows/event-triggers/src/triggers.rs
 
-- pub `FileWatcherTrigger` struct L54-58 — `{ name: String, poll_interval: Duration, watch_path: String }` — A trigger that polls for new files in a simulated directory.
-- pub `new` function L62-68 — `(name: &str, watch_path: &str, poll_interval: Duration) -> Self` — Creates a new file watcher trigger.
-- pub `QueueDepthTrigger` struct L144-149 — `{ name: String, poll_interval: Duration, queue_name: String, threshold: usize }` — A trigger that fires when a queue exceeds a depth threshold.
-- pub `new` function L153-160 — `(name: &str, queue_name: &str, threshold: usize, poll_interval: Duration) -> Sel...` — Creates a new queue depth trigger.
-- pub `HealthCheckTrigger` struct L231-237 — `{ name: String, poll_interval: Duration, service_name: String, consecutive_failu...` — A trigger that fires when a service becomes unhealthy.
-- pub `new` function L241-254 — `( name: &str, service_name: &str, failure_threshold: usize, poll_interval: Durat...` — Creates a new health check trigger.
-- pub `create_file_watcher_trigger` function L340-346 — `() -> FileWatcherTrigger` — Creates the file watcher trigger for the file processing workflow.
-- pub `create_queue_depth_trigger` function L349-356 — `() -> QueueDepthTrigger` — Creates the queue depth trigger for the queue processing workflow.
-- pub `create_health_check_trigger` function L359-366 — `() -> HealthCheckTrigger` — Creates the health check trigger for the recovery workflow.
--  `FILE_COUNTER` variable L37 — `: AtomicUsize` — Counter for simulating file arrivals
--  `QUEUE_DEPTH` variable L40 — `: AtomicUsize` — Counter for simulating queue depth
--  `SERVICE_HEALTHY` variable L43 — `: std::sync::atomic::AtomicBool` — Flag for simulating service health
--  `FileWatcherTrigger` type L60-91 — `= FileWatcherTrigger` — 3.
--  `check_for_new_files` function L72-90 — `(&self) -> Option<String>` — Simulates checking for new files.
--  `FileWatcherTrigger` type L94-133 — `impl Trigger for FileWatcherTrigger` — 3.
--  `name` function L95-97 — `(&self) -> &str` — 3.
--  `poll_interval` function L99-101 — `(&self) -> Duration` — 3.
--  `allow_concurrent` function L103-106 — `(&self) -> bool` — 3.
--  `poll` function L108-132 — `(&self) -> Result<TriggerResult, TriggerError>` — 3.
--  `QueueDepthTrigger` type L151-175 — `= QueueDepthTrigger` — 3.
--  `get_queue_depth` function L164-174 — `(&self) -> usize` — Simulates checking queue depth.
--  `QueueDepthTrigger` type L178-220 — `impl Trigger for QueueDepthTrigger` — 3.
--  `name` function L179-181 — `(&self) -> &str` — 3.
--  `poll_interval` function L183-185 — `(&self) -> Duration` — 3.
--  `allow_concurrent` function L187-190 — `(&self) -> bool` — 3.
--  `poll` function L192-219 — `(&self) -> Result<TriggerResult, TriggerError>` — 3.
--  `HealthCheckTrigger` type L239-265 — `= HealthCheckTrigger` — 3.
--  `check_service_health` function L258-264 — `(&self) -> bool` — Simulates checking service health.
--  `HealthCheckTrigger` type L268-333 — `impl Trigger for HealthCheckTrigger` — 3.
--  `name` function L269-271 — `(&self) -> &str` — 3.
--  `poll_interval` function L273-275 — `(&self) -> Duration` — 3.
--  `allow_concurrent` function L277-280 — `(&self) -> bool` — 3.
--  `poll` function L282-332 — `(&self) -> Result<TriggerResult, TriggerError>` — 3.
+-  `FILE_POLL_COUNTER` variable L55 — `: AtomicUsize` — Pseudo-counter for the file watcher's poll loop.
+-  `QUEUE_TICK` variable L58 — `: AtomicUsize` — Pseudo-counter for the queue depth simulation.
+-  `QUEUE_DEPTH` variable L61 — `: AtomicUsize` — Latest queue depth — exposed for log output, not strictly needed.
+-  `SERVICE_HEALTHY` variable L65 — `: AtomicBool` — Synthetic service-health state.
+-  `HEALTH_FAILURE_STREAK` variable L69 — `: AtomicUsize` — Consecutive-failure counter for the health check.
+-  `QUEUE_THRESHOLD` variable L81 — `: usize` — Synthetic queue threshold — fire `process_queue_workflow` whenever the
+-  `HEALTH_FAILURE_THRESHOLD` variable L85 — `: usize` — Synthetic health-check threshold — fire `alert_workflow` after this
+-  `file_watcher` function L101-132 — `() -> Result<TriggerResult, TriggerError>` — consecutive simulated failures.
+-  `queue_monitor` function L148-181 — `() -> Result<TriggerResult, TriggerError>` — consecutive simulated failures.
+-  `service_health` function L197-245 — `() -> Result<TriggerResult, TriggerError>` — consecutive simulated failures.
 
 ### examples/features/workflows/multi-tenant
 

@@ -7,7 +7,7 @@ created_at: 2026-04-04T11:45:19.834595+00:00
 updated_at: 2026-04-04T11:45:19.834595+00:00
 parent: CLOACI-I-0053
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#specification"
@@ -19,6 +19,21 @@ initiative_id: NULL
 ---
 
 # Continuous Reactive Scheduling — Core Architecture
+
+> **⚠️ SUPERSEDED by [[CLOACI-S-0011]] (Cloacina primitive nomenclature).**
+> This spec's vocabulary (`ContinuousScheduler`, `ComputationBoundary`,
+> `DataSourceGraph`, `SignalAccumulator`, `LedgerTrigger`, etc.) was
+> drafted before the implementation locked names. What shipped instead
+> uses the canonical primitive set: **Reactor**, **Accumulator** (with
+> `polling_accumulator` / `stream_accumulator` / `batch_accumulator` /
+> `passthrough_accumulator` macros), **#[computation_graph]**, and the
+> reactor's firing path is the in-process equivalent of the
+> "continuous scheduler" loop sketched here. The end-to-end product
+> exists and works (see I-0100 for the DB-backed fan-out and the
+> reactor lifecycle), it just landed under different names. Treat the
+> body below as **historical context for the design phase, not a spec
+> of what the system does today**. CLOACI-S-0011 is the authoritative
+> nomenclature.
 
 ## Overview
 

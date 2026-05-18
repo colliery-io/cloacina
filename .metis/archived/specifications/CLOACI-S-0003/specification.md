@@ -7,7 +7,7 @@ created_at: 2026-04-04T11:45:21.677610+00:00
 updated_at: 2026-04-04T11:45:21.677610+00:00
 parent: CLOACI-I-0053
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#specification"
@@ -19,6 +19,16 @@ initiative_id: NULL
 ---
 
 # Continuous Task Execution Model
+
+> **⚠️ SUPERSEDED by [[CLOACI-S-0011]] (Cloacina primitive nomenclature).**
+> This spec describes the "continuous task" execution model in the
+> pre-rename vocabulary (`ContinuousTaskResult`, `__boundaries`,
+> `execution_mode=spawn_blocking`, etc.). The shipped equivalent is the
+> `#[computation_graph]` macro's task-firing path, with reactor
+> dispatch handled through I-0100's DB-backed fan-out plus T-0602's
+> CEL predicate filter. Keep this for design-history context — the
+> shape it sketches mostly survived, just under different names —
+> but treat CLOACI-S-0011 as the authoritative nomenclature.
 
 ## Overview
 
