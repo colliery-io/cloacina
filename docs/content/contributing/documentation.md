@@ -3,7 +3,7 @@ title: "Documentation"
 description: "How to write and maintain Cloacina documentation"
 weight: 61
 reviewer: "dstorey"
-review_date: "2024-03-19"
+review_date: "2026-05-18"
 ---
 
 
@@ -11,11 +11,26 @@ This guide provides practical information about writing and maintaining document
 
 ## Documentation Structure
 
-Our documentation follows the [Diátaxis Framework](https://diataxis.fr/) and is organized into:
-- `docs/content/tutorials/` - Step-by-step guides and examples that teach Cloacina features
-- `docs/content/how-to/` - Task-oriented guides for specific operations
-- `docs/content/reference/` - Technical reference and API documentation
-- `docs/content/explanation/` - Conceptual documentation and deep dives
+Our documentation follows the [Diátaxis Framework](https://diataxis.fr/) but the structure is **feature-area first, then quadrant** — not the canonical Diataxis "tutorials / how-to / reference / explanation at the top level". Each feature area gets its own Diataxis tree:
+
+- `docs/content/workflows/{tutorials,how-to-guides,reference,explanation}/` — Workflow surface (the DB-backed DAG primitive).
+- `docs/content/computation-graphs/{tutorials,how-to-guides,reference,explanation}/` — Computation graph surface (the in-process event-driven DAG primitive).
+- `docs/content/platform/{tutorials,how-to-guides,reference,explanation}/` — Operational surface (CLI, server, daemon, multi-tenant, packaging, security).
+- `docs/content/python/{workflows,computation-graphs}/{tutorials,how-to-guides,reference,explanation}/` + `docs/content/python/api-reference/` — Python-side mirrors of the same split.
+
+Top-level cross-cutting docs live at:
+
+- `docs/content/_index.md` — Site landing.
+- `docs/content/quick-start/` — Navigation hub + `cloacinactl` install.
+- `docs/content/glossary.md` — Every term in one place.
+- `docs/content/troubleshooting.md` — Common problems, including platform-spanning issues.
+- `docs/content/contributing/` — This section.
+
+When adding a new doc, decide first which feature area it belongs to, then which quadrant within that area. If a doc spans feature areas, it lives at the most relevant area and the others cross-link to it.
+
+### Nomenclature compliance
+
+All docs must comply with [`CLOACI-S-0011`](https://github.com/colliery-io/cloacina/blob/main/.metis/specifications/CLOACI-S-0011/specification.md). In particular: never use `reactive scheduler` / `reactive computation graph` / `reactive subsystem`. Use `reactor`, `computation graph`, and `traversal` per spec.
 
 ## Writing Guidelines
 
@@ -75,10 +90,12 @@ These links will automatically stay up-to-date with the API documentation.
 
 ## Tools and Resources
 
-- Use the Hugo development server to preview documentation changes:
+- Use the angreal task to preview documentation changes:
   ```bash
-  hugo server -D
+  angreal docs serve
   ```
+  (which wraps `hugo server -D` with the project's configured theme and shortcodes — prefer this over raw `hugo` so theme + shortcode resolution match CI).
+- Use `angreal docs build` to validate the site builds without broken cross-links before opening a PR.
 - Check the [Hugo documentation](https://gohugo.io/documentation/) for markdown syntax and shortcodes
 - Review existing documentation for style and format consistency
 

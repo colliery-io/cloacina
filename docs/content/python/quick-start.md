@@ -284,18 +284,18 @@ def robust_task(context):
 
 Now that you have a working workflow, explore more advanced features:
 
-{{< button relref="/python/tutorials/workflows/" >}}📚 Follow Tutorials{{< /button >}}
-{{< button relref="/python/examples/" >}}💡 See More Examples{{< /button >}}
+{{< button relref="/python/workflows/tutorials/" >}}📚 Follow Tutorials{{< /button >}}
+{{< button relref="/python/workflows/tutorials/" >}}💡 See More Examples{{< /button >}}
 {{< button relref="/python/api-reference/" >}}📖 API Reference{{< /button >}}
 
 ### Recommended Learning Path
 
-1. **[Tutorial 01: First Python Workflow]({{< ref "/python/tutorials/workflows/01-first-python-workflow/" >}})** - Deep dive into workflow basics
-2. **[Tutorial 02: Context Handling]({{< ref "/python/tutorials/workflows/02-context-handling/" >}})** - Master data passing between tasks
-3. **[Tutorial 03: Complex Workflows]({{< ref "/python/tutorials/workflows/03-complex-workflows/" >}})** - Build sophisticated dependency patterns
-4. **[Tutorial 04: Error Handling]({{< ref "/python/tutorials/workflows/04-error-handling/" >}})** - Build resilient workflows
-5. **[Tutorial 05: Cron Scheduling]({{< ref "/python/tutorials/workflows/05-cron-scheduling/" >}})** - Automate workflow execution
-6. **[Tutorial 06: Multi-Tenancy]({{< ref "/python/tutorials/workflows/06-multi-tenancy/" >}})** - Deploy isolated tenant workflows
+1. **[Tutorial 01: First Python Workflow]({{< ref "/python/workflows/tutorials/01-first-python-workflow/" >}})** - Deep dive into workflow basics
+2. **[Tutorial 02: Context Handling]({{< ref "/python/workflows/tutorials/02-context-handling/" >}})** - Master data passing between tasks
+3. **[Tutorial 03: Complex Workflows]({{< ref "/python/workflows/tutorials/03-complex-workflows/" >}})** - Build sophisticated dependency patterns
+4. **[Tutorial 04: Error Handling]({{< ref "/python/workflows/tutorials/04-error-handling/" >}})** - Build resilient workflows
+5. **[Tutorial 05: Cron Scheduling]({{< ref "/python/workflows/tutorials/05-cron-scheduling/" >}})** - Automate workflow execution
+6. **[Tutorial 06: Multi-Tenancy]({{< ref "/python/workflows/tutorials/06-multi-tenancy/" >}})** - Deploy isolated tenant workflows
 
 ### Common Next Tasks
 

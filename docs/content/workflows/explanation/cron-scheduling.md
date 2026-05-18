@@ -316,7 +316,17 @@ impl CronRecovery {
 
 ### Missed Execution Handling
 
-<!-- TODO(DOC-E): rewrite this section to use the real `CatchupPolicy::Skip / CatchupPolicy::RunAll` enum from `crates/cloacina/src/models/schedule.rs`. The previous version invented a `MissedExecutionPolicy` type that does not exist in the codebase. The actual mechanics: per-schedule `catchup_policy` column on `cron_schedules`; cron recovery service inspects `last_executed_at` against `cron_expression` and either runs missed instances (`RunAll`) or skips to the next due time (`Skip`). See `crates/cloacina/src/cron_trigger_scheduler.rs:471-484` and `crates/cloacina/src/cron_recovery.rs:87-410`. -->
+When a scheduler starts after downtime and finds firings whose `next_execution_at` has already passed, the per-schedule `catchup_policy` column on `cron_schedules` decides what happens. Two values are defined in `crates/cloacina/src/models/schedule.rs`:
+
+| `CatchupPolicy` | Behavior |
+|---|---|
+| `Skip` | Roll `next_execution_at` forward to the next future firing; the missed firings are dropped. Default for newly-registered schedules — appropriate when a missed firing has no value (e.g., dashboard refresh, hourly aggregation whose inputs have already advanced). |
+| `RunAll` | Replay every missed firing in order, bounded by `cron_max_catchup_executions` on `DefaultRunnerConfig`. Appropriate when each firing is independently durable work (e.g., per-hour reports that must each emit). |
+
+The cron recovery service (`crates/cloacina/src/cron_recovery.rs`) inspects `last_executed_at` against the cron expression and applies the policy on each recovery tick (cadence: `cron_recovery_interval`, default 5min). Set the policy at schedule-registration time via the DAL — the field is not currently exposed on `register_cron_workflow` and is set during direct row insert.
+
+See [Configuration Reference]({{< ref "/platform/reference/configuration" >}}) for the related knobs:
+`cron_max_catchup_executions` (default unbounded), `cron_recovery_interval` (default 5min), `cron_max_recovery_age` (default 24h), `cron_max_recovery_attempts` (default 3).
 
 
 ## Cron Expression Parsing
@@ -431,7 +441,13 @@ fn calculate_next_with_dst_awareness(
 
 ## Distributed Execution
 
-<!-- TODO(DOC-E): rewrite this section to describe the real coordination mechanism. There is no `DistributedCronScheduler`, no `DistributedCronExecutor`, no `try_acquire_leader_lease`, no `renew_leader_lease`, no `select_executor_node` — these types and methods were fabricated in the previous version of this doc. Real coordination: multiple schedulers share work via atomic `claim_and_update` updates on `cron_schedules` rows (no leader election; any scheduler that wins the row owns that schedule's next firing). See `crates/cloacina/src/cron_trigger_scheduler.rs` and the "Guaranteed Execution Architecture" explanation doc. -->
+Multiple `cloacina-server` instances can run against the same database with no coordinator and no leader election. The mechanism is the same database-as-coordination pattern used elsewhere in Cloacina: each scheduler tick attempts an **atomic `claim_and_update` UPDATE** on `cron_schedules` rows whose `next_execution_at` has passed. Postgres `FOR UPDATE SKIP LOCKED` (and SQLite's transactional equivalent) ensures exactly one scheduler wins the row per firing — the winner advances `next_execution_at` and dispatches the workflow; losers move on without contention.
+
+Because there's no lease and no leader, **failover is trivial**: if a scheduler crashes mid-firing, the row's `last_claim_at` ages past `stale_claim_threshold` and the next scheduler tick reclaims it. The two-phase commit pattern (see [Guaranteed Execution Architecture]({{< ref "guaranteed-execution-architecture" >}})) ensures the dispatch is idempotent — a re-claim re-issues the firing without duplicating downstream work.
+
+Scaling shape: add or remove `cloacina-server` replicas at will. Each replica polls independently; the atomic claim is the only coordination primitive. There is no membership protocol, no quorum, no broker.
+
+See `crates/cloacina/src/cron_trigger_scheduler.rs` for the claim implementation and [Horizontal Scaling]({{< ref "/platform/explanation/horizontal-scaling" >}}) for the analogous task-level mechanism.
 
 
 ## Performance Considerations
@@ -478,7 +494,16 @@ WHERE status = 'running' AND completion_time IS NULL;
 
 ## Monitoring and Observability
 
-<!-- TODO(DOC-E): replace this section. Previous content invented a `CronMetrics` struct with a `collect()` method and a `HealthStatus` enum — neither exists in the codebase. Actual cron observability is via the `cloacina_*` Prometheus metric namespace established in I-0099 and the SQL-derived `cloacina_active_tasks` gauge per I-0108. See `crates/cloacina-server/src/lib.rs:301-321` for emission sites and `docs/content/platform/reference/metrics-catalog.md` (created by DOC-H) for the full catalog. -->
+Cron observability rides the same `cloacina_*` Prometheus metric namespace as the rest of the system (CLOACI-I-0099). There is no separate `CronMetrics` struct; cron firings are workflow executions, so the workflow-level counters cover them naturally.
+
+Operationally relevant metrics for cron:
+
+- **`cloacina_workflows_total{status, reason}`** — workflow executions, including those triggered by cron. Compare cron-driven volume to expected cadence to detect missed firings.
+- **`cloacina_active_workflows`** — SQL-derived gauge (CLOACI-I-0108) showing workflows in `Pending` or `Running` state right now. A persistently-high value alongside high cron cadence indicates the executor is falling behind.
+- **`cloacina_scheduler_claim_attempts_total{outcome=claimed|contended|empty}`** — diagnostic for multi-scheduler deployments. Sustained `contended` ≫ 0 means multiple schedulers are racing for the same rows (expected at low scale; tune `cron_poll_interval` down if it becomes load).
+- **`cloacina_scheduler_stale_claims_swept_total`** — non-zero rate indicates a scheduler crashed mid-firing and the sweep reclaimed its row. Investigate scheduler logs for the affected window.
+
+For the full namespace + PromQL recipes, see [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}). For the rationale behind the SQL-derived gauge model (why `cloacina_active_workflows` is leak-proof across crashes), see [Observability]({{< ref "/platform/explanation/observability" >}}).
 
 
 ## Best Practices
@@ -555,6 +580,6 @@ impl CronExecutor {
 ## See Also
 
 - [Cron Scheduling Tutorial]({{< ref "/workflows/tutorials/service/05-cron-scheduling/" >}}) - Practical implementation guide
-- [Python Cron Tutorial]({{< ref "/python/tutorials/workflows/05-cron-scheduling/" >}}) - Python-specific examples
+- [Python Cron Tutorial]({{< ref "/python/workflows/tutorials/05-cron-scheduling/" >}}) - Python-specific examples
 - [Multi-Tenant Setup Guide]({{< ref "/workflows/how-to-guides/multi-tenant-setup/" >}}) - Deployment best practices
 - [Guaranteed Execution Architecture]({{< ref "/workflows/explanation/guaranteed-execution-architecture/" >}}) - Overall execution guarantees

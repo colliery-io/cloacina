@@ -165,38 +165,52 @@ implementation details lives in [HTTP API Reference → Operational
 Caveats]({{< ref "/platform/reference/http-api" >}}#operational-caveats);
 the deployment-relevant summary follows.
 
-### 1. Workflow execution scheduling is NOT tenant-scoped
+### 1. Per-tenant execution is now the default (post-I-0106)
 
-`POST /v1/tenants/{id}/workflows/{name}/execute` runs through a
-single global `DefaultRunner`. Executions land in the runner's
-schema (typically `public`), not the tenant's. In multi-tenant
-deployments this is a real isolation gap.
+> **Updated for CLOACI-I-0106 + T-0580.** This section previously
+> documented "Workflow execution scheduling is NOT tenant-scoped" as
+> an isolation gap. **That gap is closed.** Each tenant now has its
+> own `DefaultRunner` instance (own scheduler loop, executor pool,
+> per-tenant DB connection pool), cached in `TenantRunnerCache` up to
+> `--tenant-runner-cache-size` (default 256). Workflow execution
+> lands in the tenant's schema, not in `public`.
 
-**Mitigations:**
-- Run a separate `cloacina-server` per tenant if compliance
-  requires strict isolation. Each server gets its own database
-  (or schema for the runner's home) and its own runner.
-- For low-isolation use cases (internal multi-tenancy, dev/stage),
-  document the gap and proceed.
+**Knobs you may want to tune:**
+- `--tenant-runner-cache-size` (default 256): the LRU cap on cached
+  per-tenant runners. Bump for high-cardinality SaaS deployments;
+  drop for memory-tight ones. Each cached runner has its own
+  scheduler loop and DB pool — count accordingly when sizing your
+  Postgres `max_connections`.
+- For CPU/memory side-channel isolation (which Cloacina does **not**
+  provide between tenants on the same host), run a separate
+  `cloacina-server` per tenant. Schema isolation alone is fine for
+  most threat models — see [Security Model]({{< ref "/platform/explanation/security-model" >}}#multi-tenant-isolation) for the trade-offs.
 
-### 2. `TenantDatabaseCache` never evicts
+### 2. Tenant teardown is orchestrated; no manual restart needed (post-T-0581)
 
-Deleting a tenant via `DELETE /v1/tenants/{name}` drops the schema
-but leaves the cached connection pool in memory. Subsequent
-requests to the deleted tenant fail with stale-pool errors.
+> **Updated for CLOACI-T-0581.** This section previously documented
+> "`TenantDatabaseCache` never evicts — restart `cloacina-server`
+> after any tenant delete." **That guidance is stale.** The
+> `DELETE /v1/tenants/{name}` route now runs a 4-step orchestrated
+> teardown: (1) revoke API keys, (2) evict the runner from
+> `TenantRunnerCache` with a bounded graceful drain, (3) evict the
+> `Database` from `TenantDatabaseCache`, (4) drop schema + user.
 
-**Mitigation:** restart `cloacina-server` after any `tenant
-delete`. There is no in-process workaround as of v0.5.
+**Knob:** `--tenant-deletion-drain-timeout-s` (default 30s). Past
+this, the runner is hard-evicted and any task that ignored
+cooperative cancellation errors on its next DB write once step 4
+lands. Tune up for tenants with long-running workflows; tune down
+for fast teardown of small tenants.
 
-### 3. Trigger list is global
+**See:** [Decommission a tenant]({{< ref "decommission-a-tenant" >}}) for the full operator-side recipe.
 
-`GET /v1/tenants/{id}/triggers` returns the global schedule list
-filtered client-side by name; it is not schema-aware. Tenant-scoped
-keys can read all schedule *names* (but not manipulate other
-tenants' schedules).
+### 3. Per-tenant trigger filtering is now tenant-scoped (post-T-0579)
 
-**Mitigation:** treat schedule names as non-sensitive. If names
-themselves leak business intent, segregate by deployment.
+> **Updated for CLOACI-T-0579.** Previously documented as "Trigger
+> list is global." It isn't anymore — `GET /v1/tenants/{id}/triggers`
+> routes through the tenant-scoped `Database` from
+> `TenantDatabaseCache`, so the underlying SQL hits the tenant's
+> schedules table, not a shared global table.
 
 ### 4. `/metrics` is unauthenticated
 

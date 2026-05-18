@@ -314,5 +314,5 @@ This completes the Rust library tutorial series for computation graphs. You've g
 
 ## Related resources
 
-- [Python Tutorial 09 — Your First Computation Graph]({{< ref "/python/tutorials/computation-graphs/09-computation-graph/" >}}): the same concepts in Python using `ComputationGraphBuilder` and `@cloaca.node`
-- [Python Tutorial 11 — Routing]({{< ref "/python/tutorials/computation-graphs/11-routing/" >}}): tuple-based routing in Python
+- [Python Tutorial 09 — Your First Computation Graph]({{< ref "/python/computation-graphs/tutorials/09-computation-graph/" >}}): the same concepts in Python using `ComputationGraphBuilder` and `@cloaca.node`
+- [Python Tutorial 11 — Routing]({{< ref "/python/computation-graphs/tutorials/11-routing/" >}}): tuple-based routing in Python

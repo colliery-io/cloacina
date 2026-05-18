@@ -209,11 +209,14 @@ an inconsistent state. The recovery procedure:
    reconciler from a clean state on startup; the database is the
    source of truth, so any orphaned in-memory state is dropped.
 
-   > **Caveat:** restarting the server resets the
-   > `TenantDatabaseCache`, which is otherwise never evicted. If
-   > you've recently deleted a tenant via
-   > `DELETE /v1/tenants/{name}`, restart **does** also clean up its
-   > stale connection pool.
+   > **Updated for CLOACI-T-0581.** The pre-2026 caveat that
+   > "`TenantDatabaseCache` never evicts" no longer applies — the
+   > `DELETE /v1/tenants/{name}` route runs a 4-step teardown that
+   > evicts both `TenantRunnerCache` and `TenantDatabaseCache`
+   > before dropping the schema. Restart is therefore only needed
+   > here if a different code path (e.g., direct `psql` schema
+   > manipulation that bypassed the route) left stale cache state.
+   > See [Decommission a tenant]({{< ref "decommission-a-tenant" >}}) for the route-driven path.
 
 ## Verification Checklist
 

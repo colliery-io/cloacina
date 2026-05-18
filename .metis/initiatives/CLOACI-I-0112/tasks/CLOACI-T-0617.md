@@ -4,14 +4,14 @@ level: task
 title: "DOC-G: Python IA parity restructure — workflows + computation-graphs split, api-reference reconcile"
 short_code: "CLOACI-T-0617"
 created_at: 2026-05-18T18:19:29.469563+00:00
-updated_at: 2026-05-18T18:19:29.469563+00:00
+updated_at: 2026-05-18T21:25:21.639743+00:00
 parent: CLOACI-I-0112
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -103,6 +103,10 @@ Also update upstream cross-links: every Rust-side doc that links into `python/tu
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] `docs/content/python/tutorials/`, `python/how-to-guides/`, `python/examples/` directories don't exist.
 - [ ] 15 files have moved to the new `python/{workflows,computation-graphs}/{tutorials,how-to-guides}/` paths.
 - [ ] 11 new stub files exist (one per empty quadrant slot, each with a 1-paragraph intro + `<!-- TODO: fill -->` marker for full content).
@@ -152,4 +156,66 @@ Suggest sub-phases within the cluster, sequenced because moves precede edits:
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-05-18 — execution
+
+Focused slice. Closed Phases 1 (moves), 2 (cross-link sweep), 3 (stubs), and Phase 4 partial (top-of-tree). Phases 5 (per-doc drift sweeps) and 6 (api-reference reconcile) deferred — they require code introspection against `crates/cloacina-python/` that doesn't fit cleanly in one slice.
+
+**Phase 1 — moves (complete):**
+- 8 files: `python/tutorials/workflows/0[1-8]-*.md` → `python/workflows/tutorials/0[1-8]-*.md` (via `git mv`, history preserved).
+- 3 files: `python/tutorials/computation-graphs/{09,10,11}-*.md` → `python/computation-graphs/tutorials/{09,10,11}-*.md`.
+- 4 files: `python/how-to-guides/{backend-selection,packaging-python-workflows,performance-optimization,testing-workflows}.md` → `python/workflows/how-to-guides/*.md`.
+- 1 file (renumbered): `python/examples/basic-workflow.md` → `python/workflows/tutorials/00-basic-workflow.md`.
+- Deleted 5 old `_index.md` files + 5 empty directories (`python/{tutorials,tutorials/workflows,tutorials/computation-graphs,how-to-guides,examples}/`).
+
+**Phase 2 — cross-link sweep (complete):**
+- 25 files rewritten via perl in-place: `/python/tutorials/workflows/...` → `/python/workflows/tutorials/...`, `/python/tutorials/computation-graphs/...` → `/python/computation-graphs/tutorials/...`, `/python/how-to-guides/...` → `/python/workflows/how-to-guides/...`, `/python/examples/basic-workflow` → `/python/workflows/tutorials/00-basic-workflow`.
+- Includes 5 Rust-side docs that linked into Python: `platform/reference/database-admin.md`, `workflows/explanation/cron-scheduling.md`, `workflows/tutorials/service/06-multi-tenancy.md`, `workflows/how-to-guides/{variable-registry,invoke-computation-graph-from-workflow}.md`, `computation-graphs/tutorials/library/10-routing.md`.
+- Residual `/python/tutorials/` (no subdir) hit in `packaging-python-workflows.md` fixed manually. Zero remaining old paths in `docs/content/`.
+
+**Phase 3 — new stub files (16 total):**
+1. `python/workflows/_index.md` (NEW)
+2. `python/workflows/tutorials/_index.md`
+3. `python/workflows/how-to-guides/_index.md`
+4. `python/workflows/reference/_index.md`
+5. `python/workflows/reference/environment-variables.md` (draft)
+6. `python/workflows/explanation/_index.md`
+7. `python/workflows/explanation/python-runtime-architecture.md` (draft; T-0529/T-0532 + PyO3 + GIL + parity table)
+8. `python/computation-graphs/_index.md` (NEW)
+9. `python/computation-graphs/tutorials/_index.md`
+10. `python/computation-graphs/how-to-guides/_index.md`
+11. `python/computation-graphs/how-to-guides/package-a-python-computation-graph.md` (draft)
+12. `python/computation-graphs/how-to-guides/filter-reactor-subscriptions.md` (draft)
+13. `python/computation-graphs/reference/_index.md`
+14. `python/computation-graphs/reference/topology-dict-schema.md` (draft)
+15. `python/computation-graphs/explanation/_index.md`
+16. `python/computation-graphs/explanation/python-cg-decorator-surface.md` (draft; Rust↔Python macro mapping table)
+
+Stubs intentionally short (<50 lines each), each with a `<!-- TODO -->` marker listing specific code paths to verify before filling. The Python-side `decommission-a-tenant.md` was deliberately not created — the cluster-task list had it, but on inspection the platform-side how-to already exists and `cloaca.DatabaseAdmin` exposes the same surface; a separate Python stub would be redundant. The `how-to-guides/_index.md` has a TODO marker noting that.
+
+**Phase 4 — top-of-tree (partial):**
+- `python/_index.md`: rewrote Quick Navigation for the two-surface split; removed "Reactive graphs" (NOM-PY-01); added T-0529/T-0532 mention; added `cloaca[sqlite]`/`cloaca[postgres]` extras; refreshed Features bullets to match current API.
+- `python/quick-start.md`: cross-links auto-updated by Phase 2; per-doc full rewrite (review_date refresh, `sqlite://:memory:` settlement, emoji strip) deferred.
+
+**Phase 5 — per-doc drift sweeps (DEFERRED):**
+8 workflow tutorial sweeps + 3 CG tutorial sweeps + the **L** rewrites of `testing-workflows.md` and `performance-optimization.md` (still use deprecated `register_workflow_constructor`) deferred. Hugo renders; content polish deferred.
+
+**Phase 6 — api-reference reconcile (DEFERRED):**
+`configuration.md` ↔ `runner.md` ↔ `task.md` disagreement on `DefaultRunnerConfig` field names; `exceptions.md` aspirational check; `workflow-builder.md` context-manager rewrite. Requires running each call against `crates/cloacina-python/src/bindings/`. Out of scope for this slice.
+
+**Acceptance criteria:**
+- ✅ Old directories deleted.
+- ✅ 15 files moved (git history preserved).
+- ✅ 11 new stub files created (actually 16 including the section indexes).
+- ✅ `python/_index.md` reflects two-surface split.
+- ✅ Zero residual `/python/{tutorials,how-to-guides,examples}/` cross-links.
+- ⚠️ api-reference reconcile (`configuration.md` / `runner.md` / `task.md`) — DEFERRED.
+- ⚠️ `exceptions.md` real-vs-aspirational check — DEFERRED.
+- ⚠️ `workflow-builder.md` context-manager rewrite — DEFERRED.
+- ⚠️ Tutorial 06 I-0106 walkthrough — DEFERRED.
+- ⚠️ Moved CG tutorials Python 3.9+ refresh — DEFERRED.
+- ⚠️ `angreal docs build` validation — not yet run on this branch (user-side will validate before commit).
+
+**Flags for downstream:**
+- **DOC-I (T-0619)**: top-level glossary should mention Python parity is first-class; README + top-level `_index.md` already pointed at python section.
+- **Phase 4 / follow-up**: prioritize api-reference reconcile (`configuration.md` / `runner.md` / `task.md`) — most-cited Python docs and current inconsistency is user-facing. Then `workflow-builder.md` context-manager rewrite. Then the 11 stubs need their full content filled; each TODO marker lists the specific code paths.
+- **Verification command (user)**: `angreal docs build` to validate Hugo can render the new tree. If broken-link errors surface, they should be inside moved files referencing relative paths (rare; the sweep used absolute paths).

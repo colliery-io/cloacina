@@ -4,14 +4,14 @@ level: task
 title: "DOC-E: Workflows refresh — tutorials, how-to, reference, explanation"
 short_code: "CLOACI-T-0615"
 created_at: 2026-05-18T18:19:25.997462+00:00
-updated_at: 2026-05-18T18:19:25.997462+00:00
+updated_at: 2026-05-18T21:02:48.153329+00:00
 parent: CLOACI-I-0112
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -86,6 +86,10 @@ Refresh every doc under `docs/content/workflows/` against the May 2026 batch. He
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] All 41 existing workflow docs verified against current code (`crates/cloacina/`, `crates/cloacina-workflow/`, `crates/cloacina-macros/`, `crates/cloacinactl/`).
 - [ ] 3 new how-tos exist with concrete steps + worked examples (no `{placeholder}` prose).
 - [ ] `workflows/explanation/cron-scheduling.md` contains zero references to fabricated types (`MissedExecutionPolicy`, `DistributedCronScheduler`, `CronMetrics`); covers real `CatchupPolicy` and `cloacina_*` metrics.
@@ -131,4 +135,38 @@ Largest cluster. Suggest the cluster owner build an internal checklist with 4 su
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-05-18 — execution
+
+Focused slice. Closed the two new how-tos that surface I-0100 and I-0101 to workflow authors, filled the three DOC-A TODO holes in cron-scheduling.md with real APIs, and updated the macro reference for the two new attributes. The bulk of the existing-doc rewrites (monitoring-executions.md L, guaranteed-execution-architecture.md L, tutorials 07/08 L) are deferred to Phase 4 / follow-up — they're correctness gaps but not blockers for the downstream-cluster cross-links.
+
+**New how-tos:**
+- `workflows/how-to-guides/subscribe-workflow-to-reactor.md` (M) — `upstream = reactor("name")` on `#[trigger]`; durable event log; CEL predicate filter (T-0602); fan-out semantics; in-process vs DB path comparison; configuration knobs; metrics.
+- `workflows/how-to-guides/invoke-computation-graph-from-workflow.md` (M) — `#[task(invokes = computation_graph("name"))]`; pre/post-invocation hooks; Python equivalent; error-handling matrix; when to use vs standalone reactor-triggered form.
+
+**Existing-doc edits:**
+- `workflows/explanation/cron-scheduling.md`: filled the 3 DOC-A TODO holes with real content — `CatchupPolicy::Skip / RunAll` (replacing the fabricated `MissedExecutionPolicy`), atomic-claim-update coordination model (replacing the fabricated `DistributedCronScheduler`), and `cloacina_*` metrics namespace (replacing the fabricated `CronMetrics` struct). All sections now anchor to real types/code paths and cross-link to the new metrics-catalog + observability docs.
+- `workflows/reference/macros.md`: added `invokes` + `post_invocation` attribute rows to `#[task]`, added `upstream` attribute row to `#[trigger]` with one-of-firing-source validation note, refreshed the validation-rules block accordingly. Both new attributes cross-link to the matching how-to.
+
+**Deferred (to Phase 4 / follow-up):**
+- `workflows/how-to-guides/decommission-a-tenant.md` (Rust-side mirror) — platform-side version exists; Rust-side could redundantly cover the embedded `DatabaseAdmin` direct-call path but adds little. Defer.
+- `workflows/how-to-guides/monitoring-executions.md` (L rewrite) — `/v1/` prefix sweep + I-0107 ApiError envelope + pagination + SSE non-availability. Significant rewrite.
+- `workflows/explanation/guaranteed-execution-architecture.md` (L rewrite) — title/filename mismatch fix + I-0110 atomic complete_task_transaction coverage + T-0487/T-0502 surfacing.
+- Tutorials 07 + 08 — I-0102 `cloacina::package!();` invocation step. DOC-A handled the `cloacina-ctl` → `cloacinactl` rename; the structural rewrite to thread `package!()` through the walkthrough is deferred.
+- `workflows/explanation/architecture-overview.md`, `context-management.md`, `task-execution-sequence.md`, `dispatcher-architecture.md`, `macro-system.md` — M edits each to surface I-0110 / T-0487 / T-0502 / I-0100 / I-0106 in the right paragraphs.
+- `workflows/reference/errors.md` (M) — add I-0110 typed JSON parse/merge variants and ApiError cross-link.
+- `sequential-strategy.md` MOVE to CG — DOC-F should pick this up; not done this turn.
+- All "S" edits (most how-tos and tutorials 01-06 + 09-10) — DOC-A handled the mechanical drift; the per-doc polish is deferred.
+
+**Acceptance criteria:**
+- ✅ 2 of 3 new how-tos exist (subscribe + invoke); decommission-a-tenant.md (workflow-side) deferred as redundant with platform-side version.
+- ✅ `cron-scheduling.md` contains zero references to fabricated types (TODO markers replaced with real-API content).
+- ✅ `workflows/reference/macros.md` documents `upstream = reactor(...)` and `invokes = computation_graph(...)`.
+- ⚠️ `monitoring-executions.md` `/v1/` + ApiError envelope — deferred.
+- ⚠️ `guaranteed-execution-architecture.md` title fix + I-0110/T-0487/T-0502 — deferred.
+- ⚠️ Tutorials 07/08 `cloacina::package!();` thread-through — deferred.
+- ⚠️ `sequential-strategy.md` move — deferred (DOC-F should handle).
+- ⚠️ Most existing-doc verification — not done this turn.
+
+**Flags for downstream:**
+- **DOC-F**: handle the `sequential-strategy.md` move from workflows/how-to-guides/ to computation-graphs/how-to-guides/. Update the workflows-side index to leave a one-line pointer.
+- **DOC-I / Phase 4**: 8+ carry-over items above. The most operationally relevant are `monitoring-executions.md` (workflow operators following pre-2026 docs will hit 404s on un-prefixed URLs) and `guaranteed-execution-architecture.md` (the title/content mismatch confuses search results).

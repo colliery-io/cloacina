@@ -272,7 +272,7 @@ Wait for compilation (60–120 seconds on first build):
 for i in $(seq 1 30); do
   result=$(curl -s "${BASE_URL}/v1/health/graphs" \
     -H "Authorization: Bearer ${TOKEN}")
-  if echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if any(r['name']=='kafka_price_signal' for r in d['reactors']) else 1)" 2>/dev/null; then
+  if echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if any(r['name']=='kafka_price_signal' for r in d['items']) else 1)" 2>/dev/null; then
     echo "Graph loaded!"
     echo "$result" | python3 -m json.tool
     break
@@ -307,16 +307,21 @@ Expected:
 {
   "name": "kafka_price_signal",
   "health": {
-    "state": "running",
-    "last_fired_at": "2026-04-06T14:22:11.034Z",
-    "fire_count": 1
+    "state": "live"
   },
   "accumulators": ["orderbook"],
   "paused": false
 }
 ```
 
-Produce several more messages and watch `fire_count` increment:
+The health endpoint reports the reactor's overall state — to confirm firings, scrape `/metrics` and watch `cloacina_reactor_fires_total{graph="kafka_price_signal"}`:
+
+```sh
+curl -sf "${BASE_URL}/metrics" -H "Authorization: Bearer ${TOKEN}" \
+  | grep '^cloacina_reactor_fires_total.*kafka_price_signal'
+```
+
+Produce several more messages and watch the counter increment:
 
 ```bash
 for i in $(seq 1 10); do
@@ -571,7 +576,7 @@ docker exec cloacina-kafka \
 
 **Accumulator shows `"unhealthy"` and graph never fires**: The Kafka connection failed. Check the server logs for `failed to connect to Kafka` messages. Verify `CLOACINA_VAR_KAFKA_BROKER` is set correctly and that the broker is reachable from the server process. If running the server inside a container, `localhost:9092` may not resolve correctly — use the Docker network hostname instead (e.g., `cloacina-kafka:9092`).
 
-**Messages produce but `fire_count` stays at 0**: The message payload is not valid JSON matching your boundary type. Verify with `kafka-console-consumer.sh`:
+**Messages produce but `cloacina_reactor_fires_total{graph="kafka_price_signal"}` stays at 0**: The message payload is not valid JSON matching your boundary type. Verify with `kafka-console-consumer.sh`:
 
 ```bash
 docker exec cloacina-kafka \
@@ -585,7 +590,7 @@ docker exec cloacina-kafka \
 **`stream` accumulator type not supported** error in server logs: The server was built without the `kafka` feature flag. Rebuild with:
 
 ```bash
-cargo build -p cloacinactl --features kafka
+cargo build -p cloacina-server --features kafka
 ```
 
 **Topic does not exist**: The Kafka backend will log a subscription failure. Create the topic before uploading the package (topics created after the graph loads require a server restart or graph reload to pick up).

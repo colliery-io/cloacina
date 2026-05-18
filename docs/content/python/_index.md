@@ -18,17 +18,32 @@ pip install cloaca[postgres]    # PostgreSQL only
 
 ## Features
 
-- **Workflow orchestration** — Define tasks with `@task`, build workflows with `WorkflowBuilder`, execute with `DefaultRunner`
-- **Computation graphs** — Define event-driven graphs with decorators, wire accumulators, push events
-- **Multi-tenancy** — PostgreSQL schema isolation via `DatabaseAdmin`
-- **Cron scheduling** — Time-based workflow execution
-- **Event triggers** — Condition-based workflow firing
+- **Workflow orchestration** — Define tasks with `@cloaca.task`, build workflows with the `WorkflowBuilder` context manager, execute with `DefaultRunner`.
+- **Computation graphs** — Author event-driven graphs with `ComputationGraphBuilder` + `@cloaca.reactor` + `@cloaca.accumulator`; embed them as workflow tasks (CLOACI-I-0101) or run them standalone.
+- **Multi-tenancy** — PostgreSQL schema isolation via `DatabaseAdmin` (CLOACI-I-0106: fail-closed `search_path`, decommission flow).
+- **Cron scheduling** — Time-based workflow execution with `CatchupPolicy::Skip` / `RunAll`.
+- **Event triggers** — `@cloaca.trigger` for external or reactor-sourced workflow firing.
+- **First-class parity** — Python tracks the Rust surface 1:1; the `cloacina-python` crate (CLOACI-T-0529 / CLOACI-T-0532) keeps the PyO3 dependency out of the core library.
 
-## Quick Navigation
+## Two surfaces, Diataxis-aligned
 
-| Section | Description |
-|---------|-------------|
-| [Quick Start]({{< ref "/python/quick-start" >}}) | Get running in 5 minutes |
-| [Tutorials]({{< ref "/python/tutorials" >}}) | Progressive learning guides |
-| [How-to Guides]({{< ref "/python/how-to-guides" >}}) | Recipes for specific tasks |
-| [API Reference]({{< ref "/python/api-reference" >}}) | Complete class and function reference |
+The Python section mirrors the Rust split: workflows on one side, computation graphs on the other. Most users start with workflows.
+
+### Workflows
+
+- [Quick Start]({{< ref "/python/quick-start" >}}) — Get running in 5 minutes.
+- [Workflows · Tutorials]({{< ref "/python/workflows/tutorials" >}}) — 00 — basic-workflow through 08 — packaged-triggers.
+- [Workflows · How-to Guides]({{< ref "/python/workflows/how-to-guides" >}}) — Backend selection, testing, packaging, performance.
+- [Workflows · Reference]({{< ref "/python/workflows/reference" >}}) — Python-specific reference material.
+- [Workflows · Explanation]({{< ref "/python/workflows/explanation" >}}) — Python runtime architecture, PyO3 boundary, GIL trade-offs.
+
+### Computation Graphs
+
+- [Computation Graphs · Tutorials]({{< ref "/python/computation-graphs/tutorials" >}}) — Tutorials 09–11 mirroring the Rust library tutorials.
+- [Computation Graphs · How-to Guides]({{< ref "/python/computation-graphs/how-to-guides" >}}) — Packaging, reactor-subscription filtering.
+- [Computation Graphs · Reference]({{< ref "/python/computation-graphs/reference" >}}) — Topology dict schema and other Python-specific reference.
+- [Computation Graphs · Explanation]({{< ref "/python/computation-graphs/explanation" >}}) — How the Python decorators map onto the Rust macro family.
+
+### API
+
+- [API Reference]({{< ref "/python/api-reference" >}}) — Class-by-class / method-by-method Python API surface.

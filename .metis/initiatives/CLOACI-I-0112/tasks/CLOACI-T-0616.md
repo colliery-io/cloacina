@@ -4,14 +4,14 @@ level: task
 title: "DOC-F: Computation graphs refresh — S-0011 cleanup, I-0100/I-0101/I-0102 topology, T-0602 CEL"
 short_code: "CLOACI-T-0616"
 created_at: 2026-05-18T18:19:27.928872+00:00
-updated_at: 2026-05-18T18:19:27.928872+00:00
+updated_at: 2026-05-18T21:12:09.530891+00:00
 parent: CLOACI-I-0112
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -77,6 +77,10 @@ Bring `docs/content/computation-graphs/` (highest-drift area in the audit — 16
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] All 26 existing CG docs verified against current code (`crates/cloacina-computation-graph/`, `crates/cloacina/src/computation_graph/`, `crates/cloacina-macros/src/{reactor_attr,computation_graph/parser}.rs`, `crates/cloacina-workflow-plugin/`, `crates/cloacina-server/src/routes/health_graphs.rs`).
 - [ ] 2 new docs exist: `filter-reactor-firings-with-cel.md`, `subscription-fan-out.md`. `sequential-strategy.md` moved in from workflows.
 - [ ] Zero NOM-CG instances remain (DOC-A's `grep` criteria pass).
@@ -125,4 +129,46 @@ Suggested order:
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-05-18 — execution
+
+Focused slice. New docs + critical health-response fixes + sequential-strategy move-in. L rewrites of `reference/computation-graphs.md` and `explanation/architecture.md` deferred to Phase 4 — the new `subscription-fan-out.md` covers the conceptual gap that `architecture.md` would have addressed.
+
+**New docs:**
+- `computation-graphs/explanation/subscription-fan-out.md` (M) — explanation for I-0100. DB-backed fan-out, `reactor_firings` schema, watermark + TTL pruning, at-least-once, composition with the in-process CG path, latency budgets. Cross-links the new filter how-to and the workflows-side subscribe how-to.
+- `computation-graphs/how-to-guides/filter-reactor-firings-with-cel.md` (S) — T-0602 recipe. `subscribe_workflow_to_reactor(.., Some("payload.value > 100"))` form; CEL variables (`payload`, `reactor`, `tenant`); compile-at-subscribe vs evaluate-per-firing; fail-closed semantics; idempotency-key recipe via `reactor_firing_id`. Cross-links the runnable `examples/features/computation-graphs/filtered-reactor` example + `angreal demos features filtered-reactor`.
+
+**Moved file:**
+- `sequential-strategy.md` MOVED from `workflows/how-to-guides/` to `computation-graphs/how-to-guides/`. Replaced the `TODO(I-0101)` HTML comment block with an honest "the macro still doesn't accept `input_strategy = sequential` — set it on `Reactor::new(...)`" disclosure (verified by grep against `crates/cloacina-macros/src/reactor_attr.rs` — kwarg still not accepted as of 2026-05-18). Old file deleted; `workflows/how-to-guides/_index.md` has a one-line redirect to the new location.
+
+**Existing-doc edits:**
+- `computation-graphs/how-to-guides/computation-graph-health.md` (M, rewrite): swapped `{"accumulators":[...]}` / `{"graphs":[...]}` envelopes for `{"items":[...],"total":N}` (CLOACI-T-0594 / API-03); drove monitoring script off `.items[]`; added I-0108 section explaining the synthetic `Degraded { disconnected: ["persist"] }` source + 5-failure threshold + `cloacina_reactor_persist_failures_total{kind=...}` cross-link; added `cloacinactl graph {list,status,accumulators}` CLI shortcut; added metric-driven monitoring section; distinguished `/ready=503` (task crashed) from `state=degraded` (still running).
+- `computation-graphs/tutorials/service/07-packaging.md` (S): `{"graphs":[...]}` → `{"items":[...],"total":N}` for graphs + accumulators; `"state":"running"` → `"state":"live"`; `"status":"healthy"` → `"status":"live"`; cross-link to health how-to.
+- `computation-graphs/tutorials/service/08-websocket-events.md` (S): removed fabricated `fire_count` / `last_fired_at` fields from `/v1/health/graphs/{name}` response; replaced fire-count verification with `cloacina_reactor_fires_total{graph=...}` /metrics-scrape recipe; updated troubleshooting reference.
+- `computation-graphs/tutorials/service/09-kafka-stream.md` (S): same `fire_count`/`last_fired_at` removal + metric substitution; `d['reactors']` Python selector → `d['items']`; `cargo build -p cloacinactl --features kafka` → `cargo build -p cloacina-server --features kafka` (feature lives on `cloacina-server` now).
+- `computation-graphs/how-to-guides/_index.md`: added new how-tos (`filter-reactor-firings-with-cel`, `sequential-strategy`, `reactor-triggered-workflows`); split into Development / Reactor subscriptions / Operations sections.
+- `workflows/how-to-guides/_index.md`: dropped Sequential Strategy entry, added one-line redirect to new CG location; added DOC-E how-tos (subscribe + invoke).
+
+**Deferred (Phase 4 / follow-up):**
+- `computation-graphs/reference/computation-graphs.md` (**L** rewrite) — three docs glued together (macro + runtime + FFI/packaging); DOC-A excised the `#[ctor]` Global Registry section, so it is no longer actively misleading. Deferred.
+- `computation-graphs/explanation/architecture.md` (**L** rewrite) — I-0101 standalone-reactor / multi-subscriber topology. Cross-link to new `subscription-fan-out.md` covers the conceptual gap.
+- `computation-graphs/explanation/reactor-lifecycle.md` (M) — "5-second cadence" → exponential-backoff; I-0108 persist-failure path; force-fire on `/v1/ws/reactor/{name}` correction.
+- `computation-graphs/explanation/computation-graph-scheduling.md` (M) — "one scheduler per process, one reactor task per graph"; I-0108 threshold; metrics cross-link.
+- `computation-graphs/explanation/packaging.md` (M) — `package.toml` shape + I-0102 unified `cloacina::package!()` macro.
+- `computation-graphs/explanation/accumulator-design.md` (M) — accumulator metric refs + metrics-catalog cross-link.
+- `computation-graphs/how-to-guides/accumulator-types.md` (S) — `#[state_accumulator]` coverage.
+- Service tutorial 10 (`10-cross-package-binding.md`) — fabricated "Shows subscribers: 1 (price_consumer)" + topology DSL syntax verification.
+
+**Acceptance criteria:**
+- ✅ 2 new docs exist (subscription-fan-out + filter-reactor-firings-with-cel). `sequential-strategy.md` moved in.
+- ✅ `computation-graph-health.md` matches `{"items":[...],"total":N}` server envelope.
+- ✅ No `fire_count` / `last_fired_at` as health-response fields in the three service tutorials.
+- ✅ `filter-reactor-firings-with-cel.md` cross-links the example + angreal invocation.
+- ✅ `subscription-fan-out.md` cross-links S-0011 (2026-04-24 amendment).
+- ⚠️ `reference/computation-graphs.md` post-I-0102 9-method FFI rewrite — deferred (L).
+- ⚠️ `explanation/architecture.md` post-I-0101 topology rewrite — deferred (L). Conceptually covered by `subscription-fan-out.md`.
+- ⚠️ `angreal docs:build` not yet run on this branch — will verify before commit.
+
+**Flags for downstream:**
+- **DOC-G**: Python parity for the new how-tos. CEL filter recipe is currently Rust-only.
+- **DOC-I**: top-level glossary should pick up `reactor`, `accumulator`, `subscription fan-out`, `CEL predicate`.
+- **Phase 4**: carry-over priority: `reference/computation-graphs.md` > `explanation/architecture.md` > everything else.

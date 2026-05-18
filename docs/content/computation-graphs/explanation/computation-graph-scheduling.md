@@ -138,7 +138,7 @@ With `WhenAll`, the reactor pre-seeds dirty flags for all expected sources. This
 | `Latest` | Overwrites previous boundary per source | Graph always sees freshest data; intermediates may be skipped |
 | `Sequential` | Queues every boundary in arrival order | Every event processed; no skipping |
 
-See [Using Sequential Input Strategy]({{< ref "/workflows/how-to-guides/sequential-strategy" >}}) for guidance on choosing between them.
+See [Using Sequential Input Strategy]({{< ref "/computation-graphs/how-to-guides/sequential-strategy" >}}) for guidance on choosing between them.
 
 ## Supervision and Restart
 

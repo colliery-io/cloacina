@@ -11,6 +11,20 @@ into the right tutorial or reference based on what you want to do.
 For substance (working code, exhaustive references, conceptual
 explanations) follow the links below into the dedicated tracks.
 
+## Install the CLI (optional, recommended)
+
+If you'll be running a Cloacina server or compiling packages, install
+`cloacinactl` first:
+
+```sh
+curl -fsSL https://get.cloacina.dev/install.sh | bash
+```
+
+See [Installing cloacinactl]({{< ref "install" >}}) for version
+pinning, platform support, and Docker / Helm alternatives. The
+embedded-mode Rust tutorials below don't require the CLI; pure Python
+tutorials don't either.
+
 ## What Cloacina is
 
 Cloacina is an embedded workflow orchestration framework for Rust
@@ -40,9 +54,10 @@ graphs, and error handling.
 → [Python Quick Start]({{< ref "/python/quick-start" >}})
 
 The full Python tutorial track is at
-[Python → Tutorials]({{< ref "/python/tutorials" >}}). Same shape
+[Python · Workflows · Tutorials]({{< ref "/python/workflows/tutorials" >}}). Same shape
 as the Rust track but Pythonic syntax and `WorkflowBuilder` context
-managers.
+managers. The Python-side computation-graph tutorials (09–11) live at
+[Python · Computation Graphs · Tutorials]({{< ref "/python/computation-graphs/tutorials" >}}).
 
 ### "I want to ship workflows as `.cloacina` packages and load them into a server."
 

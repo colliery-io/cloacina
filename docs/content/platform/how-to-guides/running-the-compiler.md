@@ -256,10 +256,19 @@ Phase 1 bounds resources and confines the registry. Phase 2
 
 Until that lands, the Phase 1 posture in this guide is your bound.
 
+## Observability
+
+`cloacina-compiler` exposes a `/metrics` Prometheus endpoint on the same port as `/health` and `/v1/status` (default `127.0.0.1:9000`) per CLOACI-I-0109. The relevant counters/histograms/gauges are documented in the [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}#compiler-metrics) — `cloacina_compiler_builds_total{status}`, `cloacina_compiler_queue_depth{state}`, `cloacina_compiler_sweep_resets_total`, `cloacina_compiler_build_duration_seconds`.
+
+Daily-rotated structured logs land in `~/.cloacina/logs/cloacina-compiler.log`. Retention is controlled by `--log-retention-days <N>` (default 14, `0` disables pruning). The same flag is supported on `cloacinactl daemon start` and `cloacinactl server start` for symmetry across the three deployables.
+
 ## Related
 
+- [Compiler + Server Deployment Runbook]({{< ref "/platform/how-to-guides/compiler-deployment-runbook" >}}) — long-form runbook for the server + compiler pair across bare-metal, Compose, and Kubernetes.
 - [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) — TLS termination for the `cloacinactl server start` server. Separate concern from the compiler.
 - [Use cloacina-compiler Locally]({{< ref "/platform/how-to-guides/use-cloacina-compiler-locally" >}}) — local laptop / CI path, no service.
-- [ADR-0005 — Deployment-mode trust model](https://github.com/colliery-io/cloacina/blob/main/.metis/adrs/CLOACI-A-0005.md) — why the compiler is Linux-only, single-tenant build.
-- [CLOACI-I-0104](https://github.com/colliery-io/cloacina/blob/main/.metis/initiatives/CLOACI-I-0104.md) — Phase 1 hardening initiative.
-- [CLOACI-I-0105](https://github.com/colliery-io/cloacina/blob/main/.metis/initiatives/CLOACI-I-0105.md) — Phase 2 sandbox initiative.
+- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — the full `cloacina_*` and `cloacina_compiler_*` metric surface.
+- **ADR-0005** — Deployment-mode trust model (why the compiler is Linux-only, single-tenant build).
+- **CLOACI-I-0104** — Phase 1 hardening initiative (timeouts, offline, setrlimit).
+- **CLOACI-I-0105** — Phase 2 sandbox initiative (process-level isolation, pending).
+- **CLOACI-I-0109** — `/metrics` endpoint + `--log-retention-days`.

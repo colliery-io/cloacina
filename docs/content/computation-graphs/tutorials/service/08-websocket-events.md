@@ -230,16 +230,14 @@ The response includes the reactor's live state:
 {
   "name": "price_signal",
   "health": {
-    "state": "running",
-    "last_fired_at": "2026-04-06T12:34:56.789Z",
-    "fire_count": 1
+    "state": "live"
   },
   "accumulators": ["orderbook"],
   "paused": false
 }
 ```
 
-The `fire_count` and `last_fired_at` fields confirm the graph executed. If they are missing or `fire_count` is 0, the event did not reach the reactor — check the server logs for deserialization errors.
+The `/v1/health/graphs/{name}` endpoint reports the reactor's overall state — it does not currently surface per-firing counters. To verify the event reached the reactor and the graph fired, scrape `/metrics` and inspect `cloacina_reactor_fires_total{graph="price_signal"}` (the counter increments on every successful firing); if it stays at zero, the event did not reach the reactor — check the server logs for deserialization errors. See [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) for the full reactor metric set.
 
 {{< hint type=warning title="Type mismatch errors" >}}
 The accumulator deserializes the payload into the boundary type declared in your graph (`OrderBook` in Tutorial 07). If the JSON keys don't match the struct fields exactly, deserialization fails silently and the reactor does not fire. Double-check field names: `best_bid` and `best_ask`.
@@ -457,7 +455,7 @@ Expected response:
 
 **Close frame `4404` after connecting**: The accumulator name in the URL does not match any registered accumulator. Check the exact name (case-sensitive) against `/v1/health/accumulators`.
 
-**`fire_count` stays at 0 after sending events**: The payload deserialization is failing. The accumulator forwards the raw bytes to the reactor, which attempts to deserialize them as the boundary type. Make sure the JSON keys exactly match the Rust struct field names as seen by `serde` (by default, the snake_case field names).
+**`cloacina_reactor_fires_total{graph="..."}` stays at 0 after sending events**: The payload deserialization is failing. The accumulator forwards the raw bytes to the reactor, which attempts to deserialize them as the boundary type. Make sure the JSON keys exactly match the Rust struct field names as seen by `serde` (by default, the snake_case field names). The accumulator metric `cloacina_accumulator_events_total{accumulator="..."}` will still increment for arrival — the failure is downstream of arrival.
 
 ---
 

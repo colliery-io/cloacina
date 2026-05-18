@@ -3,11 +3,19 @@ title: "Contributing to Cloacina"
 description: "How to contribute to Cloacina"
 weight: 60
 reviewer: "dstorey"
-review_date: "2024-03-19"
+review_date: "2026-05-18"
 ---
 
 
 Thank you for your interest in contributing to Cloacina! This guide will help you understand our contribution process and ensure your contributions are as effective as possible.
+
+## Planning is Metis-tracked
+
+Cloacina's planning and work tracking is done in [Metis](https://github.com/colliery-io/metis), the Flight Levels work management system. Initiatives, tasks, ADRs, and specifications live in `.metis/` and are the source of truth for what's being worked on and why. If your contribution is more than a quick fix, open a Metis initiative (or comment on an existing one) before writing code.
+
+## Documentation nomenclature must match CLOACI-S-0011
+
+Cloacina's nomenclature is locked by specification [`CLOACI-S-0011`](https://github.com/colliery-io/cloacina/blob/main/.metis/specifications/CLOACI-S-0011/specification.md). When writing docs or comments, never use the banned phrases (`reactive scheduler`, `reactive computation graph`, `reactive subsystem`); always use `reactor`, `computation graph`, and `traversal` per the spec. PR reviewers will flag any drift.
 
 ## Repository Features and Resources
 
@@ -21,7 +29,7 @@ Cloacina provides several tools and resources to help you get started and mainta
   pip install angreal
   ```
 
-  Angreal helps manage dependencies, development tools, and common tasks. It ensures all contributors have a consistent development experience.
+  Run `angreal tree` after install to discover the project's task tree (build, test, docs, demos). Angreal helps manage dependencies, development tools, and common tasks. It ensures all contributors have a consistent development experience.
 
 ## Before You Start
 

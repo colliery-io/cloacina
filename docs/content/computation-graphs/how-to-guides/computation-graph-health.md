@@ -1,17 +1,17 @@
 ---
 title: "Monitoring Computation Graph Health"
-description: "How to inspect accumulator and reactor health using the Cloacina API"
+description: "How to inspect accumulator and reactor health via the Cloacina API and the cloacinactl graph commands."
 weight: 20
 ---
 
 # Monitoring Computation Graph Health
 
-This guide shows how to use the Cloacina API to monitor the health of running computation graphs, accumulators, and reactors.
+This guide shows how to use the Cloacina API and the `cloacinactl graph` shortcuts to monitor the health of running computation graphs, accumulators, and reactors.
 
 ## Prerequisites
 
 - API server running (see [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}))
-- A valid API key stored in `API_KEY`
+- A valid API key stored in `API_KEY` (or a configured `cloacinactl` profile, see [Use CLI profiles]({{< ref "/platform/how-to-guides/use-cli-profiles" >}}))
 - At least one computation graph registered with the server
 
 ## Health vs readiness
@@ -30,6 +30,14 @@ The `/ready` endpoint returns `503 Service Unavailable` when any registered comp
 
 ---
 
+## Response envelope
+
+All list endpoints under `/v1/...` use the unified `{items, total}` envelope (CLOACI-T-0594 / API-03). The single-resource `GET /v1/health/graphs/{name}` endpoint returns the bare object, not the envelope.
+
+When parsing responses, drive off `.items[]`, not `.graphs[]` or `.reactors[]` — those were earlier-prototype field names that no longer exist.
+
+---
+
 ## Listing accumulator health
 
 ```bash
@@ -41,7 +49,7 @@ Response:
 
 ```json
 {
-  "accumulators": [
+  "items": [
     {
       "name": "orderbook",
       "status": "live"
@@ -54,7 +62,8 @@ Response:
       "name": "exchange_rate_poller",
       "status": "live"
     }
-  ]
+  ],
+  "total": 3
 }
 ```
 
@@ -83,7 +92,7 @@ Response:
 
 ```json
 {
-  "graphs": [
+  "items": [
     {
       "name": "market_pipeline",
       "health": {
@@ -102,7 +111,8 @@ Response:
       "accumulators": ["exchange_rate_poller", "fx_stream"],
       "paused": false
     }
-  ]
+  ],
+  "total": 2
 }
 ```
 
@@ -116,6 +126,28 @@ Response:
 | `degraded` | Was live, one or more accumulators disconnected — includes list of `disconnected` names |
 
 The `paused` field indicates whether the reactor is accepting boundaries but skipping graph execution (useful for maintenance windows).
+
+### The synthetic `persist` disconnected source (CLOACI-I-0108)
+
+A reactor can also enter `degraded` because of **persistence failures** rather than an accumulator outage. When DAL writes for the reactor's cache / dirty / sequence / save paths fail 5 times in a row, the scheduler downgrades the reactor:
+
+```json
+{
+  "name": "market_pipeline",
+  "health": {
+    "state": "degraded",
+    "disconnected": ["persist"]
+  },
+  "accumulators": ["orderbook", "pricing"],
+  "paused": false
+}
+```
+
+`persist` is a **synthetic source name**, not an accumulator — it surfaces "the reactor's checkpoint writes are failing." All real accumulators may be `live`; the reactor itself is at-risk because crash recovery would lose recent boundary state.
+
+When the next persist write succeeds, the reactor is promoted back to `live` automatically.
+
+To distinguish this from a real accumulator disconnect, check whether `persist` appears in the `disconnected` list — if it does, look at the `cloacina_reactor_persist_failures_total` counter (broken down by `kind` label) to identify the failing branch (`cache_serialize`, `dirty_serialize`, `seq_serialize`, `save`).
 
 ---
 
@@ -154,6 +186,31 @@ Response when degraded:
 ```
 
 Returns `404 Not Found` if the reactor name does not exist.
+
+---
+
+## CLI shortcut
+
+The `cloacinactl graph` noun wraps the HTTP endpoints above and prints them in a human-friendly form (or `-o json` for the raw envelope):
+
+```sh
+# List every loaded graph (calls /v1/health/graphs)
+cloacinactl --profile prod graph list
+
+# Inspect one graph (calls /v1/health/graphs/{name})
+cloacinactl --profile prod graph status market_pipeline
+
+# List accumulators (calls /v1/health/accumulators)
+cloacinactl --profile prod graph accumulators
+```
+
+For scripting, append `-o json` and parse the unified envelope:
+
+```sh
+cloacinactl --profile prod graph list -o json | jq '.items[] | select(.health.state != "live")'
+```
+
+The CLI honors the same auth tokens as direct `curl` — see [Use CLI profiles]({{< ref "/platform/how-to-guides/use-cli-profiles" >}}) for the profile setup.
 
 ---
 
@@ -204,6 +261,23 @@ readinessProbe:
 
 A graph enters the "crashed" state when its tokio task exits. This happens if the reactor's `run()` future returns, which normally only occurs after a shutdown signal. An unexpected crash will flip the readiness check and remove the pod from the load balancer until it restarts and the graph re-registers.
 
+> The "crashed" condition is separate from the `Degraded { disconnected: ["persist"] }` state. A `degraded` reactor is still running and `/ready` still returns `200 OK`; readiness flips to `503` only when the reactor's task itself has exited.
+
+---
+
+## Metric-driven monitoring
+
+For long-running monitoring, prefer scraping `/metrics` instead of polling health endpoints. Relevant counters and gauges (full catalog in [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}})):
+
+| Metric | Type | Labels | Use |
+|---|---|---|---|
+| `cloacina_reactor_persist_failures_total` | counter | `graph`, `reactor`, `kind` | Drives the I-0108 Degraded transition. Alert on non-zero rate. |
+| `cloacina_reactor_fire_duration_seconds` | histogram | `graph`, `reactor` | Per-firing latency. |
+| `cloacina_reactor_fires_total` | counter | `graph`, `reactor`, `outcome` | Firings per reactor; `outcome` distinguishes success / failure. |
+| `cloacina_accumulator_events_total` | counter | `accumulator` | Per-accumulator event throughput. |
+
+Set up an alert on any reactor with persist failure rate `> 0` over a sliding window — that catches the Degraded transition before five consecutive failures.
+
 ---
 
 ## Monitoring script
@@ -217,10 +291,10 @@ set -euo pipefail
 BASE_URL="${CLOACINA_URL:-http://localhost:8080}"
 API_KEY="${API_KEY:?API_KEY must be set}"
 
-reactors=$(curl -sf "${BASE_URL}/v1/health/graphs" \
-  -H "Authorization: Bearer ${API_KEY}" | jq -r '.reactors[]')
+graphs=$(curl -sf "${BASE_URL}/v1/health/graphs" \
+  -H "Authorization: Bearer ${API_KEY}")
 
-echo "$reactors" | jq -r 'select(.health.state != "live") |
+echo "$graphs" | jq -r '.items[] | select(.health.state != "live") |
   "ALERT: reactor \(.name) is \(.health.state) — disconnected: \(.health.disconnected // "none")"'
 ```
 
@@ -230,19 +304,23 @@ Save as `check-graphs.sh`, make it executable, and run from a cron job or monito
 
 ## What to do when a reactor is Degraded
 
-A `degraded` reactor is still running. It continues to evaluate reaction criteria and fire the graph using the last known (cached) value from the disconnected accumulator.
+A `degraded` reactor is still running. The action depends on what's in the `disconnected` list.
 
-Steps to investigate:
+**If the list contains an accumulator name:** the reactor continues to evaluate reaction criteria and fire the graph using the last known (cached) value from the disconnected accumulator.
 
 1. Identify the disconnected accumulator from the `disconnected` list in the reactor health.
 2. Check accumulator health: `GET /v1/health/accumulators` — look for `disconnected` status.
 3. Verify the broker is reachable and the topic still exists.
 4. Check server logs for the accumulator reconnection attempts.
 
-A `degraded` reactor recovers automatically when the accumulator reconnects and returns to `live` status. No manual intervention is required unless the broker is permanently gone.
+The reactor recovers automatically when the accumulator reconnects and returns to `live`.
+
+**If the list contains `"persist"`:** see [the I-0108 section](#the-synthetic-persist-disconnected-source-cloaci-i-0108) above. Inspect `cloacina_reactor_persist_failures_total{kind=...}` to identify which DAL write path is failing; common causes are disk pressure, DB connection exhaustion, or a transient DB outage. The reactor recovers on the next successful write.
 
 ## Related
 
 - [Monitoring Executions]({{< ref "/workflows/how-to-guides/monitoring-executions" >}})
-- [Choosing and using accumulator types]({{< ref "/computation-graphs/how-to-guides/accumulator-types" >}})
+- [Choosing and using accumulator types]({{< ref "accumulator-types" >}})
+- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}})
+- [Observability]({{< ref "/platform/explanation/observability" >}})
 - [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}})

@@ -298,21 +298,22 @@ done
 While compiling you'll see an empty reactor list:
 
 ```json
-{ "graphs": [] }
+{ "items": [], "total": 0 }
 ```
 
 Once loaded:
 
 ```json
 {
-  "graphs": [
+  "items": [
     {
       "name": "price_signal",
-      "health": { "state": "running" },
+      "health": { "state": "live" },
       "accumulators": ["orderbook"],
       "paused": false
     }
-  ]
+  ],
+  "total": 1
 }
 ```
 
@@ -327,16 +328,17 @@ Expected:
 
 ```json
 {
-  "accumulators": [
+  "items": [
     {
       "name": "orderbook",
-      "status": "healthy"
+      "status": "live"
     }
-  ]
+  ],
+  "total": 1
 }
 ```
 
-If the accumulator is `"healthy"` and the reactor is `"running"`, your packaged computation graph is live and ready to receive events.
+If the accumulator is `"live"` and the reactor is `"live"`, your packaged computation graph is ready to receive events. (See [Monitoring Computation Graph Health]({{< ref "/computation-graphs/how-to-guides/computation-graph-health" >}}) for the full state set.)
 
 ---
 

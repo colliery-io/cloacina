@@ -14,6 +14,10 @@ Definitions of key terms and concepts used throughout the Cloacina ecosystem.
 
 A long-lived component that connects to an external data source, receives events, and buffers them for consumption by computation graphs. Accumulators transform raw events into typed boundary values and push them to the reactor. See [Accumulator Design]({{< ref "/computation-graphs/explanation/accumulator-design" >}}).
 
+### ApiError
+
+The standardized error response envelope returned by every `/v1/...` HTTP route. Per CLOACI-I-0107, all error responses share the shape `{"error": "human-readable message", "code": "MACHINE_CODE"}` regardless of HTTP status; the `code` is stable and tied to the failure class (`AUTH_INVALID_TOKEN`, `TENANT_NOT_FOUND`, `SIGNATURE_REQUIRED`, etc.) so clients can branch on it without parsing the message. See [API Error Envelope]({{< ref "/platform/reference/api-error-envelope" >}}).
+
 ### Backoff Strategy
 
 The algorithm that determines the delay between retry attempts for a failed task. Cloacina supports three strategies: Fixed (constant delay), Linear (delay increases by a fixed increment), and Exponential (delay doubles each attempt). Configured as part of a Retry Policy.
@@ -33,6 +37,30 @@ The Python bindings package for Cloacina. Cloaca exposes Cloacina's workflow orc
 ### Cloacina
 
 The core Rust workflow orchestration and computation graph engine. Cloacina provides DAG-based workflow execution, computation graphs, cron scheduling, multi-tenancy, and a packaging system for distributable workflows. See [Architecture Overview]({{< ref "/workflows/explanation/architecture-overview" >}}).
+
+### `cloacinactl`
+
+The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Install with `curl -fsSL https://get.cloacina.dev/install.sh | bash`. See [CLI Reference]({{< ref "/platform/reference/cli" >}}) and [Installing cloacinactl]({{< ref "/quick-start/install" >}}).
+
+### `cloacina-compiler`
+
+The compilation service that produces `.cloacina` archives from a source manifest. Runs as a long-lived service (`cloacinactl compiler ...` invokes its API) with timeouts, offline-mode, and `setrlimit`-based sandboxing per CLOACI-I-0104. Exposes its own `/metrics` (`cloacina_compiler_*` namespace). See [Compiler Deployment Runbook]({{< ref "/platform/how-to-guides/compiler-deployment-runbook" >}}).
+
+### `cloacina-server`
+
+The HTTP + WebSocket service that hosts loaded packaged workflows, tenants, and computation graphs. Implements the `/v1/...` API, the WebSocket force-fire and accumulator-push paths, and `/metrics` exposition. Distributed as a binary, a container image (`ghcr.io/colliery-io/cloacina-server`), and a Helm chart. See [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}).
+
+### `cloacina-python` / Cloaca
+
+The Rust crate (`cloacina-python`) that produces the Python `cloaca` PyPI wheel. Per CLOACI-T-0529 / CLOACI-T-0532, the Python bindings live in a dedicated crate so the core `cloacina` library does not depend on PyO3. The Python surface tracks the Rust surface 1:1 (`@cloaca.task` ↔ `#[task]`, etc.). See [Python · Workflows · Explanation · Python Runtime Architecture]({{< ref "/python/workflows/explanation/python-runtime-architecture" >}}).
+
+### `complete_task_transaction`
+
+The atomic DAL operation that commits a task's terminal state, its output context, and the dependent-task wake-ups in a single transaction. Per CLOACI-I-0110, this replaces the earlier multi-step commit path that could leave inconsistencies if interrupted between writes. The operation is idempotent and exposes typed JSON-parse / context-merge errors for diagnosis.
+
+### CEL predicate
+
+A [CEL](https://github.com/google/cel-spec) expression attached to a workflow's reactor subscription. Evaluated against each reactor firing's payload; firings where the predicate returns `true` dispatch a workflow execution, the rest advance the watermark with no dispatch. Compiled at subscribe time, evaluated per firing, fail-closed on errors. Per CLOACI-T-0602. See [Filter Reactor Firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}).
 
 ### Computation Graph
 
@@ -86,6 +114,10 @@ The background service that spawns async tasks and manages concurrency limits us
 
 Foreign Function Interface. The mechanism for loading packaged workflows as dynamic libraries at runtime. Cloacina uses a C ABI (Application Binary Interface) boundary via fidius to call into compiled workflow packages without requiring the host and plugin to share the same Rust compiler version. See [FFI System]({{< ref "/platform/explanation/ffi-system" >}}).
 
+### Filtered subscription
+
+A reactor → workflow subscription with an attached CEL predicate. Only firings where the predicate evaluates to `true` cause a workflow dispatch; filtered-out firings advance the subscription's watermark and are not re-evaluated. See [Filter Reactor Firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}) and [Subscription Fan-out]({{< ref "/computation-graphs/explanation/subscription-fan-out" >}}).
+
 ### fidius
 
 The binary serialization and packaging library used internally by Cloacina. fidius transforms Rust traits into stable C ABI plugins, handling serialization across the FFI boundary. It uses JSON encoding in debug builds for readability and bincode (a compact binary format) in release builds for performance. See [FFI System]({{< ref "/platform/explanation/ffi-system" >}}).
@@ -94,9 +126,17 @@ The binary serialization and packaging library used internally by Cloacina. fidi
 
 The output of a computation graph execution. It is an enum with two variants: `Completed { outputs }` containing the serialized outputs from all terminal nodes, or `Error` indicating the graph function failed during execution.
 
+### Helm chart
+
+The Kubernetes packaging for `cloacina-server`. Ships at `charts/cloacina-server/` with an embedded local Postgres subchart (per CLOACI-T-0610) — no external Bitnami dependency. See [Deploying to Kubernetes]({{< ref "/platform/how-to-guides/deploying-to-kubernetes" >}}).
+
 ### InputCache
 
 A map from SourceName to serialized bytes that feeds entry nodes in computation graphs. The reactor updates the InputCache each time an accumulator pushes a new boundary value. When the graph fires, entry nodes deserialize their input from this cache.
+
+### Install script
+
+The one-line installer at `https://get.cloacina.dev/install.sh` (sourced from `install.sh` at the repo root). Downloads the latest release tarball for the host OS+arch from GitHub Releases, verifies its SHA256, and lands `cloacinactl` in `~/.cloacina/bin` (or `--prefix`). See [Installing cloacinactl]({{< ref "/quick-start/install" >}}).
 
 ### Inventory (registration)
 
@@ -214,6 +254,14 @@ A computation graph that is *not* bound to a reactor and is not driven by accumu
 ### UniversalUuid
 
 A cross-database UUID type that abstracts over backend differences. In PostgreSQL it maps to the native `UUID` column type; in SQLite it is stored as `TEXT`. This allows the same Rust code to work against both backends without conditional compilation.
+
+### `var` / `var_or`
+
+Helper macros that resolve registry variables — typed values keyed by name and overridable at runtime via the `CLOACINA_VAR_*` environment variable namespace. `var!("key")` returns an error if the key is unset; `var_or!("key", default)` returns the default instead. Use these for tunables a task body needs to read at runtime. See [Variable Registry]({{< ref "/workflows/how-to-guides/variable-registry" >}}).
+
+### Verification org
+
+The trust root for package signatures. When a server is started with `--require-signatures --verification-org-id <ORG>`, only packages signed by a key whose embedded org metadata matches `<ORG>` are admitted; unsigned or mis-org packages are rejected at upload (HTTP 403). Per CLOACI-I-0103. See [Require Signed Packages]({{< ref "/platform/how-to-guides/require-signed-packages" >}}).
 
 ### Workflow
 

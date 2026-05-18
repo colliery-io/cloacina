@@ -100,12 +100,15 @@ cloacinactl package pack .
 # Custom output path
 cloacinactl package pack . --out /tmp/my-workflow-1.0.0.cloacina
 
-# With sign — accepted but currently a no-op
+# With sign — currently fail-hard (see note below)
 cloacinactl package pack . --sign /path/to/private-key.pem
 ```
 
-> **`--sign` is currently a no-op in the CLI.** The signature
-> infrastructure exists at `cloacina::security::package_signer`
+> **`--sign` is currently a fail-hard stub in the CLI.** The flag is
+> accepted but `cloacinactl package pack` exits non-zero with an
+> error message pointing operators at the library-side signing API
+> (CLOACI-I-0103 wire-up is pending). The signature infrastructure
+> exists at `cloacina::security::package_signer`
 > (it produces a sidecar `.sig` file at `<archive>.sig`), but the
 > CLI is not yet wired to invoke it. The flag is accepted to keep
 > existing scripts compiling; the sidecar is not produced. This

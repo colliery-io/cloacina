@@ -100,7 +100,29 @@ This builds from the `main` branch tip. Pass `--tag vX.Y.Z` to pin a release.
 The Python bindings ship as a wheel — no separate installer needed:
 
 ```sh
-pip install cloaca
+pip install cloaca               # default (both backends)
+pip install cloaca[sqlite]       # SQLite only
+pip install cloaca[postgres]     # PostgreSQL only
 ```
 
 See the [Python quick start]({{< ref "/python" >}}) for usage.
+
+## Docker
+
+The server is published as a container image on every release:
+
+```sh
+docker pull ghcr.io/colliery-io/cloacina-server:v0.6.1
+```
+
+See [Running the server image]({{< ref "/platform/how-to-guides/running-the-server-image" >}}) for the full container deploy walkthrough — environment variables, signature enforcement, log retention.
+
+## Kubernetes (Helm)
+
+A Helm chart with an embedded local Postgres subchart ships in-tree:
+
+```sh
+helm install cloacina-server ./charts/cloacina-server
+```
+
+See [Deploying to Kubernetes]({{< ref "/platform/how-to-guides/deploying-to-kubernetes" >}}) for production values, the embedded Postgres subchart story, and the operator-flag reference.

@@ -11,7 +11,10 @@ Practical recipes for solving specific problems with the workflow system.
 ## Development
 
 - [Testing Workflows]({{< ref "/workflows/how-to-guides/testing-workflows" >}}) — Unit and integration testing strategies
-- [Sequential Strategy]({{< ref "/workflows/how-to-guides/sequential-strategy" >}}) — Force sequential execution of parallel tasks
+- [Subscribe a Workflow to a Reactor]({{< ref "/workflows/how-to-guides/subscribe-workflow-to-reactor" >}}) — Wire a workflow trigger to a reactor's firings via the DB-backed subscription fan-out (CLOACI-I-0100)
+- [Invoke a Computation Graph from a Workflow Task]({{< ref "/workflows/how-to-guides/invoke-computation-graph-from-workflow" >}}) — Embed a computation graph as a single workflow task using `invokes = computation_graph(...)` (CLOACI-I-0101)
+
+> The Sequential Input Strategy how-to is now under [Computation Graphs → How-to → Sequential Strategy]({{< ref "/computation-graphs/how-to-guides/sequential-strategy" >}}) — it is a reactor-side concern, not a workflow-task strategy.
 
 ## Configuration
 

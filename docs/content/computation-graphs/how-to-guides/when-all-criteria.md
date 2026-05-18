@@ -270,4 +270,4 @@ This means `when_all` is strictly "at least one new boundary from each source pe
 ## Related
 
 - [Choosing and using accumulator types]({{< ref "/computation-graphs/how-to-guides/accumulator-types" >}})
-- [How to use sequential input strategy]({{< ref "/workflows/how-to-guides/sequential-strategy" >}})
+- [How to use sequential input strategy]({{< ref "/computation-graphs/how-to-guides/sequential-strategy" >}})

@@ -954,10 +954,16 @@ The Cloaca Python wheel is built with specific Cargo feature flags. The pre-buil
 **Solution:**
 
 1. **Check which features are compiled in:**
-   ```python
-   import cloaca
-   print(cloaca.features())  # Lists compiled features
+
+   The `cloaca` Python module does not currently expose a `features()` helper. To inspect which backend was compiled in, check whether `DefaultRunner` accepts a `postgresql://...` or `sqlite://...` URL — a wheel built without a given backend will raise at construction time. For container / packaged-Python deployments, inspect the wheel's metadata:
+
+   ```sh
+   pip show cloaca           # see installed wheel metadata
+   pip install cloaca[postgres]   # ensure postgres backend
+   pip install cloaca[sqlite]     # ensure sqlite backend
    ```
+
+   The published wheels ship both backends by default; the per-backend extras above are useful when you want a leaner install.
 
 2. **Build from source with required features:**
    ```bash

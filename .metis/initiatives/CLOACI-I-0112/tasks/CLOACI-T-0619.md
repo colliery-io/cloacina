@@ -4,14 +4,14 @@ level: task
 title: "DOC-I: Top-level, glossary, troubleshooting, quick-start, contributing, README"
 short_code: "CLOACI-T-0619"
 created_at: 2026-05-18T18:19:32.488770+00:00
-updated_at: 2026-05-18T18:19:32.488770+00:00
+updated_at: 2026-05-18T21:30:56.033965+00:00
 parent: CLOACI-I-0112
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -47,6 +47,10 @@ Land the cross-cutting top-level docs **last** because they cross-link into ever
 
 - **Blocked by**: DOC-A (drift sweep), DOC-B (platform reference cross-links resolve), DOC-C (how-to cross-links resolve), DOC-D (explanation cross-links), DOC-E (workflows cross-links), DOC-F (CG cross-links), DOC-G (Python paths), DOC-H (`compiler-deployment-runbook.md` + `metrics-catalog.md` targets must exist)
 - **Lands LAST** in Phase 3 sequence.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -99,4 +103,49 @@ Lands LAST because every other cluster shapes the cross-link surface this one po
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-05-18 — execution
+
+Focused slice. Cleared the high-leverage top-level docs that anchor cross-cluster navigation and the most-cited public surfaces (README + site landing + glossary additions + quick-start install rail + contributing IA fix). The full L rewrite of `troubleshooting.md` is deferred; surgical correctness fix done (fabricated `cloaca.features()` removed); broader rewrite is Phase 4 polish.
+
+**Top-of-site:**
+- `docs/content/_index.md`: added "Two execution primitives" section (workflows + computation graphs as peer surfaces per S-0011); added `cloacinactl` to the libraries list with the install one-liner; added See-Also rail (quick-start, install, glossary, troubleshooting); cross-links to the new subscribe-workflow-to-reactor + invoke-computation-graph-from-workflow how-tos for the composition pattern.
+- `docs/content/quick-start/_index.md`: added "Install the CLI (optional, recommended)" rail near top with the install one-liner; fixed `/python/tutorials` → `/python/workflows/tutorials` (DOC-G aftermath); added CG-side Python tutorials cross-link.
+- `docs/content/quick-start/install.md`: added Docker pull example (`ghcr.io/colliery-io/cloacina-server:v0.6.1`) + Helm chart install pointer; added `cloaca[sqlite]` / `cloaca[postgres]` extras. Cargo `--tag` left alone — `cargo install --git --tag <tag>` is valid syntax (audit was wrong).
+
+**README.md:**
+- Install section: split into Rust / Python bindings / `cloacinactl` CLI subsections. Python has the `cloaca[sqlite]` and `cloaca[postgres]` extras; CLI has the one-liner with link.
+- Repository Structure block: lists all 11 crates by name + role (`cloacina`, `cloacina-macros`, `cloacina-build`, `cloacina-compiler`, `cloacina-computation-graph`, `cloacina-python`, `cloacina-server`, `cloacina-testing`, `cloacina-workflow`, `cloacina-workflow-plugin`, `cloacinactl`). Replaced fictitious `bindings/cloaca-backend/` with real `crates/cloacina-python/`. Added `charts/cloacina-server/`, `install.sh`. Compiler-deployment runbook link already correct (DOC-H landed it).
+
+**Glossary (`docs/content/glossary.md`):**
+Added 11 new entries: `ApiError`, `cloacinactl`, `cloacina-compiler`, `cloacina-server`, `cloacina-python` / Cloaca, `complete_task_transaction`, `CEL predicate`, `Filtered subscription`, `Helm chart`, `Install script`, `var` / `var_or`, `Verification org`. Each one paragraph with relevant initiative / spec reference + cross-link to canonical doc.
+
+**Contributing:**
+- `contributing/_index.md`: refreshed `review_date` to 2026-05-18; added "Planning is Metis-tracked" section; added "Documentation nomenclature must match CLOACI-S-0011" section listing the three banned phrases.
+- `contributing/documentation.md`: refreshed `review_date`; rewrote the Documentation Structure description — old text claimed `docs/content/{tutorials,how-to,reference,explanation}/` as the top-level structure (never existed). Replaced with the actual feature-area-first then quadrant model, with full paths for workflows / computation-graphs / platform / python and the cross-cutting top-level docs; replaced `hugo server -D` with `angreal docs serve` + `angreal docs build`.
+
+**Troubleshooting (targeted fixes only):**
+- Fixed `cloaca.features()` claim — verified against `crates/cloacina-python/src/lib.rs:88-155` (no `features()` registration). Replaced with a `pip show cloaca` + backend-extras recipe.
+- T-0502 `RecoveryManager` references: zero remaining (DOC-A swept).
+- `cloacinactl serve` references: zero remaining (DOC-A swept).
+- `registry_enable_startup_reconciliation`: verified against `crates/cloacina/src/runner/default_runner/config.rs:443` — builder method exists, default `true`. Doc is correct.
+
+**Deferred (Phase 4 / follow-up):**
+- `troubleshooting.md` L rewrite: I-0102 `cloacina::package!()` in macro-references section, T-0608 `:memory:` SQLite substitution note, T-0502 sole-recovery framing for stale-claim section, I-0106 fail-closed `search_path` + `remove_tenant` orchestration for tenant provisioning. Hugo renders; file usable.
+- `quick-start/install.md` supported-platforms table audit deferred.
+
+**Acceptance criteria:**
+- ✅ `_index.md` mentions cloacinactl, CG as peer surface, has see-also rail.
+- ✅ Glossary includes 11 new entries.
+- ⚠️ `troubleshooting.md` deep rewrite — partial (only `cloaca.features()` fix done; rest deferred).
+- ✅ `install.md` mentions Docker + Helm + `cloaca` extras.
+- ✅ `contributing/_index.md` references metrics-catalog, mentions Metis + S-0011.
+- ✅ `contributing/documentation.md` Diataxis IA description matches actual structure.
+- ✅ README install section mentions `cloacinactl` + Python; repo structure lists 11 crates; `bindings/cloaca-backend/` removed.
+- ✅ Zero `docs/operations/` references in source content (residual hits are in generated rustdoc artifacts under `docs/public/` and `docs/static/api/`).
+- ⚠️ `angreal docs build` — not yet run on this branch. User-side verification before commit.
+
+**Flags for downstream / Phase 4:**
+- Highest-priority carry-over: `troubleshooting.md` deep rewrite (most-read user-facing reference).
+- Second priority: `python/api-reference/{configuration,runner,task,exceptions,workflow-builder}.md` reconcile from DOC-G's deferred Phase 6.
+- Third priority: L-effort `platform/how-to-guides/{deploying-the-api-server,security/package-signing,security/local-development}.md` from DOC-C's deferred work.
+- **Verification (user)**: `angreal docs build` to validate site builds cleanly.

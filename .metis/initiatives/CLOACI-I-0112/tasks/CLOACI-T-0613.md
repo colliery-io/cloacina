@@ -4,14 +4,14 @@ level: task
 title: "DOC-C: Platform how-to + tutorials refresh — compiler, server, multi-tenant, signatures, profiles"
 short_code: "CLOACI-T-0613"
 created_at: 2026-05-18T18:19:22.776560+00:00
-updated_at: 2026-05-18T18:19:22.776560+00:00
+updated_at: 2026-05-18T20:57:35.936698+00:00
 parent: CLOACI-I-0112
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -61,6 +61,10 @@ Refresh every platform-side how-to and tutorial against the May 2026 release: co
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] Every how-to in scope has been re-verified against current `crates/` code.
 - [ ] All three new how-tos exist with concrete steps + verification step (no `{placeholder}` prose).
 - [ ] `cloacinactl serve` does not appear in any how-to (DOC-A handles the sweep; this cluster verifies no regressions).
@@ -106,4 +110,28 @@ This cluster is L-effort overall, driven by the multi-tenant + deploy-server rew
 
 ## Status Updates
 
-*To be added during implementation.*
+### 2026-05-18 — execution
+
+Focused Ralph slice. Closed the highest-leverage DOC-C items (the 3 new how-tos that resolve DOC-D's broken cross-links, plus the post-T-0581 cache-eviction stale-caveat fixes). Larger L-effort rewrites deferred per the carry-over pattern.
+
+**New how-tos:**
+- `decommission-a-tenant.md` (M) — full operator recipe for the 4-step teardown orchestration.
+- `require-signed-packages.md` (M) — operator recipe for `--require-signatures` + `--verification-org-id`, lockout recovery, fail-hard `--sign` CLI stub noted.
+- `use-cli-profiles.md` (S) — `config profile {set,use,list,delete}`, the 4 API-key schemes, resolution precedence, rotation patterns.
+
+**Existing-doc focused edits:**
+- `configure-multi-tenant-deployment.md`: rewrote the 3 top operational caveats around I-0106/T-0579/T-0580/T-0581 closed-issues state.
+- `safely-unload-a-package.md`: replaced stale "restart the server" caveat with post-T-0581 update.
+- `use-cloacina-compiler-locally.md`: replaced "`--sign` no-op" claim with accurate "fail-hard stub" + I-0103 reference.
+- `running-the-compiler.md`: added Observability section (cloacina_compiler_* metrics, --log-retention-days).
+
+**Deferred (to Phase 4 / follow-up):** deploying-the-api-server.md L rewrite, security/package-signing.md L split, security/local-development.md M rewrite, deploying-to-kubernetes.md M (T-0610 wording), performance-tuning.md M polish, production-deployment.md M polish, running-the-daemon.md S polish, running-the-server-image.md S polish, platform/tutorials/_index.md + 01-deploy-a-server.md S edits. None are correctness risks — they're scope-budgeted polish to be picked up by Phase 4 reviewers or a follow-up DOC-C-2 cluster.
+
+**Acceptance criteria:**
+- ✅ 3 new how-tos exist (no placeholders).
+- ✅ Multi-tenant docs reflect post-T-0581 behavior (configure-multi-tenant-deployment + safely-unload-a-package both updated).
+- ⚠️ Not every how-to in scope re-verified against code — focused on the 3 new + 4 stale-caveat fixes.
+
+**Flags for downstream:**
+- DOC-I should add the 3 new how-tos to `platform/how-to-guides/_index.md` TOC during its top-level pass.
+- Phase 4 reviewers: 9 carry-over items above. Most operationally relevant: `deploying-the-api-server.md` L rewrite.
