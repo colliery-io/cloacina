@@ -39,6 +39,10 @@ If none of these are set, the command exits with an error message listing all th
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
 | `CLOACINA_BOOTSTRAP_KEY` | Pre-defined API key used as the initial admin key on first server startup. If set and no API keys exist in the database, this value is registered as the admin key instead of auto-generating one. | None (auto-generated) | `sk-my-secret-bootstrap-key-abc123` | Server | No |
+| `CLOACINA_REQUIRE_SIGNATURES` | When set (any value), the server enforces package signature verification at upload time. Requires `CLOACINA_VERIFICATION_ORG_ID` to also be set; startup fails fast otherwise. CLOACI-I-0103. | `false` (off) | `true` | Server | No |
+| `CLOACINA_VERIFICATION_ORG_ID` | Trusted organization UUID used to verify package signatures. **Required when `CLOACINA_REQUIRE_SIGNATURES` is set**. CLOACI-I-0103 / T-0567. | None | `12345678-1234-1234-1234-123456789abc` | Server | Conditional |
+| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB pool. Bump for high-cardinality SaaS; drop for memory-tight deployments. CLOACI-T-0580. | `256` | `1024` | Server | No |
+| `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; tasks ignoring cooperative cancellation will error on next DB write. CLOACI-T-0581. | `30` | `60` | Server | No |
 
 ### Server CLI Flags (also accept env vars)
 
@@ -48,8 +52,12 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | `--database-url` | None | Database connection URL |
 | `CLOACINA_BOOTSTRAP_KEY` | `--bootstrap-key` | None | Bootstrap admin API key |
+| `CLOACINA_REQUIRE_SIGNATURES` | `--require-signatures` | off | Signature enforcement toggle |
+| `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Trusted org UUID |
+| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner cache cap |
+| `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `--tenant-deletion-drain-timeout-s` | `30` | Drain timeout during teardown |
 
-The bind address (`--bind`, default `0.0.0.0:8080`) is CLI-only and does not have an environment variable equivalent.
+The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents.
 
 ---
 
@@ -143,15 +151,19 @@ When `OTEL_EXPORTER_OTLP_ENDPOINT` is **not** set, no OpenTelemetry overhead is 
 
 ### Prometheus Metrics
 
-The server exposes a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the server is running. Metrics include:
+The server (and `cloacina-compiler`, per CLOACI-I-0109) expose a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the binary is running. The full catalog — every metric name, type, labels, meaning, and example PromQL — lives in [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}).
 
-- `cloacina_pipelines_total` (counter, by status) -- Metrics use "pipeline" as the internal name for workflow executions.
-- `cloacina_tasks_total` (counter, by status)
-- `cloacina_api_requests_total` (counter, by method/path/status)
-- `cloacina_pipeline_duration_seconds` (histogram)
-- `cloacina_task_duration_seconds` (histogram)
-- `cloacina_active_pipelines` (gauge)
-- `cloacina_active_tasks` (gauge)
+The top-of-mind metrics for operators:
+
+- `cloacina_workflows_total` (counter, by `status` + `reason`) — workflow execution counter.
+- `cloacina_tasks_total` (counter, by `status` + `reason`) — task execution counter.
+- `cloacina_api_requests_total` (counter, by `method` + `status`).
+- `cloacina_workflow_duration_seconds` (histogram).
+- `cloacina_task_duration_seconds` (histogram).
+- `cloacina_active_workflows` (gauge, SQL-derived re-seed per CLOACI-I-0108).
+- `cloacina_active_tasks` (gauge, SQL-derived re-seed per CLOACI-I-0108).
+
+The legacy `cloacina_pipeline*` names (used in pre-2026 docs) are gone — emission was renamed to `workflow*` to match the user-facing primitive. See the metrics catalog for the full namespace.
 
 ---
 
@@ -245,6 +257,24 @@ Exposed on `localhost:9092`.
 
 ---
 
+## Compiler
+
+`cloacina-compiler` reads its own envs from the underlying binary (see [Compiler + Server Deployment Runbook]({{< ref "/platform/how-to-guides/compiler-deployment-runbook" >}}) for the wrapper-flag set and [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) for the threat model + hardening flags).
+
+| Variable | Purpose | Default | Component | Notes |
+|----------|---------|---------|-----------|-------|
+| `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Wall-clock cap on a single cargo build, per CLOACI-I-0104 OPS-10. | (binary default) | Compiler | Past timeout, the build row is marked `timed_out`; the stale-build sweeper reclaims it. |
+| `CLOACINA_COMPILER_VENDOR_DIR` | Path to the curated pre-vendored cargo registry. Defaults to a directory under `CLOACINA_HOME`. | (binary default) | Compiler | Builds run with `--frozen --offline` against this directory. CLOACI-I-0104. |
+| `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Per-build resource caps via `setrlimit` — CPU, memory, FDs, processes. | (binary default) | Compiler | Linux only. The specific variable names mirror `RLIMIT_*` constants. CLOACI-I-0104. |
+
+## Install script (`install.sh`)
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `CLOACINACTL_VERSION` | Pin to a specific release tag. Equivalent to `--version` on the one-liner. | (latest) |
+| `INSTALL_DIR` | Override install root. Equivalent to `--prefix`. | `$HOME/.cloacina` |
+| `CLOACINA_REPO` | Install from a fork instead of `colliery-io/cloacina`. | `colliery-io/cloacina` |
+
 ## Summary Table
 
 Quick reference of all Cloacina-specific environment variables:
@@ -253,11 +283,21 @@ Quick reference of all Cloacina-specific environment variables:
 |----------|-----------|---------|
 | `DATABASE_URL` | Server, Admin, Tests | PostgreSQL connection URL |
 | `CLOACINA_BOOTSTRAP_KEY` | Server | First-run admin API key |
+| `CLOACINA_REQUIRE_SIGNATURES` | Server | Toggle package signature enforcement |
+| `CLOACINA_VERIFICATION_ORG_ID` | Server | Trusted org UUID for signature verification |
+| `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | Server | Per-tenant runner LRU cap |
+| `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Server | Drain timeout during tenant teardown |
+| `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap |
+| `CLOACINA_COMPILER_VENDOR_DIR` | Compiler | Curated vendored cargo registry path |
+| `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Compiler | Per-build setrlimit caps |
 | `CLOACINA_VAR_*` | Library, Python | User-defined runtime variables |
 | `RUST_LOG` | All | Log/trace filter level |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Server (telemetry) | OTLP collector endpoint |
 | `OTEL_SERVICE_NAME` | Server (telemetry) | Service name in traces |
 | `CLOACINA_TEST_SCHEMA` | Tests | Schema isolation for CI |
+| `CLOACINACTL_VERSION` | Install script | Pin to a release tag |
+| `INSTALL_DIR` | Install script | Override install root |
+| `CLOACINA_REPO` | Install script | Install from a fork |
 
 ---
 

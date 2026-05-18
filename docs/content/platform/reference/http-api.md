@@ -16,6 +16,49 @@ root. The server subcommand was renamed from `cloacinactl serve` to
 `cloacinactl server start` in an earlier release; older docs may
 still mention the old name.
 
+## Universal response invariants
+
+Every response from every route in this document carries these two
+invariants. They are not repeated per-endpoint below.
+
+### Error envelope (`ApiError`)
+
+Every non-2xx response — regardless of endpoint or status code — has
+this JSON body:
+
+```json
+{
+  "error": "human-readable message",
+  "code": "machine_readable_code"
+}
+```
+
+The error-body examples shown later in this document omit the `code`
+field for brevity. **In every case the real response body also
+includes a stable `code` field** clients can switch on. The full
+catalog of codes by route and status, plus client retry guidance,
+lives in [API Error Envelope]({{< ref "api-error-envelope" >}}).
+
+### Request correlation: `x-request-id`
+
+Every response (successful and error alike) carries an
+`x-request-id` response header set by the outermost middleware. The
+same ID appears in the server's structured logs as the `request_id`
+span field. Capture this header on every non-2xx response — it's the
+only identifier that ties a client-observed failure to the server's
+logs. If the client supplies an inbound `x-request-id` header the
+middleware honours it (enables end-to-end trace propagation).
+
+### SSE / live-follow (NOT in v1)
+
+The CLI's `execution events --follow` flag exists for forward
+compatibility but is **not implemented in v1**. There is no SSE
+endpoint, no WebSocket subscription for execution events, and no
+long-poll alternative. Clients that need live event streaming should
+poll `GET /v1/tenants/{tenant_id}/executions/{exec_id}/events?since=…`
+on an interval until the upstream SSE work lands. (Planned but
+unscheduled; tracked outside CLOACI-I-0107.)
+
 ## Authentication
 
 All endpoints except health checks require a valid API key passed as a Bearer token:
@@ -282,40 +325,48 @@ Tenants are isolated PostgreSQL schemas. Each tenant gets its own schema, databa
 
 ### POST /v1/tenants
 
-Create a new tenant.
+Create a new tenant. **Admin-only** (requires an `is_admin` key).
 
 **Request:**
 
 ```json
 {
-  "schema_name": "tenant_acme",
-  "username": "acme_user",
-  "password": ""
+  "name": "tenant_acme",
+  "description": "ACME Corp production tenant",
+  "password": null
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `schema_name` | string | yes | Schema name (alphanumeric + underscore) |
-| `username` | string | yes | Database username for this tenant |
-| `password` | string | no | Password. Empty string triggers auto-generation (32 chars, ~202 bits entropy). |
+| `name` | string | yes | Tenant identifier — doubles as the Postgres schema name **and** the database username. Must be alphanumeric + underscore (validated server-side). |
+| `description` | string | no | Operator-facing metadata; surfaced in audit logs and listing responses. |
+| `password` | string | no | Optional password. Omit or set `null` to trigger auto-generation (32 chars, ~202 bits entropy). |
+
+> **Breaking change (CLOACI-T-0594 / API-01):** the previous body
+> shape `{schema_name, username, password}` is no longer accepted.
+> Direct API consumers must migrate to `{name, description?, password?}`.
+> The schema name and database username are both derived from `name`
+> to keep the public API ergonomic.
 
 **Response:** `201 Created`
 
 ```json
 {
-  "schema_name": "tenant_acme",
-  "username": "acme_user"
+  "name": "tenant_acme",
+  "username": "tenant_acme",
+  "description": "ACME Corp production tenant"
 }
 ```
 
 > **Security:** The tenant password is **never returned** in the response, even when auto-generated. The password is set during provisioning and is not surfaced over the API. Operators who need the password must capture it at provisioning time via the database admin tooling, not via this endpoint.
 
-**Errors:**
+**Errors** (envelope per [API Error Envelope]({{< ref "api-error-envelope" >}})):
 
-| Status | Body |
-|---|---|
-| `400` | `{"error": "<detail>"}` |
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `tenant_creation_failed` | `DatabaseAdmin::create_tenant` rejected (invalid name, schema exists, Postgres permission denied). |
+| `403` | `admin_required` | Caller is not an `is_admin` key. |
 
 ### GET /v1/tenants
 
@@ -340,9 +391,28 @@ List all tenant schemas.
 
 ### DELETE /v1/tenants/{schema_name}
 
-Remove a tenant. Drops the schema (CASCADE) and the database user.
+Remove a tenant via the **4-step teardown orchestration** introduced
+in CLOACI-T-0581. **Admin-only** (requires an `is_admin` key).
 
-> **Operational caveat:** The server's `TenantDatabaseCache` does **not** evict its connection pool when a tenant is deleted. Subsequent requests to the deleted tenant will fail with stale-pool errors. Restart `cloacina-server` to reclaim the cache. See [Operational Caveats](#operational-caveats) below.
+The steps are top-down and each emits a structured audit event with
+duration:
+
+1. **Revoke API keys** for the tenant (closes the auth surface — new
+   requests against the tenant start failing immediately).
+2. **Evict the tenant's `DefaultRunner`** from `TenantRunnerCache`,
+   awaiting a bounded graceful drain (`--tenant-deletion-drain-timeout-s`
+   server flag, default 30s). Past the timeout the runner is
+   **hard-evicted** — any task that ignored cooperative cancellation
+   will error on its next DB write once step 4 drops the schema.
+3. **Evict the tenant's `Database`** from `TenantDatabaseCache`
+   (releases the per-tenant connection pool).
+4. **Drop the schema + user** via `DatabaseAdmin::remove_tenant`
+   (CASCADE).
+
+Per-step failures bail out; earlier steps stay committed (each step
+is idempotent), so a retry resumes from the failure point. The
+caller sees a single `200` on overall success or a `400` /
+`500` with the failing step's error if any step fails.
 
 **Path parameters:**
 
@@ -353,14 +423,27 @@ Remove a tenant. Drops the schema (CASCADE) and the database user.
 **Response:** `200 OK`
 
 ```json
-{"status": "removed", "schema_name": "tenant_acme"}
+{
+  "status": "removed",
+  "schema_name": "tenant_acme",
+  "revoked_keys": 3,
+  "runner_evicted": true,
+  "db_cache_evicted": true
+}
 ```
 
-**Errors:**
+The `revoked_keys` field counts API keys revoked in step 1.
+`runner_evicted` / `db_cache_evicted` are `true` if the cache had a
+live entry at teardown time (false if the cache was cold — still a
+successful teardown).
 
-| Status | Body |
-|---|---|
-| `400` | `{"error": "<detail>"}` |
+**Errors** (envelope per [API Error Envelope]({{< ref "api-error-envelope" >}})):
+
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `tenant_removal_failed` | Step 4 (schema drop) failed. Steps 1-3 may have committed. Retry is idempotent. |
+| `500` | `internal_error` | Step 1 (key revocation) failed. Steps 2-4 not attempted. |
+| `403` | `admin_required` | Caller is not an `is_admin` key. |
 
 ## Workflow Packages
 
@@ -525,7 +608,24 @@ Execute a workflow. Returns immediately with a scheduled execution ID.
 
 ### GET /v1/tenants/{tenant_id}/executions
 
-List pipeline executions for a tenant. Returns all recent executions (including running and completed).
+List workflow executions for a tenant. Supports filtering and
+pagination (CLOACI-T-0594 / API-02; previously these query params
+were silently discarded).
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `status` | string | (none) | Filter by execution status (e.g., `Pending`, `Running`, `Completed`, `Failed`). |
+| `workflow` | string | (none) | Filter by workflow name (exact match). |
+| `limit` | integer | `100` | Page size. Min `1`, max `1000`. |
+| `offset` | integer | `0` | Page offset. Must be ≥ 0. |
+
+**Errors specific to this endpoint:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `invalid_pagination` | `limit` outside `[1, 1000]` or `offset` negative. |
 
 **Response:** `200 OK`
 
@@ -614,7 +714,21 @@ Read-only listing of cron and trigger schedules.
 
 ### GET /v1/tenants/{tenant_id}/triggers
 
-List all schedules (cron and trigger) for a tenant.
+List all schedules (cron and trigger) for a tenant. Supports
+pagination per CLOACI-T-0596 / API-10.
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | integer | `100` | Page size. Min `1`, max `1000`. |
+| `offset` | integer | `0` | Page offset. Must be ≥ 0. |
+
+**Errors specific to this endpoint:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `invalid_pagination` | `limit` outside `[1, 1000]` or `offset` negative. |
 
 **Response:** `200 OK`
 
@@ -809,24 +923,32 @@ them.
 
 ### Tenant database isolation
 
-- **Workflow execution scheduling is NOT tenant-scoped.** The
-  `DefaultRunner` that backs `POST /v1/tenants/{id}/workflows/{name}/execute`
-  is a single global instance; executions land in the **runner's
-  schema** (typically `public`), not the tenant's schema. In
-  multi-tenant deployments this is a known isolation gap. Operators
-  who need true per-tenant execution isolation must run a separate
-  `cloacina-server` instance per tenant or wait for per-tenant runner
-  support to ship.
-- The trigger list endpoint `GET /v1/tenants/{id}/triggers` returns
-  schedules from the **global** schedule table and filters
-  client-side by name. It is not a true per-tenant audit; the same
-  schedule will appear regardless of which tenant ID is in the path
-  if it matches the filter.
-- The `TenantDatabaseCache` lazily creates per-tenant connection
-  pools but **never evicts**. Deleting a tenant via
-  `DELETE /v1/tenants/{name}` drops the schema but leaves the cached
-  pool. Subsequent requests to the deleted tenant fail with stale-
-  pool errors. **Restart the server** to reclaim the cache.
+The following caveats were **closed by the CLOACI-I-0106 multi-tenant
+abstraction** (T-0579, T-0580, T-0581) — they are described here in
+their current resolved state. The earlier "isolation gap" framing has
+been removed.
+
+- **Per-tenant runner instances.** Each tenant has its own
+  `DefaultRunner` (with its own scheduler loop, executor pool, and
+  per-tenant DB pool), cached in `TenantRunnerCache` up to the
+  `--tenant-runner-cache-size` cap (default 256, CLOACI-T-0580).
+  Workflow execution lands in the tenant's schema, not in `public`.
+- **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers`
+  routes through the tenant-scoped `Database` from
+  `TenantDatabaseCache` (CLOACI-T-0579), so the underlying SQL hits
+  the tenant's `schedules` table, not a shared global table.
+- **Cache eviction on tenant delete** (CLOACI-T-0581). The
+  `DELETE /v1/tenants/{name}` route runs the 4-step teardown
+  orchestration (revoke keys → evict runner cache → evict DB cache →
+  drop schema); both `TenantRunnerCache` and `TenantDatabaseCache`
+  are evicted as part of the teardown. **The "restart the server" workaround
+  is no longer required** — subsequent requests to a deleted tenant
+  return `404`, not stale-pool errors.
+- **Fail-closed `SET search_path`.** Per-tenant connection
+  acquisition (CLOACI-I-0106) sets `search_path` strictly to the
+  tenant's schema; a failed `SET search_path` is a hard, fail-closed
+  error rather than a silent fall-through to `public`. This closes
+  the cross-tenant data-leak risk that existed pre-I-0106.
 
 ### Request handling
 

@@ -107,6 +107,7 @@ cloacinactl daemon start [--watch-dir <DIR>]... [--poll-interval <MS>]
 |---|---|---|
 | `--watch-dir <DIR>` | (none) | Additional package directory to watch. Repeatable. The default watch dir (`~/.cloacina/packages/`) is always included; CLI dirs and config dirs are merged and deduplicated. |
 | `--poll-interval <MS>` | `500` | Reconciler fallback poll interval in milliseconds. The filesystem watcher provides immediate detection; this is the safety net. |
+| `--log-retention-days <N>` | `14` | Number of daily-rotated log files to retain in `~/.cloacina/logs/`. `0` disables pruning. CLOACI-I-0109 / T-0592. |
 
 **Behavior:**
 
@@ -171,8 +172,12 @@ under the `/v1/` prefix and the unauth probes `/health`, `/ready`,
 
 ```text
 cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
-                        [--bootstrap-key <KEY>] [--require-signatures]
+                        [--bootstrap-key <KEY>]
+                        [--require-signatures] [--verification-org-id <UUID>]
                         [--reconcile-interval-s <N>]
+                        [--tenant-runner-cache-size <N>]
+                        [--tenant-deletion-drain-timeout-s <N>]
+                        [--log-retention-days <N>]
 ```
 
 | Flag | Env Var | Default | Description |
@@ -180,14 +185,19 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
 | `--bind <ADDR>` | | `127.0.0.1:8080` | Listen address. |
 | `--database-url <URL>` | `DATABASE_URL` | (required) | Database connection URL. Examples: `sqlite:///path/to/cloacina.db`, `postgres://user:pass@host/dbname`. |
 | `--bootstrap-key <KEY>` | `CLOACINA_BOOTSTRAP_KEY` | (auto-generated) | Pre-supplied admin key for first startup. If a key is generated, the plaintext is written to `~/.cloacina/bootstrap-key` with `0600` perms exactly once. |
-| `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | `false` | Enforce package signature verification at upload time. |
+| `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | `false` | Enforce package signature verification at upload time. Requires `--verification-org-id`. CLOACI-I-0103. |
+| `--verification-org-id <UUID>` | `CLOACINA_VERIFICATION_ORG_ID` | (none) | Trusted organization UUID used to verify package signatures. **Required when `--require-signatures` is set**; startup fails fast otherwise. CLOACI-I-0103 / T-0567. |
+| `--reconcile-interval-s <N>` | | (runtime default) | Interval (seconds) between reconciler passes that sync the in-runner workflow registry with the DB. Increase for quiet prod; decrease for fast e2e tests. |
+| `--tenant-runner-cache-size <N>` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB connection pool. Bump for high-cardinality SaaS deployments; drop for memory-tight ones. CLOACI-T-0580. |
+| `--tenant-deletion-drain-timeout-s <N>` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; any task that ignored cooperative cancellation errors on its next DB write once the schema is dropped. CLOACI-T-0581. |
+| `--log-retention-days <N>` | | `14` | Number of daily-rotated log files to retain. `0` disables pruning entirely. CLOACI-I-0109 / T-0592. |
 
 This subcommand was renamed from `serve` in an earlier release; older
-docs may still mention the old name. Reconciler poll interval and
-similar runtime-tuning knobs are not exposed as CLI flags on
-`cloacinactl server start`; they're hard-coded to safe defaults at
-the wrapper layer. If you need to tune them, invoke the underlying
-`cloacina-server` binary directly with the appropriate arguments.
+docs may still mention the old name. The reconciler poll interval and
+the multi-tenant cache knobs are exposed via `cloacinactl server start`
+(the wrapper forwards them to the underlying `cloacina-server` binary).
+Other runtime-tuning knobs are not surfaced through the wrapper — if
+you need to tune them, invoke `cloacina-server` directly.
 
 ### `server stop` / `status` / `health`
 
@@ -286,7 +296,7 @@ substring match on the package name.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `execution list [--workflow <F>] [--status <S>] [--limit <N>]` | `GET /v1/tenants/<tenant>/executions?...` | Default limit: 50. |
+| `execution list [--workflow <F>] [--status <S>] [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/executions?status=…&workflow=…&limit=…&offset=…` | Default limit: 100, max 1000. `--status` and `--workflow` map to the server query params of the same names (CLOACI-T-0594 / API-02). |
 | `execution status <ID>` | `GET /v1/tenants/<tenant>/executions/<id>` | Returns Pending / Running / Completed / Failed / Cancelled / Paused. |
 | `execution events <ID> [--since <DURATION>]` | `GET /v1/tenants/<tenant>/executions/<id>/events?since=<dur>` | `--follow` is **not yet implemented** — the flag exists for forward compatibility and currently returns exit 1. |
 
@@ -309,7 +319,7 @@ Requires an admin-role key.
 |---|---|---|
 | `tenant create <NAME> [--description <STR>]` | `POST /v1/tenants` | Creates a new Postgres schema (per-tenant). The schema's password is **never returned** — it's set during provisioning and not surfaced. |
 | `tenant list` | `GET /v1/tenants` | Lists tenant schema names. |
-| `tenant delete <NAME> [--force]` | `DELETE /v1/tenants/<name>` | Drops the schema. Interactive confirmation unless `--force`. **Note**: the server's `TenantDatabaseCache` does not evict on delete; restart `cloacina-server` to reclaim the connection pool. |
+| `tenant delete <NAME> [--force]` | `DELETE /v1/tenants/<name>` | Triggers the 4-step teardown orchestration (revoke keys → evict runner cache → evict DB cache → drop schema). Each step emits an audit event. The drain step is bounded by `--tenant-deletion-drain-timeout-s` (server flag, default 30s); past that, the runner is hard-evicted. Interactive confirmation unless `--force`. CLOACI-T-0581. |
 
 ## `key`
 
@@ -323,7 +333,7 @@ Requires an admin-role key.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `trigger list` | `GET /v1/tenants/<tenant>/triggers` | Combined cron + custom-poll trigger schedules. |
+| `trigger list [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/triggers?limit=…&offset=…` | Combined cron + custom-poll trigger schedules. Default limit: 100, max 1000 (CLOACI-T-0596 / API-10). |
 | `trigger inspect <NAME>` | `GET /v1/tenants/<tenant>/triggers/<name>` | Single trigger metadata + recent executions. |
 
 ---

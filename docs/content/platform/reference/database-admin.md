@@ -197,6 +197,19 @@ The method performs these operations in a single transaction:
 2. **Drop User**: `DROP USER IF EXISTS xyz_user`
 3. **Drop Schema**: `DROP SCHEMA IF EXISTS tenant_xyz CASCADE`
 
+> **Production callers: use the HTTP route, not this library call.**
+> Per CLOACI-T-0581, the server's `DELETE /v1/tenants/{name}` route
+> performs a 4-step orchestrated teardown around this call:
+> (1) revoke API keys for the tenant, (2) evict the tenant's
+> `DefaultRunner` from `TenantRunnerCache` with a bounded drain
+> (`--tenant-deletion-drain-timeout-s`, default 30s),
+> (3) evict the tenant's `Database` from `TenantDatabaseCache`,
+> then (4) call `DatabaseAdmin::remove_tenant` (this function).
+> Each step emits a structured audit event with duration. The bare
+> library call skips steps 1-3 and leaves in-process state stale.
+> Use it directly only for testing or for one-shot scripts where
+> no `cloacina-server` instance is holding tenant caches.
+
 ## Requirements
 
 ### PostgreSQL Requirements

@@ -32,7 +32,7 @@ let config = DefaultRunnerConfig::builder()
 | `task_timeout` | `Duration` | `300s` (5 min) | Maximum time allowed for a single task to execute before it is considered timed out. |
 | `pipeline_timeout` | `Option<Duration>` | `Some(3600s)` (1 hr) | Maximum time for an entire pipeline execution. `None` disables the pipeline-level timeout. |
 | `db_pool_size` | `u32` | `10` | Number of database connections in the connection pool. |
-| `enable_recovery` | `bool` | `true` | Whether automatic recovery of failed/stale task executions is enabled. |
+| `enable_recovery` | `bool` | `true` | Whether the stale-claim sweeper runs to reclaim task executions whose runner heartbeats expired. **Post-CLOACI-T-0502**, the sweeper is the *sole* task-recovery path — the separate `RecoveryManager` was removed; recovery is heartbeat-driven only. Disable only if you're running outside the standard runner loop. |
 
 ### Cron Scheduling
 
@@ -243,5 +243,7 @@ The server uses `DefaultRunnerConfig::builder().registry_storage_backend("databa
 ## See Also
 
 - [CLI Reference]({{< ref "cli" >}}) -- config.toml schema and `config get/set/list` commands
+- [Environment Variables]({{< ref "environment-variables" >}}) -- full env-var reference (server, compiler, daemon, install script)
+- [Metrics Catalog]({{< ref "metrics-catalog" >}}) -- `cloacina_*` metric surface emitted by configured runners
 - [Cron Scheduling Architecture]({{< ref "/workflows/explanation/cron-scheduling" >}}) -- how cron config affects scheduling behavior
 - [DatabaseAdmin API]({{< ref "database-admin" >}}) -- multi-tenant database setup
