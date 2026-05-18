@@ -867,6 +867,15 @@ impl Scheduler {
     /// Watermark advance happens after dispatch — at-least-once on crash.
     /// Workflow idempotency is the user's concern (same as cron-triggered
     /// workflows).
+    /// Run one pass over enabled reactor subscriptions, draining new
+    /// firings and dispatching workflows. Exposed publicly so that
+    /// integration tests can drive the loop deterministically without
+    /// waiting on the background tick, and so operators can trigger
+    /// an immediate poll in ad-hoc scripts.
+    pub async fn poll_reactor_subscriptions_once(&self) -> Result<(), WorkflowExecutionError> {
+        self.check_and_process_reactor_subscriptions().await
+    }
+
     async fn check_and_process_reactor_subscriptions(&self) -> Result<(), WorkflowExecutionError> {
         let subs = match self.dal.reactor_subscriptions().list_all_enabled().await {
             Ok(rows) => rows,
