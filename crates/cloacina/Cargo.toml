@@ -81,6 +81,7 @@ pem = { version = "3.0" }
 toml = { version = "0.8" }
 anyhow = { version = "1.0" }
 bincode = { workspace = true }
+cel-interpreter = "0.10"
 
 [dev-dependencies]
 tracing-test = "0.2"
