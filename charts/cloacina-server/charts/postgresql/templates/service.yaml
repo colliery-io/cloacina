@@ -1,0 +1,21 @@
+---
+{{/*
+CLOACI-T-0610 — ClusterIP service. Name MUST be
+`<release-name>-postgresql` to satisfy the parent chart's
+DATABASE_URL template (`postgres://...@{{ .Release.Name }}-postgresql:5432/...`).
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "postgresql.fullname" . }}
+  labels:
+    {{- include "postgresql.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP
+  selector:
+    {{- include "postgresql.selectorLabels" . | nindent 4 }}

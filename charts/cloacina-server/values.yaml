@@ -62,18 +62,27 @@ databaseUrlSecretRef:
   # Key inside that Secret.
   key: DATABASE_URL
 
-# Bundled Postgres (Bitnami). Disabled by default — most operators bring
-# their own managed Postgres.
+# Embedded Postgres subchart (CLOACI-T-0610). Disabled by default —
+# operators bring their own managed Postgres in production. Enabled
+# instances run a single Deployment + Service + PVC around the
+# official docker.io/library/postgres image.
+#
+# All values here are forwarded to the local `charts/postgresql/`
+# subchart; full surface lives at
+# `charts/cloacina-server/charts/postgresql/values.yaml`.
 postgresql:
   enabled: false
+  image:
+    repository: postgres
+    tag: "17"
   auth:
     username: cloacina
     password: cloacina
     database: cloacina
-  primary:
-    persistence:
-      enabled: true
-      size: 10Gi
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: ""
 
 # ---------------------------------------------------------------------------
 # API key bootstrap

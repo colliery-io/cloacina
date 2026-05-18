@@ -4,15 +4,15 @@ level: task
 title: "Helm chart: replace bitnamilegacy postgres pin with maintained alternative"
 short_code: "CLOACI-T-0610"
 created_at: 2026-05-16T00:53:30.076692+00:00
-updated_at: 2026-05-16T00:53:30.076692+00:00
+updated_at: 2026-05-18T13:07:30.269574+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -69,4 +69,32 @@ case ("operators wire their own managed Postgres"). Worth a short ADR.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-05-18** — Chose option D (embed a local subchart) after rejecting:
+- A (drop the subchart): subchart serves a legitimate PoC / in-cluster
+  Postgres use case; "DB in k8s for non-prod" is an accepted pattern.
+- B (CloudNativePG): operator install adds complexity inconsistent with
+  the chart's "single helm install" PoC posture.
+- C (pin old Bitnami): accumulates CVE / staleness debt.
+
+Implementation:
+- New local subchart at `charts/cloacina-server/charts/postgresql/` —
+  Chart, values, helpers, Secret, Service, PVC, Deployment around
+  `docker.io/library/postgres:17`. Service named
+  `<release>-postgresql` so the parent's DATABASE_URL template works
+  unchanged. Values surface mirrors the prior Bitnami subchart
+  (`enabled`, `auth.{username,password,database}`, `persistence.size`)
+  for drop-in upgrades.
+- Parent `Chart.yaml` dependency switched from
+  `oci://registry-1.docker.io/bitnamicharts` to the local subchart.
+- Parent `values.yaml` block reshaped to point at the new image keys.
+- `.github/workflows/ci.yml` — dropped the `bitnamilegacy/postgresql`
+  override (subchart pulls the official image directly).
+
+Verification:
+- `angreal helm lint` clean (lint + both template variants).
+- `helm template ... --set postgresql.enabled=true` renders the
+  expected Secret + PVC + Service + Deployment, with DATABASE_URL
+  resolving to `postgres://...@cloacina-postgresql:5432/cloacina`.
+- `angreal helm test` (full kind e2e: docker build → kind cluster →
+  helm install → rollout → `/health` curl): **green**. Pod ready,
+  HTTP 200 on `/health`.

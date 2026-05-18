@@ -1,0 +1,18 @@
+---
+apiVersion: v2
+name: postgresql
+description: |
+  Minimal in-cluster Postgres for cloacina-server PoC / development /
+  integration testing. Single Deployment + Service + PVC around the
+  official docker.io/library/postgres image. NOT intended for
+  production — operators should wire their own managed Postgres.
+type: application
+version: 0.1.0
+appVersion: "17"
+
+keywords:
+  - postgres
+  - cloacina
+maintainers:
+  - name: Colliery Software
+    url: https://github.com/colliery-software
