@@ -1,0 +1,90 @@
+---
+# CLOACI-T-0610 — defaults for the embedded postgres subchart.
+#
+# The parent chart's deployment.yaml builds DATABASE_URL from these
+# values when `postgresql.enabled=true`, so the keys here mirror the
+# previous Bitnami subchart's surface to keep the upgrade drop-in:
+#   - postgresql.auth.{username, password, database}
+#   - service host: `<release-name>-postgresql`
+#   - port: 5432
+
+# Disabled by default — opt-in for PoC / dev / test deployments.
+# Production users wire their own managed Postgres via
+# `databaseUrlSecretRef` on the parent chart.
+enabled: false
+
+image:
+  repository: postgres
+  tag: "17"
+  pullPolicy: IfNotPresent
+
+# Credentials embedded into the rendered Secret. Override on
+# `helm install` for anything beyond local PoC use. The parent chart's
+# DATABASE_URL template reads these directly.
+auth:
+  username: cloacina
+  password: cloacina
+  database: cloacina
+
+# Persistence. Defaults to a 10 Gi PVC bound to the pod's `/var/lib/postgresql/data`.
+# Set `persistence.enabled=false` to back the data dir with an `emptyDir`
+# volume — fastest possible local PoC at the cost of losing data on pod
+# restart.
+persistence:
+  enabled: true
+  size: 10Gi
+  # Leave nil to use the cluster's default storage class. Pin to a
+  # specific class on environments where `default` doesn't exist (kind
+  # ships `standard`, which the unset path inherits).
+  storageClassName: ""
+
+# Resource requests / limits sized for a PoC postgres handling test
+# workflow rates, not a production database. Bump if the test data
+# volume grows.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
+
+# Pod-level container security context — runs as the postgres user
+# baked into the upstream image (uid 999). NonRoot=true is the
+# admission-controller friendly form; readOnlyRootFilesystem stays
+# false because postgres writes its socket + lock files under /var/run.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+  fsGroup: 999
+
+# Liveness + readiness use `pg_isready` against localhost so they
+# don't depend on cluster networking being healthy.
+livenessProbe:
+  exec:
+    command:
+      - sh
+      - -c
+      - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+readinessProbe:
+  exec:
+    command:
+      - sh
+      - -c
+      - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 6
+
+# Node placement — empty defaults so kind / kubeadm clusters schedule
+# wherever. Override on environments that want pin-to-node or
+# anti-affinity from other databases.
+nodeSelector: {}
+tolerations: []
+affinity: {}

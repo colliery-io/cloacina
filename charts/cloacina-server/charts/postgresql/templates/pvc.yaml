@@ -1,0 +1,24 @@
+---
+{{- if .Values.persistence.enabled }}
+{{/*
+CLOACI-T-0610 — PVC for the postgres data dir. Skipped entirely when
+persistence is disabled (the pod falls back to an emptyDir volume,
+which evaporates on pod restart but is fastest for ephemeral
+PoC clusters).
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "postgresql.fullname" . }}-data
+  labels:
+    {{- include "postgresql.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+  {{- if .Values.persistence.storageClassName }}
+  storageClassName: {{ .Values.persistence.storageClassName | quote }}
+  {{- end }}
+{{- end }}

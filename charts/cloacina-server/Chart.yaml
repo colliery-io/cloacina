@@ -29,11 +29,18 @@ keywords:
   - postgres
   - rust
 
-# Bitnami postgresql is a soft dependency — disabled by default so
-# operators wire their own managed Postgres. Enable via
-# `--set postgresql.enabled=true` for an in-cluster Postgres.
+# Embedded postgres subchart (CLOACI-T-0610). Disabled by default so
+# operators wire their own managed Postgres in production. Enable via
+# `--set postgresql.enabled=true` for an in-cluster Postgres suitable
+# for PoC / development / integration testing — a single Deployment +
+# Service + PVC around the official docker.io/library/postgres image.
+#
+# Replaced the Bitnami `oci://registry-1.docker.io/bitnamicharts/postgresql`
+# dependency after Bitnami pruned the `bitnami/postgresql:*-rN` tags in
+# late 2025 (the workaround pinned `bitnamilegacy/postgresql`, which was
+# explicitly labelled backup-only and slated for eventual removal).
+# Owning a small subchart removes the external-pruning risk entirely.
 dependencies:
   - name: postgresql
-    version: "16.x.x"
-    repository: oci://registry-1.docker.io/bitnamicharts
+    version: "0.1.0"
     condition: postgresql.enabled
