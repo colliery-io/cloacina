@@ -155,10 +155,12 @@ enum RuntimeMessage {
         >,
     },
     // CLOACI-I-0100 / T-0600 — reactor subscription registration API.
+    // CLOACI-T-0602 added the optional CEL `predicate` field.
     SubscribeWorkflowToReactor {
         reactor: String,
         workflow: String,
         tenant: Option<String>,
+        predicate: Option<String>,
         response_tx: oneshot::Sender<Result<String, cloacina::executor::WorkflowExecutionError>>,
     },
     UnsubscribeWorkflowFromReactor {
@@ -672,12 +674,18 @@ async fn run_event_loop(
                 reactor,
                 workflow,
                 tenant,
+                predicate,
                 response_tx,
             } => {
                 let runner = runner.clone();
                 tokio::spawn(async move {
                     let result = runner
-                        .subscribe_workflow_to_reactor(&reactor, &workflow, tenant.as_deref())
+                        .subscribe_workflow_to_reactor(
+                            &reactor,
+                            &workflow,
+                            tenant.as_deref(),
+                            predicate.as_deref(),
+                        )
                         .await
                         .map(|uuid| uuid.to_string());
                     let _ = response_tx.send(result);
@@ -1212,18 +1220,40 @@ impl PyDefaultRunner {
     /// from the firing.
     ///
     /// Idempotent — calling twice with the same `(reactor, workflow,
-    /// tenant)` returns the existing subscription id.
+    /// tenant)` upserts; a later call's `when` predicate replaces the
+    /// earlier one's.
     ///
     /// # Arguments
     /// * `reactor` - The reactor name.
     /// * `workflow` - The workflow to dispatch on each firing.
     /// * `tenant` - Tenant scope. Defaults to `"public"` if omitted.
-    #[pyo3(signature = (reactor, workflow, tenant=None))]
+    /// * `when` - Optional CEL filter expression (CLOACI-T-0602). When
+    ///   provided, the scheduler evaluates it against the firing payload
+    ///   and only dispatches when it evaluates to true. The watermark
+    ///   still advances when it evaluates to false. Variables available:
+    ///   `payload` (dict, keys are boundary source names), `reactor`
+    ///   (str), `tenant` (str). Invalid CEL is rejected immediately with
+    ///   a ValueError — no row written.
+    ///
+    /// # Examples
+    /// ```python
+    /// # Unfiltered — fires on every firing.
+    /// runner.subscribe_workflow_to_reactor("pricing", "alert")
+    ///
+    /// # Filtered — fires only when the boundary's `quote` source
+    /// # carries a price above $100 in us-east.
+    /// runner.subscribe_workflow_to_reactor(
+    ///     "pricing", "alert",
+    ///     when="payload.quote.price > 100 && payload.quote.region == 'us-east'",
+    /// )
+    /// ```
+    #[pyo3(signature = (reactor, workflow, tenant=None, *, when=None))]
     pub fn subscribe_workflow_to_reactor(
         &self,
         reactor: String,
         workflow: String,
         tenant: Option<String>,
+        when: Option<String>,
         py: Python,
     ) -> PyResult<String> {
         let (response_tx, response_rx) = oneshot::channel();
@@ -1231,6 +1261,7 @@ impl PyDefaultRunner {
             reactor,
             workflow,
             tenant,
+            predicate: when,
             response_tx,
         };
         self.send_and_recv(

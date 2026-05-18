@@ -86,7 +86,12 @@ use cloacina::DefaultRunner;
 let runner = DefaultRunner::new(&database_url).await?;
 
 let sub_id = runner
-    .subscribe_workflow_to_reactor("pricing_reactor", "incident_response", Some("acme"))
+    .subscribe_workflow_to_reactor(
+        "pricing_reactor",
+        "incident_response",
+        Some("acme"),
+        None,            // no predicate → fire on every firing
+    )
     .await?;
 
 let subs = runner
@@ -95,8 +100,57 @@ let subs = runner
 ```
 
 `subscribe_workflow_to_reactor` is **idempotent** on the
-`(reactor, workflow, tenant)` triple — calling it twice returns the same
-subscription id without duplicating the row.
+`(reactor, workflow, tenant)` triple — calling it twice upserts; the
+later call's predicate (if any) replaces the earlier one's.
+
+## Filtering firings with CEL (T-0602)
+
+Reactors typically fire much more often than you want to dispatch a
+workflow. Pass a [CEL](https://github.com/google/cel-spec) expression as
+the optional `when` / fourth argument; the scheduler evaluates it against
+the firing payload and only dispatches when it returns `true`. The
+watermark advances whether or not the firing dispatches, so a "rejected"
+firing won't be re-evaluated.
+
+Variables available in the expression:
+
+| Variable   | Meaning                                                      |
+|------------|--------------------------------------------------------------|
+| `payload`  | Map keyed by boundary source name; values are JSON-decoded   |
+| `reactor`  | The reactor name (string)                                    |
+| `tenant`   | The tenant id (string)                                       |
+
+```python
+# Fire only when the latest quote's price > 100 in us-east.
+runner.subscribe_workflow_to_reactor(
+    "pricing_reactor",
+    "incident_response",
+    tenant="acme",
+    when="payload.quote.price > 100 && payload.quote.region == 'us-east'",
+)
+```
+
+```rust
+runner
+    .subscribe_workflow_to_reactor(
+        "pricing_reactor",
+        "incident_response",
+        Some("acme"),
+        Some("payload.quote.price > 100 && payload.quote.region == 'us-east'"),
+    )
+    .await?;
+```
+
+The expression is compiled at subscribe time; malformed CEL is rejected
+immediately with `InvalidPredicate` / `ValueError` — no row is written.
+At dispatch time the scheduler caches the compiled program per
+subscription, so the only per-firing cost is evaluation (microseconds).
+
+**Filter exception semantics.** If the predicate evaluates to something
+other than `bool` or the runtime hits an error, the scheduler treats it
+as `false`: the firing is **not** dispatched and the watermark advances.
+Fail-closed by design — a broken filter doesn't fire workflows
+indefinitely.
 
 ## Input context for the dispatched workflow
 

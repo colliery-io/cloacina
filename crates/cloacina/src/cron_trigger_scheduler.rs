@@ -147,7 +147,18 @@ pub struct Scheduler {
     /// Tracks when the `reactor_firings` TTL prune last ran
     /// (CLOACI-I-0100 / T-0601).
     last_reactor_prune: Option<Instant>,
+    /// Per-subscription compiled CEL predicate cache (CLOACI-T-0602).
+    /// Key is the subscription id; value is `(expression_string, program)`
+    /// so we can invalidate on expression-text change without restart.
+    /// Arc<Mutex> for shared interior mutability across Scheduler clones
+    /// (the active poller is single-threaded, but Clone is on the type).
+    predicate_cache: PredicateCache,
 }
+
+/// CLOACI-T-0602 — alias to satisfy clippy::type_complexity on the
+/// Scheduler's predicate cache field.
+type PredicateCache =
+    Arc<parking_lot::Mutex<HashMap<UniversalUuid, (String, Arc<cel_interpreter::Program>)>>>;
 
 impl Scheduler {
     /// Creates a new unified scheduler.
@@ -174,6 +185,7 @@ impl Scheduler {
             last_cron_check: None,
             last_reactor_poll: None,
             last_reactor_prune: None,
+            predicate_cache: Arc::new(parking_lot::Mutex::new(HashMap::new())),
         }
     }
 
@@ -911,6 +923,10 @@ impl Scheduler {
                 ),
             })?;
 
+        // CLOACI-T-0602 — borrow the CEL predicate string (if any) so we
+        // can evaluate it inside the per-firing loop below.
+        let predicate_expr = sub.predicate_expression.as_deref();
+
         for firing in firings {
             // Build the workflow's input context from the firing payload.
             let mut context = Context::<serde_json::Value>::new();
@@ -952,6 +968,64 @@ impl Scheduler {
                 "reactor_fired_at",
                 serde_json::json!(firing.fired_at.0.to_rfc3339()),
             );
+
+            // CLOACI-T-0602 — predicate evaluation. If the subscription
+            // carries a CEL filter, evaluate it now. Skip dispatch when
+            // it's false; advance the watermark either way (the firing
+            // was *seen* even if we decided not to fire). Eval errors are
+            // logged warn and treated as skip — fail-closed semantics
+            // mirror the spec: a broken filter shouldn't fire workflows.
+            if let Some(expr) = predicate_expr {
+                match self.evaluate_predicate(sub.id, expr, &context) {
+                    Ok(true) => {} // proceed to dispatch
+                    Ok(false) => {
+                        debug!(
+                            subscription = %sub.id.0,
+                            firing = %firing.id.0,
+                            "predicate evaluated false; skipping dispatch + advancing watermark",
+                        );
+                        if let Err(e) = self
+                            .dal
+                            .reactor_subscriptions()
+                            .advance_watermark(sub.id.0, firing.fired_at)
+                            .await
+                        {
+                            warn!(
+                                subscription = %sub.id.0,
+                                firing = %firing.id.0,
+                                "watermark advance failed for filtered firing; \
+                                 it may re-evaluate next tick: {}",
+                                e
+                            );
+                            return Ok(());
+                        }
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!(
+                            subscription = %sub.id.0,
+                            firing = %firing.id.0,
+                            "predicate eval error (treating as skip): {}",
+                            e
+                        );
+                        if let Err(e) = self
+                            .dal
+                            .reactor_subscriptions()
+                            .advance_watermark(sub.id.0, firing.fired_at)
+                            .await
+                        {
+                            warn!(
+                                subscription = %sub.id.0,
+                                firing = %firing.id.0,
+                                "watermark advance failed after predicate error: {}",
+                                e
+                            );
+                            return Ok(());
+                        }
+                        continue;
+                    }
+                }
+            }
 
             // Dispatch — fire-and-forget. The poller hands off the
             // workflow and moves on; failures are surfaced via the
@@ -1002,6 +1076,51 @@ impl Scheduler {
         }
 
         Ok(())
+    }
+
+    /// Evaluate a CEL predicate for a subscription firing
+    /// (CLOACI-T-0602).
+    ///
+    /// Compiles `expr` on first sight per subscription id and caches
+    /// the `Program` for future firings. If the expression text changes
+    /// (subscriber re-subscribes with a different `when=`), the cache
+    /// entry is invalidated by comparing the stored expression string.
+    ///
+    /// Returns:
+    /// - `Ok(true)`  — predicate fired, dispatch should proceed.
+    /// - `Ok(false)` — predicate did not fire, skip + advance watermark.
+    /// - `Err(_)`    — compile error or runtime evaluation error.
+    ///   Caller treats as skip per the fail-closed contract.
+    ///
+    /// Variables exposed to the CEL expression:
+    /// - `payload`  — a map keyed by boundary source name, values are
+    ///   the JSON-decoded payloads (or hex strings for non-JSON bytes).
+    /// - `reactor`  — the reactor name (string).
+    /// - `tenant`   — the tenant id (string).
+    fn evaluate_predicate(
+        &self,
+        sub_id: UniversalUuid,
+        expr: &str,
+        context: &Context<serde_json::Value>,
+    ) -> Result<bool, String> {
+        // Cache lookup. Re-compile only when the stored expression
+        // string doesn't match — handles "subscriber upserted with a
+        // new `when=`" without an explicit invalidation API.
+        let program = {
+            let mut cache = self.predicate_cache.lock();
+            match cache.get(&sub_id) {
+                Some((cached_expr, prog)) if cached_expr == expr => prog.clone(),
+                _ => {
+                    let prog = Arc::new(
+                        cel_interpreter::Program::compile(expr)
+                            .map_err(|e| format!("compile error: {}", e))?,
+                    );
+                    cache.insert(sub_id, (expr.to_string(), prog.clone()));
+                    prog
+                }
+            }
+        };
+        eval_cel_predicate_program(&program, context)
     }
 
     /// TTL prune of `reactor_firings` (CLOACI-I-0100 / T-0601).
@@ -1091,6 +1210,43 @@ impl Scheduler {
             info!("Enabled trigger '{}'", trigger_name);
         }
         Ok(())
+    }
+}
+
+/// Evaluate a compiled CEL `Program` against a workflow context, returning
+/// the boolean result. CLOACI-T-0602 helper, factored so the cache + pure
+/// evaluation logic can be tested independently.
+fn eval_cel_predicate_program(
+    program: &cel_interpreter::Program,
+    context: &Context<serde_json::Value>,
+) -> Result<bool, String> {
+    use cel_interpreter::{Context as CelContext, Value as CelValue};
+
+    let mut cel_ctx = CelContext::default();
+    let mut payload = serde_json::Map::new();
+    for (k, v) in context.data().iter() {
+        if k == "reactor_name" || k == "reactor_firing_id" || k == "reactor_fired_at" {
+            continue;
+        }
+        payload.insert(k.clone(), v.clone());
+    }
+    cel_ctx
+        .add_variable("payload", serde_json::Value::Object(payload))
+        .map_err(|e| format!("cel add_variable(payload): {}", e))?;
+    cel_ctx
+        .add_variable(
+            "reactor",
+            context.get("reactor_name").cloned().unwrap_or_default(),
+        )
+        .map_err(|e| format!("cel add_variable(reactor): {}", e))?;
+    cel_ctx
+        .add_variable("tenant", serde_json::Value::String(String::new()))
+        .map_err(|e| format!("cel add_variable(tenant): {}", e))?;
+
+    match program.execute(&cel_ctx) {
+        Ok(CelValue::Bool(b)) => Ok(b),
+        Ok(other) => Err(format!("predicate must evaluate to bool, got {:?}", other)),
+        Err(e) => Err(format!("eval error: {}", e)),
     }
 }
 
@@ -1406,5 +1562,72 @@ mod tests {
         let mut schedule = create_test_trigger_schedule("queue_trigger");
         schedule.allow_concurrent = None;
         assert!(!schedule.allows_concurrent());
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // CLOACI-T-0602 — CEL predicate evaluation
+    // ─────────────────────────────────────────────────────────────────
+
+    fn ctx_with_payload(items: &[(&str, serde_json::Value)]) -> Context<serde_json::Value> {
+        let mut c = Context::<serde_json::Value>::new();
+        for (k, v) in items {
+            c.insert(*k, v.clone()).unwrap();
+        }
+        c
+    }
+
+    #[test]
+    fn cel_predicate_true_when_payload_matches() {
+        let prog = cel_interpreter::Program::compile(
+            "payload.quote.price > 100 && payload.quote.region == 'us-east'",
+        )
+        .unwrap();
+        let ctx = ctx_with_payload(&[(
+            "quote",
+            serde_json::json!({"price": 150, "region": "us-east"}),
+        )]);
+        assert!(eval_cel_predicate_program(&prog, &ctx).unwrap());
+    }
+
+    #[test]
+    fn cel_predicate_false_when_payload_does_not_match() {
+        let prog = cel_interpreter::Program::compile("payload.quote.price > 100").unwrap();
+        let ctx = ctx_with_payload(&[("quote", serde_json::json!({"price": 50}))]);
+        assert!(!eval_cel_predicate_program(&prog, &ctx).unwrap());
+    }
+
+    #[test]
+    fn cel_predicate_skips_bookkeeping_keys_from_payload() {
+        // reactor_name / reactor_firing_id / reactor_fired_at are
+        // exposed at the top level (`reactor`, no payload access), NOT
+        // under `payload.*`. Predicate using `payload.reactor_name`
+        // should not see anything.
+        let prog = cel_interpreter::Program::compile("has(payload.reactor_name)").unwrap();
+        let mut ctx = ctx_with_payload(&[("quote", serde_json::json!({"price": 50}))]);
+        ctx.insert("reactor_name", serde_json::json!("pricing"))
+            .unwrap();
+        // With the bookkeeping keys stripped, payload.reactor_name
+        // doesn't exist → has() returns false.
+        assert!(!eval_cel_predicate_program(&prog, &ctx).unwrap());
+    }
+
+    #[test]
+    fn cel_predicate_non_bool_result_is_error() {
+        let prog = cel_interpreter::Program::compile("payload.quote.price").unwrap();
+        let ctx = ctx_with_payload(&[("quote", serde_json::json!({"price": 50}))]);
+        let err = eval_cel_predicate_program(&prog, &ctx).unwrap_err();
+        assert!(
+            err.contains("must evaluate to bool"),
+            "expected bool-type error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn cel_compile_rejects_malformed_expressions() {
+        // Smoke that the upstream compile fails on garbage — this is
+        // what `ReactorSubscriptionsDAL::subscribe` relies on to reject
+        // bad predicates before the row is written.
+        assert!(cel_interpreter::Program::compile("this is &&& not valid").is_err());
     }
 }

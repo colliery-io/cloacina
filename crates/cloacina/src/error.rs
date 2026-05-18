@@ -216,6 +216,11 @@ pub enum ValidationError {
     #[error("Invalid trigger rule format: {0}")]
     InvalidTriggerRule(String),
 
+    /// CLOACI-T-0602 — caller passed a CEL expression to
+    /// `subscribe_workflow_to_reactor` that fails to compile.
+    #[error("Invalid predicate expression: {0}")]
+    InvalidPredicate(String),
+
     #[error("Invalid task name format: {0}")]
     InvalidTaskName(String),
 

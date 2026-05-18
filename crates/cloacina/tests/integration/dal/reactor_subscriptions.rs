@@ -47,7 +47,7 @@ async fn test_firing_round_trip_and_watermark_advance() {
 
     // Subscribe.
     let sub_id = api
-        .subscribe(&reactor, &workflow, &tenant)
+        .subscribe(&reactor, &workflow, &tenant, None)
         .await
         .expect("subscribe");
 
@@ -113,11 +113,11 @@ async fn test_fan_out_two_subscriptions_independent() {
     let reactor = "rt_fan_out".to_string();
 
     let sub_a = api
-        .subscribe(&reactor, "wf_a", &tenant)
+        .subscribe(&reactor, "wf_a", &tenant, None)
         .await
         .expect("subscribe a");
     let sub_b = api
-        .subscribe(&reactor, "wf_b", &tenant)
+        .subscribe(&reactor, "wf_b", &tenant, None)
         .await
         .expect("subscribe b");
     assert_ne!(
@@ -177,11 +177,11 @@ async fn test_tenant_isolation_on_poll() {
     let reactor = "rt_tenancy".to_string();
 
     let _sub_a = api
-        .subscribe(&reactor, "wf", &tenant_a)
+        .subscribe(&reactor, "wf", &tenant_a, None)
         .await
         .expect("subscribe a");
     let _sub_b = api
-        .subscribe(&reactor, "wf", &tenant_b)
+        .subscribe(&reactor, "wf", &tenant_b, None)
         .await
         .expect("subscribe b");
 
@@ -229,7 +229,7 @@ async fn test_at_least_once_on_crash_simulates_redelivery() {
     let tenant = format!("tenant-{}", uuid::Uuid::new_v4());
     let reactor = "rt_at_least_once".to_string();
     let _sub_id = api
-        .subscribe(&reactor, "wf", &tenant)
+        .subscribe(&reactor, "wf", &tenant, None)
         .await
         .expect("subscribe");
 
@@ -271,7 +271,7 @@ async fn test_ttl_prune_removes_old_firings_and_documents_gotcha() {
     let tenant = format!("tenant-{}", uuid::Uuid::new_v4());
     let reactor = "rt_ttl".to_string();
     let _sub_id = api
-        .subscribe(&reactor, "wf", &tenant)
+        .subscribe(&reactor, "wf", &tenant, None)
         .await
         .expect("subscribe");
 
@@ -326,11 +326,11 @@ async fn test_subscribe_is_idempotent() {
     let reactor = "rt_idempotent".to_string();
 
     let id1 = api
-        .subscribe(&reactor, "wf", &tenant)
+        .subscribe(&reactor, "wf", &tenant, None)
         .await
         .expect("first subscribe");
     let id2 = api
-        .subscribe(&reactor, "wf", &tenant)
+        .subscribe(&reactor, "wf", &tenant, None)
         .await
         .expect("second subscribe");
     assert_eq!(id1, id2, "duplicate subscribe must return the existing id");
@@ -341,4 +341,108 @@ async fn test_subscribe_is_idempotent() {
         .filter(|s| s.reactor_name == reactor && s.workflow_name == "wf")
         .collect();
     assert_eq!(matching.len(), 1, "exactly one row for the (r,w,t) triple");
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CLOACI-T-0602 — predicate persistence + validation
+// ─────────────────────────────────────────────────────────────────
+
+/// Bad CEL is rejected at subscribe time, before any DB row is written.
+#[tokio::test]
+#[serial]
+async fn test_subscribe_rejects_invalid_cel_predicate() {
+    let fixture = get_or_init_fixture().await;
+    let fixture = fixture.lock().unwrap();
+    let dal = fixture.get_dal();
+    let api = dal.reactor_subscriptions();
+
+    let tenant = format!("tenant-{}", uuid::Uuid::new_v4());
+    let reactor = "rt_bad_cel".to_string();
+
+    let err = api
+        .subscribe(&reactor, "wf", &tenant, Some("this is &&& not valid"))
+        .await
+        .expect_err("compile-invalid CEL must reject subscribe");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("predicate") || msg.contains("Invalid"),
+        "error should mention predicate/invalid, got: {}",
+        msg
+    );
+
+    // No subscription was created.
+    let listed = api.list_subscriptions(&tenant).await.expect("list");
+    assert!(
+        listed.iter().all(|s| s.reactor_name != reactor),
+        "no row should have been written"
+    );
+}
+
+/// Valid CEL persists, and re-subscribe upserts the predicate so the
+/// row reflects the *latest* call's expression.
+#[tokio::test]
+#[serial]
+async fn test_subscribe_persists_predicate_and_upserts_on_re_subscribe() {
+    let fixture = get_or_init_fixture().await;
+    let fixture = fixture.lock().unwrap();
+    let dal = fixture.get_dal();
+    let api = dal.reactor_subscriptions();
+
+    let tenant = format!("tenant-{}", uuid::Uuid::new_v4());
+    let reactor = "rt_predicate_persist".to_string();
+
+    // First subscribe: simple predicate.
+    let id1 = api
+        .subscribe(&reactor, "wf", &tenant, Some("payload.x > 0"))
+        .await
+        .expect("first subscribe");
+
+    let listed = api.list_subscriptions(&tenant).await.expect("list");
+    let row = listed
+        .iter()
+        .find(|s| s.reactor_name == reactor && s.workflow_name == "wf")
+        .expect("row exists");
+    assert_eq!(
+        row.predicate_expression.as_deref(),
+        Some("payload.x > 0"),
+        "first predicate persists"
+    );
+
+    // Re-subscribe with a different predicate (same triple, upsert).
+    let id2 = api
+        .subscribe(
+            &reactor,
+            "wf",
+            &tenant,
+            Some("payload.x > 100 && payload.region == 'us-east'"),
+        )
+        .await
+        .expect("upsert subscribe");
+    assert_eq!(id1, id2, "upsert returns existing subscription id");
+
+    let listed = api.list_subscriptions(&tenant).await.expect("list");
+    let row = listed
+        .iter()
+        .find(|s| s.reactor_name == reactor && s.workflow_name == "wf")
+        .expect("row still exists");
+    assert_eq!(
+        row.predicate_expression.as_deref(),
+        Some("payload.x > 100 && payload.region == 'us-east'"),
+        "upsert replaces predicate text"
+    );
+
+    // Re-subscribe with None — clears the predicate back to unfiltered.
+    let _ = api
+        .subscribe(&reactor, "wf", &tenant, None)
+        .await
+        .expect("clear predicate");
+    let listed = api.list_subscriptions(&tenant).await.expect("list");
+    let row = listed
+        .iter()
+        .find(|s| s.reactor_name == reactor && s.workflow_name == "wf")
+        .expect("row still exists after None upsert");
+    assert_eq!(
+        row.predicate_expression, None,
+        "None argument clears the predicate"
+    );
 }

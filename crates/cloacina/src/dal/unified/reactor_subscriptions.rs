@@ -63,6 +63,11 @@ pub struct ReactorSubscription {
     pub last_seen_fired_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    /// CLOACI-T-0602 — optional CEL filter expression. When `Some`, the
+    /// scheduler evaluates it against the firing payload before dispatch;
+    /// `Some(_) && false` means "skip + advance watermark". `None`
+    /// preserves the original unfiltered behavior (fire on every firing).
+    pub predicate_expression: Option<String>,
 }
 
 /// Data access layer for reactor subscriptions + firings.
@@ -318,18 +323,35 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
     // ─────────────────────────────────────────────────────────────────
 
     /// Create a subscription. Idempotent: calling twice with the same
-    /// `(reactor, workflow, tenant)` returns the existing row's id
-    /// without error.
+    /// `(reactor, workflow, tenant)` upserts; the second call's
+    /// `predicate` (if any) replaces the first one's.
+    ///
+    /// `predicate` is an optional CEL expression (CLOACI-T-0602). When
+    /// `Some(_)`, the expression is compiled at subscribe time and any
+    /// syntax error is returned as a `ValidationError` before the row is
+    /// written, so a bad expression never lands in the DB. The scheduler
+    /// re-compiles + caches at dispatch time.
     pub async fn subscribe(
         &self,
         reactor: &str,
         workflow: &str,
         tenant: &str,
+        predicate: Option<&str>,
     ) -> Result<Uuid, ValidationError> {
+        if let Some(expr) = predicate {
+            // Compile-time validation: reject malformed expressions before
+            // they reach the DB. Cheap (single parse), centralizes the
+            // error message at the API boundary.
+            cel_interpreter::Program::compile(expr)
+                .map_err(|e| ValidationError::InvalidPredicate(e.to_string()))?;
+        }
+        let predicate = predicate.map(str::to_string);
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.subscribe_postgres(reactor, workflow, tenant).await,
-            self.subscribe_sqlite(reactor, workflow, tenant).await
+            self.subscribe_postgres(reactor, workflow, tenant, predicate.clone())
+                .await,
+            self.subscribe_sqlite(reactor, workflow, tenant, predicate)
+                .await
         )
     }
 
@@ -339,6 +361,7 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         reactor: &str,
         workflow: &str,
         tenant: &str,
+        predicate: Option<String>,
     ) -> Result<Uuid, ValidationError> {
         let conn = self
             .dal
@@ -351,6 +374,7 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         let reactor = reactor.to_string();
         let workflow = workflow.to_string();
         let tenant = tenant.to_string();
+        let predicate_for_update = predicate.clone();
         let row: ReactorSubscription = conn
             .interact(move |conn| {
                 diesel::insert_into(reactor_trigger_subscriptions::table)
@@ -362,6 +386,7 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
                         reactor_trigger_subscriptions::enabled.eq(UniversalBool::from(true)),
                         reactor_trigger_subscriptions::created_at.eq(now),
                         reactor_trigger_subscriptions::updated_at.eq(now),
+                        reactor_trigger_subscriptions::predicate_expression.eq(&predicate),
                     ))
                     .on_conflict((
                         reactor_trigger_subscriptions::reactor_name,
@@ -369,7 +394,11 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
                         reactor_trigger_subscriptions::tenant_id,
                     ))
                     .do_update()
-                    .set(reactor_trigger_subscriptions::updated_at.eq(now))
+                    .set((
+                        reactor_trigger_subscriptions::updated_at.eq(now),
+                        reactor_trigger_subscriptions::predicate_expression
+                            .eq(&predicate_for_update),
+                    ))
                     .get_result::<ReactorSubscription>(conn)
             })
             .await
@@ -383,6 +412,7 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         reactor: &str,
         workflow: &str,
         tenant: &str,
+        predicate: Option<String>,
     ) -> Result<Uuid, ValidationError> {
         let conn = self
             .dal
@@ -397,7 +427,8 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
         let tenant = tenant.to_string();
         let row: ReactorSubscription = conn
             .interact(move |conn| {
-                // SQLite: try insert; on conflict, look up the existing row.
+                // SQLite: try insert; on conflict, update predicate +
+                // updated_at and re-read.
                 let insert_result = diesel::insert_into(reactor_trigger_subscriptions::table)
                     .values((
                         reactor_trigger_subscriptions::id.eq(new_id),
@@ -407,6 +438,7 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
                         reactor_trigger_subscriptions::enabled.eq(UniversalBool::from(true)),
                         reactor_trigger_subscriptions::created_at.eq(now),
                         reactor_trigger_subscriptions::updated_at.eq(now),
+                        reactor_trigger_subscriptions::predicate_expression.eq(&predicate),
                     ))
                     .execute(conn);
                 match insert_result {
@@ -416,11 +448,26 @@ impl<'a> ReactorSubscriptionsDAL<'a> {
                     Err(diesel::result::Error::DatabaseError(
                         diesel::result::DatabaseErrorKind::UniqueViolation,
                         _,
-                    )) => reactor_trigger_subscriptions::table
-                        .filter(reactor_trigger_subscriptions::reactor_name.eq(&reactor))
-                        .filter(reactor_trigger_subscriptions::workflow_name.eq(&workflow))
-                        .filter(reactor_trigger_subscriptions::tenant_id.eq(&tenant))
-                        .first::<ReactorSubscription>(conn),
+                    )) => {
+                        // Existing row — overwrite predicate so the
+                        // upsert semantics match postgres.
+                        diesel::update(
+                            reactor_trigger_subscriptions::table
+                                .filter(reactor_trigger_subscriptions::reactor_name.eq(&reactor))
+                                .filter(reactor_trigger_subscriptions::workflow_name.eq(&workflow))
+                                .filter(reactor_trigger_subscriptions::tenant_id.eq(&tenant)),
+                        )
+                        .set((
+                            reactor_trigger_subscriptions::updated_at.eq(now),
+                            reactor_trigger_subscriptions::predicate_expression.eq(&predicate),
+                        ))
+                        .execute(conn)?;
+                        reactor_trigger_subscriptions::table
+                            .filter(reactor_trigger_subscriptions::reactor_name.eq(&reactor))
+                            .filter(reactor_trigger_subscriptions::workflow_name.eq(&workflow))
+                            .filter(reactor_trigger_subscriptions::tenant_id.eq(&tenant))
+                            .first::<ReactorSubscription>(conn)
+                    }
                     Err(e) => Err(e),
                 }
             })

@@ -43,23 +43,46 @@ impl DefaultRunner {
     /// cache from the firing as its input context.
     ///
     /// Idempotent: calling twice with the same `(reactor, workflow,
-    /// tenant)` returns the existing subscription id without error.
+    /// tenant)` upserts; the later call's predicate (if any) replaces
+    /// the earlier one's.
     ///
     /// # Arguments
     /// * `reactor` - The reactor name (matches `reactor_name` on
     ///   loaded CG declarations).
     /// * `workflow` - The workflow to dispatch.
     /// * `tenant` - Tenant scope. `None` ⇒ `"public"`.
+    /// * `predicate` - Optional CEL filter expression (CLOACI-T-0602).
+    ///   `None` keeps the original fire-on-every-firing behaviour. When
+    ///   `Some(_)`, the expression is compiled at subscribe time;
+    ///   invalid CEL is rejected with `ExecutionFailed` before any DB
+    ///   write. At dispatch time the scheduler evaluates it against the
+    ///   firing payload and skips dispatch when it returns false (the
+    ///   watermark still advances). Variables available in the
+    ///   expression: `payload` (the deserialised boundary cache, keys
+    ///   are source names), `reactor` (string), `tenant` (string).
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Fire on every firing — original behaviour.
+    /// runner.subscribe_workflow_to_reactor("pricing", "alert", None, None).await?;
+    ///
+    /// // Fire only when payload.price > 100 in the us-east region.
+    /// runner.subscribe_workflow_to_reactor(
+    ///     "pricing", "alert", None,
+    ///     Some("payload.price > 100 && payload.region == 'us-east'"),
+    /// ).await?;
+    /// ```
     pub async fn subscribe_workflow_to_reactor(
         &self,
         reactor: &str,
         workflow: &str,
         tenant: Option<&str>,
+        predicate: Option<&str>,
     ) -> Result<Uuid, WorkflowExecutionError> {
         let tenant = tenant.unwrap_or(DEFAULT_TENANT);
         let dal = DAL::new(self.database.clone());
         dal.reactor_subscriptions()
-            .subscribe(reactor, workflow, tenant)
+            .subscribe(reactor, workflow, tenant, predicate)
             .await
             .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!(

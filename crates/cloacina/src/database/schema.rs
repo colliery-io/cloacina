@@ -408,6 +408,10 @@ mod unified_schema {
             last_seen_fired_at -> Nullable<DbTimestamp>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            // CLOACI-T-0602 — optional CEL filter. NULL means "fire on
+            // every firing"; non-NULL is evaluated against the firing
+            // payload before dispatch.
+            predicate_expression -> Nullable<Text>,
         }
     }
 
