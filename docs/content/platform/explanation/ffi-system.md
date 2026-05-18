@@ -19,17 +19,30 @@ Workflow packages are compiled as `cdylib` shared libraries. At runtime, Cloacin
 
 ## Plugin Interface
 
-The interface contract is defined in `cloacina-workflow-plugin`, a small crate shared by both the plugin author and the host. It declares the `CloacinaPlugin` trait using the `#[plugin_interface]` attribute from fidius:
+The interface contract is defined in `cloacina-workflow-plugin`, a small crate shared by both the plugin author and the host. It declares the `CloacinaPlugin` trait using the `#[plugin_interface]` attribute from fidius. Post-CLOACI-I-0102 (the unified `cloacina::package!();` shell), the trait exposes **nine methods** (indices 0–8) covering tasks, triggers, reactors, accumulators, and trigger-less computation graphs:
 
 ```rust
 #[plugin_interface]
 pub trait CloacinaPlugin {
-    fn get_task_metadata(&self) -> PackageTasksMetadata;
-    fn execute_task(&self, request: TaskExecutionRequest) -> TaskExecutionResult;
+    fn get_task_metadata(&self) -> PackageTasksMetadata;        // index 0
+    fn execute_task(&self, request: TaskExecutionRequest)
+        -> TaskExecutionResult;                                  // index 1
+    fn get_trigger_metadata(&self) -> Vec<TriggerMetadata>;     // index 2
+    fn invoke_trigger(&self, request: TriggerInvokeRequest)
+        -> TriggerInvokeResult;                                  // index 3
+    fn get_reactor_metadata(&self) -> Vec<ReactorPackageMetadata>; // index 4 (optional, since v2)
+    fn get_accumulator_metadata(&self) -> Vec<AccumulatorPackageMetadata>; // index 5 (optional, since v2)
+    fn instantiate_accumulator(&self, request: AccumulatorInstantiateRequest)
+        -> AccumulatorInstantiateResult;                         // index 6 (optional, since v2)
+    fn get_triggerless_graph_metadata(&self) -> Vec<TriggerlessGraphMetadata>; // index 7 (optional, since v2)
+    fn invoke_triggerless_graph(&self, request: TriggerlessGraphInvokeRequest)
+        -> TriggerlessGraphInvokeResult;                         // index 8 (optional, since v2)
 }
 ```
 
-This crate is the single source of truth for the interface. Both the plugin and the host depend on exactly this crate, which ensures they agree on method signatures, type layouts, and the ABI hash fidius derives from the trait definition.
+Methods 4–8 are marked `optional(since = 2)` — older packages that pre-date CLOACI-I-0102 still load, they just don't expose reactors, accumulators, or trigger-less graphs (the host treats missing methods as "no items of that kind"). New packages built with the unified `cloacina::package!();` shell expose all nine.
+
+This crate is the single source of truth for the interface. Both the plugin and the host depend on exactly this crate, which ensures they agree on method signatures, type layouts, and the ABI hash fidius derives from the trait definition. See [FFI vtable reference]({{< ref "/platform/reference/ffi-vtable" >}}) for the per-method wire types and [package!() macro reference]({{< ref "/platform/reference/package-shell-macro" >}}) for the unified shell that emits all nine methods.
 
 ### Shared Types
 
@@ -43,10 +56,12 @@ Because fidius serializes these types rather than passing raw pointers, there ar
 
 ## How Plugins Are Built
 
-The `#[workflow]` macro, when building for a `cdylib` target, generates two things:
+Post-CLOACI-I-0102, the `cloacina::package!();` shell macro (invoked once at the crate root of a packaged-workflow cdylib) generates the entire FFI surface in one place. It collects every `#[task]`, `#[trigger]`, `#[reactor]`, `#[accumulator]`, and `#[computation_graph]` declaration from the local crate's `inventory` section and emits:
 
-1. An `impl CloacinaPlugin` block that dispatches `get_task_metadata` and `execute_task` to the workflow's actual task functions.
+1. An `impl CloacinaPlugin` block that dispatches all nine vtable methods to the workflow's actual declarations.
 2. The fidius registration boilerplate — `#[plugin_impl(CloacinaPlugin)]` on the impl and a `fidius_plugin_registry!()` call that exports the `fidius_get_registry` symbol.
+
+The `package!()` invocation is the *single* FFI entry point per cdylib (replaces the pre-I-0102 per-macro `_ffi` emission paths). See [package!() macro reference]({{< ref "/platform/reference/package-shell-macro" >}}) for the duplicate-invocation guard and the inventory walk it performs.
 
 Plugin authors do not write any of this by hand. The macro output is equivalent to:
 
@@ -104,6 +119,9 @@ The fidius approach provides several safety properties that the previous hand-wr
 
 ## Related Resources
 
-- [Tutorial: Creating Your First Workflow Package]({{< ref "/workflows/tutorials/service/07-packaged-workflows/" >}})
-- [Explanation: Package Format]({{< ref "/platform/explanation/package-format/" >}})
-- [Explanation: Packaged Workflow Architecture]({{< ref "/platform/explanation/packaged-workflow-architecture/" >}})
+- [Tutorial: Creating Your First Workflow Package]({{< ref "/workflows/tutorials/service/07-packaged-workflows" >}})
+- [Explanation: Package Format]({{< ref "package-format" >}})
+- [Explanation: Packaged Workflow Architecture]({{< ref "packaged-workflow-architecture" >}})
+- [Explanation: Inventory and Runtime Seeding]({{< ref "inventory-and-runtime-seeding" >}}) — how the post-I-0096 inventory feeds the `package!()` macro.
+- [Reference: FFI vtable]({{< ref "/platform/reference/ffi-vtable" >}}) — per-method wire types and optional-since-v2 semantics.
+- [Reference: `package!()` macro]({{< ref "/platform/reference/package-shell-macro" >}}) — the unified shell that emits all nine methods.

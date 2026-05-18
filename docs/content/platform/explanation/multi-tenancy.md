@@ -26,11 +26,39 @@ Multi-tenancy in Cloacina is **not** a security feature - it's a data organizati
 - **Security boundary against malicious code**
 - **Complete multi-tenant solution**
 
+## Embedded vs server mode
+
+Multi-tenancy lives at two different layers depending on how Cloacina is deployed; the differences are non-trivial and worth getting straight.
+
+- **Embedded library (`DefaultRunner::with_schema`)** — the host application is the trust boundary. Schema scoping is enforced at the connection pool layer; the application chooses which schema to address per-runner. Cloacina provides the isolation primitives; the host owns enforcement.
+- **Server (`cloacina-server`)** — the server itself enforces multi-tenancy. Per CLOACI-I-0106 / T-0579 / T-0580 / T-0581, every authenticated request runs through a tenant-access check, executes against a per-tenant cached `DefaultRunner`, and uses fail-closed `SET search_path` enforcement at connection acquisition. The server is the trust boundary.
+
+The rest of this document discusses both. Where the two diverge, sections are tagged accordingly.
+
+### Post-I-0106 server-mode guarantees (the current state)
+
+The historical "isolation gaps" framing that pre-2026 versions of this document used has been closed by CLOACI-I-0106 and its rollout tasks (T-0579, T-0580, T-0581). The current state in server mode:
+
+- **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, **not** a silent fall-through to `public`. Closes the cross-tenant data-leak risk that existed before I-0106.
+- **Per-tenant `DefaultRunner` instances.** Each tenant has its own runner — its own scheduler loop, executor pool, and per-tenant DB connection pool — cached in `TenantRunnerCache` (LRU, default 256 entries, controlled by `--tenant-runner-cache-size`). Workflow execution lands in the tenant's schema, not in a shared global runner.
+- **Per-tenant trigger / graph / accumulator filtering.** `GET /v1/tenants/{id}/triggers` (and the graph/accumulator health endpoints) route through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
+- **4-step teardown orchestration on `DELETE /v1/tenants/{name}`** (CLOACI-T-0581):
+  1. Revoke every still-active API key for the tenant (close the auth surface).
+  2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`, awaiting a bounded graceful drain (`--tenant-deletion-drain-timeout-s`, default 30s). Past the timeout the runner is **hard-evicted** — tasks that ignore cooperative cancellation error on their next DB write once step 4 lands.
+  3. Evict the tenant's `Database` from `TenantDatabaseCache` (releases the connection pool).
+  4. Drop the schema + user via `DatabaseAdmin::remove_tenant`.
+
+  Each step emits a structured audit event with duration. Per-step failures bail out; earlier steps stay committed and are idempotent, so a retry resumes from the failure point.
+
+The "restart `cloacina-server` to reclaim the cache after a tenant delete" workaround documented in pre-I-0106 versions of this page is **gone** — both `TenantRunnerCache` and `TenantDatabaseCache` are evicted as part of the teardown.
+
+For the operational mechanics (how to actually decommission a tenant), see the `decommission-a-tenant.md` how-to (DOC-C deliverable in CLOACI-I-0112). For the trust-model implications of multi-tenancy and what it does *not* protect against (CPU side-channels, privileged-key compromise, Postgres-level RLS), see [Security Model]({{< ref "security-model" >}}).
+
 ## How It Works
 
 ### PostgreSQL Schema Implementation
 
-When you create a tenant-specific executor:
+When you create a tenant-specific executor in embedded mode:
 
 ```rust
 let tenant = DefaultRunner::with_schema(db_url, "tenant_acme").await?;
@@ -39,18 +67,20 @@ let tenant = DefaultRunner::with_schema(db_url, "tenant_acme").await?;
 Cloacina performs these operations:
 
 1. **Schema Creation**: `CREATE SCHEMA IF NOT EXISTS tenant_acme`
-2. **Connection Pool Setup**: Each connection automatically runs `SET search_path TO tenant_acme, public`
-3. **Migration Execution**: All tables are created within the tenant schema
-4. **Isolated Operations**: All queries operate within the schema namespace
+2. **Connection Pool Setup**: Each connection automatically runs `SET search_path TO tenant_acme, public` (the *strict* form post-I-0106 also rejects fall-through to `public` if the tenant schema is unreachable).
+3. **Migration Execution**: All tables are created within the tenant schema.
+4. **Isolated Operations**: All queries operate within the schema namespace.
 
 The connection pool ensures every database operation is scoped:
 
 ```rust
-// From Cloacina's connection.rs
+// From Cloacina's connection.rs (post-I-0106 fail-closed form)
 impl CustomizeConnection<PgConnection, R2D2Error> for SchemaCustomizer {
     fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), R2D2Error> {
         if let Some(ref schema) = self.schema {
-            // Every connection is automatically scoped to the tenant
+            // Every connection is automatically scoped to the tenant.
+            // The strict variant (set_strict_search_path) errors hard if
+            // the SET fails, rather than silently falling through to public.
             let sql = format!("SET search_path TO {}, public", schema);
             diesel::sql_query(&sql).execute(conn)?;
         }

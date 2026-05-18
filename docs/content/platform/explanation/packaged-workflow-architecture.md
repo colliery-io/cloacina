@@ -349,44 +349,67 @@ config.registry_storage_path = Some(PathBuf::from("/storage/tenant_a"));
 
 ## Crate Structure
 
-Cloacina is organized into separate crates to support both embedded and packaged workflow development:
+Cloacina is organized into eleven crates so each concern is independently buildable, testable, and (for the packaging story below) skippable for binaries that don't need it:
 
 ```
-cloacina/
-  cloacina-workflow/     # Minimal types for workflow compilation
-  cloacina-macros/       # Procedural macros (#[task], #[workflow])
-  cloacina/              # Full runtime (executor, scheduler, database)
+crates/
+  cloacina/                      # Full runtime: executor, scheduler, DAL, runner, registry, multi-tenancy
+  cloacina-workflow/             # Slim author-facing types (Trigger trait, RetryPolicy, error types)
+  cloacina-workflow-plugin/      # FFI vtable trait shared by host + plugin (the nine-method CloacinaPlugin)
+  cloacina-computation-graph/    # Computation-graph runtime: reactors, accumulators, scheduler
+  cloacina-macros/               # Procedural macros: #[task], #[workflow], #[trigger], #[reactor], #[computation_graph], #[accumulator]
+  cloacina-build/                # Build-script helper for cdylib linker flags / rpath
+  cloacina-compiler/             # Standalone build worker (cargo build for .cloacina packages)
+  cloacina-server/               # HTTP API server binary
+  cloacina-python/               # PyO3 wheel runtime (the `cloaca` Python module) — isolated per T-0529 so non-Python binaries don't transitively link pyo3
+  cloacina-testing/              # Test fixtures: TestRunner, BoundaryEmitter
+  cloacinactl/                   # CLI binary (noun-verb command structure per I-0098)
 ```
 
-### cloacina-workflow (Minimal Crate)
+The cleanest framing: `cloacina-workflow` + `cloacina-workflow-plugin` are the **author surface** (small, no DB, no executor), `cloacina` is the **embedded runtime** (full engine), `cloacina-server` and `cloacina-compiler` and `cloacinactl` are the **service binaries**, `cloacina-python` is the **Python wrapper**, and `cloacina-build` + `cloacina-testing` + `cloacina-macros` + `cloacina-computation-graph` are **supporting crates** that other workspace members depend on.
+
+### cloacina-workflow (slim author crate)
 
 Contains only the types needed to compile workflows:
-- `Context<T>` - Data container for task communication
-- `Task` trait - Interface for task implementations
-- `TaskError`, `ContextError` - Error types
-- `RetryPolicy`, `BackoffStrategy` - Retry configuration
-- `TaskNamespace` - Namespace utilities
+- `Context<T>` — data container for task communication
+- `Task` trait — interface for task implementations
+- `TaskError`, `ContextError` — error types
+- `RetryPolicy`, `BackoffStrategy` — retry configuration
+- `TaskNamespace` — namespace utilities
+- `Trigger` trait — interface for custom event triggers
 
-**Dependencies**: `async-trait`, `serde`, `serde_json`, `thiserror`, `chrono`
+**Dependencies**: `async-trait`, `serde`, `serde_json`, `thiserror`, `chrono` — that's it.
 
-**Does NOT include**: Database drivers (diesel), connection pools, executor, scheduler, libloading
+**Does NOT include**: database drivers (diesel), connection pools, executor, scheduler, libloading. This is what makes packaged-workflow compile times fast: the cdylib only pulls in the slim crate, not the entire runtime.
 
-### cloacina (Full Crate)
+### cloacina-workflow-plugin (FFI vtable)
 
-Re-exports everything from `cloacina-workflow` plus:
-- Database backends (PostgreSQL, SQLite)
-- `DefaultRunner` and execution engine
-- Workflow registry and package loading
+The interface contract for `.cloacina` cdylib plugins (per CLOACI-I-0102's unified shell). Defines the nine-method `CloacinaPlugin` trait and the magic-byte / ABI-hash invariants that fidius uses to reject mismatched plugins at load time. Both the plugin author and the host depend on exactly this crate, which is what makes the ABI hash check meaningful.
+
+### cloacina (full embedded runtime)
+
+Re-exports everything from `cloacina-workflow` (and from `cloacina-computation-graph` and `cloacina-workflow-plugin`) plus:
+- Database backends (PostgreSQL, SQLite) via Diesel
+- `DefaultRunner` + execution engine
+- Workflow registry + package loading
 - Cron scheduling
-- Multi-tenancy support
+- Multi-tenancy support (post-I-0106 `TenantRunnerCache`, fail-closed `SET search_path`)
+- Computation-graph integration
+
+### cloacina-python (PyO3 wheel)
+
+Isolated per CLOACI-T-0529 / T-0532. The `cloaca` Python module's runtime lives here so binaries that don't execute Python don't transitively link `pyo3`. The Python author API mirrors the Rust one — `@cloaca.task`, `@cloaca.trigger`, `@cloaca.reactor`, `@cloaca.node`, `@cloaca.passthrough_accumulator`, `cloaca.WorkflowBuilder`, `cloaca.DefaultRunner`, `cloaca.DatabaseAdmin`, `cloaca.var()` / `cloaca.var_or()`.
 
 ### Usage
 
 | Use Case | Crate |
 |----------|-------|
-| Workflow packages | `cloacina-workflow` (includes macros) |
-| Embedded workflows | `cloacina` |
+| Workflow packages (cdylib) | `cloacina-workflow` + `cloacina-workflow-plugin` (+ `cloacina-build` build-dep) |
+| Computation-graph packages | + `cloacina-computation-graph` |
+| Embedded workflows | `cloacina` (re-exports the slim crates) |
 | Host application | `cloacina` |
+| Service deployments | `cloacina-server` + `cloacina-compiler` binaries |
+| Python workflows | `cloaca` PyPI wheel (built from `cloacina-python` via maturin) |
 
 ## Comparison: Embedded vs Packaged
 

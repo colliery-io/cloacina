@@ -127,6 +127,10 @@ The heartbeat serves two purposes:
 1. **Liveness signal**: A fresh `heartbeat_at` timestamp tells the stale claim sweeper that the runner is still alive and working on this task.
 2. **Claim verification**: The heartbeat operation verifies that the `claimed_by` field still matches the runner's ID. If another process has reclaimed the task (via stale sweep), the heartbeat returns `ClaimLost` and the runner stops.
 
+> **CLOACI-T-0487 — cooperative cancellation on claim loss.** When the heartbeat returns `ClaimLost`, the runner doesn't just stop the heartbeat loop — it also signals the in-flight task to cancel cooperatively via the task's cancellation channel. Well-behaved tasks check the channel at await points and exit early. Misbehaved tasks that ignore cancellation continue running until the next DB write, where they'll fail because the row is no longer theirs. This closes the duplicate-execution window in network-partition scenarios (see [Failure Scenarios](#failure-scenarios) below).
+
+> **CLOACI-T-0502 — heartbeat sweeper is the sole task-recovery path.** Earlier releases of Cloacina had a separate `RecoveryManager` background service that scanned for stuck task executions. That manager has been removed; the stale-claim sweeper described here is now the *only* task-recovery mechanism. The `enable_recovery` config field still exists (it gates the stale-claim sweeper), but the field name predates T-0502 and no longer corresponds to a separate recovery service. (Cron-level recovery — the `CronRecoveryService` for missed schedule firings — is a separate mechanism and is still in place.)
+
 The heartbeat interval is configurable via `DefaultRunnerConfig`:
 
 ```rust
@@ -375,11 +379,13 @@ If a runner loses database connectivity:
 
 1. Heartbeat updates fail (logged as warnings)
 2. The task continues executing locally if the runner process is still healthy
-3. After `stale_claim_threshold`, the sweeper marks the claim as stale
-4. If the runner reconnects before the sweeper acts, heartbeats resume and the claim remains valid
-5. If the sweeper acts first, the runner's next heartbeat returns `ClaimLost`, causing it to stop the heartbeat loop
+3. After `stale_claim_threshold`, the sweeper marks the claim as stale and a new runner can claim it
+4. If the original runner reconnects before the sweeper acts, heartbeats resume and the claim remains valid
+5. If the sweeper acts first, the original runner's next heartbeat returns `ClaimLost`. Per CLOACI-T-0487, the runner then:
+   - stops the heartbeat loop, **and**
+   - signals the in-flight task to cancel cooperatively via the task's cancellation channel
 
-This can lead to a **brief window of duplicate execution** if the original runner completes the task after the sweeper has already reassigned it. The atomic claim mechanism and database-level state transitions minimize this window, but it is not eliminated entirely. Tasks should be designed to be idempotent when horizontal scaling is enabled.
+This closes the historical duplicate-execution window for cooperative tasks. The `ClaimLost`-triggered cooperative cancellation arrives faster than the task's next DB write would; well-behaved tasks exit before they can race the reclaiming runner. **Tasks that ignore the cancellation channel** will still complete locally, but their next DB write (typically the `complete_task_transaction` finalize) will fail because the row is no longer theirs — so even pathological tasks cannot duplicate-finalize. Defensive idempotency on the user task body remains good practice but is no longer a correctness requirement for the claim-handoff path.
 
 ### Database Failover
 

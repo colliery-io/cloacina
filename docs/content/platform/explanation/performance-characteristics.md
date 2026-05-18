@@ -14,7 +14,7 @@ The performance tests measure throughput in terms of **workflows per second**, b
 - **Workflows/second** measures complete workflow completion rates
 - **Tasks/second** would better reflect the actual processing capacity of the system
 - Different workflow types (simple, parallel, complex DAG) have varying numbers of tasks per workflow
-- Task-level metrics provide more granular insight into system performance characteristics
+- Task-level metrics provide more granular insight into system performance characteristics. The live production gauges that mirror these benchmark numbers are `cloacina_task_duration_seconds` (histogram) and `cloacina_active_tasks` (SQL-derived gauge per CLOACI-I-0108); the full catalog lives in [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) and the rationale for the SQL-derived gauge model is in [Observability]({{< ref "observability" >}}).
 
 The current measurements focus on workflow completion rates, which is useful for understanding end-to-end performance but may not fully represent the system's task processing capabilities.
 {{< /hint >}}
