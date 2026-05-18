@@ -4,15 +4,15 @@ level: task
 title: "Fix sqlite :memory: + I-0100 reactor poll race; re-enable tutorials 03/04 on postgres lane"
 short_code: "CLOACI-T-0608"
 created_at: 2026-05-16T00:53:30.076692+00:00
-updated_at: 2026-05-16T03:47:49.299900+00:00
+updated_at: 2026-05-16T16:04:19.615049+00:00
 parent: 
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

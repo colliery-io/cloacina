@@ -4,14 +4,14 @@ level: task
 title: "T-05: Python @trigger(reactor=...) filter callback dispatch"
 short_code: "CLOACI-T-0602"
 created_at: 2026-05-14T21:44:32.032324+00:00
-updated_at: 2026-05-14T21:44:32.032324+00:00
+updated_at: 2026-05-18T12:37:50.330764+00:00
 parent: CLOACI-I-0100
 blocked_by: []
 archived: true
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -82,6 +82,10 @@ Why this is its own task (deferred from T-0600):
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

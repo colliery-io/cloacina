@@ -1,13 +1,13 @@
 ---
-id: port-event-triggers-example-to
+id: delete-or-rewrite-continuous
 level: task
-title: "Port event-triggers example to runtime-scoped trigger registry"
-short_code: "CLOACI-T-0606"
-created_at: 2026-05-15T16:39:00.861852+00:00
-updated_at: 2026-05-15T18:13:38.505269+00:00
+title: "Delete or rewrite continuous-scheduling example (speculative future API)"
+short_code: "CLOACI-T-0607"
+created_at: 2026-05-15T16:39:01.909253+00:00
+updated_at: 2026-05-15T17:48:50.138815+00:00
 parent: 
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -19,7 +19,7 @@ exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Port event-triggers example to runtime-scoped trigger registry
+# Delete or rewrite continuous-scheduling example (speculative future API)
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,28 +29,38 @@ initiative_id: NULL
 
 ## Objective **[REQUIRED]**
 
-`examples/features/workflows/event-triggers` no longer builds. It uses the legacy free-function trigger registry — `cloacina::trigger::register_trigger` and `cloacina::trigger::get_trigger` — which were removed when triggers moved to the runtime-scoped registry (`Runtime::register_trigger`). It also imports `cloacina::TriggerError` instead of `cloacina_workflow::TriggerError`.
+`examples/features/computation-graphs/continuous-scheduling` imports `cloacina::continuous::*` modules (`boundary`, `datasource`, `detector`, `graph`, `ledger`, `scheduler`). None of those exist — they were a speculative future-state API name from CLOACI-S-0001/CLOACI-S-0003 that never landed. The actual feature shipped under the `computation_graph` + reactor + accumulator API instead. The example has been broken since before the I-0099 batch began.
 
-The demo concept (user-defined poll triggers with context passing, deduplication, audit trails) is still valuable. The README is the spec for what the demo should look like — port the code to current API without changing what it teaches.
+Two options:
+
+### Option A — delete (recommended)
+
+The example duplicates concepts already covered by:
+- `examples/features/computation-graphs/packaged-graph` (CG basics, packaging)
+- `examples/tutorials/computation-graphs/library/{07,08,09,10}` (reactor + accumulators, full pipelines, routing)
+
+Nothing here is uniquely valuable that the current CG tutorials don't cover. Delete the dir, update any sibling READMEs that reference it (if any), and remove it from the angreal demo registry.
+
+### Option B — rewrite as a current-API CG demo
+
+If "continuous scheduling" as a demo name still has a story (e.g., showing the reactor running indefinitely against a polling accumulator with a routing decision engine), rewrite it against the current API. Mostly: rename `cloacina::continuous::scheduler::ContinuousScheduler` → reactor; `boundary` → accumulator boundary; `datasource` → polling accumulator; `detector` → reactor with WhenAny criteria. ~1 day of work, plus a README rewrite.
 
 ## What to do
 
-1. **Imports** — change `src/triggers.rs` to `use cloacina_workflow::{Trigger, TriggerError, TriggerResult, Context};` (or whatever the current canonical path is). Drop the `cloacina::trigger::*` imports.
-2. **Registration** — `main.rs` calls `register_trigger(...)` against the old global registry. Replace with `runner.runtime().register_trigger(name, factory)` or whatever the runtime-scoped API is today (check the cron-scheduling example for the current pattern).
-3. **Schedule wiring** — the example uses `get_trigger("file_watcher")` to fetch the trigger when registering a `NewSchedule`. Either get the trigger off the runtime or build the schedule without needing a back-reference (the schedule only needs the trigger name).
-4. **Smoke test** — `cargo build --all-targets` in the example dir, then `angreal demos features event-triggers` runs the demo end-to-end.
+1. Decide A vs B (recommend A — duplicates existing tutorials).
+2. **A**: `git rm -r examples/features/computation-graphs/continuous-scheduling`; remove from `.angreal/demos/*` if registered.
+3. **B**: rebuild the example against the current `computation_graph` macro + reactor + accumulator runtime. Run `angreal demos features continuous-scheduling` end-to-end.
 
 ## Acceptance
 
-- [ ] `cd examples/features/workflows/event-triggers && cargo build --all-targets` succeeds
-- [ ] `angreal demos features event-triggers` runs and shows triggers firing in the logs
-- [ ] README still accurately reflects the demo behaviour
+- [ ] Decision recorded (delete vs rewrite).
+- [ ] `angreal check all-crates` no longer reports continuous-scheduling as broken.
+- [ ] If rewritten: README accurately describes what the demo teaches and the demo runs cleanly.
 
 ## References
 
-- Trait def: `crates/cloacina-workflow/src/trigger.rs::Trigger`
-- Working reference for current API: `examples/features/workflows/cron-scheduling`, `examples/features/workflows/packaged-triggers`
-- Removed: `cloacina::trigger::{register_trigger, get_trigger}` (global functions, dropped during I-0096 runtime registry unification)
+- Spec lineage: CLOACI-S-0001 (Continuous Reactive Scheduling), CLOACI-S-0003 (Continuous Task Execution Model) — both still in `discovery` phase.
+- Working substitutes: `examples/features/computation-graphs/packaged-graph`, `examples/tutorials/computation-graphs/library/*`.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -85,6 +95,8 @@ The demo concept (user-defined poll triggers with context passing, deduplication
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -4,15 +4,15 @@ level: task
 title: "Helm chart: replace bitnamilegacy postgres pin with maintained alternative"
 short_code: "CLOACI-T-0610"
 created_at: 2026-05-16T00:53:30.076692+00:00
-updated_at: 2026-05-18T13:07:30.269574+00:00
+updated_at: 2026-05-18T14:35:18.931425+00:00
 parent: 
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
