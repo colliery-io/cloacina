@@ -29,6 +29,21 @@ use crate::models::task_execution::TaskExecution;
 use diesel::prelude::*;
 use uuid::Uuid;
 
+/// CLOACI-T-0622: best-effort detection of a transient SQLite
+/// busy/locked condition, used to drive retries inside the sqlite
+/// claim path. Diesel surfaces sqlite busy as
+/// `DatabaseError(DatabaseErrorKind::Unknown, info)` with an info
+/// message like "database is locked" — sqlite's stable strings.
+#[cfg(feature = "sqlite")]
+fn is_sqlite_busy(err: &diesel::result::Error) -> bool {
+    use diesel::result::{DatabaseErrorKind, Error};
+    if let Error::DatabaseError(DatabaseErrorKind::Unknown, info) = err {
+        let msg = info.message();
+        return msg.contains("database is locked") || msg.contains("database table is locked");
+    }
+    false
+}
+
 impl<'a> TaskExecutionDAL<'a> {
     /// Updates a task's retry schedule with a new attempt count and retry time.
     ///
@@ -325,7 +340,6 @@ impl<'a> TaskExecutionDAL<'a> {
         limit: usize,
     ) -> Result<Vec<ClaimResult>, ValidationError> {
         use crate::dal::unified::models::UnifiedTaskOutbox;
-        use diesel::connection::Connection;
 
         let conn = self
             .dal
@@ -339,12 +353,31 @@ impl<'a> TaskExecutionDAL<'a> {
         // SQLite doesn't support FOR UPDATE SKIP LOCKED, so we use an IMMEDIATE transaction
         // to acquire a write lock at the start, preventing race conditions between workers.
         // This serializes concurrent claim attempts, ensuring each task is claimed exactly once.
-        let tasks: Vec<UnifiedTaskExecution> = conn
+        //
+        // CLOACI-T-0622: was previously using `conn.transaction(...)`, which starts
+        // a DEFERRED transaction — the lock is only acquired on the first write
+        // statement, leaving a TOCTOU window between the SELECT and the DELETE.
+        // With `sqlite_pool_size = 1` the pool itself serialised callers, hiding
+        // the bug; with the pool size bumped to 4 the dal::task_claiming concurrency
+        // test surfaced it. `immediate_transaction` issues `BEGIN IMMEDIATE`,
+        // which takes the RESERVED lock up front, restoring the intent.
+        //
+        // Retry loop (CLOACI-T-0622): under burst contention, even with
+        // `busy_timeout=30000` set per-connection, diesel can still
+        // surface `database is locked` from `BEGIN IMMEDIATE` (the busy
+        // handler is invoked on the open call, but some sqlite paths
+        // bypass it on transient WAL contention). Callers above us
+        // silently drop these errors and let the outbox row sit, so we
+        // retry transparently here with exponential backoff. Five
+        // retries × max-200ms = ~1s of contention headroom on top of
+        // the 30s busy_timeout, which is plenty for normal load.
+        let mut backoff = std::time::Duration::from_millis(10);
+        let mut attempts: u32 = 0;
+        let tasks: Vec<UnifiedTaskExecution> = loop {
+            let result: Result<Vec<UnifiedTaskExecution>, diesel::result::Error> = conn
             .interact(
                 move |conn| -> Result<Vec<UnifiedTaskExecution>, diesel::result::Error> {
-                    // Use IMMEDIATE transaction to acquire write lock immediately
-                    // This prevents TOCTOU race conditions between SELECT and UPDATE
-                    conn.transaction::<Vec<UnifiedTaskExecution>, diesel::result::Error, _>(
+                    conn.immediate_transaction::<Vec<UnifiedTaskExecution>, diesel::result::Error, _>(
                         |conn| {
                             let now = UniversalTimestamp::now();
 
@@ -412,7 +445,19 @@ impl<'a> TaskExecutionDAL<'a> {
                 },
             )
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+            match result {
+                Ok(tasks) => break tasks,
+                Err(e) if is_sqlite_busy(&e) && attempts < 5 => {
+                    attempts += 1;
+                    tokio::time::sleep(backoff).await;
+                    backoff = std::cmp::min(backoff * 2, std::time::Duration::from_millis(200));
+                    continue;
+                }
+                Err(e) => return Err(ValidationError::from(e)),
+            }
+        };
 
         Ok(tasks
             .into_iter()

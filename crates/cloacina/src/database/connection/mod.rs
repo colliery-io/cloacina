@@ -306,7 +306,20 @@ impl Database {
                 let (connection_url, memory_tempfile) =
                     Self::materialize_sqlite_connection(connection_string)?;
                 let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
-                let sqlite_pool_size = 1;
+                // CLOACI-T-0622: bumped from 1 to 4. The original `=1` was
+                // a workaround for diesel's sqlite open path not passing
+                // SQLITE_OPEN_URI, which made every new connection to
+                // `:memory:` open a fresh private DB. T-0608 fixed that
+                // by materialising `:memory:` as a per-Database tempfile,
+                // so every pool connection now opens the same real file.
+                // Combined with WAL + `busy_timeout=30000` (applied on
+                // every checkout, see `get_sqlite_connection`), multi-
+                // connection sqlite is safe. A pool of 1 serialises the
+                // executor against the unified scheduler tick (reactor
+                // poll + firings pruner, both added under I-0100/T-0602),
+                // which on macOS CI was producing contention severe
+                // enough to look like a deadlock.
+                let sqlite_pool_size = 4;
                 let pool = SqlitePool::builder(manager)
                     .max_size(sqlite_pool_size)
                     .build()

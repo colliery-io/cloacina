@@ -87,18 +87,54 @@ def run_pytest_scenarios(
         if filter:
             cmd.extend(["-k", filter])
 
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        passed = result.returncode == 0
-        aggregator.add_result(
-            TestResult(
-                file_name=test_file.name,
-                backend=backend_name,
-                passed=passed,
-                stdout=result.stdout,
-                stderr=result.stderr,
-                return_code=result.returncode,
+        # Per-scenario subprocess timeout (CLOACI-T-0622): pytest's own
+        # `--timeout=10` cannot interrupt a deadlock inside a blocking
+        # PyO3 call into Rust. Without this, a hung scenario consumes
+        # the entire workflow budget (6h on the nightly job). 180s is
+        # well above any legitimate scenario runtime while still failing
+        # fast on a hang.
+        scenario_timeout_secs = 180
+        try:
+            result = subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=scenario_timeout_secs,
             )
-        )
+            passed = result.returncode == 0
+            aggregator.add_result(
+                TestResult(
+                    file_name=test_file.name,
+                    backend=backend_name,
+                    passed=passed,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    return_code=result.returncode,
+                )
+            )
+        except subprocess.TimeoutExpired as e:
+            stdout = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
+            stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
+            passed = False
+            aggregator.add_result(
+                TestResult(
+                    file_name=test_file.name,
+                    backend=backend_name,
+                    passed=False,
+                    stdout=stdout,
+                    stderr=stderr
+                    + f"\n[CLOACI-T-0622] scenario subprocess hung past {scenario_timeout_secs}s and was killed.\n",
+                    return_code=124,
+                )
+            )
+            print(
+                f"TIMEOUT: {test_file.name} exceeded {scenario_timeout_secs}s — killed.",
+                flush=True,
+            )
+            file_results.append((test_file.name, False))
+            all_passed = False
+            continue
         file_results.append((test_file.name, passed))
         if passed:
             print(f"PASSED: {test_file.name}")
