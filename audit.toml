@@ -18,13 +18,15 @@ ignore = [
     # Remove when notify drops `instant` (tracked upstream by notify-rs/notify#380).
     "RUSTSEC-2024-0384",
 
-    # diesel 2.3.7 — three new unsound advisories landed 2026-04-24.
+    # diesel 2.3.7 — cluster of advisories landed 2026-04-24 / 2026-04-24.
     # We pin `2.1` in cloacina/Cargo.toml; cargo resolves to 2.3.7. Fix
     # requires bumping to >= 2.4 with corresponding DAL API audit.
     # Tracked by CLOACI-T-0623; remove after the diesel upgrade lands.
     "RUSTSEC-2026-0111",   # UTF-8 corruption in SQLite backend
     "RUSTSEC-2026-0134",   # padding-byte UB in MySQL backend (unused)
     "RUSTSEC-2026-0135",   # transmute UB in SQLite debug-print path
+    "RUSTSEC-2026-0136",   # Command injection in COPY FROM / COPY TO (we don't expose user input via COPY)
+    "RUSTSEC-2026-0137",   # SqliteAggregate unaligned data access (we don't define custom aggregates)
 
     # lru 0.12.5 — `IterMut` violates Stacked Borrows.
     # Pulled by cloacina-server; fix is bumping to >= 0.13 (currently 0.18).
@@ -36,4 +38,15 @@ ignore = [
     # Fix requires rand 0.9+ which has API breakage in cloacina-workflow.
     # Tracked by CLOACI-T-0623.
     "RUSTSEC-2026-0097",
+
+    # rustls-webpki — reachable panic in CRL parsing (advisory 2026-04-22).
+    # Pulled in transitively; we don't parse CRLs in any user-input path.
+    # Remove after upstream patch propagates through our dep tree.
+    "RUSTSEC-2026-0104",
+
+    # bincode 1.x — crate is unmaintained (advisory 2025-12-16).
+    # No fixed version; we use bincode directly for reactor firing
+    # payload encoding. Migration to bincode 2.x or another codec is a
+    # separate effort tracked by CLOACI-T-0624 scope.
+    "RUSTSEC-2025-0141",
 ]
