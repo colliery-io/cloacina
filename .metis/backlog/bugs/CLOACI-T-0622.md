@@ -4,7 +4,7 @@ level: task
 title: "Diagnose hang in test_scenario_08_multi_task_workflow_execution.py on sqlite (macOS nightly 6h timeout)"
 short_code: "CLOACI-T-0622"
 created_at: 2026-05-19T14:26:02+00:00
-updated_at: 2026-05-19T14:46:43.291258+00:00
+updated_at: 2026-05-19T17:23:59.232355+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -44,11 +44,13 @@ Identify why `test_scenario_08_multi_task_workflow_execution.py` hangs on sqlite
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] Reproduce locally on macOS and capture a stack/thread dump from the hung process.
 - [x] Pytest already configured with `--timeout=10` (pytest-timeout) — verified at `.angreal/test/_python_utils.py:86`. That timer cannot interrupt a deadlock inside a blocking PyO3 → Rust call, which is why nightly burned 6h.
 - [x] Subprocess-level safety net added: each pytest scenario invocation now runs under `subprocess.run(timeout=180)` with explicit `TimeoutExpired` handling that records the file as FAILED and continues. A future hang produces a clear "TIMEOUT: <scenario>" line and fails the job in ~3 min instead of consuming the workflow budget.
 - [x] Root cause identified and fixed. Sqlite connection pool size bumped from `1` → `4` in `crates/cloacina/src/database/connection/mod.rs` (both `cfg(all(postgres,sqlite))` and `cfg(sqlite-only)` branches). The hardcoded `=1` was a leftover constraint from before T-0608: diesel's sqlite open path doesn't pass `SQLITE_OPEN_URI`, so a pool of N>1 against `:memory:` would have opened N separate private in-memory databases. T-0608 materialised `:memory:` as a real tempfile, eliminating that constraint, but the pool ceiling was never raised. With WAL + `busy_timeout=30000` already applied on every checkout (verified `mod.rs:815-819`), multi-connection sqlite is safe; the executor and the unified scheduler tick (reactor poll + firings pruner) no longer serialise on a single connection.
-- [ ] Nightly macOS-14 sqlite integration job completes in under 30m for at least one full run. (pending next nightly to confirm fix)
+- [x] Nightly macOS-14 sqlite integration job completes in under 30m. **Verified on workflow_dispatch run 26111307734: `Integration Tests (sqlite, macos-14)` finished in 9m42s** (vs. 6h0m47s timeout in run 26080699054). All four integration-test matrix jobs green; all 22 python tutorial jobs green.
 
 ## Implementation Notes
 

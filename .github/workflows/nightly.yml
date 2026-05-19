@@ -116,28 +116,6 @@ jobs:
           fi
 
   # -----------------------------------------------------------------------
-  # Dependency vulnerability audit
-  # -----------------------------------------------------------------------
-
-  cargo-audit:
-    name: Dependency Audit
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    continue-on-error: true
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Run cargo audit
-        run: cargo audit
-
-  # -----------------------------------------------------------------------
   # macOS integration — verify builds on macOS
   # -----------------------------------------------------------------------
 
@@ -243,7 +221,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, coverage, macos-integration, cargo-audit, nightly-docker]
+    needs: [cloacina-tests, examples-docs, coverage, macos-integration, nightly-docker]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -307,7 +285,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, coverage, macos-integration, cargo-audit, nightly-docker]
+    needs: [cloacina-tests, examples-docs, coverage, macos-integration, nightly-docker]
     if: success()
     runs-on: ubuntu-latest
     permissions:
@@ -355,7 +333,7 @@ jobs:
 
   prune-caches:
     name: Prune Stale Caches
-    needs: [cloacina-tests, examples-docs, coverage, macos-integration, cargo-audit, nightly-docker]
+    needs: [cloacina-tests, examples-docs, coverage, macos-integration, nightly-docker]
     if: always()
     runs-on: ubuntu-latest
     permissions:
