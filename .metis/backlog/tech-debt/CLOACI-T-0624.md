@@ -1,18 +1,18 @@
 ---
-id: upgrade-diesel-rand-lru-to-clear-rustsec
+id: upgrade-diesel-2-1-2-4-rand-0-8-0
 level: task
 title: "Upgrade diesel (2.1 → 2.4+), rand (0.8 → 0.9+), lru (0.12 → 0.18) to clear RustSec ignores tracked in audit.toml"
 short_code: "CLOACI-T-0624"
 created_at: 2026-05-19T14:55:00+00:00
-updated_at: 2026-05-19T14:55:00+00:00
+updated_at: 2026-05-19T17:46:05.699208+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -44,6 +44,12 @@ Remove the five unsound-class advisory ignores from `audit.toml` by upgrading th
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] `diesel` upgraded to a release that fixes RUSTSEC-2026-0111, 0134, 0135. All DAL code compiles; both postgres and sqlite test suites pass.
 - [ ] `rand` upgraded to ≥ 0.9. `cloacina-workflow` and `cloacina` updated for the API breakage. `angreal test all` passes.
 - [ ] `lru` upgraded to ≥ 0.13 (preferably latest 0.18). `cloacina-server` cache call sites adapted.
@@ -65,3 +71,4 @@ Remove the five unsound-class advisory ignores from `audit.toml` by upgrading th
 ## Status Updates
 
 - 2026-05-19: Created as follow-up to [[CLOACI-T-0623]] under the "suppress now, upgrade later" plan.
+- 2026-05-19 (later): Abandoned. Investigation showed `lru 0.12 → 0.18` is drop-in, `diesel 2.1 → 2.3.9` is a clean patch bump, but `rand 0.8 → 0.9` cascades through `rand_core 0.6 → 0.9` which is incompatible with `ed25519-dalek 2.2.0` — would chain into `ed25519-dalek 3.x`. After weighing the scope, user chose to drop the audit job from CI entirely instead of upgrading. `cargo-audit` job removed from `.github/workflows/nightly.yml`; `audit.toml` deleted. Closing 0624 as won't-fix. Reopen if/when we decide to invest in re-enabling the audit signal (with the cascaded upgrades).

@@ -4,7 +4,7 @@ level: task
 title: "Resolve RustSec advisory drift breaking nightly cargo-audit (diesel 2.3.7, rand 0.8.5, lru 0.12.5, paste, instant)"
 short_code: "CLOACI-T-0623"
 created_at: 2026-05-19T14:26:04+00:00
-updated_at: 2026-05-19T14:51:36.621811+00:00
+updated_at: 2026-05-19T17:45:39.294203+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -57,6 +57,8 @@ Get the nightly Dependency Audit job green by resolving (upgrade, patch, or `car
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 User chose "suppress now, upgrade later" — actual crate upgrades are tracked in [[CLOACI-T-0624]].
 
 - [x] `audit.toml` created at workspace root listing all seven advisories with per-advisory justification comments pointing back here. `cargo audit` picks up `audit.toml` from the workspace root by default.
@@ -75,3 +77,4 @@ User chose "suppress now, upgrade later" — actual crate upgrades are tracked i
 
 - 2026-05-19: Filed from nightly run 26080699054 triage.
 - 2026-05-19: Decided with user: suppress now, upgrade later. Created `audit.toml` at workspace root ignoring all 7 advisories with per-line justification comments. Filed follow-up [[CLOACI-T-0624]] to track the actual diesel/rand/lru upgrades.
+- 2026-05-19 (later): Attempted the actual upgrades. `lru 0.12 → 0.18` is drop-in. `rand 0.8 → 0.9` cascades into rand_core 0.6 → 0.9, which is incompatible with ed25519-dalek 2.2.0 (uses rand_core 0.6 traits in `SigningKey::generate`); cleanly bumping rand would chain into ed25519-dalek 3.x. After scope grew, user said: "lets just revert to our last thing and drop the compliance check". Reverted all upgrade work, deleted `audit.toml`, removed the `cargo-audit` job from `.github/workflows/nightly.yml` (and its three downstream `needs:` references). Closing 0623 and 0624 as resolved-by-removal: the audit signal will return when we choose to invest in the actual upgrades, not before.
