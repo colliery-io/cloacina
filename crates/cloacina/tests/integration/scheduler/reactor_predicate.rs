@@ -30,6 +30,7 @@
 
 use crate::fixtures::get_or_init_fixture;
 use async_trait::async_trait;
+use chrono::Timelike;
 use cloacina::context::Context;
 use cloacina::cron_trigger_scheduler::{Scheduler, SchedulerConfig};
 use cloacina::database::universal_types::UniversalTimestamp;
@@ -233,7 +234,20 @@ async fn test_predicate_filters_dispatch_and_advances_watermark_for_skips() {
         .expect("subscribe with predicate");
 
     // Insert two firings with different `value` payloads.
-    let ts_first = UniversalTimestamp::now();
+    //
+    // Truncate to microseconds: postgres TIMESTAMP stores μs precision,
+    // so any sub-μs nanos in the source timestamp are lost on roundtrip.
+    // The watermark we read back later will be μs-aligned; align the
+    // inputs the same way so the >= comparison at the end of the test
+    // is well-defined on both backends.
+    let ts_first = {
+        let now = UniversalTimestamp::now().0;
+        let truncated_nanos = (now.timestamp_subsec_nanos() / 1_000) * 1_000;
+        UniversalTimestamp(
+            now.with_nanosecond(truncated_nanos)
+                .expect("truncate nanos"),
+        )
+    };
     dal.reactor_subscriptions()
         .insert_firing(
             &reactor,
@@ -248,7 +262,8 @@ async fn test_predicate_filters_dispatch_and_advances_watermark_for_skips() {
         .expect("insert firing 1");
 
     // Ensure the second firing has a strictly later timestamp so
-    // poll_unconsumed sees both in deterministic order.
+    // poll_unconsumed sees both in deterministic order. +1ms keeps the
+    // result μs-aligned (ts_first is already μs-aligned, and 1ms = 1000μs).
     let ts_second = UniversalTimestamp(ts_first.0 + chrono::Duration::milliseconds(1));
     dal.reactor_subscriptions()
         .insert_firing(

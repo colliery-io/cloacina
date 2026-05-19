@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-18T13:02:44Z | 492 files | JavaScript, Python, Rust
+> Generated: 2026-05-19T16:14:40Z | 492 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2123,28 +2123,29 @@
 
 #### crates/cloacina/src/dal/unified/task_execution/claiming.rs
 
-- pub `schedule_retry` function L37-50 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — Updates a task's retry schedule with a new attempt count and retry time.
-- pub `claim_ready_task` function L212-221 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — Atomically claims up to `limit` ready tasks for execution.
-- pub `claim_for_runner` function L436-446 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — Atomically claim a task for a specific runner.
-- pub `heartbeat` function L528-538 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — Update heartbeat for a claimed task.
-- pub `release_runner_claim` function L617-626 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — Release a runner's claim on a task (on completion or failure).
-- pub `find_stale_claims` function L688-697 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — Find tasks with stale claims (heartbeat older than threshold).
-- pub `get_ready_for_retry` function L780-786 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — Retrieves tasks that are ready for retry (retry_at time has passed).
--  `schedule_retry_postgres` function L53-128 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
--  `schedule_retry_sqlite` function L131-206 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
--  `claim_ready_task_postgres` function L224-320 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
--  `PgClaimResult` struct L241-250 — `{ id: Uuid, workflow_execution_id: Uuid, task_name: String, attempt: i32 }` — are written atomically.
--  `claim_ready_task_sqlite` function L323-426 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
--  `claim_for_runner_postgres` function L449-484 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
--  `claim_for_runner_sqlite` function L487-522 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
--  `heartbeat_postgres` function L541-575 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
--  `heartbeat_sqlite` function L578-612 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
--  `release_runner_claim_postgres` function L629-654 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `release_runner_claim_sqlite` function L657-682 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `find_stale_claims_postgres` function L700-737 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
--  `find_stale_claims_sqlite` function L740-777 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
--  `get_ready_for_retry_postgres` function L789-813 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
--  `get_ready_for_retry_sqlite` function L816-840 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
+- pub `schedule_retry` function L52-65 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — Updates a task's retry schedule with a new attempt count and retry time.
+- pub `claim_ready_task` function L227-236 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — Atomically claims up to `limit` ready tasks for execution.
+- pub `claim_for_runner` function L481-491 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — Atomically claim a task for a specific runner.
+- pub `heartbeat` function L573-583 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — Update heartbeat for a claimed task.
+- pub `release_runner_claim` function L662-671 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — Release a runner's claim on a task (on completion or failure).
+- pub `find_stale_claims` function L733-742 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — Find tasks with stale claims (heartbeat older than threshold).
+- pub `get_ready_for_retry` function L825-831 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — Retrieves tasks that are ready for retry (retry_at time has passed).
+-  `is_sqlite_busy` function L38-45 — `(err: &diesel::result::Error) -> bool` — CLOACI-T-0622: best-effort detection of a transient SQLite
+-  `schedule_retry_postgres` function L68-143 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
+-  `schedule_retry_sqlite` function L146-221 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
+-  `claim_ready_task_postgres` function L239-335 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
+-  `PgClaimResult` struct L256-265 — `{ id: Uuid, workflow_execution_id: Uuid, task_name: String, attempt: i32 }` — are written atomically.
+-  `claim_ready_task_sqlite` function L338-471 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
+-  `claim_for_runner_postgres` function L494-529 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
+-  `claim_for_runner_sqlite` function L532-567 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
+-  `heartbeat_postgres` function L586-620 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
+-  `heartbeat_sqlite` function L623-657 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
+-  `release_runner_claim_postgres` function L674-699 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `release_runner_claim_sqlite` function L702-727 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `find_stale_claims_postgres` function L745-782 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
+-  `find_stale_claims_sqlite` function L785-822 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
+-  `get_ready_for_retry_postgres` function L834-858 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
+-  `get_ready_for_retry_sqlite` function L861-885 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
 
 #### crates/cloacina/src/dal/unified/task_execution/crud.rs
 
@@ -2444,17 +2445,17 @@
 - pub `Database` struct L176-190 — `{ pool: AnyPool, backend: BackendType, schema: Option<String>, _memory_tempfile:...` — Represents a pool of database connections.
 - pub `new` function L218-220 — `(connection_string: &str, database_name: &str, max_size: u32) -> Self` — Creates a new database connection pool with automatic backend detection.
 - pub `new_with_schema` function L238-246 — `( connection_string: &str, database_name: &str, max_size: u32, schema: Option<&s...` — Creates a new database connection pool with optional schema support.
-- pub `try_new_with_schema` function L264-388 — `( connection_string: &str, _database_name: &str, max_size: u32, schema: Option<&...` — Creates a new database connection pool with optional schema support.
-- pub `backend` function L391-393 — `(&self) -> BackendType` — Returns the detected backend type.
-- pub `schema` function L396-398 — `(&self) -> Option<&str>` — Returns the schema name if set.
-- pub `pool` function L401-403 — `(&self) -> AnyPool` — Returns a clone of the connection pool.
-- pub `get_connection` function L406-408 — `(&self) -> AnyPool` — Alias for `pool()` for backward compatibility.
-- pub `close` function L424-427 — `(&self)` — Closes the connection pool, releasing all database connections.
-- pub `run_migrations` function L492-567 — `(&self) -> Result<(), String>` — Runs pending database migrations for the appropriate backend.
-- pub `setup_schema` function L579-631 — `(&self, schema: &str) -> Result<(), String>` — Sets up the PostgreSQL schema for multi-tenant isolation.
-- pub `get_connection_with_schema` function L641-776 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection with the schema search path set.
-- pub `get_postgres_connection` function L782-789 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection.
-- pub `get_sqlite_connection` function L795-823 — `( &self, ) -> Result< deadpool::managed::Object<SqliteManager>, deadpool::manage...` — Gets a SQLite connection.
+- pub `try_new_with_schema` function L264-401 — `( connection_string: &str, _database_name: &str, max_size: u32, schema: Option<&...` — Creates a new database connection pool with optional schema support.
+- pub `backend` function L404-406 — `(&self) -> BackendType` — Returns the detected backend type.
+- pub `schema` function L409-411 — `(&self) -> Option<&str>` — Returns the schema name if set.
+- pub `pool` function L414-416 — `(&self) -> AnyPool` — Returns a clone of the connection pool.
+- pub `get_connection` function L419-421 — `(&self) -> AnyPool` — Alias for `pool()` for backward compatibility.
+- pub `close` function L437-440 — `(&self)` — Closes the connection pool, releasing all database connections.
+- pub `run_migrations` function L505-580 — `(&self) -> Result<(), String>` — Runs pending database migrations for the appropriate backend.
+- pub `setup_schema` function L592-644 — `(&self, schema: &str) -> Result<(), String>` — Sets up the PostgreSQL schema for multi-tenant isolation.
+- pub `get_connection_with_schema` function L654-789 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection with the schema search path set.
+- pub `get_postgres_connection` function L795-802 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection.
+- pub `get_sqlite_connection` function L808-836 — `( &self, ) -> Result< deadpool::managed::Object<SqliteManager>, deadpool::manage...` — Gets a SQLite connection.
 -  `backend` module L51 — `-` — Database connection management module supporting both PostgreSQL and SQLite.
 -  `schema_validation` module L52 — `-` — ```
 -  `STRICT_SEARCH_PATH` variable L120-121 — `: std::sync::atomic::AtomicBool` — Process-wide strict-search-path flag.
@@ -2462,17 +2463,17 @@
 -  `search_path_pool_error` function L148-163 — `( tenant_schema: &str, cause: &str, ) -> deadpool::managed::PoolError<deadpool_d...` — Construct a `PoolError::Backend` carrying a CLOACI-T-0582 search_path
 -  `Database` type L192-200 — `= Database` — ```
 -  `fmt` function L193-199 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
--  `Database` type L202-824 — `= Database` — ```
--  `build_postgres_url` function L430-434 — `(base_url: &str, database_name: &str) -> Result<String, url::ParseError>` — Builds a PostgreSQL connection URL.
--  `materialize_sqlite_connection` function L454-487 — `( connection_string: &str, ) -> Result<(String, Option<Arc<NamedTempFile>>), Dat...` — Resolve a SQLite connection string into (url, optional tempfile owner).
--  `tests` module L827-1001 — `-` — ```
--  `strict_search_path_default_off` function L840-847 — `()` — ```
--  `strict_search_path_set_round_trip` function L850-857 — `()` — ```
--  `search_path_pool_error_carries_tenant_and_cause` function L861-877 — `()` — ```
--  `test_postgres_url_parsing_scenarios` function L880-904 — `()` — ```
--  `test_sqlite_connection_strings_passthrough` function L908-923 — `()` — ```
--  `test_sqlite_memory_substitutes_tempfile` function L927-951 — `()` — ```
--  `test_backend_type_detection` function L954-1000 — `()` — ```
+-  `Database` type L202-837 — `= Database` — ```
+-  `build_postgres_url` function L443-447 — `(base_url: &str, database_name: &str) -> Result<String, url::ParseError>` — Builds a PostgreSQL connection URL.
+-  `materialize_sqlite_connection` function L467-500 — `( connection_string: &str, ) -> Result<(String, Option<Arc<NamedTempFile>>), Dat...` — Resolve a SQLite connection string into (url, optional tempfile owner).
+-  `tests` module L840-1014 — `-` — ```
+-  `strict_search_path_default_off` function L853-860 — `()` — ```
+-  `strict_search_path_set_round_trip` function L863-870 — `()` — ```
+-  `search_path_pool_error_carries_tenant_and_cause` function L874-890 — `()` — ```
+-  `test_postgres_url_parsing_scenarios` function L893-917 — `()` — ```
+-  `test_sqlite_connection_strings_passthrough` function L921-936 — `()` — ```
+-  `test_sqlite_memory_substitutes_tempfile` function L940-964 — `()` — ```
+-  `test_backend_type_detection` function L967-1013 — `()` — ```
 
 #### crates/cloacina/src/database/connection/schema_validation.rs
 
@@ -5105,24 +5106,24 @@
 
 #### crates/cloacina/tests/integration/scheduler/reactor_predicate.rs
 
--  `RecordingExecutor` struct L58-66 — `{ calls: Mutex<Vec<(String, Option<serde_json::Value>)>>, inner_runner: Mutex<Op...` — Stub executor that records every `execute_async` call.
--  `RecordingExecutor` type L68-84 — `= RecordingExecutor` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `snapshot` function L69-71 — `(&self) -> Vec<(String, Option<serde_json::Value>)>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `set_inner` function L73-75 — `(&self, runner: DefaultRunner)` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `inner` function L77-83 — `(&self) -> DefaultRunner` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `RecordingExecutor` type L87-154 — `impl WorkflowExecutor for RecordingExecutor` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `execute` function L88-94 — `( &self, _workflow_name: &str, _context: Context<serde_json::Value>, ) -> Result...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `execute_async` function L96-111 — `( &self, workflow_name: &str, context: Context<serde_json::Value>, ) -> Result<W...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `get_execution_status` function L113-118 — `( &self, _execution_id: Uuid, ) -> Result<WorkflowStatus, WorkflowExecutionError...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `get_execution_result` function L119-124 — `( &self, _execution_id: Uuid, ) -> Result<WorkflowExecutionResult, WorkflowExecu...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `cancel_execution` function L125-127 — `(&self, _execution_id: Uuid) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `pause_execution` function L128-134 — `( &self, _execution_id: Uuid, _reason: Option<&str>, ) -> Result<(), WorkflowExe...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `resume_execution` function L135-137 — `(&self, _execution_id: Uuid) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `execute_with_callback` function L138-145 — `( &self, _workflow_name: &str, _context: Context<serde_json::Value>, _callback: ...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `list_executions` function L146-150 — `( &self, ) -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `shutdown` function L151-153 — `(&self) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
--  `build_firing_payload` function L159-164 — `(source: &str, value: serde_json::Value) -> Vec<u8>` — Build a `(source -> JSON-encoded bytes)` map into the bincode form
--  `test_predicate_filters_dispatch_and_advances_watermark_for_skips` function L176-314 — `()` — End-to-end: subscribe with a CEL filter, insert two firings (one
+-  `RecordingExecutor` struct L59-67 — `{ calls: Mutex<Vec<(String, Option<serde_json::Value>)>>, inner_runner: Mutex<Op...` — Stub executor that records every `execute_async` call.
+-  `RecordingExecutor` type L69-85 — `= RecordingExecutor` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `snapshot` function L70-72 — `(&self) -> Vec<(String, Option<serde_json::Value>)>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `set_inner` function L74-76 — `(&self, runner: DefaultRunner)` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `inner` function L78-84 — `(&self) -> DefaultRunner` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `RecordingExecutor` type L88-155 — `impl WorkflowExecutor for RecordingExecutor` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `execute` function L89-95 — `( &self, _workflow_name: &str, _context: Context<serde_json::Value>, ) -> Result...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `execute_async` function L97-112 — `( &self, workflow_name: &str, context: Context<serde_json::Value>, ) -> Result<W...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `get_execution_status` function L114-119 — `( &self, _execution_id: Uuid, ) -> Result<WorkflowStatus, WorkflowExecutionError...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `get_execution_result` function L120-125 — `( &self, _execution_id: Uuid, ) -> Result<WorkflowExecutionResult, WorkflowExecu...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `cancel_execution` function L126-128 — `(&self, _execution_id: Uuid) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `pause_execution` function L129-135 — `( &self, _execution_id: Uuid, _reason: Option<&str>, ) -> Result<(), WorkflowExe...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `resume_execution` function L136-138 — `(&self, _execution_id: Uuid) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `execute_with_callback` function L139-146 — `( &self, _workflow_name: &str, _context: Context<serde_json::Value>, _callback: ...` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `list_executions` function L147-151 — `( &self, ) -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `shutdown` function L152-154 — `(&self) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
+-  `build_firing_payload` function L160-165 — `(source: &str, value: serde_json::Value) -> Vec<u8>` — Build a `(source -> JSON-encoded bytes)` map into the bincode form
+-  `test_predicate_filters_dispatch_and_advances_watermark_for_skips` function L177-326 — `()` — End-to-end: subscribe with a CEL filter, insert two firings (one
 
 #### crates/cloacina/tests/integration/scheduler/stale_claims.rs
 
@@ -10827,4 +10828,3 @@
 - pub `has_failures` method L147-149 — `def has_failures(self) -> bool` — Check if there are any failures.
 - pub `raise_if_failures` method L151-155 — `def raise_if_failures(self) -> None` — Raise an exception if there are failures (for pytest compatibility).
 - pub `create_test_aggregator` function L158-160 — `def create_test_aggregator(test_name: str) -> ResultsAggregator` — Factory function to create a test aggregator.
-
