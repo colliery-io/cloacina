@@ -507,12 +507,14 @@ pub mod cron_trigger_scheduler;
 pub mod crypto;
 pub mod dal;
 pub mod database;
+pub mod delivery;
 pub mod dispatcher;
 pub mod error;
 /// Task readiness evaluation, workflow processing, and stale claim sweeping.
 /// For cron and trigger scheduling, see [`cron_trigger_scheduler`].
 pub mod execution_planner;
 pub mod executor;
+pub mod fleet;
 pub mod graph;
 pub mod inventory_entries;
 pub mod logging;

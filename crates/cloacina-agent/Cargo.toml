@@ -1,0 +1,49 @@
+[package]
+name = "cloacina-agent"
+version.workspace = true
+edition = "2021"
+description = "DB-less execution agent for the Cloacina fleet (CLOACI-I-0114)."
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[[bin]]
+name = "cloacina-agent"
+path = "src/main.rs"
+
+[dependencies]
+# Protocol DTOs + substrate envelope. `cloacina` requires at least one
+# backend feature to compile (AnyPool/AnyConnection types are backend-typed
+# even though the agent never touches the DAL); `sqlite` is the smallest.
+# Workspace feature unification will likely also enable `postgres` etc. from
+# other members; the stricter NFR-002 (truly no diesel link) is a
+# carry-forward that extracts the protocol DTOs to a no-deps `cloacina-fleet-protocol`
+# crate. See T-0632 status notes.
+cloacina = { version = "0.6.1", path = "../cloacina", default-features = false, features = ["sqlite"] }
+
+# HTTP client for REST endpoints (register/heartbeat/result/ws-ticket/artifact).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# WebSocket client for the substrate delivery endpoint.
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
+futures-util = "0.3"
+
+# Base64 to decode `payload_b64` from the substrate envelope.
+base64 = "0.22"
+
+# Async runtime + utilities.
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization + CLI + errors + logging.
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive", "env"] }
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[dev-dependencies]

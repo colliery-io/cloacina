@@ -249,6 +249,12 @@ pub enum ValidationError {
     #[error("Connection pool error: {0}")]
     ConnectionPool(String),
 
+    /// CLOACI-T-0625 — a delivery-outbox row was asked to make a state
+    /// transition its current state does not permit (e.g. acking a pending
+    /// row, or transitioning a terminal `acked` row).
+    #[error("Invalid delivery-outbox state transition: {from} -> {to} (row {id})")]
+    InvalidStateTransition { id: i64, from: String, to: String },
+
     #[error("Context error: {0}")]
     Context(#[from] ContextError),
 }

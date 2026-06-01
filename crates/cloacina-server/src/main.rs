@@ -87,6 +87,14 @@ struct Cli {
     /// CLOACI-I-0109 / T-0592.
     #[arg(long, default_value_t = 14)]
     log_retention_days: u64,
+
+    /// Fleet routing rules, each `glob=executor_key` (CLOACI-I-0114 / T-0634).
+    /// Repeatable or comma-separated, e.g. `--route 'heavy::*=fleet'` or
+    /// `CLOACINA_FLEET_ROUTES='*=fleet'`. Maps matching task names to the
+    /// execution-agent fleet; unmatched tasks run on the default thread
+    /// executor.
+    #[arg(long = "route", env = "CLOACINA_FLEET_ROUTES", value_delimiter = ',')]
+    routes: Vec<String>,
 }
 
 fn default_home() -> PathBuf {
@@ -110,6 +118,7 @@ async fn main() -> Result<()> {
         cli.tenant_runner_cache_size,
         std::time::Duration::from_secs(cli.tenant_deletion_drain_timeout_s),
         cli.log_retention_days,
+        cli.routes,
     )
     .await
 }

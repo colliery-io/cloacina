@@ -69,6 +69,7 @@
 // #[cfg(feature = "auth")]
 // pub mod auth_tokens;
 pub mod context;
+pub mod delivery_outbox;
 pub mod execution_event;
 pub mod recovery_event;
 pub mod schedule;

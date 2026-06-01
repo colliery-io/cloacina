@@ -16,7 +16,9 @@
 
 //! API server route handlers and middleware.
 
+pub mod agent;
 pub mod auth;
+pub mod delivery_ws;
 pub mod error;
 pub mod executions;
 pub mod health_graphs;

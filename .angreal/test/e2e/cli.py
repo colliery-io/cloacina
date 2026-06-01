@@ -28,9 +28,11 @@ e2e = angreal.command_group(name="e2e", about="end-to-end tests against a live s
 
 
 def _build_binaries():
-    print("Building cloacina-server + cloacinactl (debug)...")
+    print("Building cloacina-server + cloacinactl + cloacina-agent (debug)...")
     subprocess.run(["cargo", "build", "-p", "cloacina-server"], check=True)
     subprocess.run(["cargo", "build", "-p", "cloacinactl"], check=True)
+    # CLOACI-T-0634: the fleet e2e scenario needs the agent binary.
+    subprocess.run(["cargo", "build", "-p", "cloacina-agent"], check=True)
 
 
 def _start_postgres():
@@ -76,6 +78,24 @@ def _cloacinactl(home: Path, *args, env=None, check=True):
             f"{' '.join(cmd)} exited {proc.returncode}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
         )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _psql(sql: str) -> str:
+    """Run a SQL statement against the e2e Postgres via docker compose exec and
+    return its tuples-only / unaligned stdout. Used by substrate contract tests
+    (CLOACI-T-0629) to assert on `delivery_outbox` row state and to inject test
+    rows without going through the runner."""
+    r = subprocess.run(
+        [
+            "docker", "compose", "-f", ".angreal/docker-compose.yaml",
+            "exec", "-T", "postgres",
+            "psql", "-U", "cloacina", "-d", "cloacina",
+            "-t", "-A",
+            "-c", sql,
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    return r.stdout
 
 
 @test()
@@ -326,19 +346,17 @@ def cli():
                 )
             print("  ok: API-05 --sign fails hard with clear message")
 
-            # --- API-17: `execution events --follow` exits non-zero ---
-            code, _, stderr = _cloacinactl(
-                home,
-                "execution", "events",
-                "00000000-0000-0000-0000-000000000000",
-                "--follow",
-                check=False,
-            )
-            assert code != 0, "API-17: --follow must fail-hard"
-            assert "not yet implemented" in stderr.lower(), (
-                f"API-17: error should mention 'not yet implemented', got: {stderr!r}"
-            )
-            print("  ok: API-17 --follow fails hard with clear message")
+            # NOTE: the original API-17 scenario asserted that
+            # `execution events --follow` exited non-zero with
+            # "not yet implemented" in stderr. That fail-hard behavior was
+            # intentionally replaced in CLOACI-T-0629 — `--follow` now
+            # subscribes over the substrate WS. The new contract is
+            # exercised by the T-0629 substrate scenario at the bottom of
+            # this function (insert → push → ack → row=acked). The old
+            # scenario was removed rather than refactored because directly
+            # running `cloacinactl ... --follow` via `_cloacinactl` (which
+            # uses `subprocess.run` with no timeout) blocks the harness
+            # forever: the CLI now genuinely connects and waits for events.
 
             # --- API-02: `execution list --status` filter actually takes effect ---
             # No executions exist yet for this tenant, so any filter returns []
@@ -394,6 +412,102 @@ def cli():
                 f"API-10: trigger list with pagination should render array, got {parsed!r}"
             )
             print("  ok: API-10 trigger list --limit/--offset accepted")
+
+            # ─────────────────────────────────────────────────────────
+            # CLOACI-T-0629: substrate contract — end-to-end JIT
+            # delivery + ack via `cloacinactl execution events --follow`.
+            #
+            # We bypass the runner and directly INSERT a delivery_outbox
+            # row to keep the test self-contained: the substrate doesn't
+            # care how rows arrive (any insert fires the postgres NOTIFY
+            # trigger from migration 028), so we exercise the wake →
+            # relay → sink → WS push → CLI ack → mark_acked path with a
+            # synthetic event. Admin (bootstrap) auth → tenant=NULL →
+            # public-schema delivery_outbox.
+            # ─────────────────────────────────────────────────────────
+            import uuid as _uuid
+            fake_exec_id = str(_uuid.uuid4())
+            recipient = f"exec_events:{fake_exec_id}"
+            event_payload = {
+                "id": str(_uuid.uuid4()),
+                "workflow_execution_id": fake_exec_id,
+                "task_execution_id": None,
+                "event_type": "substrate_smoke",
+                "event_data": "hello-from-e2e",
+                "created_at": "2026-05-28T00:00:00Z",
+            }
+            payload_bytes = json.dumps(event_payload).encode()
+            payload_hex = payload_bytes.hex()
+
+            # Start CLI in --follow mode (background); capture stdout.
+            follow_cmd = [
+                "target/debug/cloacinactl",
+                "--home", str(home),
+                "execution", "events", fake_exec_id,
+                "--follow",
+            ]
+            follow_proc = subprocess.Popen(
+                follow_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                # Give the CLI time to mint a ws-ticket, connect, register
+                # with the WsDeliverySink, and send Hello. ~1s is plenty
+                # on localhost; the relay's own startup catch-up drain has
+                # long since completed by the time the e2e suite reaches here.
+                time.sleep(1.5)
+                if follow_proc.poll() is not None:
+                    raise AssertionError(
+                        f"--follow exited unexpectedly before insert: "
+                        f"code={follow_proc.returncode} stderr={follow_proc.stderr.read()!r}"
+                    )
+
+                # Insert a substrate row directly. tenant_id NULL (admin auth
+                # context); payload = JSON event the CLI will print.
+                _psql(
+                    "INSERT INTO delivery_outbox "
+                    "(recipient, kind, tenant_id, payload, delivery_state, "
+                    "delivery_attempts, created_at) VALUES "
+                    f"('{recipient}', 'execution_event', NULL, "
+                    f"'\\x{payload_hex}'::bytea, 'pending', 0, now());"
+                )
+
+                # Let the trigger fire → LISTEN delivers → relay drains →
+                # WsDeliverySink pushes → CLI prints + acks → mark_acked.
+                # Allow a generous budget for the cold WS round-trip.
+                deadline = time.time() + 8.0
+                state = ""
+                while time.time() < deadline:
+                    time.sleep(0.5)
+                    state = _psql(
+                        "SELECT delivery_state FROM delivery_outbox "
+                        f"WHERE recipient = '{recipient}' ORDER BY id DESC LIMIT 1;"
+                    ).strip()
+                    if state == "acked":
+                        break
+                if state != "acked":
+                    # Pull the CLI's stderr to help diagnose.
+                    follow_proc.send_signal(signal.SIGTERM)
+                    try:
+                        out, err = follow_proc.communicate(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        follow_proc.kill()
+                        out, err = follow_proc.communicate()
+                    raise AssertionError(
+                        f"substrate contract: row state never reached `acked` "
+                        f"(last seen: {state!r}).\n"
+                        f"--follow stdout:\n{out}\n--follow stderr:\n{err}"
+                    )
+                print("  ok: T-0629 substrate JIT delivery + ack (row reached `acked`)")
+            finally:
+                if follow_proc.poll() is None:
+                    follow_proc.send_signal(signal.SIGTERM)
+                    try:
+                        follow_proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        follow_proc.kill()
 
             print_final_success("cloacinactl e2e")
         except Exception:

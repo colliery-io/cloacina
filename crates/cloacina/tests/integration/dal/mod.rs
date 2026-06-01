@@ -16,6 +16,8 @@
 
 pub mod api_keys;
 pub mod context;
+#[cfg(feature = "postgres")]
+pub mod delivery_relay;
 pub mod execution_events;
 pub mod reactor_subscriptions;
 pub mod reconciler_e2e_load;

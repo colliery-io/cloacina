@@ -193,6 +193,23 @@ impl DefaultRunner {
         DAL::new(self.database.clone())
     }
 
+    /// Register an additional `TaskExecutor` on the runner's dispatcher under
+    /// a routing key (CLOACI-T-0633). The `"default"` thread executor is
+    /// registered at construction; this lets a host (e.g. `cloacina-server`)
+    /// plug in extra backends — notably the `FleetExecutor` under key
+    /// `"fleet"` — so glob `RoutingRule`s can dispatch matching tasks to it.
+    ///
+    /// Returns `true` if registered, `false` if the scheduler has no
+    /// dispatcher configured (push-based execution disabled).
+    pub fn register_executor(&self, key: &str, executor: Arc<dyn TaskExecutor>) -> bool {
+        if let Some(dispatcher) = self.scheduler.dispatcher() {
+            dispatcher.register_executor(key, executor);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Returns a handle to the scoped `Runtime` this runner uses.
     pub fn runtime(&self) -> Arc<Runtime> {
         self.runtime.clone()

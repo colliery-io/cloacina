@@ -31,23 +31,20 @@
 //! with a dispatcher to receive task events directly. The dispatcher routes `TaskReadyEvent`s
 //! to the executor based on routing rules.
 
-use chrono::Utc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Semaphore;
-use tracing::{debug, error, info, warn};
 
 use super::slot_token::SlotToken;
 use super::task_handle::{with_task_handle, TaskHandle};
-use super::types::{ClaimedTask, ExecutionScope, ExecutorConfig};
+use super::types::{ClaimedTask, ExecutorConfig};
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::dispatcher::{
     DispatchError, ExecutionResult, ExecutorMetrics, TaskExecutor, TaskReadyEvent,
 };
 use crate::error::ExecutorError;
-use crate::retry::{RetryCondition, RetryPolicy};
 use crate::Runtime;
 use crate::{parse_namespace, Context, Database, Task, TaskRegistry};
 use async_trait::async_trait;
@@ -113,10 +110,16 @@ pub struct ThreadTaskExecutor {
     config: ExecutorConfig,
     /// Semaphore controlling concurrent task execution slots
     semaphore: Arc<Semaphore>,
-    /// Metrics: total tasks executed
-    total_executed: AtomicU64,
-    /// Metrics: total tasks failed
-    total_failed: AtomicU64,
+    /// Metrics: total tasks executed. `Arc` so clones — and the shared
+    /// [`crate::executor::TaskResultHandler`] (T-0630) — see the same counter.
+    total_executed: Arc<AtomicU64>,
+    /// Metrics: total tasks failed.
+    total_failed: Arc<AtomicU64>,
+    /// Shared post-execution handler (T-0630). Holds the same DAL + counters
+    /// + runner_id as this executor; the upcoming `FleetExecutor` (T-0633)
+    /// will construct an analogous handler so thread and fleet paths share
+    /// one state-write sequence.
+    result_handler: crate::executor::TaskResultHandler,
 }
 
 impl ThreadTaskExecutor {
@@ -146,17 +149,34 @@ impl ThreadTaskExecutor {
     ) -> Self {
         let dal = DAL::new(database.clone());
         let max_concurrent = config.max_concurrent_tasks;
+        let instance_id = UniversalUuid::new_v4();
+        let total_executed = Arc::new(AtomicU64::new(0));
+        let total_failed = Arc::new(AtomicU64::new(0));
+        // `runner_id` for claim-guarded transitions only applies when claiming
+        // is enabled; mirror the same logic the inline `claim_runner_id` had.
+        let runner_id = if config.enable_claiming {
+            Some(instance_id)
+        } else {
+            None
+        };
+        let result_handler = crate::executor::TaskResultHandler::new(
+            dal.clone(),
+            total_executed.clone(),
+            total_failed.clone(),
+            runner_id,
+        );
 
         Self {
             database,
             dal,
             task_registry,
             runtime,
-            instance_id: UniversalUuid::new_v4(),
+            instance_id,
             config,
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
-            total_executed: AtomicU64::new(0),
-            total_failed: AtomicU64::new(0),
+            total_executed,
+            total_failed,
+            result_handler,
         }
     }
 
@@ -187,157 +207,12 @@ impl ThreadTaskExecutor {
         claimed_task: &ClaimedTask,
         dependencies: &[crate::task::TaskNamespace],
     ) -> Result<Context<serde_json::Value>, ExecutorError> {
-        // Debug: Log dependencies for troubleshooting
-        tracing::debug!(
-            "Building context for task '{}' with {} dependencies: {:?}",
-            claimed_task.task_name,
-            dependencies.len(),
-            dependencies
-        );
-        tracing::debug!(
-            "DEBUG: Building context for task '{}' with {} dependencies: {:?}",
-            claimed_task.task_name,
-            dependencies.len(),
-            dependencies
-        );
-        let execution_scope = ExecutionScope {
-            workflow_execution_id: claimed_task.workflow_execution_id,
-            task_execution_id: Some(claimed_task.task_execution_id),
-            task_name: Some(claimed_task.task_name.clone()),
-        };
-
-        // Create context for task execution
-        // Dependencies are pre-loaded below using batch loading for better performance
-        let mut context = Context::new();
-
-        // Track execution scope for logging/metrics (not stored in context)
-        let _execution_scope = execution_scope;
-
-        // Load initial workflow context if task has no dependencies
-        if dependencies.is_empty() {
-            if let Ok(workflow_execution) = self
-                .dal
-                .workflow_execution()
-                .get_by_id(claimed_task.workflow_execution_id)
-                .await
-            {
-                if let Some(context_id) = workflow_execution.context_id {
-                    if let Ok(initial_context) = self
-                        .dal
-                        .context()
-                        .read::<serde_json::Value>(context_id)
-                        .await
-                    {
-                        // Merge initial context data
-                        for (key, value) in initial_context.data() {
-                            let _ = context.insert(key, value.clone());
-                        }
-                        debug!(
-                            "Loaded initial workflow context with {} keys",
-                            initial_context.data().len()
-                        );
-                    }
-                }
-            }
-        }
-
-        // Batch load dependency contexts in a single query (eager loading strategy)
-        // This provides better performance for tasks that access many dependency values
-        if !dependencies.is_empty() {
-            debug!(
-                "Loading dependency contexts for {} dependencies: {:?}",
-                dependencies.len(),
-                dependencies
-            );
-            let dep_metadata_with_contexts = self
-                .dal
-                .task_execution_metadata()
-                .get_dependency_metadata_with_contexts(
-                    claimed_task.workflow_execution_id,
-                    dependencies,
-                )
-                .await
-                .map_err(|e| {
-                    error!(
-                        "Failed to load dependency contexts for task '{}': {}",
-                        claimed_task.task_name, e
-                    );
-                    ExecutorError::ContextLoadFailed(format!(
-                        "dependency context load failed for '{}': {}",
-                        claimed_task.task_name, e
-                    ))
-                })?;
-
-            debug!(
-                "Found {} dependency metadata records",
-                dep_metadata_with_contexts.len()
-            );
-            for (_task_metadata, context_json) in dep_metadata_with_contexts {
-                if let Some(json_str) = context_json {
-                    // Parse the JSON context data — COR-11: a parse failure
-                    // here used to silently downgrade to a `debug!` line and
-                    // continue with a partial context, which masked the
-                    // bug. Now it bubbles up as `ContextLoadFailed` so the
-                    // task fails explicitly and the
-                    // `cloacina_context_merge_failures_total{kind="parse"}`
-                    // counter increments.
-                    let dep_context = match Context::<serde_json::Value>::from_json(json_str) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            metrics::counter!(
-                                "cloacina_context_merge_failures_total",
-                                "kind" => "parse",
-                            )
-                            .increment(1);
-                            return Err(ExecutorError::ContextLoadFailed(format!(
-                                "dependency context JSON parse failed for task '{}': {}",
-                                claimed_task.task_name, e
-                            )));
-                        }
-                    };
-                    debug!(
-                        "Merging dependency context with {} keys: {:?}",
-                        dep_context.data().len(),
-                        dep_context.data().keys().collect::<Vec<_>>()
-                    );
-                    // Merge context data (smart merging strategy). Context
-                    // API insert/update fail when a key conflicts under a
-                    // strict-mode policy; count those as `kind="merge"`
-                    // for visibility but keep going so a single noisy key
-                    // doesn't fail the whole task.
-                    for (key, value) in dep_context.data() {
-                        if let Some(existing_value) = context.get(key) {
-                            // Key exists - perform smart merging
-                            let merged_value = Self::merge_context_values(existing_value, value);
-                            if context.update(key, merged_value).is_err() {
-                                metrics::counter!(
-                                    "cloacina_context_merge_failures_total",
-                                    "kind" => "merge",
-                                )
-                                .increment(1);
-                            }
-                        } else {
-                            // Key doesn't exist - insert new value
-                            if context.insert(key, value.clone()).is_err() {
-                                metrics::counter!(
-                                    "cloacina_context_merge_failures_total",
-                                    "kind" => "merge",
-                                )
-                                .increment(1);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        debug!(
-            "Final context for task {} has {} keys: {:?}",
-            claimed_task.task_name,
-            context.data().len(),
-            context.data().keys().collect::<Vec<_>>()
-        );
-        Ok(context)
+        // CLOACI-T-0633: delegate to the shared TaskContextBuilder so the
+        // thread executor and the fleet executor resolve dependency context
+        // identically (same drift-elimination pattern as TaskResultHandler).
+        crate::executor::TaskContextBuilder::new(self.dal.clone())
+            .build(claimed_task, dependencies)
+            .await
     }
 
     /// Merges two context values using smart merging strategy.
@@ -352,41 +227,17 @@ impl ThreadTaskExecutor {
     ///
     /// # Returns
     /// The merged value
+    /// CLOACI-T-0633: forwards to the shared
+    /// [`crate::executor::TaskContextBuilder::merge_context_values`]. Test-only
+    /// wrapper so the existing `merge_*` unit tests below keep exercising the
+    /// canonical implementation through the thread executor's surface; the
+    /// production path now goes through `TaskContextBuilder` directly.
+    #[cfg(test)]
     fn merge_context_values(
         existing: &serde_json::Value,
         new: &serde_json::Value,
     ) -> serde_json::Value {
-        use serde_json::Value;
-
-        match (existing, new) {
-            // Both are arrays - concatenate and deduplicate
-            (Value::Array(existing_arr), Value::Array(new_arr)) => {
-                let mut merged = existing_arr.clone();
-                for item in new_arr {
-                    if !merged.contains(item) {
-                        merged.push(item.clone());
-                    }
-                }
-                Value::Array(merged)
-            }
-            // Both are objects - merge recursively
-            (Value::Object(existing_obj), Value::Object(new_obj)) => {
-                let mut merged = existing_obj.clone();
-                for (key, value) in new_obj {
-                    if let Some(existing_value) = merged.get(key) {
-                        merged.insert(
-                            key.clone(),
-                            Self::merge_context_values(existing_value, value),
-                        );
-                    } else {
-                        merged.insert(key.clone(), value.clone());
-                    }
-                }
-                Value::Object(merged)
-            }
-            // For all other cases (different types or primitives), latest wins
-            (_, new_value) => new_value.clone(),
-        }
+        crate::executor::TaskContextBuilder::merge_context_values(existing, new)
     }
 
     /// Executes a task with timeout protection.
@@ -448,253 +299,12 @@ impl ThreadTaskExecutor {
         }
     }
 
-    /// Handles the result of task execution.
-    ///
-    /// This method:
-    /// - Saves successful task contexts
-    /// - Updates task state
-    /// - Handles retries for failed tasks
-    /// - Logs execution results
-    ///
-    /// # Arguments
-    /// * `claimed_task` - The executed task
-    /// * `result` - The execution result
-    ///
-    /// # Returns
-    /// Result indicating success or failure of result handling
-    /// Saves the task's execution context to the database.
-    ///
-    /// # Arguments
-    /// * `claimed_task` - The task whose context to save
-    /// * `context` - The context to save
-    ///
-    /// # Returns
-    /// Result indicating success or failure of the save operation
-    async fn save_task_context(
-        &self,
-        claimed_task: &ClaimedTask,
-        context: Context<serde_json::Value>,
-    ) -> Result<(), ExecutorError> {
-        use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
-
-        // Save context data to the contexts table
-        let context_id = self.dal.context().create(&context).await?;
-
-        // Create task execution metadata record with reference to context
-        let task_metadata_record = NewTaskExecutionMetadata {
-            task_execution_id: claimed_task.task_execution_id,
-            workflow_execution_id: claimed_task.workflow_execution_id,
-            task_name: claimed_task.task_name.clone(),
-            context_id,
-        };
-
-        self.dal
-            .task_execution_metadata()
-            .upsert_task_execution_metadata(task_metadata_record)
-            .await?;
-
-        let key_count = context.data().len();
-        let keys: Vec<_> = context.data().keys().collect();
-        info!(
-            "Context saved: {} (workflow: {}, {} keys: {:?}, context_id: {:?})",
-            claimed_task.task_name, claimed_task.workflow_execution_id, key_count, keys, context_id
-        );
-        Ok(())
-    }
-
-    /// Marks a task as completed in the database.
-    ///
-    /// # Arguments
-    /// * `task_execution_id` - ID of the task to mark as completed
-    ///
-    /// # Returns
-    /// Result indicating success or failure of the operation
-    /// Completes a task by saving its context and then marking it completed.
-    ///
-    /// **Order (COR-10):** save context first, mark completed second. The old
-    /// order (`mark_completed` first) had a CRITICAL hole — if context save
-    /// failed after the task was already marked Completed, the task looked
-    /// done but downstream consumers saw missing/empty context.
-    ///
-    /// The reversed order is asymmetric in the opposite, harmless direction:
-    /// if `mark_completed` fails *after* context save, the context row is
-    /// "orphaned" (saved + linked in task_execution_metadata) but the task
-    /// still appears Running — a heartbeat-loss + sweeper cycle retries
-    /// the task, saves a new context, and re-attempts. Orphan context rows
-    /// have no FK references and are harmless; a single DAL prune cron
-    /// can clean them up if storage matters.
-    ///
-    /// (The reviewer-recommended "single Diesel transaction" is the textbook
-    /// correct fix; deferred because the atomic write spans three DAL
-    /// submodules — contexts, task_execution_metadata, task_executions —
-    /// each with its own postgres/sqlite dispatch. Reversal here closes
-    /// the actual data-loss path without that surface-area expansion.)
-    async fn complete_task_transaction(
-        &self,
-        claimed_task: &ClaimedTask,
-        context: Context<serde_json::Value>,
-    ) -> Result<(), ExecutorError> {
-        let runner_id = if self.config.enable_claiming {
-            Some(self.instance_id)
-        } else {
-            None
-        };
-
-        // 1. Save context FIRST. If this fails, the task is still marked
-        //    Running with our claim — the heartbeat-loss / claim-sweep
-        //    cycle will reset it to Ready and another attempt drives it
-        //    through this path again. No "marked Completed but no
-        //    context" state is reachable.
-        self.save_task_context(claimed_task, context).await?;
-
-        // 2. Mark completed — guarded by claim ownership.
-        let applied = self
-            .dal
-            .task_execution()
-            .mark_completed(claimed_task.task_execution_id, runner_id)
-            .await?;
-
-        if !applied {
-            warn!(
-                task_id = %claimed_task.task_execution_id,
-                task_name = %claimed_task.task_name,
-                "Claim lost between context save and mark_completed — context row is orphaned (harmless), another runner now owns this task"
-            );
-            return Ok(());
-        }
-
-        info!(
-            task_id = %claimed_task.task_execution_id,
-            task_name = %claimed_task.task_name,
-            workflow_id = %claimed_task.workflow_execution_id,
-            "Task state change: -> Completed"
-        );
-
-        Ok(())
-    }
-
-    /// Determines if a failed task should be retried.
-    ///
-    /// Considers:
-    /// - Maximum retry attempts
-    /// - Retry policy conditions
-    /// - Error type and patterns
-    ///
-    /// # Arguments
-    /// * `claimed_task` - The failed task
-    /// * `error` - The error that caused the failure
-    /// * `retry_policy` - The task's retry policy
-    ///
-    /// # Returns
-    /// Result containing a boolean indicating whether to retry
-    async fn should_retry_task(
-        &self,
-        claimed_task: &ClaimedTask,
-        error: &ExecutorError,
-        retry_policy: &RetryPolicy,
-    ) -> Result<bool, ExecutorError> {
-        // Claim loss means another runner owns the task now; retrying from
-        // this runner would either fight for the claim or spawn a duplicate
-        // attempt. Let the owning runner drive the outcome.
-        if matches!(error, ExecutorError::ClaimLost) {
-            return Ok(false);
-        }
-
-        // Check if we've exceeded max retry attempts
-        if claimed_task.attempt >= retry_policy.max_attempts {
-            debug!(
-                "Task {} exceeded max retry attempts ({}/{})",
-                claimed_task.task_name, claimed_task.attempt, retry_policy.max_attempts
-            );
-            return Ok(false);
-        }
-
-        // Check retry conditions (all must be satisfied)
-        let should_retry = retry_policy
-            .retry_conditions
-            .iter()
-            .all(|condition| match condition {
-                RetryCondition::Never => false,
-                RetryCondition::AllErrors => true,
-                RetryCondition::TransientOnly => self.is_transient_error(error),
-                RetryCondition::ErrorPattern { patterns } => {
-                    let error_msg = error.to_string().to_lowercase();
-                    patterns
-                        .iter()
-                        .any(|pattern| error_msg.contains(&pattern.to_lowercase()))
-                }
-            });
-
-        debug!(
-            "Retry decision for task {}: {} (conditions: {:?}, error: {})",
-            claimed_task.task_name, should_retry, retry_policy.retry_conditions, error
-        );
-
-        Ok(should_retry)
-    }
-
-    /// Determines if an error is transient and potentially retryable.
-    ///
-    /// # Arguments
-    /// * `error` - The error to check
-    ///
-    /// # Returns
-    /// Boolean indicating if the error is transient
-    fn is_transient_error(&self, error: &ExecutorError) -> bool {
-        match error {
-            ExecutorError::TaskTimeout => true,
-            ExecutorError::Database(_) => true,
-            ExecutorError::ConnectionPool(_) => true,
-            ExecutorError::TaskNotFound(_) => false,
-            ExecutorError::TaskExecution(task_error) => {
-                // Check for common transient error patterns in task errors
-                let error_msg = task_error.to_string().to_lowercase();
-                error_msg.contains("timeout")
-                    || error_msg.contains("connection")
-                    || error_msg.contains("network")
-                    || error_msg.contains("temporary")
-                    || error_msg.contains("unavailable")
-            }
-            _ => false,
-        }
-    }
-
-    /// Schedules a task for retry execution.
-    ///
-    /// # Arguments
-    /// * `claimed_task` - The task to retry
-    /// * `retry_policy` - The task's retry policy
-    ///
-    /// # Returns
-    /// Result indicating success or failure of retry scheduling
-    async fn schedule_task_retry(
-        &self,
-        claimed_task: &ClaimedTask,
-        retry_policy: &RetryPolicy,
-    ) -> Result<(), ExecutorError> {
-        // Calculate retry delay using the backoff strategy
-        let retry_delay = retry_policy.calculate_delay(claimed_task.attempt);
-        let retry_at = Utc::now() + retry_delay;
-
-        // Use DAL to schedule retry
-        self.dal
-            .task_execution()
-            .schedule_retry(
-                claimed_task.task_execution_id,
-                crate::database::UniversalTimestamp(retry_at),
-                claimed_task.attempt + 1,
-            )
-            .await?;
-
-        info!(
-            "Scheduled retry for task {} in {:?} (attempt {})",
-            claimed_task.task_name,
-            retry_delay,
-            claimed_task.attempt + 1
-        );
-
-        Ok(())
-    }
+    // CLOACI-T-0630: the post-execution helpers that used to live here —
+    // `save_task_context`, `complete_task_transaction`, `should_retry_task`,
+    // `is_transient_error`, `schedule_task_retry` — moved to
+    // `crate::executor::result_handler::TaskResultHandler` so the upcoming
+    // fleet executor can share the same state-write sequence. See
+    // `result_handler.rs` for the (verbatim) implementations.
 }
 
 impl Clone for ThreadTaskExecutor {
@@ -708,8 +318,12 @@ impl Clone for ThreadTaskExecutor {
             config: self.config.clone(),
             // Shared semaphore — clones coordinate on the same concurrency limit
             semaphore: Arc::clone(&self.semaphore),
-            total_executed: AtomicU64::new(self.total_executed.load(Ordering::SeqCst)),
-            total_failed: AtomicU64::new(self.total_failed.load(Ordering::SeqCst)),
+            // Counters are now Arc<AtomicU64> so clones share the same
+            // running totals; T-0630 also shares them with the
+            // result_handler.
+            total_executed: Arc::clone(&self.total_executed),
+            total_failed: Arc::clone(&self.total_failed),
+            result_handler: self.result_handler.clone(),
         }
     }
 }
@@ -978,79 +592,22 @@ impl TaskExecutor for ThreadTaskExecutor {
             let _ = tokio::time::timeout(std::time::Duration::from_millis(100), handle).await;
         }
 
-        let result = match execution_result {
-            Ok(result_context) => {
-                // Save context and mark completed
-                match self
-                    .complete_task_transaction(&claimed_task, result_context)
-                    .await
-                {
-                    Ok(_) => {
-                        self.total_executed.fetch_add(1, Ordering::SeqCst);
-                        info!(
-                            task_id = %event.task_execution_id,
-                            task_name = %event.task_name,
-                            duration_ms = duration.as_millis(),
-                            "Task executed successfully via dispatcher"
-                        );
-                        Ok(ExecutionResult::success(event.task_execution_id, duration))
-                    }
-                    Err(e) => {
-                        self.total_failed.fetch_add(1, Ordering::SeqCst);
-                        let error_msg = format!("Failed to save context: {}", e);
-                        // Mark failed in DB — executor owns all state transitions
-                        let _ = self
-                            .dal
-                            .task_execution()
-                            .mark_failed(event.task_execution_id, &error_msg, claim_runner_id)
-                            .await;
-                        Ok(ExecutionResult::failure(
-                            event.task_execution_id,
-                            error_msg,
-                            duration,
-                        ))
-                    }
-                }
-            }
-            Err(error) => {
-                // Check if we should retry
-                let retry_policy = task.retry_policy();
-                let should_retry = self
-                    .should_retry_task(&claimed_task, &error, &retry_policy)
-                    .await
-                    .unwrap_or(false);
-
-                if should_retry {
-                    // Schedule retry
-                    if let Err(e) = self.schedule_task_retry(&claimed_task, &retry_policy).await {
-                        warn!(
-                            task_id = %event.task_execution_id,
-                            error = %e,
-                            "Failed to schedule retry"
-                        );
-                    }
-                    self.total_executed.fetch_add(1, Ordering::SeqCst);
-                    Ok(ExecutionResult::retry(
-                        event.task_execution_id,
-                        error.to_string(),
-                        duration,
-                    ))
-                } else {
-                    self.total_failed.fetch_add(1, Ordering::SeqCst);
-                    // Mark failed in DB — executor owns all state transitions
-                    let _ = self
-                        .dal
-                        .task_execution()
-                        .mark_failed(event.task_execution_id, &error.to_string(), claim_runner_id)
-                        .await;
-                    Ok(ExecutionResult::failure(
-                        event.task_execution_id,
-                        error.to_string(),
-                        duration,
-                    ))
-                }
-            }
-        };
+        // Delegate post-execution handling (status writes, retry decision,
+        // context persistence, counters, logging) to the shared
+        // `TaskResultHandler` (T-0630). The fleet executor (T-0633) will use
+        // an analogous handler to reconcile agent-reported results so the
+        // two paths share one state-write sequence by construction.
+        let retry_policy = task.retry_policy();
+        let result = Ok(self
+            .result_handler
+            .handle_outcome(
+                &event,
+                &claimed_task,
+                execution_result,
+                &retry_policy,
+                duration,
+            )
+            .await);
 
         // Release runner claim (on success, failure, or retry)
         if self.config.enable_claiming {
@@ -1278,72 +835,8 @@ mod tests {
             ThreadTaskExecutor::new(db, registry, config)
         }
 
-        #[test]
-        fn test_is_transient_timeout() {
-            let exec = test_executor();
-            assert!(exec.is_transient_error(&ExecutorError::TaskTimeout));
-        }
-
-        #[test]
-        fn test_is_transient_task_not_found() {
-            let exec = test_executor();
-            assert!(!exec.is_transient_error(&ExecutorError::TaskNotFound("missing".to_string())));
-        }
-
-        #[test]
-        fn test_is_transient_connection_pool() {
-            let exec = test_executor();
-            assert!(exec
-                .is_transient_error(&ExecutorError::ConnectionPool("pool exhausted".to_string())));
-        }
-
-        #[test]
-        fn test_is_transient_task_execution_with_timeout_msg() {
-            let exec = test_executor();
-            let task_err = crate::error::TaskError::ExecutionFailed {
-                message: "connection timeout while waiting".to_string(),
-                task_id: "test".to_string(),
-                timestamp: chrono::Utc::now(),
-            };
-            let err = ExecutorError::TaskExecution(task_err);
-            assert!(exec.is_transient_error(&err));
-        }
-
-        #[test]
-        fn test_is_transient_task_execution_permanent() {
-            let exec = test_executor();
-            let task_err = crate::error::TaskError::ExecutionFailed {
-                message: "invalid input data".to_string(),
-                task_id: "test".to_string(),
-                timestamp: chrono::Utc::now(),
-            };
-            let err = ExecutorError::TaskExecution(task_err);
-            assert!(!exec.is_transient_error(&err));
-        }
-
-        #[test]
-        fn test_is_transient_task_execution_network() {
-            let exec = test_executor();
-            let task_err = crate::error::TaskError::ExecutionFailed {
-                message: "network unreachable".to_string(),
-                task_id: "test".to_string(),
-                timestamp: chrono::Utc::now(),
-            };
-            let err = ExecutorError::TaskExecution(task_err);
-            assert!(exec.is_transient_error(&err));
-        }
-
-        #[test]
-        fn test_is_transient_task_execution_unavailable() {
-            let exec = test_executor();
-            let task_err = crate::error::TaskError::ExecutionFailed {
-                message: "service temporarily unavailable".to_string(),
-                task_id: "test".to_string(),
-                timestamp: chrono::Utc::now(),
-            };
-            let err = ExecutorError::TaskExecution(task_err);
-            assert!(exec.is_transient_error(&err));
-        }
+        // is_transient_* tests moved to result_handler.rs in T-0630 (the
+        // function lives on `TaskResultHandler` now).
 
         // -----------------------------------------------------------------------
         // ThreadTaskExecutor construction and metrics tests
