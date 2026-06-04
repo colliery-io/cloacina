@@ -23,6 +23,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -221,3 +222,419 @@ def helm_test():
         print(f"\n--- cleanup: kind delete cluster {cluster} ---\n")
         _run(["kind", "delete", "cluster", "--name", cluster], check=False)
         _ = kubeconfig  # keep linter quiet
+
+
+# ---------------------------------------------------------------------------
+# helm fleet  (slow, end-to-end containerized fleet via kind) — CLOACI-T-0637
+# ---------------------------------------------------------------------------
+
+FLEET_RELEASE = "fleet-e2e"
+FLEET_NS = "cloacina-fleet-e2e"
+FLEET_BOOTSTRAP_KEY = "fleet-e2e-bootstrap-key"
+FLEET_AGENT_REPLICAS = 2
+FLEET_FWD_PORT = 18090
+
+SERVER_IMG = "cloacina-server:fleet-e2e"
+AGENT_IMG = "cloacina-agent:fleet-e2e"
+COMPILER_IMG = "cloacina-compiler:fleet-e2e"
+
+# In-container path where the compiler image bakes the cloacina workspace; the
+# uploaded package's `__WORKSPACE__` path-deps are rewritten to this so they
+# resolve against the baked source. Must match docker/Dockerfile.compiler.
+COMPILER_WORKSPACE = "/workspace"
+
+
+def _compiler_manifest() -> str:
+    db = f"postgres://cloacina:cloacina@{FLEET_RELEASE}-postgresql:5432/cloacina"
+    return f"""
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloacina-compiler
+  namespace: {FLEET_NS}
+  labels:
+    app: cloacina-compiler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloacina-compiler
+  template:
+    metadata:
+      labels:
+        app: cloacina-compiler
+    spec:
+      containers:
+        - name: compiler
+          image: {COMPILER_IMG}
+          imagePullPolicy: Never
+          args:
+            - "--bind"
+            - "0.0.0.0:9000"
+            - "--poll-interval-ms"
+            - "500"
+            - "--verbose"
+            # Tell the compiler the shared target dir explicitly. The image
+            # bakes ENV CARGO_TARGET_DIR=/workspace/target so the warm cache
+            # (cloacina + ~100 deps from the image build) is reused — BUT the
+            # compiler only knows where cargo *writes* the cdylib if it owns
+            # the dir via this flag. Without it, config.cargo_target_dir is
+            # None and post-build discovery looks in the package-local
+            # `target/release` while cargo (inheriting the env) wrote to
+            # /workspace/target/release → "expected lib...so in .../target/
+            # release" (build.rs:411-418, 531-536). Flag == env keeps both
+            # sides pointed at the same dir.
+            - "--cargo-target-dir"
+            - "/workspace/target"
+            # `--cargo-flag=<v>` (equals form) — clap won't take a hyphen-led
+            # value in the two-token form, so `--cargo-flag --release` is
+            # parsed as a (bogus) --release flag. The `=` assigns verbatim.
+            # This set REPLACES the default `build --release --lib --frozen
+            # --offline` (main.rs:73), dropping the offline posture for the
+            # in-cluster online build (kind pods have egress).
+            - "--cargo-flag=build"
+            - "--cargo-flag=--release"
+            - "--cargo-flag=--lib"
+          env:
+            - name: DATABASE_URL
+              value: "{db}"
+          ports:
+            - containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9000
+            initialDelaySeconds: 3
+            periodSeconds: 3
+"""
+
+
+def _agent_manifest() -> str:
+    server_url = f"http://{FLEET_RELEASE}-cloacina-server:8080"
+    return f"""
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloacina-agent
+  namespace: {FLEET_NS}
+  labels:
+    app: cloacina-agent
+spec:
+  replicas: {FLEET_AGENT_REPLICAS}
+  selector:
+    matchLabels:
+      app: cloacina-agent
+  template:
+    metadata:
+      labels:
+        app: cloacina-agent
+    spec:
+      containers:
+        - name: agent
+          image: {AGENT_IMG}
+          imagePullPolicy: Never
+          args:
+            - "--max-concurrency"
+            - "2"
+          env:
+            - name: CLOACINA_SERVER
+              value: "{server_url}"
+            - name: CLOACINA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-bootstrap
+                  key: key
+"""
+
+
+def _kubectl_apply_stdin(manifest: str) -> None:
+    print("$ kubectl apply -f - <<manifest", flush=True)
+    subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=manifest, text=True, check=True,
+    )
+
+
+def _ctl(home: Path, *args, check=True):
+    """cloacinactl against the port-forwarded server."""
+    cmd = ["target/debug/cloacinactl", "--home", str(home), *args]
+    proc = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+    if check and proc.returncode != 0:
+        raise AssertionError(
+            f"{' '.join(cmd)} exited {proc.returncode}\n"
+            f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def _stage_fleet_fixture(dest: Path) -> Path:
+    """Copy examples/fixtures/compiler-happy-rust and rewrite __WORKSPACE__ to
+    the compiler image's baked workspace path so the in-cluster compiler
+    resolves the cloacina path-deps."""
+    import shutil as _sh
+    src = PROJECT_ROOT / "examples" / "fixtures" / "compiler-happy-rust"
+    out = dest / "compiler-happy-rust"
+    if out.exists():
+        _sh.rmtree(out)
+    (out / "src").mkdir(parents=True)
+    for rel in ("package.toml", "Cargo.toml", "build.rs", "src/lib.rs"):
+        text = (src / rel).read_text().replace("__WORKSPACE__", COMPILER_WORKSPACE)
+        (out / rel).write_text(text)
+    return out
+
+
+def _server_logs() -> str:
+    proc = subprocess.run(
+        ["kubectl", "logs", f"deploy/{FLEET_RELEASE}-cloacina-server",
+         "-n", FLEET_NS, "--tail=400"],
+        capture_output=True, text=True,
+    )
+    return proc.stdout + proc.stderr
+
+
+def _dump_diag(deploy: str, label: str) -> None:
+    """Dump deployment + pod state and logs for a failing component. Called
+    before the finally-block teardown so a rollout timeout isn't a black box
+    (the cluster is deleted on exit, taking the pod logs with it)."""
+    print(f"\n===== DIAGNOSTICS: {deploy} (-l {label}) =====", flush=True)
+    subprocess.run(["kubectl", "get", "pods", "-l", label, "-n", FLEET_NS, "-o", "wide"], check=False)
+    subprocess.run(["kubectl", "describe", "deploy", deploy, "-n", FLEET_NS], check=False)
+    subprocess.run(["kubectl", "describe", "pods", "-l", label, "-n", FLEET_NS], check=False)
+    print("----- current logs -----", flush=True)
+    subprocess.run(["kubectl", "logs", "-l", label, "-n", FLEET_NS,
+                    "--tail=200", "--all-containers=true"], check=False)
+    print("----- previous logs (if the container restarted) -----", flush=True)
+    subprocess.run(["kubectl", "logs", "-l", label, "-n", FLEET_NS,
+                    "--tail=200", "--all-containers=true", "--previous"], check=False)
+    print(f"===== END DIAGNOSTICS: {deploy} =====\n", flush=True)
+
+
+def _wait_rollout_or_dump(deploy: str, label: str, timeout: str = "5m") -> None:
+    """_wait_rollout, but on timeout dump pod diagnostics before re-raising."""
+    try:
+        _wait_rollout(deploy, FLEET_NS, timeout=timeout)
+    except subprocess.CalledProcessError:
+        _dump_diag(deploy, label)
+        raise
+
+
+def _run_workflow(home: Path, workflow: str, timeout_s: float = 120.0) -> str:
+    """Trigger `workflow run` via cloacinactl, retrying until the reconciler
+    has loaded the workflow into the registry. Returns the execution id.
+
+    The reconciler loads packages on a periodic tick, so the first runs may
+    fail with 'Workflow not found in registry' until that lands.
+
+    `workflow run` prints the BARE execution_id via `println!` (workflow/
+    mod.rs:102) — a plain UUID line, NOT a JSON object, even under `-o json`.
+    So parse JSON first (in case that ever changes), then fall back to the
+    last non-empty output line. Mirrors the host e2e `_poll_run_workflow`."""
+    import json as _json
+    deadline = time.time() + timeout_s
+    last = ""
+    while time.time() < deadline:
+        code, out, err = _ctl(home, "-o", "json", "workflow", "run", workflow, check=False)
+        if code == 0:
+            exec_id = None
+            try:
+                exec_id = _json.loads(out).get("execution_id")
+            except Exception:
+                exec_id = None
+            if not exec_id and out.strip():
+                tail = out.strip().splitlines()[-1].strip()
+                if len(tail) >= 32:
+                    exec_id = tail
+            if exec_id and len(exec_id) >= 32:
+                return exec_id
+        last = (err.strip() or out.strip())
+        time.sleep(2)
+    raise AssertionError(f"workflow run {workflow} never succeeded in {timeout_s}s; last: {last}")
+
+
+def _wait_exec(home: Path, exec_id: str, timeout_s: float = 120.0):
+    """Poll `execution status` until terminal; returns the last status seen."""
+    import json as _json
+    deadline = time.time() + timeout_s
+    status = None
+    while time.time() < deadline:
+        _, out, _ = _ctl(home, "-o", "json", "execution", "status", exec_id, check=False)
+        try:
+            status = _json.loads(out).get("status")
+        except Exception:
+            status = None
+        if status in ("Completed", "Failed", "Cancelled"):
+            return status
+        time.sleep(2)
+    return status
+
+
+@helm()
+@angreal.command(
+    name="fleet",
+    about="end-to-end containerized fleet on kind (server + compiler + N agents, churn)",
+    when_to_use=[
+        "validating the execution-agent fleet in a real k8s topology",
+        "confirming compiler->agent->reconcile closes in-cluster",
+    ],
+    when_not_to_use=["unit testing", "running without docker/kind"],
+)
+def helm_fleet():
+    _check_tool("docker", "install Docker Desktop or colima")
+    _check_tool("kind", "sudo port install kind  # or brew install kind")
+    _check_tool("kubectl", "sudo port install kubectl")
+    _check_tool("helm", "sudo port install kubernetes-helm")
+
+    cluster = _kind_cluster_name()
+    print(f"\n=== cloacina fleet e2e ({cluster}) ===\n")
+
+    fwd = None
+    home = Path(tempfile.mkdtemp(prefix="fleet-k8s-"))
+    try:
+        # 1. Build cloacinactl (host driver) + the three images.
+        print("\n--- 1. Build cloacinactl + server/agent/compiler images ---\n")
+        _run(["cargo", "build", "-p", "cloacinactl"], cwd=PROJECT_ROOT)
+        _run(["docker", "build", "-t", SERVER_IMG, "-f", str(PROJECT_ROOT / "Dockerfile"), str(PROJECT_ROOT)])
+        _run(["docker", "build", "-t", AGENT_IMG, "-f", str(PROJECT_ROOT / "docker" / "Dockerfile.agent"), str(PROJECT_ROOT)])
+        _run(["docker", "build", "-t", COMPILER_IMG, "-f", str(PROJECT_ROOT / "docker" / "Dockerfile.compiler"), str(PROJECT_ROOT)])
+
+        # 2. Cluster + load all three images.
+        print("\n--- 2. kind cluster + load images ---\n")
+        _run(["kind", "create", "cluster", "--name", cluster, "--wait", "120s"])
+        for img in (SERVER_IMG, AGENT_IMG, COMPILER_IMG):
+            _run(["kind", "load", "docker-image", img, "--name", cluster])
+
+        # 3. Namespace + bootstrap-key secret (shared by server + agents + ctl).
+        print("\n--- 3. namespace + bootstrap secret ---\n")
+        _run(["kubectl", "create", "namespace", FLEET_NS])
+        _run([
+            "kubectl", "create", "secret", "generic", "fleet-bootstrap",
+            "-n", FLEET_NS, f"--from-literal=key={FLEET_BOOTSTRAP_KEY}",
+        ])
+
+        # 4. Install the server chart: bundled postgres, fleet routing, known key.
+        print("\n--- 4. helm install server (routes **=fleet) ---\n")
+        _run(["helm", "dependency", "update", str(CHART_DIR)])
+        values = home / "server-values.yaml"
+        values.write_text(
+            "image:\n"
+            f"  repository: {SERVER_IMG.split(':')[0]}\n"
+            f"  tag: {SERVER_IMG.split(':')[1]}\n"
+            "  pullPolicy: Never\n"
+            "postgresql:\n"
+            "  enabled: true\n"
+            "  auth:\n"
+            "    username: cloacina\n"
+            "    password: cloacina\n"
+            "    database: cloacina\n"
+            "apiKeySecretRef:\n"
+            "  name: fleet-bootstrap\n"
+            "  key: key\n"
+            "server:\n"
+            "  extraEnv:\n"
+            "    - name: CLOACINA_FLEET_ROUTES\n"
+            '      value: "**=fleet"\n'
+        )
+        _run([
+            "helm", "install", FLEET_RELEASE, str(CHART_DIR),
+            "--namespace", FLEET_NS,
+            "-f", str(values),
+            "--wait", "--timeout=8m",
+        ])
+        _wait_rollout(f"{FLEET_RELEASE}-cloacina-server", FLEET_NS, timeout="5m")
+
+        # 5. Compiler + agents (after server migrated the DB + is ready).
+        print("\n--- 5. deploy compiler + agents ---\n")
+        _kubectl_apply_stdin(_compiler_manifest())
+        _wait_rollout_or_dump("cloacina-compiler", "app=cloacina-compiler", timeout="5m")
+        _kubectl_apply_stdin(_agent_manifest())
+        _wait_rollout_or_dump("cloacina-agent", "app=cloacina-agent", timeout="3m")
+
+        # 6. Port-forward the server so host cloacinactl can drive it.
+        print("\n--- 6. port-forward + configure cloacinactl ---\n")
+        fwd = subprocess.Popen(
+            ["kubectl", "port-forward", f"svc/{FLEET_RELEASE}-cloacina-server",
+             f"{FLEET_FWD_PORT}:8080", "-n", FLEET_NS],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        time.sleep(4)
+        base = f"http://127.0.0.1:{FLEET_FWD_PORT}"
+        _ctl(home, "config", "profile", "set", "local", base,
+             "--api-key", FLEET_BOOTSTRAP_KEY, "--default")
+
+        # 7. Upload source (rewritten to the compiler's baked workspace path).
+        print("\n--- 7. upload + compile workflow (cold build can take minutes) ---\n")
+        staged = _stage_fleet_fixture(home)
+        archive = home / "compiler-happy-rust.cloacina"
+        _ctl(home, "package", "pack", str(staged), "--out", str(archive))
+        _, out, _ = _ctl(home, "package", "upload", str(archive))
+        pkg_id = out.strip().splitlines()[-1].strip()
+        assert len(pkg_id) >= 32, f"no package id from upload: {out!r}"
+
+        # Poll build_status until success (in-cluster compiler builds it).
+        import json as _json
+        deadline = time.time() + 900
+        build_status = None
+        last_body = {}
+        while time.time() < deadline:
+            _, out, _ = _ctl(home, "-o", "json", "package", "inspect", pkg_id, check=False)
+            try:
+                last_body = _json.loads(out)
+                build_status = last_body.get("build_status")
+            except Exception:
+                build_status = None
+            if build_status == "success":
+                break
+            if build_status == "failed":
+                # Dump the stored build_error AND the compiler's own logs
+                # (cargo stderr) before the finally-block tears the cluster
+                # down — otherwise a failed build is a black box.
+                print("\n===== BUILD FAILED — package inspect =====", flush=True)
+                print(_json.dumps(last_body, indent=2), flush=True)
+                _dump_diag("cloacina-compiler", "app=cloacina-compiler")
+                raise AssertionError(
+                    f"compiler build failed for {pkg_id}: "
+                    f"{last_body.get('build_error') or '(no build_error field)'}"
+                )
+            time.sleep(5)
+        assert build_status == "success", f"build never succeeded (last={build_status})"
+        print("  ok: workflow compiled in-cluster")
+
+        # 8. Run it — must execute on an agent and reconcile.
+        print("\n--- 8. run workflow on the fleet ---\n")
+        exec_id = _run_workflow(home, "compiler_happy_workflow")
+        print(f"  triggered execution: {exec_id}")
+
+        status = _wait_exec(home, exec_id)
+        if status != "Completed":
+            print(_server_logs())
+            raise AssertionError(f"fleet execution ended {status!r}, expected Completed")
+        if "agent reported result" not in _server_logs():
+            print(_server_logs())
+            raise AssertionError("no 'agent reported result' in server log — task did not run on the fleet")
+        print("  ok: workflow executed on an agent + reconciled (Completed)")
+
+        # 9. Churn: kill one agent pod, re-run — fleet survives agent loss.
+        print("\n--- 9. churn: delete an agent pod, re-run ---\n")
+        pods = subprocess.run(
+            ["kubectl", "get", "pods", "-l", "app=cloacina-agent",
+             "-n", FLEET_NS, "-o", "jsonpath={.items[0].metadata.name}"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        _run(["kubectl", "delete", "pod", pods, "-n", FLEET_NS, "--wait=false"])
+        # Survivor (replica 2) handles the next run; the deleted pod's roster
+        # entry is swept after the heartbeat timeout. (True in-flight reclaim
+        # needs a slow-task fixture — tracked as a follow-up.)
+        exec_id = _run_workflow(home, "compiler_happy_workflow")
+        status = _wait_exec(home, exec_id)
+        if status != "Completed":
+            print(_server_logs())
+            raise AssertionError(f"post-churn execution ended {status!r}, expected Completed")
+        print("  ok: fleet survived agent loss — workflow completed on survivor")
+
+        print("\n✓ containerized fleet e2e passed (kind)")
+
+    finally:
+        if fwd is not None and fwd.poll() is None:
+            fwd.terminate()
+        print(f"\n--- cleanup: kind delete cluster {cluster} ---\n")
+        _run(["kind", "delete", "cluster", "--name", cluster], check=False)
