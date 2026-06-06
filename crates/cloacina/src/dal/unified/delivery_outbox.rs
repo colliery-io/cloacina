@@ -1039,6 +1039,7 @@ mod tests {
         assert_eq!(open[1].id, r3.id);
     }
 
+    #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_reset_delivered_to_pending_isolates_by_recipient_and_tenant() {
         let dal = unique_dal().await;
@@ -1108,6 +1109,7 @@ mod tests {
         assert_eq!(agent2_rows[0].delivery_state, STATE_DELIVERED);
     }
 
+    #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_reset_delivered_to_pending_matches_null_tenant() {
         let dal = unique_dal().await;

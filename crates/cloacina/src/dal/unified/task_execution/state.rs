@@ -20,9 +20,12 @@
 //! are written atomically. If either fails, both are rolled back.
 
 use super::TaskExecutionDAL;
-use crate::dal::unified::models::{
-    NewUnifiedExecutionEvent, NewUnifiedTaskOutbox, UnifiedTaskExecution,
-};
+use crate::dal::unified::models::{NewUnifiedExecutionEvent, UnifiedTaskExecution};
+// Only the sqlite mark_ready sets created_at explicitly (no column default on
+// sqlite); the postgres path now relies on DEFAULT CURRENT_TIMESTAMP, so this is
+// unused under postgres-only builds without the gate.
+#[cfg(feature = "sqlite")]
+use crate::dal::unified::models::NewUnifiedTaskOutbox;
 use crate::database::schema::unified::{execution_events, task_executions, task_outbox};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
