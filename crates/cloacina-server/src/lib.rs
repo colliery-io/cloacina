@@ -147,6 +147,11 @@ pub struct AppState {
     /// cooperative cancellation will error on its next DB write once the
     /// schema is dropped.
     pub tenant_deletion_drain_timeout: std::time::Duration,
+    /// CLOACI-T-0639: heartbeat interval (seconds) advertised to fleet agents
+    /// on register. Agents heartbeat at this rate; the liveness sweeper uses the
+    /// same value as its tick + dead-after basis. Operator-configurable via
+    /// `--agent-heartbeat-interval-s`.
+    pub agent_heartbeat_interval_seconds: u32,
 }
 
 /// CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
@@ -242,6 +247,13 @@ pub async fn run(
     // e.g. `"heavy::*=fleet"` or `"*=fleet"`. Empty = all tasks to the default
     // thread executor (the fleet executor stays registered but idle).
     fleet_routes: Vec<String>,
+    // Fleet agent liveness tuning (CLOACI-T-0639). `agent_heartbeat_interval_s`
+    // is advertised to agents (their heartbeat cadence) and is the sweeper's
+    // tick rate; the sweeper marks an agent dead after `agent_liveness_misses`
+    // missed beats (dead-after = interval × misses). Defaults (15, 3) reproduce
+    // the prior hardcoded 15s/45s.
+    agent_heartbeat_interval_s: u32,
+    agent_liveness_misses: u32,
 ) -> Result<()> {
     // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
     validate_security_args(require_signatures, verification_org_id.as_ref())?;
@@ -720,6 +732,9 @@ pub async fn run(
         // doesn't panic the server at boot.
         tenant_runners: Arc::new(tenant_runner_cache),
         tenant_deletion_drain_timeout,
+        // Clamp to >=1 so the advertised interval matches the sweeper's
+        // clamped cadence (the agent also clamps, but keep server-side parity).
+        agent_heartbeat_interval_seconds: agent_heartbeat_interval_s.max(1),
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -773,12 +788,11 @@ pub async fn run(
         let sweep_dal = unified_dal.clone();
         let sweep_wake = delivery_wake.clone();
         let mut sweep_shutdown = substrate_shutdown_rx.clone();
-        // Heartbeat interval the server advertises to agents is
-        // DEFAULT_HEARTBEAT_INTERVAL_SECONDS; evict after 3 missed beats.
-        let beat = std::time::Duration::from_secs(
-            cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS as u64,
-        );
-        let dead_after = beat * 3;
+        // Heartbeat interval the server advertises to agents + sweep cadence;
+        // evict after `agent_liveness_misses` missed beats (CLOACI-T-0639).
+        // Both clamped to >=1 so a 0 from the CLI can't wedge the ticker.
+        let beat = std::time::Duration::from_secs(agent_heartbeat_interval_s.max(1) as u64);
+        let dead_after = beat * agent_liveness_misses.max(1);
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(beat);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1410,6 +1424,7 @@ mod tests {
                 runner_config_for_tenant_cache(None, None),
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
+            agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
         }
     }
 

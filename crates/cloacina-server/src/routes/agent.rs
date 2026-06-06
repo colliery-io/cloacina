@@ -36,7 +36,6 @@ use axum::Json;
 use cloacina::fleet::{
     host_target_triple, AgentHeartbeatRequest, AgentHeartbeatResponse, AgentRegisterRequest,
     AgentRegisterResponse, AgentResultRequest, AgentResultResponse, AGENT_PROTOCOL_VERSION,
-    DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -100,7 +99,10 @@ pub async fn register_agent(
     Ok(Json(AgentRegisterResponse {
         protocol_version: AGENT_PROTOCOL_VERSION,
         agent_id,
-        heartbeat_interval_seconds: DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+        // Operator-configured (CLOACI-T-0639); defaults to
+        // DEFAULT_HEARTBEAT_INTERVAL_SECONDS. The agent heartbeats at this rate
+        // and the server's liveness sweeper uses the same basis.
+        heartbeat_interval_seconds: state.agent_heartbeat_interval_seconds,
     }))
 }
 

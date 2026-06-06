@@ -4,14 +4,14 @@ level: task
 title: "Containerized fleet e2e on kind — server + compiler + agents, churn/reclaim"
 short_code: "CLOACI-T-0637"
 created_at: 2026-06-01T15:59:08.367858+00:00
-updated_at: 2026-06-01T16:00:30.113643+00:00
+updated_at: 2026-06-04T15:08:26.451350+00:00
 parent: CLOACI-I-0114
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -103,6 +103,8 @@ Design decisions (2026-06-01, with user):
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

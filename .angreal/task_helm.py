@@ -367,13 +367,13 @@ def _ctl(home: Path, *args, check=True):
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def _stage_fleet_fixture(dest: Path) -> Path:
-    """Copy examples/fixtures/compiler-happy-rust and rewrite __WORKSPACE__ to
-    the compiler image's baked workspace path so the in-cluster compiler
-    resolves the cloacina path-deps."""
+def _stage_fleet_fixture(dest: Path, fixture: str = "compiler-happy-rust") -> Path:
+    """Copy examples/fixtures/<fixture> and rewrite __WORKSPACE__ to the compiler
+    image's baked workspace path so the in-cluster compiler resolves the cloacina
+    path-deps."""
     import shutil as _sh
-    src = PROJECT_ROOT / "examples" / "fixtures" / "compiler-happy-rust"
-    out = dest / "compiler-happy-rust"
+    src = PROJECT_ROOT / "examples" / "fixtures" / fixture
+    out = dest / fixture
     if out.exists():
         _sh.rmtree(out)
     (out / "src").mkdir(parents=True)
@@ -383,10 +383,86 @@ def _stage_fleet_fixture(dest: Path) -> Path:
     return out
 
 
+def _upload_and_compile(home: Path, fixture: str, timeout_s: float = 900.0) -> str:
+    """Stage → pack → upload → poll build_status=success for a fixture. Returns
+    the package id. Dumps build_error + compiler logs before raising on failure."""
+    import json as _json
+    staged = _stage_fleet_fixture(home, fixture)
+    archive = home / f"{fixture}.cloacina"
+    _ctl(home, "package", "pack", str(staged), "--out", str(archive))
+    _, out, _ = _ctl(home, "package", "upload", str(archive))
+    pkg_id = out.strip().splitlines()[-1].strip()
+    assert len(pkg_id) >= 32, f"no package id from upload of {fixture}: {out!r}"
+    deadline = time.time() + timeout_s
+    last_body = {}
+    while time.time() < deadline:
+        _, out, _ = _ctl(home, "-o", "json", "package", "inspect", pkg_id, check=False)
+        try:
+            last_body = _json.loads(out)
+            status = last_body.get("build_status")
+        except Exception:
+            status = None
+        if status == "success":
+            return pkg_id
+        if status == "failed":
+            print(f"\n===== BUILD FAILED ({fixture}) — package inspect =====", flush=True)
+            print(_json.dumps(last_body, indent=2), flush=True)
+            _dump_diag("cloacina-compiler", "app=cloacina-compiler")
+            raise AssertionError(
+                f"compiler build failed for {fixture} ({pkg_id}): "
+                f"{last_body.get('build_error') or '(no build_error field)'}"
+            )
+        time.sleep(5)
+    raise AssertionError(f"build of {fixture} never succeeded within {timeout_s}s")
+
+
+def _agent_pods() -> list:
+    """Names of LIVE cloacina-agent pods — Running and not Terminating. A
+    scaled-down pod stays in the list (phase=Running + deletionTimestamp) for
+    its grace period, so filter those out to avoid counting a dying pod."""
+    import json as _json
+    out = subprocess.run(
+        ["kubectl", "get", "pods", "-l", "app=cloacina-agent", "-n", FLEET_NS, "-o", "json"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    try:
+        items = _json.loads(out).get("items", [])
+    except Exception:
+        return []
+    live = []
+    for p in items:
+        meta, st = p.get("metadata", {}), p.get("status", {})
+        if meta.get("deletionTimestamp"):
+            continue  # terminating
+        if st.get("phase") == "Running":
+            live.append(meta.get("name"))
+    return live
+
+
+def _wait_agent_pods(n: int, timeout_s: float = 90.0) -> list:
+    """Poll until exactly n live agent pods are present; returns their names."""
+    deadline = time.time() + timeout_s
+    pods = []
+    while time.time() < deadline:
+        pods = _agent_pods()
+        if len(pods) == n:
+            return pods
+        time.sleep(3)
+    raise AssertionError(f"expected {n} live agent pods within {timeout_s}s; last: {pods}")
+
+
 def _server_logs() -> str:
     proc = subprocess.run(
         ["kubectl", "logs", f"deploy/{FLEET_RELEASE}-cloacina-server",
          "-n", FLEET_NS, "--tail=400"],
+        capture_output=True, text=True,
+    )
+    return proc.stdout + proc.stderr
+
+
+def _pod_logs(pod: str, tail: int = 200) -> str:
+    proc = subprocess.run(
+        ["kubectl", "logs", pod, "-n", FLEET_NS, f"--tail={tail}"],
         capture_output=True, text=True,
     )
     return proc.stdout + proc.stderr
@@ -418,9 +494,11 @@ def _wait_rollout_or_dump(deploy: str, label: str, timeout: str = "5m") -> None:
         raise
 
 
-def _run_workflow(home: Path, workflow: str, timeout_s: float = 120.0) -> str:
+def _run_workflow(home: Path, workflow: str, timeout_s: float = 120.0,
+                  context: str = None) -> str:
     """Trigger `workflow run` via cloacinactl, retrying until the reconciler
     has loaded the workflow into the registry. Returns the execution id.
+    `context`, if given, is a path to a JSON context file (`--context`).
 
     The reconciler loads packages on a periodic tick, so the first runs may
     fail with 'Workflow not found in registry' until that lands.
@@ -430,10 +508,11 @@ def _run_workflow(home: Path, workflow: str, timeout_s: float = 120.0) -> str:
     So parse JSON first (in case that ever changes), then fall back to the
     last non-empty output line. Mirrors the host e2e `_poll_run_workflow`."""
     import json as _json
+    extra = ("--context", context) if context else ()
     deadline = time.time() + timeout_s
     last = ""
     while time.time() < deadline:
-        code, out, err = _ctl(home, "-o", "json", "workflow", "run", workflow, check=False)
+        code, out, err = _ctl(home, "-o", "json", "workflow", "run", workflow, *extra, check=False)
         if code == 0:
             exec_id = None
             try:
@@ -451,17 +530,22 @@ def _run_workflow(home: Path, workflow: str, timeout_s: float = 120.0) -> str:
     raise AssertionError(f"workflow run {workflow} never succeeded in {timeout_s}s; last: {last}")
 
 
+def _exec_status(home: Path, exec_id: str):
+    """One-shot `execution status` → the status string (or None if unparsable)."""
+    import json as _json
+    _, out, _ = _ctl(home, "-o", "json", "execution", "status", exec_id, check=False)
+    try:
+        return _json.loads(out).get("status")
+    except Exception:
+        return None
+
+
 def _wait_exec(home: Path, exec_id: str, timeout_s: float = 120.0):
     """Poll `execution status` until terminal; returns the last status seen."""
-    import json as _json
     deadline = time.time() + timeout_s
     status = None
     while time.time() < deadline:
-        _, out, _ = _ctl(home, "-o", "json", "execution", "status", exec_id, check=False)
-        try:
-            status = _json.loads(out).get("status")
-        except Exception:
-            status = None
+        status = _exec_status(home, exec_id)
         if status in ("Completed", "Failed", "Cancelled"):
             return status
         time.sleep(2)
@@ -471,10 +555,11 @@ def _wait_exec(home: Path, exec_id: str, timeout_s: float = 120.0):
 @helm()
 @angreal.command(
     name="fleet",
-    about="end-to-end containerized fleet on kind (server + compiler + N agents, churn)",
+    about="end-to-end containerized fleet on kind (server + compiler + N agents, in-flight reclaim)",
     when_to_use=[
         "validating the execution-agent fleet in a real k8s topology",
         "confirming compiler->agent->reconcile closes in-cluster",
+        "proving dead-agent in-flight reclaim (kill the executing agent)",
     ],
     when_not_to_use=["unit testing", "running without docker/kind"],
 )
@@ -533,6 +618,14 @@ def helm_fleet():
             "  extraEnv:\n"
             "    - name: CLOACINA_FLEET_ROUTES\n"
             '      value: "**=fleet"\n'
+            # Aggressive liveness (CLOACI-T-0639) so the reclaim step doesn't
+            # wait the default 45-60s: dead-after = 5s x 2 = 10s. Also exercises
+            # the new --agent-heartbeat-interval-s / --agent-liveness-misses
+            # config end-to-end.
+            "    - name: CLOACINA_AGENT_HEARTBEAT_INTERVAL_S\n"
+            '      value: "5"\n'
+            "    - name: CLOACINA_AGENT_LIVENESS_MISSES\n"
+            '      value: "2"\n'
         )
         _run([
             "helm", "install", FLEET_RELEASE, str(CHART_DIR),
@@ -561,49 +654,19 @@ def helm_fleet():
         _ctl(home, "config", "profile", "set", "local", base,
              "--api-key", FLEET_BOOTSTRAP_KEY, "--default")
 
-        # 7. Upload source (rewritten to the compiler's baked workspace path).
-        print("\n--- 7. upload + compile workflow (cold build can take minutes) ---\n")
-        staged = _stage_fleet_fixture(home)
-        archive = home / "compiler-happy-rust.cloacina"
-        _ctl(home, "package", "pack", str(staged), "--out", str(archive))
-        _, out, _ = _ctl(home, "package", "upload", str(archive))
-        pkg_id = out.strip().splitlines()[-1].strip()
-        assert len(pkg_id) >= 32, f"no package id from upload: {out!r}"
+        # 7. Upload + compile both fixtures (rewritten to the compiler's baked
+        # workspace path). The cold build pulls ~100 deps; warm cache → ~15s.
+        print("\n--- 7. upload + compile workflows (cold build can take minutes) ---\n")
+        _upload_and_compile(home, "compiler-happy-rust")
+        print("  ok: compiler-happy-rust compiled in-cluster")
+        _upload_and_compile(home, "fleet-slow-rust")
+        print("  ok: fleet-slow-rust compiled in-cluster")
 
-        # Poll build_status until success (in-cluster compiler builds it).
-        import json as _json
-        deadline = time.time() + 900
-        build_status = None
-        last_body = {}
-        while time.time() < deadline:
-            _, out, _ = _ctl(home, "-o", "json", "package", "inspect", pkg_id, check=False)
-            try:
-                last_body = _json.loads(out)
-                build_status = last_body.get("build_status")
-            except Exception:
-                build_status = None
-            if build_status == "success":
-                break
-            if build_status == "failed":
-                # Dump the stored build_error AND the compiler's own logs
-                # (cargo stderr) before the finally-block tears the cluster
-                # down — otherwise a failed build is a black box.
-                print("\n===== BUILD FAILED — package inspect =====", flush=True)
-                print(_json.dumps(last_body, indent=2), flush=True)
-                _dump_diag("cloacina-compiler", "app=cloacina-compiler")
-                raise AssertionError(
-                    f"compiler build failed for {pkg_id}: "
-                    f"{last_body.get('build_error') or '(no build_error field)'}"
-                )
-            time.sleep(5)
-        assert build_status == "success", f"build never succeeded (last={build_status})"
-        print("  ok: workflow compiled in-cluster")
-
-        # 8. Run it — must execute on an agent and reconcile.
-        print("\n--- 8. run workflow on the fleet ---\n")
+        # 8. Happy path — workflow runs on an agent and reconciles (multi-agent:
+        # FLEET_AGENT_REPLICAS agents are up).
+        print("\n--- 8. run workflow on the fleet (happy path) ---\n")
         exec_id = _run_workflow(home, "compiler_happy_workflow")
         print(f"  triggered execution: {exec_id}")
-
         status = _wait_exec(home, exec_id)
         if status != "Completed":
             print(_server_logs())
@@ -613,25 +676,115 @@ def helm_fleet():
             raise AssertionError("no 'agent reported result' in server log — task did not run on the fleet")
         print("  ok: workflow executed on an agent + reconciled (Completed)")
 
-        # 9. Churn: kill one agent pod, re-run — fleet survives agent loss.
-        print("\n--- 9. churn: delete an agent pod, re-run ---\n")
-        pods = subprocess.run(
-            ["kubectl", "get", "pods", "-l", "app=cloacina-agent",
-             "-n", FLEET_NS, "-o", "jsonpath={.items[0].metadata.name}"],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-        _run(["kubectl", "delete", "pod", pods, "-n", FLEET_NS, "--wait=false"])
-        # Survivor (replica 2) handles the next run; the deleted pod's roster
-        # entry is swept after the heartbeat timeout. (True in-flight reclaim
-        # needs a slow-task fixture — tracked as a follow-up.)
-        exec_id = _run_workflow(home, "compiler_happy_workflow")
-        status = _wait_exec(home, exec_id)
-        if status != "Completed":
-            print(_server_logs())
-            raise AssertionError(f"post-churn execution ended {status!r}, expected Completed")
-        print("  ok: fleet survived agent loss — workflow completed on survivor")
+        # 9. True in-flight reclaim (CLOACI-T-0638). Run a long task on the fleet,
+        # find which agent ACTUALLY executes it, kill that pod, and assert the
+        # server reclaims the orphaned in-flight work onto a surviving agent
+        # where it completes.
+        #
+        # Both agents stay live (no scale-down): scaling down races the server's
+        # agent registry, which lags k8s pod termination by the heartbeat
+        # timeout, so the fleet executor can still dispatch to the dying pod. We
+        # identify the executor instead — the agent logs the slow package's
+        # cdylib registration when it dlopens it to run — and the OTHER agent is
+        # a genuinely-live survivor for the reclaim to land on.
+        print("\n--- 9. in-flight reclaim: kill the executing agent ---\n")
+        # With the aggressive liveness config above (dead-after ~10s), detection
+        # is fast, so the re-run dominates; 45s leaves comfortable margin between
+        # the kill (~10-15s in) and the agent finishing on its own.
+        SLEEP_SECONDS = 45
+        agents = _wait_agent_pods(FLEET_AGENT_REPLICAS)
+        assert len(agents) >= 2, f"need >=2 live agents for reclaim, got {agents}"
+        print(f"  live agents: {agents}")
 
-        print("\n✓ containerized fleet e2e passed (kind)")
+        # Pass the sleep duration via --context (a JSON file; inline isn't supported).
+        ctx_file = home / "slow-context.json"
+        ctx_file.write_text(f'{{"sleep_seconds": {SLEEP_SECONDS}}}')
+        exec_id = _run_workflow(home, "fleet_slow_workflow", context=str(ctx_file))
+        print(f"  triggered slow execution: {exec_id}")
+
+        # Identify the executor: the pod whose log shows it loaded fleet-slow-rust
+        # (only the agent that claimed the work receives + dlopens the cdylib).
+        # A fleet workflow execution stays "Pending" while running, so the pod log
+        # is the reliable "this agent is executing it" signal.
+        deadline = time.time() + 90
+        executor = None
+        while time.time() < deadline and not executor:
+            st = _exec_status(home, exec_id)
+            if st in ("Completed", "Failed", "Cancelled"):
+                _, body, _ = _ctl(home, "-o", "json", "execution", "status", exec_id, check=False)
+                print(f"\n===== SLOW TASK {st} BEFORE KILL — execution status =====", flush=True)
+                print(body, flush=True)
+                _dump_diag("cloacina-agent", "app=cloacina-agent")
+                print(_server_logs(), flush=True)
+                raise AssertionError(
+                    f"slow task reached {st} before the executing agent could be killed "
+                    "(expected it to still be running) — see diagnostics above"
+                )
+            for pod in _agent_pods():
+                if "fleet-slow-rust" in _pod_logs(pod):
+                    executor = pod
+                    break
+            if not executor:
+                time.sleep(2)
+        if not executor:
+            _dump_diag("cloacina-agent", "app=cloacina-agent")
+            print(_server_logs(), flush=True)
+            raise AssertionError(
+                "no agent picked up the slow task within 90s (no 'fleet-slow-rust' in any "
+                "agent log) — dispatch may be stuck; see diagnostics above"
+            )
+        survivors = [p for p in _agent_pods() if p != executor]
+        assert survivors, f"no surviving agent to reclaim onto (agents={_agent_pods()})"
+        print(f"  slow task is executing on {executor}; survivor(s): {survivors}")
+
+        # Regression guard for the observability fix: the fleet executor marks the
+        # workflow execution Running on dispatch (it used to read Pending the whole
+        # run). It's executing now, so status must be Running.
+        deadline = time.time() + 10
+        while time.time() < deadline and _exec_status(home, exec_id) != "Running":
+            time.sleep(1)
+        st = _exec_status(home, exec_id)
+        assert st == "Running", (
+            f"expected execution status Running while the agent runs it, got {st!r} "
+            "— fleet 'mark execution Running on dispatch' may have regressed"
+        )
+        print("  execution status is Running while in flight (observability fix OK)")
+
+        # Kill the executing agent. k8s will spin up a replacement, but the
+        # already-live survivor is what the reclaim targets.
+        kill_t = time.time()
+        _run(["kubectl", "delete", "pod", executor, "-n", FLEET_NS, "--wait=false"])
+        print(f"  killed executing agent {executor}; waiting for reclaim "
+              f"(~detect 10-20s + {SLEEP_SECONDS}s re-run)")
+
+        # Reclaim: the agent sweeper marks the killed agent dead (~10-20s with
+        # the aggressive 5s×2 liveness config + the pod's SIGTERM grace), then
+        # reassigns its
+        # in-flight outbox row to a live agent which re-runs the slow task from
+        # scratch and reports → the original rendezvous wakes → Completed.
+        status = _wait_exec(home, exec_id, timeout_s=300.0)
+        reclaim_secs = time.time() - kill_t
+        logs = _server_logs()
+        if status != "Completed":
+            print(logs)
+            raise AssertionError(f"post-reclaim execution ended {status!r}, expected Completed")
+        if "reclaimed dead agent's in-flight work" not in logs:
+            print(logs)
+            raise AssertionError(
+                "execution completed but server never logged the reclaim — the task may "
+                "have completed on the executor before the kill (timing), not via reclaim"
+            )
+        # The slow path is the fleet rendezvous timing out at 300s then retrying.
+        # We completed under 300s (or _wait_exec would have failed), but surface
+        # it explicitly so a regression toward the timeout fallback is visible.
+        if "agent result wait exceeded server-side timeout" in logs:
+            print("  WARNING: a fleet rendezvous hit the 300s timeout fallback — "
+                  "reclaim re-push may not be reaching the rendezvous promptly; investigate")
+        print(f"  ok: in-flight work reclaimed onto a survivor — execution Completed "
+              f"in {reclaim_secs:.0f}s after kill "
+              f"(~detect + {SLEEP_SECONDS}s re-run; well under the 300s rendezvous ceiling)")
+
+        print("\n✓ containerized fleet e2e passed (kind): happy path + in-flight reclaim")
 
     finally:
         if fwd is not None and fwd.poll() is None:

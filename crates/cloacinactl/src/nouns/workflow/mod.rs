@@ -87,7 +87,12 @@ impl WorkflowCmd {
                 render::object(&body, output)
             }
             WorkflowVerb::Run { name, context } => {
-                let body = load_context(context.as_deref())?;
+                // The execute endpoint expects the context nested under a
+                // `context` key (`ExecuteRequest { context: Option<Value> }`);
+                // posting the bare file JSON makes the server silently drop it
+                // ("Skipping insertion of empty context"). Wrap it here.
+                let ctx = load_context(context.as_deref())?;
+                let body = serde_json::json!({ "context": ctx });
                 let resp: serde_json::Value = client
                     .post(
                         &format!("/v1/tenants/{tenant}/workflows/{name}/execute"),

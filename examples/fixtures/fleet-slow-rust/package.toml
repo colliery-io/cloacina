@@ -1,0 +1,14 @@
+# Fleet in-flight reclaim fixture. A real packaged workflow whose single task
+# sleeps for `context["sleep_seconds"]` (default 2s) so the executing agent can
+# be killed mid-run to exercise dead-agent reclaim (CLOACI-T-0638 / T-0634).
+[package]
+name = "fleet-slow-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "fleet_slow_workflow"
+language = "rust"
+description = "fleet in-flight reclaim fixture — one task that sleeps"
