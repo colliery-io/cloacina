@@ -382,6 +382,26 @@ impl TaskExecutor for ThreadTaskExecutor {
             }
         }
 
+        // Surface the workflow execution as Running once a task of it is being
+        // executed (parity with the fleet path; CLOACI-T-0639). Workflow
+        // executions otherwise go Pending → Completed directly — the completion
+        // guards accept any non-terminal status — so a long in-process run would
+        // read Pending the whole time. Best-effort + idempotent (only ever
+        // Pending→Running or Running→Running, since the scheduler only dispatches
+        // tasks for active executions).
+        if let Err(e) = self
+            .dal
+            .workflow_execution()
+            .update_status(event.workflow_execution_id, "Running")
+            .await
+        {
+            tracing::warn!(
+                workflow_id = %event.workflow_execution_id,
+                error = %e,
+                "Failed to mark workflow execution Running"
+            );
+        }
+
         // Cancellation channel — the heartbeat loop flips this to `true` if
         // it detects `ClaimLost`. The execution future races against it via
         // `execute_with_cancellation` (Layer 1), and tasks holding a

@@ -4,14 +4,14 @@ level: task
 title: "Containerized in-flight reclaim e2e — slow fixture, kill agent mid-execution"
 short_code: "CLOACI-T-0638"
 created_at: 2026-06-04T15:19:10.079581+00:00
-updated_at: 2026-06-04T15:20:25.975131+00:00
+updated_at: 2026-06-06T03:15:16.075128+00:00
 parent: CLOACI-I-0114
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -69,6 +69,8 @@ Dispatch is only logged at debug, so don't *guess* which agent got the work — 
    - poll execution status → **Completed** (generous deadline ~240s: ~60s detect + 90s
      re-run + margin).
    - assert server log contains `reclaimed dead agent's in-flight work`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

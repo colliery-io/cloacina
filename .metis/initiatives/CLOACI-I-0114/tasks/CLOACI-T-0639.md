@@ -4,14 +4,14 @@ level: task
 title: "Configurable agent liveness — heartbeat interval + dead-after threshold"
 short_code: "CLOACI-T-0639"
 created_at: 2026-06-06T02:50:05.259140+00:00
-updated_at: 2026-06-06T02:50:32.637787+00:00
+updated_at: 2026-06-06T03:15:24.681811+00:00
 parent: CLOACI-I-0114
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -52,6 +52,8 @@ Two server CLI flags (keep current values as defaults so behavior is unchanged):
 Plumb: `main.rs` args → `run()` params → `AppState.agent_heartbeat_interval_seconds` (so the
 register handler advertises the configured value) → sweeper uses interval × misses. Clamp
 both to ≥1.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -185,3 +187,43 @@ flags end-to-end and (b) cuts the reclaim step from ~165s to ~75s. Lowered the f
 
 **Needs a fresh `angreal helm fleet` run** (server image rebuild) to validate. All exit
 criteria met pending that run.
+
+### 2026-06-06 — two follow-ups landed (Running parity + public double-scheduling)
+
+Done + compiling clean (`angreal check crate crates/cloacina-server` ✅, only pre-existing
+cloacina warnings):
+1. **Thread-path Running parity** — `ThreadTaskExecutor::execute` now marks the workflow
+   execution `Running` after it claims a task (best-effort, idempotent), mirroring the fleet
+   change. In-process executions no longer read `Pending` for the whole run.
+   (`crates/cloacina/src/executor/thread_task_executor.rs`.)
+2. **`public` double-scheduling eliminated** — the execute route reuses the global runner
+   (`state.runner`) for tenant `public` instead of a redundant per-tenant runner, so no
+   second scheduler loop polls the admin/`public` schema. Non-public tenants still get
+   schema-scoped per-tenant runners. Only production `get_or_create` call site was the
+   execute route. (`crates/cloacina-server/src/routes/executions.rs`.)
+
+Note: the Running mark is unconditional (matches fleet); a concurrent pause in the µs window
+between claim and mark could theoretically be clobbered — negligible, but a
+`mark_running_if_pending` conditional would close it. Thread-executor change is cloacina core
+(daemon + all in-process tests) — validate with `angreal test integration`.
+
+### 2026-06-06 — integration run surfaced a REAL pre-existing bug: outbox mixed-clock claim
+
+`angreal test integration` failed 2 tests, both pre-existing and unrelated to the fleet work:
+- `dal::task_claiming::test_claimed_tasks_marked_running` — `claim_ready_task(1)` returned 0.
+- `signing::...test_find_signature_present_and_absent` — `PoisonError` (collateral: the
+  task_claiming panic poisoned the shared fixture mutex; that test `.unwrap()`s the lock).
+
+Root cause (postgres only): `mark_ready` wrote the `task_outbox.created_at` with the APP
+clock (`UniversalTimestamp::now()`) while `claim_ready_task` filters `created_at <= NOW()`
+with the DB clock, on a naive `TIMESTAMP` column. Any app/DB clock divergence — Docker VM
+drift (this session spanned 06-04→06-06, Mac slept) or a non-UTC session TZ — makes a fresh
+outbox row look future-dated → never claimed → "claimed 0". This is a **production**
+correctness bug too (server vs postgres on different hosts / NTP skew → tasks stuck Ready).
+
+Fix: `mark_ready_postgres` no longer overrides `created_at` — it lets the column's existing
+`DEFAULT CURRENT_TIMESTAMP` stamp it, so write + claim use the same (DB) clock. SQLite
+untouched (single in-process clock; column has no default). `schedule_retry` keeps its
+explicit `created_at = retry_at` (intentional future delay). `crates/cloacina/src/dal/
+unified/task_execution/state.rs`; `angreal check crate crates/cloacina` ✅. Fixing the
+claim panic also clears the signing poison cascade.

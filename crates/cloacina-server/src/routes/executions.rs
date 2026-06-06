@@ -87,15 +87,27 @@ pub async fn execute_workflow(
                 .into_response();
         }
     };
-    let tenant_runner = match state
-        .tenant_runners
-        .get_or_create(&tenant_id, tenant_db)
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("Failed to acquire tenant runner for '{}': {}", tenant_id, e);
-            return ApiError::internal(format!("tenant runner unavailable: {}", e)).into_response();
+    // "public" maps to the admin DB/schema, which the GLOBAL runner already
+    // operates on (fleet executor registered, reconciler populating the shared
+    // Runtime). Reuse it rather than building a redundant per-tenant runner: a
+    // separate "public" runner means two scheduler loops polling the same
+    // public-schema rows and double-dispatching every task (deduped by the
+    // executor claim since T-0639, but wasteful). Non-public tenants get their
+    // own schema-scoped runner from the cache. CLOACI-T-0639 follow-up.
+    let tenant_runner = if tenant_id == "public" {
+        state.runner.clone()
+    } else {
+        match state
+            .tenant_runners
+            .get_or_create(&tenant_id, tenant_db)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Failed to acquire tenant runner for '{}': {}", tenant_id, e);
+                return ApiError::internal(format!("tenant runner unavailable: {}", e))
+                    .into_response();
+            }
         }
     };
 
