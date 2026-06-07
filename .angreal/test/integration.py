@@ -201,6 +201,19 @@ def integration(
                 cargo_cmd.append(filter)
             subprocess.run(cargo_cmd, check=True)
 
+            # cloacina-server lib tests (CLOACI-T-0636). These are DB-backed
+            # router/handler/metrics tests living in cloacina-server's lib
+            # target; they need Postgres (the server is Postgres-only) so they
+            # run only in the postgres lane. Previously orphaned — no suite ran
+            # them, so they drifted.
+            if backend_name == "postgres":
+                print_section_header("Running cloacina-server lib tests (Postgres)")
+                server_cmd = ["cargo", "test", "-p", "cloacina-server", "--lib"]
+                if filter:
+                    server_cmd.append(filter)
+                server_cmd += ["--", "--test-threads=1"]
+                subprocess.run(server_cmd, check=True)
+
             if not skip_python:
                 print_section_header(f"Running {backend_name.title()} Python pytest scenarios")
                 ok = run_pytest_scenarios(

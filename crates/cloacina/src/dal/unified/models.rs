@@ -20,10 +20,10 @@
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
 use crate::database::schema::unified::{
-    accumulator_boundaries, accumulator_checkpoints, contexts, execution_events, key_trust_acls,
-    package_signatures, reactor_state, recovery_events, schedule_executions, schedules,
-    signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions, task_outbox,
-    trusted_keys, workflow_executions, workflow_packages, workflow_registry,
+    accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
+    key_trust_acls, package_signatures, reactor_state, recovery_events, schedule_executions,
+    schedules, signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions,
+    task_outbox, trusted_keys, workflow_executions, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -258,6 +258,39 @@ pub struct UnifiedTaskOutbox {
 #[diesel(table_name = task_outbox)]
 pub struct NewUnifiedTaskOutbox {
     pub task_execution_id: UniversalUuid,
+    pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Unified Delivery Outbox Models (substrate — S-0012 / A-0006)
+// ============================================================================
+
+/// Unified delivery-outbox row: durable, ack-tracked, recipient-addressed
+/// push delivery for the interservice communication substrate.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = delivery_outbox)]
+pub struct UnifiedDeliveryOutbox {
+    pub id: i64,
+    pub recipient: String,
+    pub kind: String,
+    pub tenant_id: Option<String>,
+    pub payload: UniversalBinary,
+    pub delivery_state: String,
+    pub delivery_attempts: i32,
+    pub created_at: UniversalTimestamp,
+    pub delivered_at: Option<UniversalTimestamp>,
+    pub acked_at: Option<UniversalTimestamp>,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = delivery_outbox)]
+pub struct NewUnifiedDeliveryOutbox {
+    pub recipient: String,
+    pub kind: String,
+    pub tenant_id: Option<String>,
+    pub payload: UniversalBinary,
+    pub delivery_state: String,
+    pub delivery_attempts: i32,
     pub created_at: UniversalTimestamp,
 }
 

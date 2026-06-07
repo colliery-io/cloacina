@@ -47,6 +47,7 @@ use crate::database::{AnyPool, BackendType, Database};
 pub mod api_keys;
 pub mod checkpoint;
 pub mod context;
+pub mod delivery_outbox;
 pub mod execution_event;
 pub mod models;
 pub mod reactor_subscriptions;
@@ -65,6 +66,7 @@ pub mod workflow_registry_storage;
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
 pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
+pub use delivery_outbox::DeliveryOutboxDAL;
 pub use execution_event::ExecutionEventDAL;
 pub use reactor_subscriptions::{ReactorFiring, ReactorSubscription, ReactorSubscriptionsDAL};
 pub use recovery_event::RecoveryEventDAL;
@@ -160,6 +162,12 @@ impl DAL {
     /// Returns a task outbox DAL for work distribution operations.
     pub fn task_outbox(&self) -> TaskOutboxDAL<'_> {
         TaskOutboxDAL::new(self)
+    }
+
+    /// Returns a delivery outbox DAL for the interservice communication
+    /// substrate (durable, ack-tracked, recipient-addressed push delivery).
+    pub fn delivery_outbox(&self) -> DeliveryOutboxDAL<'_> {
+        DeliveryOutboxDAL::new(self)
     }
 
     /// Returns a recovery event DAL for recovery operations.

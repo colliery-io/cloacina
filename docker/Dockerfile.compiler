@@ -1,0 +1,73 @@
+# syntax=docker/dockerfile:1.7
+#
+# cloacina-compiler — in-cluster build service image (CLOACI-I-0114 / T-0637)
+#
+# Unlike the server/agent images this is NOT a slim runtime: the compiler's job
+# is to shell out to `cargo build` on uploaded workflow *source* packages, so it
+# keeps the full Rust toolchain at runtime. It is test/CI infrastructure for the
+# containerized fleet e2e (kind), not a hardened production image.
+#
+# Path-dep resolution: uploaded packages reference cloacina by path via a
+# `__WORKSPACE__` placeholder that the uploader rewrites. For the in-cluster
+# compiler we bake the whole cloacina workspace at /workspace and the test
+# rewrites `__WORKSPACE__` -> /workspace, so the package's `cloacina = { path =
+# "/workspace/crates/cloacina" }` resolves against the baked source.
+#
+# Profile: the fleet's server + agent images are RELEASE builds, and fidius's
+# wire format depends on the profile (debug=JSON, release=bincode). The cdylib
+# the compiler emits is dlopened by the (release) agent, so it MUST be built
+# release too. The deployment passes `--cargo-flag build --cargo-flag --release
+# --cargo-flag --lib` (online; kind pods have egress, so no vendor dir needed —
+# this drops the default `--frozen --offline` SEC-06 posture for the test).
+#
+# Build:   docker build -t cloacina-compiler:dev -f docker/Dockerfile.compiler .
+# Run:     docker run --rm -e DATABASE_URL=postgres://... cloacina-compiler:dev \
+#            --bind 0.0.0.0:9000 --cargo-flag build --cargo-flag --release --cargo-flag --lib
+
+ARG RUST_VERSION=1.93
+
+FROM rust:${RUST_VERSION}-slim-bookworm
+
+# Same build chain as the cloacina-server builder stage — the compiler runs
+# these tools at runtime to build uploaded packages (libpq/pyo3/rdkafka).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        libpq-dev \
+        libsasl2-dev \
+        libssl-dev \
+        pkg-config \
+        git \
+        ca-certificates \
+        python3 \
+        python3-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# Bake the full workspace at /workspace so uploaded packages' `__WORKSPACE__`
+# path-deps resolve here, and so building the compiler warms cloacina + its
+# ~100 transitive deps into the shared target dir + the image's cargo registry.
+WORKDIR /workspace
+COPY . /workspace
+
+# Shared target dir reused by every runtime package build (each package is
+# unpacked to a temp dir but inherits CARGO_TARGET_DIR), so the warm cloacina +
+# crates.io deps compiled below are reused instead of rebuilt cold per upload.
+ENV CARGO_TARGET_DIR=/workspace/target
+
+# Build the compiler binary (also pre-warms the dep cache in CARGO_TARGET_DIR
+# and the default CARGO_HOME registry at /usr/local/cargo).
+RUN cargo build --release --locked --bin cloacina-compiler \
+ && cp target/release/cloacina-compiler /usr/local/bin/cloacina-compiler
+
+# Runs as root: the cargo subprocess must write CARGO_TARGET_DIR and unpack
+# packages into temp dirs. This is test/CI infra, not a production image.
+
+ENV CLOACINA_HOME=/workspace/.cloacina
+EXPOSE 9000
+
+LABEL org.opencontainers.image.source="https://github.com/colliery-software/cloacina"
+LABEL org.opencontainers.image.description="cloacina-compiler — in-cluster build service (test/CI infra)"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
+ENTRYPOINT ["/usr/local/bin/cloacina-compiler"]

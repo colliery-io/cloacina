@@ -142,6 +142,27 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// Delivery outbox — durable, ack-tracked, recipient-addressed push
+        /// delivery for the interservice communication substrate (S-0012).
+        /// Postgres-only at runtime; present here for unified-schema parity.
+        delivery_outbox (id) {
+            id -> BigInt,
+            recipient -> Text,
+            kind -> Text,
+            tenant_id -> Nullable<Text>,
+            payload -> DbBinary,
+            delivery_state -> Text,
+            delivery_attempts -> Integer,
+            created_at -> DbTimestamp,
+            delivered_at -> Nullable<DbTimestamp>,
+            acked_at -> Nullable<DbTimestamp>,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         task_execution_metadata (id) {
             id -> DbUuid,
             task_execution_id -> DbUuid,
@@ -538,6 +559,21 @@ mod postgres_schema {
     }
 
     diesel::table! {
+        delivery_outbox (id) {
+            id -> Int8,
+            recipient -> Text,
+            kind -> Text,
+            tenant_id -> Nullable<Text>,
+            payload -> Bytea,
+            delivery_state -> Text,
+            delivery_attempts -> Int4,
+            created_at -> Timestamp,
+            delivered_at -> Nullable<Timestamp>,
+            acked_at -> Nullable<Timestamp>,
+        }
+    }
+
+    diesel::table! {
         task_execution_metadata (id) {
             id -> Uuid,
             task_execution_id -> Uuid,
@@ -911,6 +947,21 @@ mod sqlite_schema {
             id -> BigInt,
             task_execution_id -> Binary,
             created_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        delivery_outbox (id) {
+            id -> BigInt,
+            recipient -> Text,
+            kind -> Text,
+            tenant_id -> Nullable<Text>,
+            payload -> Binary,
+            delivery_state -> Text,
+            delivery_attempts -> Integer,
+            created_at -> Text,
+            delivered_at -> Nullable<Text>,
+            acked_at -> Nullable<Text>,
         }
     }
 

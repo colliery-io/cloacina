@@ -20,9 +20,12 @@
 //! are written atomically. If either fails, both are rolled back.
 
 use super::TaskExecutionDAL;
-use crate::dal::unified::models::{
-    NewUnifiedExecutionEvent, NewUnifiedTaskOutbox, UnifiedTaskExecution,
-};
+use crate::dal::unified::models::{NewUnifiedExecutionEvent, UnifiedTaskExecution};
+// Only the sqlite mark_ready sets created_at explicitly (no column default on
+// sqlite); the postgres path now relies on DEFAULT CURRENT_TIMESTAMP, so this is
+// unused under postgres-only builds without the gate.
+#[cfg(feature = "sqlite")]
+use crate::dal::unified::models::NewUnifiedTaskOutbox;
 use crate::database::schema::unified::{execution_events, task_executions, task_outbox};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
@@ -428,13 +431,18 @@ impl<'a> TaskExecutionDAL<'a> {
                     .values(&event)
                     .execute(conn)?;
 
-                // Insert outbox entry for work distribution
-                let outbox_entry = NewUnifiedTaskOutbox {
-                    task_execution_id: task_id,
-                    created_at: now,
-                };
+                // Insert outbox entry for work distribution. Let the DB stamp
+                // created_at via its `DEFAULT CURRENT_TIMESTAMP` instead of the
+                // app clock: claim_ready_task (postgres) filters
+                // `created_at <= NOW()` using the DB clock, so an app-side
+                // timestamp makes a fresh row look future-dated whenever the app
+                // and DB clocks diverge (Docker VM drift, or a non-UTC session
+                // TZ applied to the naive TIMESTAMP column) — and the task is
+                // never claimed. Sourcing both write and filter from the DB
+                // clock removes the skew. (schedule_retry still sets created_at
+                // = retry_at on purpose — an intentional future delay.)
                 diesel::insert_into(task_outbox::table)
-                    .values(&outbox_entry)
+                    .values(task_outbox::task_execution_id.eq(task_id))
                     .execute(conn)?;
 
                 Ok(())

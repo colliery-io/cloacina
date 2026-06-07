@@ -44,11 +44,16 @@
 //!
 //! All components are thread-safe and can be used in concurrent environments.
 
+pub mod context_builder;
+pub mod result_handler;
 pub mod slot_token;
 pub mod task_handle;
 pub mod thread_task_executor;
 pub mod types;
 pub mod workflow_executor;
+
+pub use context_builder::TaskContextBuilder;
+pub use result_handler::TaskResultHandler;
 
 pub use slot_token::SlotToken;
 pub use task_handle::{return_task_handle, take_task_handle, with_task_handle, TaskHandle};

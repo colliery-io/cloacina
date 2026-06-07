@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-05-19T16:14:40Z | 492 files | JavaScript, Python, Rust
+> Generated: 2026-06-01T14:41:42Z | 509 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -38,6 +38,7 @@
 │   │   │   │       │   └── mod.rs
 │   │   │   │       ├── checkpoint.rs
 │   │   │   │       ├── context.rs
+│   │   │   │       ├── delivery_outbox.rs
 │   │   │   │       ├── execution_event.rs
 │   │   │   │       ├── mod.rs
 │   │   │   │       ├── models.rs
@@ -70,6 +71,10 @@
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── schema.rs
 │   │   │   │   └── universal_types.rs
+│   │   │   ├── delivery/
+│   │   │   │   ├── envelope.rs
+│   │   │   │   ├── mod.rs
+│   │   │   │   └── sweeper.rs
 │   │   │   ├── dispatcher/
 │   │   │   │   ├── default.rs
 │   │   │   │   ├── mod.rs
@@ -85,18 +90,24 @@
 │   │   │   │   ├── state_manager.rs
 │   │   │   │   └── trigger_rules.rs
 │   │   │   ├── executor/
+│   │   │   │   ├── context_builder.rs
 │   │   │   │   ├── mod.rs
+│   │   │   │   ├── result_handler.rs
 │   │   │   │   ├── slot_token.rs
 │   │   │   │   ├── task_handle.rs
 │   │   │   │   ├── thread_task_executor.rs
 │   │   │   │   ├── types.rs
 │   │   │   │   └── workflow_executor.rs
+│   │   │   ├── fleet/
+│   │   │   │   ├── mod.rs
+│   │   │   │   └── protocol.rs
 │   │   │   ├── graph.rs
 │   │   │   ├── inventory_entries.rs
 │   │   │   ├── lib.rs
 │   │   │   ├── logging.rs
 │   │   │   ├── models/
 │   │   │   │   ├── context.rs
+│   │   │   │   ├── delivery_outbox.rs
 │   │   │   │   ├── execution_event.rs
 │   │   │   │   ├── key_trust_acl.rs
 │   │   │   │   ├── mod.rs
@@ -185,6 +196,7 @@
 │   │           ├── dal/
 │   │           │   ├── api_keys.rs
 │   │           │   ├── context.rs
+│   │           │   ├── delivery_relay.rs
 │   │           │   ├── execution_events.rs
 │   │           │   ├── mod.rs
 │   │           │   ├── reactor_subscriptions.rs
@@ -255,6 +267,9 @@
 │   │               ├── macro_test.rs
 │   │               ├── mod.rs
 │   │               └── subgraph.rs
+│   ├── cloacina-agent/
+│   │   └── src/
+│   │       └── main.rs
 │   ├── cloacina-build/
 │   │   └── src/
 │   │       └── lib.rs
@@ -318,10 +333,16 @@
 │   ├── cloacina-server/
 │   │   ├── build.rs
 │   │   ├── src/
+│   │   │   ├── agent_registry.rs
+│   │   │   ├── delivery_sink.rs
+│   │   │   ├── fleet_coordinator.rs
+│   │   │   ├── fleet_executor.rs
 │   │   │   ├── lib.rs
 │   │   │   ├── main.rs
 │   │   │   ├── routes/
+│   │   │   │   ├── agent.rs
 │   │   │   │   ├── auth.rs
+│   │   │   │   ├── delivery_ws.rs
 │   │   │   │   ├── error.rs
 │   │   │   │   ├── executions.rs
 │   │   │   │   ├── health_graphs.rs
@@ -1227,20 +1248,20 @@
 
 - pub `ContextError` enum L132-153 — `Serialization | KeyNotFound | TypeMismatch | KeyExists | Database | ConnectionPo...` — Errors that can occur during context operations.
 - pub `RegistrationError` enum L175-184 — `DuplicateTaskId | InvalidTaskId | RegistrationFailed` — Errors that can occur during task registration.
-- pub `ValidationError` enum L191-254 — `CyclicDependency | MissingDependency | DuplicateTaskId | EmptyWorkflow | Invalid...` — Errors that can occur during Workflow and dependency validation.
-- pub `ExecutorError` enum L270-309 — `Database | ConnectionPool | TaskNotFound | TaskExecution | Context | TaskTimeout...` — Errors that can occur during task execution.
-- pub `WorkflowError` enum L321-345 — `DuplicateTask | TaskNotFound | InvalidDependency | CyclicDependency | Unreachabl...` — Errors that can occur during workflow construction and management.
-- pub `SubgraphError` enum L352-358 — `TaskNotFound | UnsupportedOperation` — Errors that can occur when creating Workflow subgraphs.
+- pub `ValidationError` enum L191-260 — `CyclicDependency | MissingDependency | DuplicateTaskId | EmptyWorkflow | Invalid...` — Errors that can occur during Workflow and dependency validation.
+- pub `ExecutorError` enum L276-315 — `Database | ConnectionPool | TaskNotFound | TaskExecution | Context | TaskTimeout...` — Errors that can occur during task execution.
+- pub `WorkflowError` enum L327-351 — `DuplicateTask | TaskNotFound | InvalidDependency | CyclicDependency | Unreachabl...` — Errors that can occur during workflow construction and management.
+- pub `SubgraphError` enum L358-364 — `TaskNotFound | UnsupportedOperation` — Errors that can occur when creating Workflow subgraphs.
 -  `ContextError` type L155-168 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
 -  `from` function L156-167 — `(err: cloacina_workflow::ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `ValidationError` type L256-260 — `= ValidationError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L257-259 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `ContextError` type L262-266 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
+-  `ValidationError` type L262-266 — `= ValidationError` — relevant context information to aid in troubleshooting and recovery.
 -  `from` function L263-265 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `ExecutorError` type L311-315 — `= ExecutorError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L312-314 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
--  `TaskError` type L361-384 — `= TaskError` — relevant context information to aid in troubleshooting and recovery.
--  `from` function L362-383 — `(error: ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `ContextError` type L268-272 — `= ContextError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L269-271 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `ExecutorError` type L317-321 — `= ExecutorError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L318-320 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — relevant context information to aid in troubleshooting and recovery.
+-  `TaskError` type L367-390 — `= TaskError` — relevant context information to aid in troubleshooting and recovery.
+-  `from` function L368-389 — `(error: ContextError) -> Self` — relevant context information to aid in troubleshooting and recovery.
 
 #### crates/cloacina/src/graph.rs
 
@@ -1296,26 +1317,28 @@
 - pub `crypto` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `dal` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `database` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dispatcher` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `error` module L511 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `execution_planner` module L514 — `-` — Task readiness evaluation, workflow processing, and stale claim sweeping.
-- pub `executor` module L515 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `graph` module L516 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `inventory_entries` module L517 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `logging` module L518 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `models` module L519 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `packaging` module L520 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `python_runtime` module L521 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `registry` module L522 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `retry` module L523 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runner` module L524 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runtime` module L525 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `security` module L530 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task` module L531 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger` module L532 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `var` module L533 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `workflow` module L534 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `setup_test` function L543-545 — `()` — - [`retry`]: Retry policies and backoff strategies
+- pub `delivery` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dispatcher` module L511 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `error` module L512 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `execution_planner` module L515 — `-` — Task readiness evaluation, workflow processing, and stale claim sweeping.
+- pub `executor` module L516 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `fleet` module L517 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `graph` module L518 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `inventory_entries` module L519 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `logging` module L520 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `models` module L521 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `packaging` module L522 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `python_runtime` module L523 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `registry` module L524 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `retry` module L525 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runner` module L526 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runtime` module L527 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `security` module L532 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task` module L533 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger` module L534 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `var` module L535 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `workflow` module L536 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `setup_test` function L545-547 — `()` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -1614,73 +1637,135 @@
 -  `list_postgres` function L339-375 — `( &self, limit: i64, offset: i64, ) -> Result<Vec<Context<T>>, ContextError>` — at runtime based on the database connection type.
 -  `list_sqlite` function L378-410 — `(&self, limit: i64, offset: i64) -> Result<Vec<Context<T>>, ContextError>` — at runtime based on the database connection type.
 
+#### crates/cloacina/src/dal/unified/delivery_outbox.rs
+
+- pub `DeliveryOutboxDAL` struct L50-52 — `{ dal: &'a DAL }` — Data access layer for delivery-outbox operations with runtime backend selection.
+- pub `new` function L70-72 — `(dal: &'a DAL) -> Self` — schema parity and test coverage.
+- pub `enqueue` function L81-87 — `(&self, new: NewDeliveryOutbox) -> Result<DeliveryOutbox, ValidationError>` — Enqueues a new outbox row in the `pending` state.
+- pub `mark_delivered` function L139-146 — `(&self, id: i64) -> Result<(), ValidationError>` — `pending → delivered`: record that the row was pushed to its recipient.
+- pub `mark_acked` function L212-219 — `(&self, id: i64) -> Result<(), ValidationError>` — `pending|delivered → acked`: recipient confirmed receipt.
+- pub `reset_to_pending` function L274-281 — `(&self, id: i64) -> Result<(), ValidationError>` — `delivered → pending`: redelivery path (sweeper reclaim / reconnect resync).
+- pub `reset_delivered_to_pending_for_recipient` function L334-346 — `( &self, recipient: &str, tenant_id: Option<&str>, ) -> Result<usize, Validation...` — Reset every `delivered`-state row addressed to `(recipient, tenant_id)`
+- pub `reassign_open_rows` function L424-436 — `( &self, from_recipient: &str, to_recipient: &str, ) -> Result<usize, Validation...` — Reassign every non-`acked` row from `from_recipient` to `to_recipient`,
+- pub `list_open_for_recipient` function L504-515 — `( &self, recipient: &str, limit: i64, ) -> Result<Vec<DeliveryOutbox>, Validatio...` — Open (un-acked) rows addressed to `recipient`, ordered by id for
+- pub `list_pending` function L572-578 — `(&self, limit: i64) -> Result<Vec<DeliveryOutbox>, ValidationError>` — Rows in the `pending` state across all recipients, oldest first — the
+- pub `list_stuck` function L630-640 — `( &self, cutoff: UniversalTimestamp, limit: i64, ) -> Result<Vec<DeliveryOutbox>...` — Open rows enqueued before `cutoff`, oldest first — the safety-net
+- pub `count_open` function L695-701 — `(&self) -> Result<i64, ValidationError>` — Count of open (un-acked) rows — outbox-depth signal for monitoring (T-0628).
+-  `STATE_PENDING` variable L44 — `: &str` — schema parity and test coverage.
+-  `STATE_DELIVERED` variable L45 — `: &str` — schema parity and test coverage.
+-  `STATE_ACKED` variable L46 — `: &str` — schema parity and test coverage.
+-  `to_domain` function L54-67 — `(r: UnifiedDeliveryOutbox) -> DeliveryOutbox` — schema parity and test coverage.
+-  `enqueue_postgres` function L90-110 — `( &self, new: NewDeliveryOutbox, ) -> Result<DeliveryOutbox, ValidationError>` — schema parity and test coverage.
+-  `enqueue_sqlite` function L113-133 — `( &self, new: NewDeliveryOutbox, ) -> Result<DeliveryOutbox, ValidationError>` — schema parity and test coverage.
+-  `mark_delivered_postgres` function L149-173 — `(&self, id: i64) -> Result<usize, ValidationError>` — schema parity and test coverage.
+-  `mark_delivered_sqlite` function L176-200 — `(&self, id: i64) -> Result<usize, ValidationError>` — schema parity and test coverage.
+-  `mark_acked_postgres` function L222-245 — `(&self, id: i64) -> Result<usize, ValidationError>` — schema parity and test coverage.
+-  `mark_acked_sqlite` function L248-271 — `(&self, id: i64) -> Result<usize, ValidationError>` — schema parity and test coverage.
+-  `reset_to_pending_postgres` function L284-303 — `(&self, id: i64) -> Result<usize, ValidationError>` — schema parity and test coverage.
+-  `reset_to_pending_sqlite` function L306-325 — `(&self, id: i64) -> Result<usize, ValidationError>` — schema parity and test coverage.
+-  `reset_delivered_for_recipient_postgres` function L349-377 — `( &self, recipient: String, tenant_id: Option<String>, ) -> Result<usize, Valida...` — schema parity and test coverage.
+-  `reset_delivered_for_recipient_sqlite` function L380-407 — `( &self, recipient: String, tenant_id: Option<String>, ) -> Result<usize, Valida...` — schema parity and test coverage.
+-  `reassign_open_rows_postgres` function L439-467 — `( &self, from_recipient: String, to_recipient: String, ) -> Result<usize, Valida...` — schema parity and test coverage.
+-  `reassign_open_rows_sqlite` function L470-498 — `( &self, from_recipient: String, to_recipient: String, ) -> Result<usize, Valida...` — schema parity and test coverage.
+-  `list_open_for_recipient_postgres` function L518-541 — `( &self, recipient: String, limit: i64, ) -> Result<Vec<DeliveryOutbox>, Validat...` — schema parity and test coverage.
+-  `list_open_for_recipient_sqlite` function L544-567 — `( &self, recipient: String, limit: i64, ) -> Result<Vec<DeliveryOutbox>, Validat...` — schema parity and test coverage.
+-  `list_pending_postgres` function L581-602 — `( &self, limit: i64, ) -> Result<Vec<DeliveryOutbox>, ValidationError>` — schema parity and test coverage.
+-  `list_pending_sqlite` function L605-626 — `( &self, limit: i64, ) -> Result<Vec<DeliveryOutbox>, ValidationError>` — schema parity and test coverage.
+-  `list_stuck_postgres` function L643-666 — `( &self, cutoff: UniversalTimestamp, limit: i64, ) -> Result<Vec<DeliveryOutbox>...` — schema parity and test coverage.
+-  `list_stuck_sqlite` function L669-692 — `( &self, cutoff: UniversalTimestamp, limit: i64, ) -> Result<Vec<DeliveryOutbox>...` — schema parity and test coverage.
+-  `count_open_postgres` function L704-721 — `(&self) -> Result<i64, ValidationError>` — schema parity and test coverage.
+-  `count_open_sqlite` function L724-741 — `(&self) -> Result<i64, ValidationError>` — schema parity and test coverage.
+-  `build_insert` function L745-755 — `(new: NewDeliveryOutbox) -> NewUnifiedDeliveryOutbox` — Builds the insertable row for a new `pending` outbox entry.
+-  `transition_result` function L760-775 — `( id: i64, from: &str, to: &str, affected: usize, ) -> Result<(), ValidationErro...` — Maps a compare-and-set affected-row count to a transition result: exactly
+-  `tests` module L778-1070 — `-` — schema parity and test coverage.
+-  `unique_dal` function L783-793 — `() -> DAL` — schema parity and test coverage.
+-  `new_row` function L796-803 — `(recipient: &str) -> NewDeliveryOutbox` — schema parity and test coverage.
+-  `test_enqueue_starts_pending` function L807-815 — `()` — schema parity and test coverage.
+-  `test_reassign_open_rows_retargets_and_resets` function L819-864 — `()` — schema parity and test coverage.
+-  `test_full_lifecycle_pending_delivered_acked` function L868-883 — `()` — schema parity and test coverage.
+-  `test_mark_delivered_increments_attempts_and_stamps` function L887-901 — `()` — schema parity and test coverage.
+-  `test_redelivery_resets_then_redelivers_incrementing_attempts` function L905-918 — `()` — schema parity and test coverage.
+-  `test_ack_on_pending_succeeds_for_relay_recipient_race` function L922-939 — `()` — schema parity and test coverage.
+-  `test_invalid_transition_rejected` function L943-957 — `()` — schema parity and test coverage.
+-  `test_list_open_for_recipient_isolates_and_orders` function L961-976 — `()` — schema parity and test coverage.
+-  `test_reset_delivered_to_pending_isolates_by_recipient_and_tenant` function L979-1027 — `()` — schema parity and test coverage.
+-  `test_reset_delivered_to_pending_matches_null_tenant` function L1030-1069 — `()` — schema parity and test coverage.
+
 #### crates/cloacina/src/dal/unified/execution_event.rs
 
-- pub `ExecutionEventDAL` struct L39-41 — `{ dal: &'a DAL }` — Data access layer for execution event operations with runtime backend selection.
-- pub `new` function L51-53 — `(dal: &'a DAL) -> Self` — Creates a new ExecutionEventDAL instance.
-- pub `create` function L59-68 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — Creates a new execution event record.
-- pub `list_by_workflow` function L160-169 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — Gets all execution events for a specific workflow execution, ordered by sequence.
-- pub `delete_older_than` function L415-424 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — Deletes execution events older than the specified timestamp.
-- pub `count_older_than` function L541-550 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — Counts execution events older than the specified timestamp.
--  `create_postgres` function L71-108 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — state transitions for debugging, compliance, and replay capability.
--  `create_sqlite` function L111-157 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_workflow_postgres` function L172-194 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_workflow_sqlite` function L197-219 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_task` function L222-231 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — Gets all execution events for a specific task execution, ordered by sequence.
--  `list_by_task_postgres` function L234-256 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_task_sqlite` function L259-281 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_type` function L284-294 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — Gets execution events by type for monitoring and analysis.
--  `list_by_type_postgres` function L297-322 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — state transitions for debugging, compliance, and replay capability.
--  `list_by_type_sqlite` function L325-350 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — state transitions for debugging, compliance, and replay capability.
--  `get_recent` function L353-362 — `( &self, limit: i64, ) -> Result<Vec<ExecutionEvent>, ValidationError>` — Gets recent execution events for monitoring purposes.
--  `get_recent_postgres` function L365-387 — `( &self, limit: i64, ) -> Result<Vec<ExecutionEvent>, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `get_recent_sqlite` function L390-409 — `(&self, limit: i64) -> Result<Vec<ExecutionEvent>, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `delete_older_than_postgres` function L427-449 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `delete_older_than_sqlite` function L452-474 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `count_by_workflow` function L477-486 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — Counts total execution events for a workflow execution.
--  `count_by_workflow_postgres` function L489-511 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `count_by_workflow_sqlite` function L514-536 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `count_older_than_postgres` function L553-575 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
--  `count_older_than_sqlite` function L578-600 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+- pub `ExecutionEventDAL` struct L72-74 — `{ dal: &'a DAL }` — Data access layer for execution event operations with runtime backend selection.
+- pub `new` function L84-86 — `(dal: &'a DAL) -> Self` — Creates a new ExecutionEventDAL instance.
+- pub `create` function L92-101 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — Creates a new execution event record.
+- pub `list_by_workflow` function L210-219 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — Gets all execution events for a specific workflow execution, ordered by sequence.
+- pub `delete_older_than` function L465-474 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — Deletes execution events older than the specified timestamp.
+- pub `count_older_than` function L591-600 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — Counts execution events older than the specified timestamp.
+-  `build_event_outbox_row` function L40-65 — `( event_id: UniversalUuid, new_event: &NewExecutionEvent, now: UniversalTimestam...` — Substrate (CLOACI-I-0115 / T-0629): build the `delivery_outbox` row that
+-  `create_postgres` function L104-150 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — state transitions for debugging, compliance, and replay capability.
+-  `create_sqlite` function L153-207 — `( &self, new_event: NewExecutionEvent, ) -> Result<ExecutionEvent, ValidationErr...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_workflow_postgres` function L222-244 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_workflow_sqlite` function L247-269 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, ...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_task` function L272-281 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — Gets all execution events for a specific task execution, ordered by sequence.
+-  `list_by_task_postgres` function L284-306 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_task_sqlite` function L309-331 — `( &self, task_execution_id: UniversalUuid, ) -> Result<Vec<ExecutionEvent>, Vali...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_type` function L334-344 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — Gets execution events by type for monitoring and analysis.
+-  `list_by_type_postgres` function L347-372 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — state transitions for debugging, compliance, and replay capability.
+-  `list_by_type_sqlite` function L375-400 — `( &self, event_type: ExecutionEventType, limit: i64, ) -> Result<Vec<ExecutionEv...` — state transitions for debugging, compliance, and replay capability.
+-  `get_recent` function L403-412 — `( &self, limit: i64, ) -> Result<Vec<ExecutionEvent>, ValidationError>` — Gets recent execution events for monitoring purposes.
+-  `get_recent_postgres` function L415-437 — `( &self, limit: i64, ) -> Result<Vec<ExecutionEvent>, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `get_recent_sqlite` function L440-459 — `(&self, limit: i64) -> Result<Vec<ExecutionEvent>, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `delete_older_than_postgres` function L477-499 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `delete_older_than_sqlite` function L502-524 — `( &self, cutoff: UniversalTimestamp, ) -> Result<usize, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `count_by_workflow` function L527-536 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — Counts total execution events for a workflow execution.
+-  `count_by_workflow_postgres` function L539-561 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `count_by_workflow_sqlite` function L564-586 — `( &self, workflow_execution_id: UniversalUuid, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `count_older_than_postgres` function L603-625 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `count_older_than_sqlite` function L628-650 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — state transitions for debugging, compliance, and replay capability.
+-  `substrate_producer_tests` module L654-756 — `-` — state transitions for debugging, compliance, and replay capability.
+-  `unique_dal` function L659-669 — `() -> DAL` — state transitions for debugging, compliance, and replay capability.
+-  `make_wf_exec` function L671-682 — `(dal: &DAL) -> UniversalUuid` — state transitions for debugging, compliance, and replay capability.
+-  `event_create_also_enqueues_delivery_outbox_row` function L688-721 — `()` — Creating an execution event also enqueues a `delivery_outbox` row with
+-  `two_events_produce_two_outbox_rows_for_same_recipient` function L726-755 — `()` — Two events for the same workflow produce two distinct outbox rows under
 
 #### crates/cloacina/src/dal/unified/mod.rs
 
 - pub `api_keys` module L47 — `-` — ```
 - pub `checkpoint` module L48 — `-` — ```
 - pub `context` module L49 — `-` — ```
-- pub `execution_event` module L50 — `-` — ```
-- pub `models` module L51 — `-` — ```
-- pub `reactor_subscriptions` module L52 — `-` — ```
-- pub `recovery_event` module L53 — `-` — ```
-- pub `schedule` module L54 — `-` — ```
-- pub `schedule_execution` module L55 — `-` — ```
-- pub `task_execution` module L56 — `-` — ```
-- pub `task_execution_metadata` module L57 — `-` — ```
-- pub `task_outbox` module L58 — `-` — ```
-- pub `workflow_execution` module L59 — `-` — ```
-- pub `workflow_packages` module L60 — `-` — ```
-- pub `workflow_registry_storage` module L61 — `-` — ```
-- pub `DAL` struct L95-98 — `{ database: Database }` — Helper macro for dispatching operations based on backend type.
-- pub `new` function L110-112 — `(database: Database) -> Self` — Creates a new unified DAL instance.
-- pub `backend` function L115-117 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
-- pub `database` function L120-122 — `(&self) -> &Database` — Returns a reference to the underlying database.
-- pub `pool` function L125-127 — `(&self) -> AnyPool` — Returns the connection pool.
-- pub `api_keys` function L131-133 — `(&self) -> ApiKeyDAL<'_>` — Returns an API key DAL (Postgres only).
-- pub `checkpoint` function L136-138 — `(&self) -> CheckpointDAL<'_>` — Returns a checkpoint DAL for computation graph state persistence.
-- pub `context` function L141-143 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
-- pub `workflow_execution` function L146-148 — `(&self) -> WorkflowExecutionDAL<'_>` — Returns a workflow execution DAL for workflow execution operations.
-- pub `task_execution` function L151-153 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
-- pub `task_execution_metadata` function L156-158 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
-- pub `task_outbox` function L161-163 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
-- pub `recovery_event` function L166-168 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
-- pub `execution_event` function L171-173 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
-- pub `schedule` function L176-178 — `(&self) -> ScheduleDAL<'_>` — Returns a unified schedule DAL for schedule operations.
-- pub `schedule_execution` function L181-183 — `(&self) -> ScheduleExecutionDAL<'_>` — Returns a unified schedule execution DAL for schedule execution operations.
-- pub `workflow_packages` function L186-188 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
-- pub `reactor_subscriptions` function L192-194 — `(&self) -> ReactorSubscriptionsDAL<'_>` — Returns a reactor subscriptions DAL for reactor-triggered workflow
-- pub `workflow_registry` function L206-212 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
-- pub `try_workflow_registry` function L225-236 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
--  `DAL` type L100-237 — `= DAL` — ```
+- pub `delivery_outbox` module L50 — `-` — ```
+- pub `execution_event` module L51 — `-` — ```
+- pub `models` module L52 — `-` — ```
+- pub `reactor_subscriptions` module L53 — `-` — ```
+- pub `recovery_event` module L54 — `-` — ```
+- pub `schedule` module L55 — `-` — ```
+- pub `schedule_execution` module L56 — `-` — ```
+- pub `task_execution` module L57 — `-` — ```
+- pub `task_execution_metadata` module L58 — `-` — ```
+- pub `task_outbox` module L59 — `-` — ```
+- pub `workflow_execution` module L60 — `-` — ```
+- pub `workflow_packages` module L61 — `-` — ```
+- pub `workflow_registry_storage` module L62 — `-` — ```
+- pub `DAL` struct L97-100 — `{ database: Database }` — Helper macro for dispatching operations based on backend type.
+- pub `new` function L112-114 — `(database: Database) -> Self` — Creates a new unified DAL instance.
+- pub `backend` function L117-119 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
+- pub `database` function L122-124 — `(&self) -> &Database` — Returns a reference to the underlying database.
+- pub `pool` function L127-129 — `(&self) -> AnyPool` — Returns the connection pool.
+- pub `api_keys` function L133-135 — `(&self) -> ApiKeyDAL<'_>` — Returns an API key DAL (Postgres only).
+- pub `checkpoint` function L138-140 — `(&self) -> CheckpointDAL<'_>` — Returns a checkpoint DAL for computation graph state persistence.
+- pub `context` function L143-145 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
+- pub `workflow_execution` function L148-150 — `(&self) -> WorkflowExecutionDAL<'_>` — Returns a workflow execution DAL for workflow execution operations.
+- pub `task_execution` function L153-155 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
+- pub `task_execution_metadata` function L158-160 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
+- pub `task_outbox` function L163-165 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
+- pub `delivery_outbox` function L169-171 — `(&self) -> DeliveryOutboxDAL<'_>` — Returns a delivery outbox DAL for the interservice communication
+- pub `recovery_event` function L174-176 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
+- pub `execution_event` function L179-181 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
+- pub `schedule` function L184-186 — `(&self) -> ScheduleDAL<'_>` — Returns a unified schedule DAL for schedule operations.
+- pub `schedule_execution` function L189-191 — `(&self) -> ScheduleExecutionDAL<'_>` — Returns a unified schedule execution DAL for schedule execution operations.
+- pub `workflow_packages` function L194-196 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
+- pub `reactor_subscriptions` function L200-202 — `(&self) -> ReactorSubscriptionsDAL<'_>` — Returns a reactor subscriptions DAL for reactor-triggered workflow
+- pub `workflow_registry` function L214-220 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
+- pub `try_workflow_registry` function L233-244 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
+-  `DAL` type L102-245 — `= DAL` — ```
 
 #### crates/cloacina/src/dal/unified/models.rs
 
@@ -1698,58 +1783,60 @@
 - pub `NewUnifiedExecutionEvent` struct L222-241 — `{ id: UniversalUuid, workflow_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `UnifiedTaskOutbox` struct L251-255 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
 - pub `NewUnifiedTaskOutbox` struct L259-262 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSchedule` struct L270-288 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSchedule` struct L292-308 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedScheduleExecution` struct L316-327 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedScheduleExecution` struct L331-341 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowRegistryEntry` struct L349-353 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowRegistryEntry` struct L357-361 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowPackage` struct L369-388 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowPackage` struct L392-411 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSigningKey` struct L419-428 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSigningKey` struct L432-440 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTrustedKey` struct L448-456 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTrustedKey` struct L460-467 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedKeyTrustAcl` struct L475-481 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedKeyTrustAcl` struct L485-490 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L498-505 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L509-516 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedAccumulatorCheckpoint` struct L780-787 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedAccumulatorCheckpoint` struct L791-798 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedAccumulatorBoundary` struct L802-810 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedAccumulatorBoundary` struct L814-822 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedReactorState` struct L826-834 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedReactorState` struct L838-846 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedStateAccumulatorBuffer` struct L850-858 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedStateAccumulatorBuffer` struct L862-870 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
--  `DbContext` type L538-547 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L539-546 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowExecutionRecord` type L549-568 — `= WorkflowExecutionRecord` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L550-567 — `(u: UnifiedWorkflowExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L570-595 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L571-594 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L597-609 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L598-608 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L611-624 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L612-623 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L626-642 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L627-641 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L644-652 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L645-651 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L654-677 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L655-676 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L679-692 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L680-691 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L694-706 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L695-705 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L708-718 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L709-717 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L720-731 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L721-730 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `Schedule` type L733-755 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L734-754 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ScheduleExecution` type L757-772 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L758-771 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedDeliveryOutbox` struct L272-283 — `{ id: i64, recipient: String, kind: String, tenant_id: Option<String>, payload: ...` — Unified delivery-outbox row: durable, ack-tracked, recipient-addressed
+- pub `NewUnifiedDeliveryOutbox` struct L287-295 — `{ recipient: String, kind: String, tenant_id: Option<String>, payload: Universal...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSchedule` struct L303-321 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSchedule` struct L325-341 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedScheduleExecution` struct L349-360 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedScheduleExecution` struct L364-374 — `{ id: UniversalUuid, schedule_id: UniversalUuid, workflow_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowRegistryEntry` struct L382-386 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowRegistryEntry` struct L390-394 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowPackage` struct L402-421 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowPackage` struct L425-444 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSigningKey` struct L452-461 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSigningKey` struct L465-473 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTrustedKey` struct L481-489 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTrustedKey` struct L493-500 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedKeyTrustAcl` struct L508-514 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedKeyTrustAcl` struct L518-523 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L531-538 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L542-549 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorCheckpoint` struct L813-820 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorCheckpoint` struct L824-831 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorBoundary` struct L835-843 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorBoundary` struct L847-855 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedReactorState` struct L859-867 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedReactorState` struct L871-879 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedStateAccumulatorBuffer` struct L883-891 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedStateAccumulatorBuffer` struct L895-903 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `DbContext` type L571-580 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L572-579 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowExecutionRecord` type L582-601 — `= WorkflowExecutionRecord` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L583-600 — `(u: UnifiedWorkflowExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L603-628 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L604-627 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L630-642 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L631-641 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L644-657 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L645-656 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L659-675 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L660-674 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L677-685 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L678-684 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L687-710 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L688-709 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L712-725 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L713-724 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L727-739 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L728-738 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L741-751 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L742-750 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L753-764 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L754-763 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `Schedule` type L766-788 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L767-787 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ScheduleExecution` type L790-805 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L791-804 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 
 #### crates/cloacina/src/dal/unified/reactor_subscriptions.rs
 
@@ -1936,6 +2023,8 @@
 - pub `list_all_packages` function L376-382 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — List all packages in the registry.
 - pub `delete_package_metadata` function L421-433 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Delete package metadata from the database.
 - pub `delete_package_metadata_by_id` function L498-508 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by UUID from the database.
+- pub `get_compiled_data_by_content_hash` function L571-580 — `( &self, content_hash: &str, ) -> Result<Option<Vec<u8>>, RegistryError>` — Look up a compiled package by its `content_hash` digest and return
+- pub `get_active_content_hash_for_package` function L642-654 — `( &self, package_name: &str, tenant_id: Option<&str>, ) -> Result<Option<String>...` — Resolve the **active** content-hash (digest) for a package name within a
 -  `store_package_metadata_postgres` function L73-138 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
 -  `store_package_metadata_sqlite` function L141-206 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
 -  `get_package_metadata_postgres` function L224-258 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
@@ -1948,17 +2037,21 @@
 -  `delete_package_metadata_sqlite` function L467-495 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
 -  `delete_package_metadata_by_id_postgres` function L511-533 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
 -  `delete_package_metadata_by_id_sqlite` function L536-558 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
--  `tests` module L562-814 — `-` — at runtime based on the database connection type.
--  `unique_dal` function L568-578 — `() -> DAL` — at runtime based on the database connection type.
--  `sample_metadata` function L581-600 — `(name: &str, version: &str) -> PackageMetadata` — at runtime based on the database connection type.
--  `test_store_and_get_package_metadata` function L604-633 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_not_found` function L637-646 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_by_id` function L650-674 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_by_id_not_found` function L678-687 — `()` — at runtime based on the database connection type.
--  `test_list_all_packages` function L691-723 — `()` — at runtime based on the database connection type.
--  `test_delete_package_metadata` function L727-763 — `()` — at runtime based on the database connection type.
--  `test_delete_package_metadata_by_id` function L767-796 — `()` — at runtime based on the database connection type.
--  `test_delete_nonexistent_does_not_error` function L800-813 — `()` — at runtime based on the database connection type.
+-  `get_compiled_data_by_content_hash_postgres` function L583-606 — `( &self, content_hash: &str, ) -> Result<Option<Vec<u8>>, RegistryError>` — at runtime based on the database connection type.
+-  `get_compiled_data_by_content_hash_sqlite` function L609-632 — `( &self, content_hash: &str, ) -> Result<Option<Vec<u8>>, RegistryError>` — at runtime based on the database connection type.
+-  `get_active_content_hash_postgres` function L657-689 — `( &self, package_name: String, tenant_id: Option<String>, ) -> Result<Option<Str...` — at runtime based on the database connection type.
+-  `get_active_content_hash_sqlite` function L692-724 — `( &self, package_name: String, tenant_id: Option<String>, ) -> Result<Option<Str...` — at runtime based on the database connection type.
+-  `tests` module L728-980 — `-` — at runtime based on the database connection type.
+-  `unique_dal` function L734-744 — `() -> DAL` — at runtime based on the database connection type.
+-  `sample_metadata` function L747-766 — `(name: &str, version: &str) -> PackageMetadata` — at runtime based on the database connection type.
+-  `test_store_and_get_package_metadata` function L770-799 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_not_found` function L803-812 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_by_id` function L816-840 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_by_id_not_found` function L844-853 — `()` — at runtime based on the database connection type.
+-  `test_list_all_packages` function L857-889 — `()` — at runtime based on the database connection type.
+-  `test_delete_package_metadata` function L893-929 — `()` — at runtime based on the database connection type.
+-  `test_delete_package_metadata_by_id` function L933-962 — `()` — at runtime based on the database connection type.
+-  `test_delete_nonexistent_does_not_error` function L966-979 — `()` — at runtime based on the database connection type.
 
 #### crates/cloacina/src/dal/unified/workflow_registry_storage.rs
 
@@ -2296,12 +2389,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L1126-1128 — `-`
-- pub `postgres` module L1134-1136 — `-`
-- pub `sqlite` module L1139-1141 — `-`
--  `unified_schema` module L25-441 — `-`
--  `postgres_schema` module L450-824 — `-`
--  `sqlite_schema` module L827-1121 — `-`
+- pub `unified` module L1177-1179 — `-`
+- pub `postgres` module L1185-1187 — `-`
+- pub `sqlite` module L1190-1192 — `-`
+-  `unified_schema` module L25-462 — `-`
+-  `postgres_schema` module L471-860 — `-`
+-  `sqlite_schema` module L863-1172 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -2502,6 +2595,82 @@
 -  `test_escape_password_no_quotes` function L568-572 — `()` — (schema names, usernames, etc.) to ensure they cannot be used for SQL injection.
 -  `test_escape_password_with_quotes` function L575-580 — `()` — (schema names, usernames, etc.) to ensure they cannot be used for SQL injection.
 -  `test_escape_password_sql_injection_safe` function L583-589 — `()` — (schema names, usernames, etc.) to ensure they cannot be used for SQL injection.
+
+### crates/cloacina/src/delivery
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina/src/delivery/envelope.rs
+
+- pub `DELIVERY_PROTOCOL_VERSION` variable L54 — `: u32` — Wire-protocol version for the substrate envelope.
+- pub `ServerMessage` enum L59-77 — `Welcome | Push` — Server → recipient frames.
+- pub `push_from_row` function L81-90 — `(row: &crate::models::delivery_outbox::DeliveryOutbox) -> Self` — Helper: build a `push` from an outbox row, base64-encoding the payload.
+- pub `decode_push_payload` function L94-101 — `(&self) -> Result<Vec<u8>, EnvelopeError>` — Decode the `payload_b64` of a [`ServerMessage::Push`].
+- pub `ClientMessage` enum L107-118 — `Hello | Ack` — Recipient → server frames.
+- pub `EnvelopeError` enum L122-131 — `WrongVariant | Base64 | Json | UnsupportedVersion` — Errors decoding/encoding substrate envelope frames.
+-  `ServerMessage` type L79-102 — `= ServerMessage` — hint for future cursor-based catch-up; v1 ignores it).
+-  `tests` module L134-216 — `-` — hint for future cursor-based catch-up; v1 ignores it).
+-  `welcome_round_trips_as_json` function L140-149 — `()` — hint for future cursor-based catch-up; v1 ignores it).
+-  `push_round_trips_with_base64_payload` function L152-170 — `()` — hint for future cursor-based catch-up; v1 ignores it).
+-  `ack_and_hello_round_trip` function L173-203 — `()` — hint for future cursor-based catch-up; v1 ignores it).
+-  `decode_push_payload_rejects_wrong_variant` function L206-215 — `()` — hint for future cursor-based catch-up; v1 ignores it).
+
+#### crates/cloacina/src/delivery/mod.rs
+
+- pub `envelope` module L38 — `-` — Delivery relay for the interservice communication substrate
+- pub `sweeper` module L39 — `-` — unit-tested on SQLite.
+- pub `DeliveryError` enum L60-63 — `Sink` — Errors a [`DeliverySink`] can report.
+- pub `DeliveryOutcome` enum L67-75 — `Delivered | NoRoute` — Outcome of handing a row to a sink.
+- pub `DeliverySink` interface L82-84 — `{ fn deliver() }` — Transport that actually delivers an outbox row to its addressed recipient.
+- pub `WakeHandle` struct L88-90 — `{ notify: Arc<Notify> }` — A cloneable handle producers (and the LISTEN task) use to wake the relay.
+- pub `wake` function L97-99 — `(&self)` — Wake the relay to drain.
+- pub `DeliveryRelay` struct L103-108 — `{ dal: DAL, sink: Arc<dyn DeliverySink>, notify: Arc<Notify>, drain_batch: i64 }` — Drains the delivery outbox on demand and pushes rows to a [`DeliverySink`].
+- pub `new` function L112-119 — `(dal: DAL, sink: Arc<dyn DeliverySink>) -> Self` — Creates a relay over the given DAL and sink.
+- pub `with_drain_batch` function L122-125 — `(mut self, batch: i64) -> Self` — Overrides the per-wake drain batch size (defaults to [`DEFAULT_DRAIN_BATCH`]).
+- pub `wake_handle` function L128-132 — `(&self) -> WakeHandle` — Returns a wake handle for producers / the LISTEN task.
+- pub `drain_once` function L137-181 — `(&self) -> Result<usize, crate::error::ValidationError>` — Drains one batch of `pending` rows: deliver each via the sink, mark the
+- pub `run` function L186-206 — `(self, mut shutdown: watch::Receiver<bool>)` — Runs the relay until `shutdown` flips to `true`.
+- pub `run_pg_listener` function L218-243 — `( conn_str: String, channel: String, wake: WakeHandle, mut shutdown: watch::Rece...` — Runs a Postgres `LISTEN` loop on `channel`, waking `wake` on every
+-  `DEFAULT_DRAIN_BATCH` variable L55 — `: i64` — Default number of rows drained per wake before yielding back to the wait.
+-  `WakeHandle` type L92-100 — `= WakeHandle` — unit-tested on SQLite.
+-  `DeliveryRelay` type L110-207 — `= DeliveryRelay` — unit-tested on SQLite.
+-  `BACKOFF` variable L225 — `: Duration` — unit-tested on SQLite.
+-  `listen_once` function L248-308 — `( conn_str: &str, channel: &str, wake: &WakeHandle, shutdown: &mut watch::Receiv...` — One LISTEN session.
+-  `tests` module L311-423 — `-` — unit-tested on SQLite.
+-  `unique_dal` function L318-328 — `() -> DAL` — unit-tested on SQLite.
+-  `work` function L330-337 — `(recipient: &str) -> NewDeliveryOutbox` — unit-tested on SQLite.
+-  `CollectingSink` struct L341-344 — `{ seen: Mutex<Vec<i64>>, outcome: DeliveryOutcome }` — A sink that records the ids it was asked to deliver, with a configurable
+-  `CollectingSink` type L346-356 — `= CollectingSink` — unit-tested on SQLite.
+-  `new` function L347-352 — `(outcome: DeliveryOutcome) -> Arc<Self>` — unit-tested on SQLite.
+-  `seen` function L353-355 — `(&self) -> Vec<i64>` — unit-tested on SQLite.
+-  `CollectingSink` type L359-364 — `impl DeliverySink for CollectingSink` — unit-tested on SQLite.
+-  `deliver` function L360-363 — `(&self, row: &DeliveryOutbox) -> Result<DeliveryOutcome, DeliveryError>` — unit-tested on SQLite.
+-  `test_drain_delivers_pending_and_marks_delivered` function L367-379 — `()` — unit-tested on SQLite.
+-  `test_no_route_leaves_row_pending` function L382-393 — `()` — unit-tested on SQLite.
+-  `test_in_process_wake_triggers_drain` function L396-422 — `()` — unit-tested on SQLite.
+
+#### crates/cloacina/src/delivery/sweeper.rs
+
+- pub `SweeperConfig` struct L57-65 — `{ sweep_interval: Duration, stuck_threshold: Duration, batch_limit: i64 }` — Tunables for the sweeper.
+- pub `DeliverySweeper` struct L78-82 — `{ dal: DAL, wake: WakeHandle, config: SweeperConfig }` — Periodic backstop scan over the delivery outbox.
+- pub `new` function L86-88 — `(dal: DAL, wake: WakeHandle) -> Self` — Construct with [`SweeperConfig::default`].
+- pub `with_config` function L90-92 — `(dal: DAL, wake: WakeHandle, config: SweeperConfig) -> Self` — of what the former "anything ready?" poll loops produced.
+- pub `run` function L95-116 — `(self, mut shutdown: watch::Receiver<bool>)` — Run until `shutdown` flips to `true` (or the sender drops).
+- pub `sweep_once` function L121-170 — `(&self) -> Result<usize, ValidationError>` — One sweep pass.
+-  `SweeperConfig` type L67-75 — `impl Default for SweeperConfig` — of what the former "anything ready?" poll loops produced.
+-  `default` function L68-74 — `() -> Self` — of what the former "anything ready?" poll loops produced.
+-  `DeliverySweeper` type L84-171 — `= DeliverySweeper` — of what the former "anything ready?" poll loops produced.
+-  `tests` module L174-309 — `-` — of what the former "anything ready?" poll loops produced.
+-  `unique_dal` function L182-192 — `() -> DAL` — of what the former "anything ready?" poll loops produced.
+-  `work` function L194-201 — `(recipient: &str) -> NewDeliveryOutbox` — of what the former "anything ready?" poll loops produced.
+-  `NullSink` struct L205 — `-` — Minimal sink so we can construct a real relay (and thus a real wake
+-  `NullSink` type L207-214 — `impl DeliverySink for NullSink` — of what the former "anything ready?" poll loops produced.
+-  `deliver` function L208-213 — `( &self, _row: &DeliveryOutbox, ) -> Result<DeliveryOutcome, crate::delivery::De...` — of what the former "anything ready?" poll loops produced.
+-  `make_sweeper` function L216-228 — `(dal: DAL, threshold: Duration) -> DeliverySweeper` — of what the former "anything ready?" poll loops produced.
+-  `sweep_resets_stuck_delivered_rows` function L231-245 — `()` — of what the former "anything ready?" poll loops produced.
+-  `sweep_skips_fresh_rows` function L248-266 — `()` — of what the former "anything ready?" poll loops produced.
+-  `second_sweep_is_idempotent` function L269-282 — `()` — of what the former "anything ready?" poll loops produced.
+-  `concurrent_sweepers_are_race_safe` function L287-308 — `()` — Concurrent sweepers racing on the same stuck row: at most one wins the
 
 ### crates/cloacina/src/dispatcher
 
@@ -2733,13 +2902,48 @@
 
 > *Semantic summary to be generated by AI agent.*
 
+#### crates/cloacina/src/executor/context_builder.rs
+
+- pub `TaskContextBuilder` struct L42-44 — `{ dal: DAL }` — Builds a task's input context by loading + merging its dependency contexts
+- pub `new` function L47-49 — `(dal: DAL) -> Self` — from the same server-side `Runtime`).
+- pub `build` function L58-174 — `( &self, claimed_task: &ClaimedTask, dependencies: &[TaskNamespace], ) -> Result...` — Build the execution context for `claimed_task` given its `dependencies`.
+- pub `merge_context_values` function L178-207 — `( existing: &serde_json::Value, new: &serde_json::Value, ) -> serde_json::Value` — Smart-merge two context values: arrays concat+dedup, objects merge
+-  `TaskContextBuilder` type L46-208 — `= TaskContextBuilder` — from the same server-side `Runtime`).
+-  `tests` module L211-243 — `-` — from the same server-side `Runtime`).
+-  `merge_primitives_latest_wins` function L215-221 — `()` — from the same server-side `Runtime`).
+-  `merge_arrays_dedup_concat` function L224-230 — `()` — from the same server-side `Runtime`).
+-  `merge_objects_recursive` function L233-242 — `()` — from the same server-side `Runtime`).
+
 #### crates/cloacina/src/executor/mod.rs
 
-- pub `slot_token` module L47 — `-` — # Task Executor
-- pub `task_handle` module L48 — `-` — All components are thread-safe and can be used in concurrent environments.
-- pub `thread_task_executor` module L49 — `-` — All components are thread-safe and can be used in concurrent environments.
-- pub `types` module L50 — `-` — All components are thread-safe and can be used in concurrent environments.
-- pub `workflow_executor` module L51 — `-` — All components are thread-safe and can be used in concurrent environments.
+- pub `context_builder` module L47 — `-` — # Task Executor
+- pub `result_handler` module L48 — `-` — All components are thread-safe and can be used in concurrent environments.
+- pub `slot_token` module L49 — `-` — All components are thread-safe and can be used in concurrent environments.
+- pub `task_handle` module L50 — `-` — All components are thread-safe and can be used in concurrent environments.
+- pub `thread_task_executor` module L51 — `-` — All components are thread-safe and can be used in concurrent environments.
+- pub `types` module L52 — `-` — All components are thread-safe and can be used in concurrent environments.
+- pub `workflow_executor` module L53 — `-` — All components are thread-safe and can be used in concurrent environments.
+
+#### crates/cloacina/src/executor/result_handler.rs
+
+- pub `TaskResultHandler` struct L49-58 — `{ dal: DAL, total_executed: Arc<AtomicU64>, total_failed: Arc<AtomicU64>, runner...` — Post-execution handler — applies all state writes / retry decisions /
+- pub `new` function L61-73 — `( dal: DAL, total_executed: Arc<AtomicU64>, total_failed: Arc<AtomicU64>, runner...` — retry policy + elapsed duration, and applies all persistent-state effects.
+- pub `handle_outcome` function L85-150 — `( &self, event: &TaskReadyEvent, claimed_task: &ClaimedTask, outcome: Result<Con...` — Apply the post-execution state machine for one task and return the
+- pub `is_transient_error` function L285-301 — `(&self, error: &ExecutorError) -> bool` — Classifies whether an error looks transient enough to retry under
+-  `TaskResultHandler` type L60-331 — `= TaskResultHandler` — retry policy + elapsed duration, and applies all persistent-state effects.
+-  `complete_task_transaction` function L160-196 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Completes a task by saving its context and then marking it completed.
+-  `save_task_context` function L200-232 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Saves a task's produced context to the contexts table and links it via
+-  `should_retry_task` function L236-279 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried, considering max-attempts,
+-  `schedule_task_retry` function L305-330 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry via the DAL, computing the delay from the
+-  `is_transient_tests` module L334-408 — `-` — retry policy + elapsed duration, and applies all persistent-state effects.
+-  `handler` function L342-351 — `() -> TaskResultHandler` — retry policy + elapsed duration, and applies all persistent-state effects.
+-  `test_is_transient_timeout` function L354-356 — `()` — retry policy + elapsed duration, and applies all persistent-state effects.
+-  `test_is_transient_task_not_found` function L359-361 — `()` — retry policy + elapsed duration, and applies all persistent-state effects.
+-  `test_is_transient_connection_pool` function L364-367 — `()` — retry policy + elapsed duration, and applies all persistent-state effects.
+-  `test_is_transient_task_execution_with_timeout_msg` function L370-377 — `()` — retry policy + elapsed duration, and applies all persistent-state effects.
+-  `test_is_transient_task_execution_permanent` function L380-387 — `()` — retry policy + elapsed duration, and applies all persistent-state effects.
+-  `test_is_transient_task_execution_network` function L390-397 — `()` — retry policy + elapsed duration, and applies all persistent-state effects.
+-  `test_is_transient_task_execution_unavailable` function L400-407 — `()` — retry policy + elapsed duration, and applies all persistent-state effects.
 
 #### crates/cloacina/src/executor/slot_token.rs
 
@@ -2785,59 +2989,47 @@
 
 #### crates/cloacina/src/executor/thread_task_executor.rs
 
-- pub `ThreadTaskExecutor` struct L101-120 — `{ database: Database, dal: DAL, task_registry: Arc<TaskRegistry>, runtime: Arc<R...` — ThreadTaskExecutor is a thread-based implementation of task execution.
-- pub `new` function L132-138 — `( database: Database, task_registry: Arc<TaskRegistry>, config: ExecutorConfig, ...` — Creates a new ThreadTaskExecutor instance.
-- pub `with_runtime_and_registry` function L141-161 — `( database: Database, task_registry: Arc<TaskRegistry>, runtime: Arc<Runtime>, c...` — Creates a new ThreadTaskExecutor with a specific runtime.
-- pub `with_runtime` function L164-167 — `(mut self, runtime: Arc<Runtime>) -> Self` — Sets the runtime for this executor, replacing the default.
-- pub `semaphore` function L173-175 — `(&self) -> &Arc<Semaphore>` — Returns a reference to the concurrency semaphore.
--  `failure_reason` function L62-83 — `(err: &ExecutorError) -> &'static str` — Bounded reason value for `cloacina_tasks_total{status="failed", reason=...}`.
--  `ThreadTaskExecutor` type L122-698 — `= ThreadTaskExecutor` — to the executor based on routing rules.
--  `build_task_context` function L185-341 — `( &self, claimed_task: &ClaimedTask, dependencies: &[crate::task::TaskNamespace]...` — Builds the execution context for a task by loading its dependencies.
--  `merge_context_values` function L355-390 — `( existing: &serde_json::Value, new: &serde_json::Value, ) -> serde_json::Value` — Merges two context values using smart merging strategy.
--  `execute_with_timeout` function L400-409 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, ) -> Result<Conte...` — Executes a task with timeout protection.
--  `execute_with_cancellation` function L417-449 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, mut cancel_rx: to...` — Runs [`execute_with_timeout`] racing against a cancellation signal
--  `save_task_context` function L473-503 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Handles the result of task execution.
--  `complete_task_transaction` function L532-574 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Marks a task as completed in the database.
--  `should_retry_task` function L590-634 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried.
--  `is_transient_error` function L643-660 — `(&self, error: &ExecutorError) -> bool` — Determines if an error is transient and potentially retryable.
--  `schedule_task_retry` function L670-697 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
--  `ThreadTaskExecutor` type L700-715 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
--  `clone` function L701-714 — `(&self) -> Self` — to the executor based on routing rules.
--  `ThreadTaskExecutor` type L722-1093 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
--  `execute` function L723-1072 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
--  `has_capacity` function L1074-1076 — `(&self) -> bool` — to the executor based on routing rules.
--  `metrics` function L1078-1088 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
--  `name` function L1090-1092 — `(&self) -> &str` — to the executor based on routing rules.
--  `tests` module L1096-1447 — `-` — to the executor based on routing rules.
--  `failure_reason_covers_every_variant_with_bounded_values` function L1105-1165 — `()` — to the executor based on routing rules.
--  `test_merge_primitives_latest_wins` function L1172-1177 — `()` — to the executor based on routing rules.
--  `test_merge_string_latest_wins` function L1180-1185 — `()` — to the executor based on routing rules.
--  `test_merge_different_types_latest_wins` function L1188-1193 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_deduplicates` function L1196-1201 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_no_overlap` function L1204-1209 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_complete_overlap` function L1212-1217 — `()` — to the executor based on routing rules.
--  `test_merge_objects_no_conflict` function L1220-1225 — `()` — to the executor based on routing rules.
--  `test_merge_objects_conflicting_keys` function L1228-1233 — `()` — to the executor based on routing rules.
--  `test_merge_objects_recursive` function L1236-1241 — `()` — to the executor based on routing rules.
--  `test_merge_nested_arrays_in_objects` function L1244-1249 — `()` — to the executor based on routing rules.
--  `test_merge_null_latest_wins` function L1252-1257 — `()` — to the executor based on routing rules.
--  `test_merge_bool_latest_wins` function L1260-1265 — `()` — to the executor based on routing rules.
--  `sqlite_tests` module L1271-1400 — `-` — to the executor based on routing rules.
--  `test_executor` function L1274-1279 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
--  `test_is_transient_timeout` function L1282-1285 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_not_found` function L1288-1291 — `()` — to the executor based on routing rules.
--  `test_is_transient_connection_pool` function L1294-1298 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_with_timeout_msg` function L1301-1310 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_permanent` function L1313-1322 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_network` function L1325-1334 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_execution_unavailable` function L1337-1346 — `()` — to the executor based on routing rules.
--  `test_executor_has_capacity_initially` function L1353-1356 — `()` — to the executor based on routing rules.
--  `test_executor_metrics_initial` function L1359-1366 — `()` — to the executor based on routing rules.
--  `test_executor_name` function L1369-1372 — `()` — to the executor based on routing rules.
--  `test_executor_clone_shares_semaphore` function L1375-1383 — `()` — to the executor based on routing rules.
--  `test_executor_custom_config` function L1386-1399 — `()` — to the executor based on routing rules.
--  `test_new_uses_empty_runtime_not_from_global` function L1408-1421 — `()` — to the executor based on routing rules.
--  `test_with_runtime_and_registry_uses_provided_runtime` function L1425-1446 — `()` — to the executor based on routing rules.
+- pub `ThreadTaskExecutor` struct L98-123 — `{ database: Database, dal: DAL, task_registry: Arc<TaskRegistry>, runtime: Arc<R...` — ThreadTaskExecutor is a thread-based implementation of task execution.
+- pub `new` function L135-141 — `( database: Database, task_registry: Arc<TaskRegistry>, config: ExecutorConfig, ...` — Creates a new ThreadTaskExecutor instance.
+- pub `with_runtime_and_registry` function L144-181 — `( database: Database, task_registry: Arc<TaskRegistry>, runtime: Arc<Runtime>, c...` — Creates a new ThreadTaskExecutor with a specific runtime.
+- pub `with_runtime` function L184-187 — `(mut self, runtime: Arc<Runtime>) -> Self` — Sets the runtime for this executor, replacing the default.
+- pub `semaphore` function L193-195 — `(&self) -> &Arc<Semaphore>` — Returns a reference to the concurrency semaphore.
+-  `failure_reason` function L59-80 — `(err: &ExecutorError) -> &'static str` — Bounded reason value for `cloacina_tasks_total{status="failed", reason=...}`.
+-  `ThreadTaskExecutor` type L125-308 — `= ThreadTaskExecutor` — to the executor based on routing rules.
+-  `build_task_context` function L205-216 — `( &self, claimed_task: &ClaimedTask, dependencies: &[crate::task::TaskNamespace]...` — Builds the execution context for a task by loading its dependencies.
+-  `merge_context_values` function L236-241 — `( existing: &serde_json::Value, new: &serde_json::Value, ) -> serde_json::Value` — Merges two context values using smart merging strategy.
+-  `execute_with_timeout` function L251-260 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, ) -> Result<Conte...` — Executes a task with timeout protection.
+-  `execute_with_cancellation` function L268-300 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, mut cancel_rx: to...` — Runs [`execute_with_timeout`] racing against a cancellation signal
+-  `ThreadTaskExecutor` type L310-329 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
+-  `clone` function L311-328 — `(&self) -> Self` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L336-644 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
+-  `execute` function L337-623 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
+-  `has_capacity` function L625-627 — `(&self) -> bool` — to the executor based on routing rules.
+-  `metrics` function L629-639 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
+-  `name` function L641-643 — `(&self) -> &str` — to the executor based on routing rules.
+-  `tests` module L647-934 — `-` — to the executor based on routing rules.
+-  `failure_reason_covers_every_variant_with_bounded_values` function L656-716 — `()` — to the executor based on routing rules.
+-  `test_merge_primitives_latest_wins` function L723-728 — `()` — to the executor based on routing rules.
+-  `test_merge_string_latest_wins` function L731-736 — `()` — to the executor based on routing rules.
+-  `test_merge_different_types_latest_wins` function L739-744 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_deduplicates` function L747-752 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_no_overlap` function L755-760 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_complete_overlap` function L763-768 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_no_conflict` function L771-776 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_conflicting_keys` function L779-784 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_recursive` function L787-792 — `()` — to the executor based on routing rules.
+-  `test_merge_nested_arrays_in_objects` function L795-800 — `()` — to the executor based on routing rules.
+-  `test_merge_null_latest_wins` function L803-808 — `()` — to the executor based on routing rules.
+-  `test_merge_bool_latest_wins` function L811-816 — `()` — to the executor based on routing rules.
+-  `sqlite_tests` module L822-887 — `-` — to the executor based on routing rules.
+-  `test_executor` function L825-830 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
+-  `test_executor_has_capacity_initially` function L840-843 — `()` — to the executor based on routing rules.
+-  `test_executor_metrics_initial` function L846-853 — `()` — to the executor based on routing rules.
+-  `test_executor_name` function L856-859 — `()` — to the executor based on routing rules.
+-  `test_executor_clone_shares_semaphore` function L862-870 — `()` — to the executor based on routing rules.
+-  `test_executor_custom_config` function L873-886 — `()` — to the executor based on routing rules.
+-  `test_new_uses_empty_runtime_not_from_global` function L895-908 — `()` — to the executor based on routing rules.
+-  `test_with_runtime_and_registry_uses_provided_runtime` function L912-933 — `()` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 
@@ -2907,6 +3099,38 @@
 -  `test_workflow_result_with_tasks` function L715-753 — `()` — ```
 -  `test_workflow_result_debug` function L756-771 — `()` — ```
 
+### crates/cloacina/src/fleet
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina/src/fleet/mod.rs
+
+- pub `protocol` module L25 — `-` — Execution-agent fleet protocol (CLOACI-I-0114).
+
+#### crates/cloacina/src/fleet/protocol.rs
+
+- pub `AGENT_PROTOCOL_VERSION` variable L53 — `: u32` — Wire-protocol version for the agent fleet.
+- pub `WORK_PACKET_KIND` variable L57 — `: &str` — Substrate envelope `kind` value used when a `ServerMessage::Push` carries
+- pub `AGENT_RECIPIENT_PREFIX` variable L61 — `: &str` — Substrate recipient prefix for agent connections.
+- pub `DEFAULT_HEARTBEAT_INTERVAL_SECONDS` variable L65 — `: u32` — Default suggested heartbeat interval the server returns to a registering
+- pub `host_target_triple` function L73-75 — `() -> String` — Best-effort host target triple.
+- pub `AgentRegisterRequest` struct L82-98 — `{ protocol_version: u32, agent_id: Option<String>, max_concurrency: u32, target_...` — homogeneous; this is the guard that makes a misconfiguration loud.
+- pub `AgentRegisterResponse` struct L101-111 — `{ protocol_version: u32, agent_id: String, heartbeat_interval_seconds: u32 }` — homogeneous; this is the guard that makes a misconfiguration loud.
+- pub `AgentHeartbeatRequest` struct L118-126 — `{ protocol_version: u32, agent_id: String, in_flight: u32, available_capacity: u...` — homogeneous; this is the guard that makes a misconfiguration loud.
+- pub `AgentHeartbeatResponse` struct L129-131 — `{ protocol_version: u32 }` — homogeneous; this is the guard that makes a misconfiguration loud.
+- pub `WorkPacket` struct L144-163 — `{ protocol_version: u32, task_execution_id: String, workflow_execution_id: Strin...` — Fully self-contained work packet — everything a DB-less agent needs to
+- pub `ArtifactRef` struct L167-177 — `{ digest: String, fetch_url: String, build_target_triple: String }` — Reference to a workflow artifact (cdylib) the agent must fetch + load.
+- pub `AgentResultRequest` struct L184-193 — `{ protocol_version: u32, agent_id: String, task_execution_id: String, attempt: i...` — homogeneous; this is the guard that makes a misconfiguration loud.
+- pub `AgentResultResponse` struct L196-198 — `{ protocol_version: u32 }` — homogeneous; this is the guard that makes a misconfiguration loud.
+- pub `AgentOutcome` enum L207-221 — `Success | Failure | Refused` — Outcome of one work packet as reported by the agent.
+- pub `FailureClassification` enum L228-238 — `TaskError | Transient | Validation | Timeout` — Bounded classification of a task-level failure so the server's retry
+- pub `RefusalReason` enum L244-255 — `TargetTripleMismatch | ArtifactFetchFailed | RuntimeLoadFailed | Shutdown | Tena...` — Why the agent refused to even run the packet.
+-  `tests` module L258-342 — `-` — homogeneous; this is the guard that makes a misconfiguration loud.
+-  `work_packet_round_trips_as_json` function L262-283 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
+-  `outcome_variants_round_trip_with_snake_case_tags` function L286-325 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
+-  `agent_recipient_prefix_is_stable` function L328-333 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
+-  `register_request_agent_id_defaults_to_none` function L336-341 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
+
 ### crates/cloacina/src/models
 
 > *Semantic summary to be generated by AI agent.*
@@ -2918,6 +3142,18 @@
 -  `tests` module L45-72 — `-` — models handle actual database interaction.
 -  `test_db_context_creation` function L50-62 — `()` — models handle actual database interaction.
 -  `test_new_db_context_creation` function L65-71 — `()` — models handle actual database interaction.
+
+#### crates/cloacina/src/models/delivery_outbox.rs
+
+- pub `DeliveryState` enum L37-41 — `Pending | Delivered | Acked` — Delivery lifecycle of an outbox row.
+- pub `as_str` function L45-51 — `(&self) -> &'static str` — String form persisted in the `delivery_state` column.
+- pub `from_db` function L54-61 — `(s: &str) -> Option<DeliveryState>` — Parse from the persisted string form.
+- pub `can_transition_to` function L70-76 — `(self, next: DeliveryState) -> bool` — Whether `self → next` is a permitted transition.
+- pub `DeliveryOutbox` struct L81-102 — `{ id: i64, recipient: String, kind: String, tenant_id: Option<String>, payload: ...` — A delivery-outbox row (domain type).
+- pub `state` function L106-108 — `(&self) -> Option<DeliveryState>` — Typed view of the persisted `delivery_state` string.
+- pub `NewDeliveryOutbox` struct L116-121 — `{ recipient: String, kind: String, tenant_id: Option<String>, payload: Vec<u8> }` — Structure for enqueuing a new delivery-outbox row.
+-  `DeliveryState` type L43-77 — `= DeliveryState` — substrate is Postgres-only at runtime.
+-  `DeliveryOutbox` type L104-109 — `= DeliveryOutbox` — substrate is Postgres-only at runtime.
 
 #### crates/cloacina/src/models/execution_event.rs
 
@@ -2951,19 +3187,20 @@
 #### crates/cloacina/src/models/mod.rs
 
 - pub `context` module L71 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `execution_event` module L72 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `recovery_event` module L73 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `schedule` module L74 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `task_execution` module L75 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `task_execution_metadata` module L76 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `task_outbox` module L77 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `workflow_execution` module L78 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `workflow_packages` module L79 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `workflow_registry` module L80 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `key_trust_acl` module L83 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `package_signature` module L84 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `signing_key` module L85 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `trusted_key` module L86 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `delivery_outbox` module L72 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `execution_event` module L73 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `recovery_event` module L74 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `schedule` module L75 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `task_execution` module L76 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `task_execution_metadata` module L77 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `task_outbox` module L78 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `workflow_execution` module L79 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `workflow_packages` module L80 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `workflow_registry` module L81 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `key_trust_acl` module L84 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `package_signature` module L85 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `signing_key` module L86 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `trusted_key` module L87 — `-` — - Keep model definitions in sync with database schema migrations
 
 #### crates/cloacina/src/models/package_signature.rs
 
@@ -3706,10 +3943,11 @@
 - pub `with_database` function L131-184 — `( database: Database, config: DefaultRunnerConfig, shared_runtime: Option<Arc<Ru...` — CLOACI-T-0580: construct a runner around a pre-built `Database`,
 - pub `database` function L187-189 — `(&self) -> &Database` — Returns a reference to the database.
 - pub `dal` function L192-194 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `runtime` function L197-199 — `(&self) -> Arc<Runtime>` — Returns a handle to the scoped `Runtime` this runner uses.
-- pub `unified_scheduler` function L202-204 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
-- pub `set_graph_scheduler` function L208-214 — `( &self, scheduler: Arc<crate::computation_graph::scheduler::ComputationGraphSch...` — Set the graph scheduler for computation graph package routing.
-- pub `shutdown` function L217-222 — `(&self) -> Result<(), WorkflowExecutionError>` — Gracefully shuts down the executor and its background services.
+- pub `register_executor` function L204-211 — `(&self, key: &str, executor: Arc<dyn TaskExecutor>) -> bool` — Register an additional `TaskExecutor` on the runner's dispatcher under
+- pub `runtime` function L214-216 — `(&self) -> Arc<Runtime>` — Returns a handle to the scoped `Runtime` this runner uses.
+- pub `unified_scheduler` function L219-221 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
+- pub `set_graph_scheduler` function L225-231 — `( &self, scheduler: Arc<crate::computation_graph::scheduler::ComputationGraphSch...` — Set the graph scheduler for computation graph package routing.
+- pub `shutdown` function L234-239 — `(&self) -> Result<(), WorkflowExecutionError>` — Gracefully shuts down the executor and its background services.
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `reactor_subscriptions_api` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
@@ -3717,11 +3955,11 @@
 -  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `workflow_executor_impl` module L34 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `workflow_result` module L35 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L79-223 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L225-235 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L226-234 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L238-244 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L239-243 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L79-240 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L242-252 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L243-251 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L255-261 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L256-260 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/reactor_subscriptions_api.rs
 
@@ -4769,6 +5007,13 @@
 -  `test_empty_context_handling` function L115-132 — `()`
 -  `test_list_contexts_pagination` function L135-187 — `()`
 
+#### crates/cloacina/tests/integration/dal/delivery_relay.rs
+
+-  `CollectingSink` struct L37-39 — `{ seen: Mutex<Vec<i64>> }` — relay — proving the cross-replica path, not just an in-process channel.
+-  `CollectingSink` type L42-47 — `impl DeliverySink for CollectingSink` — relay — proving the cross-replica path, not just an in-process channel.
+-  `deliver` function L43-46 — `(&self, row: &DeliveryOutbox) -> Result<DeliveryOutcome, DeliveryError>` — relay — proving the cross-replica path, not just an in-process channel.
+-  `test_notify_wakes_relay_across_connections` function L51-114 — `()` — relay — proving the cross-replica path, not just an in-process channel.
+
 #### crates/cloacina/tests/integration/dal/execution_events.rs
 
 -  `test_dal_emits_events_on_state_transitions` function L46-198 — `()` — Test that DAL operations automatically emit execution events.
@@ -4788,14 +5033,15 @@
 
 - pub `api_keys` module L17 — `-`
 - pub `context` module L18 — `-`
-- pub `execution_events` module L19 — `-`
-- pub `reactor_subscriptions` module L20 — `-`
-- pub `reconciler_e2e_load` module L21 — `-`
-- pub `sub_status` module L22 — `-`
-- pub `task_claiming` module L23 — `-`
-- pub `workflow_packages` module L24 — `-`
-- pub `workflow_registry` module L25 — `-`
-- pub `workflow_registry_reconciler_integration` module L26 — `-`
+- pub `delivery_relay` module L20 — `-`
+- pub `execution_events` module L21 — `-`
+- pub `reactor_subscriptions` module L22 — `-`
+- pub `reconciler_e2e_load` module L23 — `-`
+- pub `sub_status` module L24 — `-`
+- pub `task_claiming` module L25 — `-`
+- pub `workflow_packages` module L26 — `-`
+- pub `workflow_registry` module L27 — `-`
+- pub `workflow_registry_reconciler_integration` module L28 — `-`
 
 #### crates/cloacina/tests/integration/dal/reactor_subscriptions.rs
 
@@ -5123,7 +5369,7 @@
 -  `list_executions` function L147-151 — `( &self, ) -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
 -  `shutdown` function L152-154 — `(&self) -> Result<(), WorkflowExecutionError>` — watermark — against a real database via `poll_reactor_subscriptions_once`.
 -  `build_firing_payload` function L160-165 — `(source: &str, value: serde_json::Value) -> Vec<u8>` — Build a `(source -> JSON-encoded bytes)` map into the bincode form
--  `test_predicate_filters_dispatch_and_advances_watermark_for_skips` function L177-326 — `()` — End-to-end: subscribe with a CEL filter, insert two firings (one
+-  `test_predicate_filters_dispatch_and_advances_watermark_for_skips` function L177-329 — `()` — End-to-end: subscribe with a CEL filter, insert two firings (one
 
 #### crates/cloacina/tests/integration/scheduler/stale_claims.rs
 
@@ -5332,6 +5578,50 @@
 - pub `callback_test` module L18 — `-`
 - pub `macro_test` module L19 — `-`
 - pub `subgraph` module L20 — `-`
+
+### crates/cloacina-agent/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-agent/src/main.rs
+
+-  `Args` struct L61-86 — `{ server: String, api_key: String, agent_id: Option<String>, max_concurrency: u3...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `main` function L89-103 — `() -> Result<()>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `run` function L105-182 — `(args: Args) -> Result<()>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `register` function L188-212 — `( http: &reqwest::Client, server: &str, api_key: &str, agent_id: &Option<String>...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `mint_ws_ticket` function L214-228 — `(http: &reqwest::Client, server: &str, api_key: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `post_result` function L230-244 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `spawn_heartbeat_loop` function L246-282 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, max_...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `receive_loop` function L289-352 — `( mut stream: tokio_tungstenite::WebSocketStream<S>, http: reqwest::Client, serv...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `handle_text_frame` function L355-427 — `( text: String, http: &reqwest::Client, server: &str, api_key: &str, agent_id: &...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `decode_packet` function L429-438 — `(env: &serde_json::Value) -> Result<WorkPacket>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `make_ack` function L440-447 — `(id: i64) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `spawn_packet_worker` function L453-492 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, targ...` — Spawn a worker that runs the full Tier-B path (triple check → fetch+cache
+-  `spawn_refusal` function L497-524 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, pack...` — Spawn a worker that POSTs a refusal + acks.
+-  `report_outcome` function L526-544 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `summarize_outcome` function L546-554 — `(o: &cloacina::fleet::AgentOutcome) -> String` — execute, classify the outcome, return `Success`/`Failure`.
+-  `process_work_packet` function L575-712 — `( packet: &WorkPacket, agent_triple: &str, http: &reqwest::Client, server: &str,...` — The agent's full execution path for one packet (Tier B, T-0632).
+-  `fetch_and_cache_artifact` function L717-767 — `( http: &reqwest::Client, server: &str, api_key: &str, artifact: &cloacina::flee...` — GET the artifact from `/v1/agent/artifact/{digest}` and cache it under
+-  `library_extension` function L769-777 — `() -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
+-  `synthetic_package_metadata` function L784-799 — `( digest: &str, ) -> cloacina::registry::loader::package_loader::PackageMetadata` — Build a minimal `PackageMetadata` for `TaskRegistrar::register_package_tasks`.
+-  `build_context` function L803-821 — `( value: &serde_json::Value, ) -> Result<cloacina::Context<serde_json::Value>, a...` — Convert the work packet's `serde_json::Value` (expected to be an Object or
+-  `kind_of` function L823-832 — `(v: &serde_json::Value) -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
+-  `context_to_value` function L837-844 — `(ctx: &cloacina::Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` back into a JSON object so the
+-  `ws_url_for` function L850-866 — `(server: &str, agent_id: &str, ticket: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `truncate` function L868-874 — `(s: &str, max: usize) -> &str` — execute, classify the outcome, return `Success`/`Failure`.
+-  `_` variable L877-880 — `: fn()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `_assert_serialize` function L878 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `tests` module L883-1017 — `-` — execute, classify the outcome, return `Success`/`Failure`.
+-  `pkt` function L887-903 — `(triple: &str) -> WorkPacket` — execute, classify the outcome, return `Success`/`Failure`.
+-  `target_triple_mismatch_refuses_pre_fetch` function L910-934 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `artifact_fetch_failure_refuses` function L937-959 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `tempdir` function L961-965 — `() -> std::path::PathBuf` — execute, classify the outcome, return `Success`/`Failure`.
+-  `rand_suffix` function L967-974 — `() -> String` — execute, classify the outcome, return `Success`/`Failure`.
+-  `build_context_accepts_object_or_null` function L977-983 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `build_context_rejects_non_object_non_null` function L986-989 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `context_to_value_round_trips_through_build_context` function L992-997 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `ws_url_for_handles_https_and_http` function L1000-1011 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `ws_url_for_rejects_unsupported_scheme` function L1014-1016 — `()` — execute, classify the outcome, return `Success`/`Failure`.
 
 ### crates/cloacina-build/src
 
@@ -6425,123 +6715,226 @@
 
 > *Semantic summary to be generated by AI agent.*
 
+#### crates/cloacina-server/src/agent_registry.rs
+
+- pub `AgentRecord` struct L30-41 — `{ agent_id: String, max_concurrency: u32, in_flight: u32, available_capacity: u3...` — Snapshot of a registered agent.
+- pub `AgentRegistry` struct L44-46 — `{ by_id: Mutex<HashMap<String, AgentRecord>> }` — liveness sweeping lands in T-0634.
+- pub `new` function L49-51 — `() -> Self` — liveness sweeping lands in T-0634.
+- pub `register` function L55-58 — `(&self, record: AgentRecord)` — Insert or overwrite an entry (overwrite handles re-registration cleanly
+- pub `record_heartbeat` function L63-78 — `( &self, agent_id: &str, in_flight: u32, available_capacity: u32, ) -> bool` — Update an existing entry's heartbeat fields.
+- pub `deregister` function L81-84 — `(&self, agent_id: &str)` — Remove an entry.
+- pub `sweep_dead` function L95-110 — `(&self, timeout: Duration) -> Vec<AgentRecord>` — Remove agents whose last heartbeat is older than `timeout` and return
+- pub `snapshot` function L114-117 — `(&self) -> Vec<AgentRecord>` — Snapshot the current roster.
+- pub `len` function L119-121 — `(&self) -> usize` — liveness sweeping lands in T-0634.
+- pub `is_empty` function L123-125 — `(&self) -> bool` — liveness sweeping lands in T-0634.
+-  `AgentRegistry` type L48-126 — `= AgentRegistry` — liveness sweeping lands in T-0634.
+-  `tests` module L129-221 — `-` — liveness sweeping lands in T-0634.
+-  `rec` function L132-143 — `(id: &str, cap: u32, tenant: Option<&str>) -> AgentRecord` — liveness sweeping lands in T-0634.
+-  `register_then_snapshot_roundtrips` function L146-154 — `()` — liveness sweeping lands in T-0634.
+-  `heartbeat_updates_capacity` function L157-164 — `()` — liveness sweeping lands in T-0634.
+-  `heartbeat_on_unknown_agent_returns_false` function L167-170 — `()` — liveness sweeping lands in T-0634.
+-  `sweep_dead_removes_only_stale_agents` function L173-190 — `()` — liveness sweeping lands in T-0634.
+-  `sweep_dead_noop_when_all_fresh` function L193-200 — `()` — liveness sweeping lands in T-0634.
+-  `deregister_is_idempotent` function L203-209 — `()` — liveness sweeping lands in T-0634.
+-  `register_same_id_overwrites` function L212-220 — `()` — liveness sweeping lands in T-0634.
+
+#### crates/cloacina-server/src/delivery_sink.rs
+
+- pub `WsDeliverySink` struct L54-56 — `{ by_key: Mutex<HashMap<Key, mpsc::Sender<ServerMessage>>> }` — In-memory registry of `(recipient, tenant_id) → sender` for currently-
+- pub `new` function L59-61 — `() -> Self` — in [[CLOACI-A-0006]] — no roster needed.
+- pub `register` function L67-83 — `( &self, recipient: &str, tenant_id: Option<&str>, ) -> mpsc::Receiver<ServerMes...` — Register a recipient.
+- pub `unregister` function L87-91 — `(&self, recipient: &str, tenant_id: Option<&str>)` — Deregister a recipient.
+- pub `len` function L94-99 — `(&self) -> usize` — Current registry depth — useful for metrics (T-0628).
+- pub `is_empty` function L101-103 — `(&self) -> bool` — in [[CLOACI-A-0006]] — no roster needed.
+-  `CHANNEL_DEPTH` variable L45 — `: usize` — Per-connection mpsc channel depth.
+-  `Key` type L49 — `= (String, Option<String>)` — Composite registry key.
+-  `WsDeliverySink` type L58-104 — `= WsDeliverySink` — in [[CLOACI-A-0006]] — no roster needed.
+-  `WsDeliverySink` type L107-130 — `impl DeliverySink for WsDeliverySink` — in [[CLOACI-A-0006]] — no roster needed.
+-  `deliver` function L108-129 — `(&self, row: &DeliveryOutbox) -> Result<DeliveryOutcome, DeliveryError>` — in [[CLOACI-A-0006]] — no roster needed.
+-  `tests` module L133-206 — `-` — in [[CLOACI-A-0006]] — no roster needed.
+-  `row` function L137-150 — `(recipient: &str, tenant: Option<&str>) -> DeliveryOutbox` — in [[CLOACI-A-0006]] — no roster needed.
+-  `deliver_to_unregistered_recipient_is_no_route` function L153-157 — `()` — in [[CLOACI-A-0006]] — no roster needed.
+-  `deliver_to_registered_recipient_pushes_frame` function L160-174 — `()` — in [[CLOACI-A-0006]] — no roster needed.
+-  `tenant_isolation_recipient_string_alone_is_not_enough` function L177-191 — `()` — in [[CLOACI-A-0006]] — no roster needed.
+-  `full_channel_returns_no_route_for_backpressure` function L194-205 — `()` — in [[CLOACI-A-0006]] — no roster needed.
+
+#### crates/cloacina-server/src/fleet_coordinator.rs
+
+- pub `FleetCoordinator` struct L44-46 — `{ pending: Mutex<HashMap<UniversalUuid, oneshot::Sender<AgentResultRequest>>> }` — cross-replica fan-out direction.
+- pub `new` function L49-51 — `() -> Self` — cross-replica fan-out direction.
+- pub `register_pending` function L57-71 — `( &self, task_execution_id: UniversalUuid, ) -> oneshot::Receiver<AgentResultReq...` — Register a pending result expectation.
+- pub `forward` function L78-106 — `( &self, task_execution_id: UniversalUuid, result: AgentResultRequest, ) -> Resu...` — Forward an incoming agent result to the executor waiting on it.
+- pub `cancel` function L110-113 — `(&self, task_execution_id: UniversalUuid)` — Drop a pending entry without sending.
+- pub `pending_count` function L116-121 — `(&self) -> usize` — Pending count — useful for metrics/debug.
+-  `FleetCoordinator` type L48-122 — `= FleetCoordinator` — cross-replica fan-out direction.
+-  `tests` module L125-184 — `-` — cross-replica fan-out direction.
+-  `synthetic_result` function L129-140 — `(task_id: UniversalUuid) -> AgentResultRequest` — cross-replica fan-out direction.
+-  `register_then_forward_delivers_to_receiver` function L143-151 — `()` — cross-replica fan-out direction.
+-  `forward_without_pending_is_err_orphan` function L154-160 — `()` — cross-replica fan-out direction.
+-  `cancel_removes_pending_so_subsequent_forward_is_orphan` function L163-170 — `()` — cross-replica fan-out direction.
+-  `pending_count_tracks_inserts_and_removals` function L173-183 — `()` — cross-replica fan-out direction.
+
+#### crates/cloacina-server/src/fleet_executor.rs
+
+- pub `FleetExecutor` struct L68-86 — `{ dal: cloacina::dal::DAL, agent_registry: Arc<AgentRegistry>, coordinator: Arc<...` — and filters by tenant.
+- pub `new` function L89-108 — `( dal: cloacina::dal::DAL, agent_registry: Arc<AgentRegistry>, coordinator: Arc<...` — and filters by tenant.
+- pub `with_name` function L110-113 — `(mut self, name: impl Into<String>) -> Self` — and filters by tenant.
+-  `RESULT_WAIT_TIMEOUT` variable L62 — `: Duration` — Default ceiling on how long the executor will wait for an agent to report
+-  `MIN_ADVERTISED_CAPACITY` variable L66 — `: usize` — Baseline advertised capacity so an empty fleet still reports a value the
+-  `FleetExecutor` type L88-136 — `= FleetExecutor` — and filters by tenant.
+-  `reconcile_error` function L119-135 — `( &self, event: &TaskReadyEvent, claimed_task: &ClaimedTask, retry_policy: &Retr...` — Route a pre-dispatch failure (namespace parse, task-not-loaded,
+-  `FleetExecutor` type L139-459 — `impl TaskExecutor for FleetExecutor` — and filters by tenant.
+-  `execute` function L140-434 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — and filters by tenant.
+-  `has_capacity` function L436-441 — `(&self) -> bool` — and filters by tenant.
+-  `metrics` function L443-454 — `(&self) -> ExecutorMetrics` — and filters by tenant.
+-  `name` function L456-458 — `(&self) -> &str` — and filters by tenant.
+-  `value_to_context` function L463-482 — `( value: serde_json::Value, ) -> Result<Context<serde_json::Value>, anyhow::Erro...` — Convert a JSON Object (or Null) into a `Context<serde_json::Value>` to feed
+-  `context_to_json` function L486-493 — `(ctx: &Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` into a JSON object for the work
+-  `kind_of` function L495-504 — `(v: &serde_json::Value) -> &'static str` — and filters by tenant.
+-  `_` variable L507 — `: fn(UniversalUuid)` — and filters by tenant.
+-  `tests` module L510-539 — `-` — and filters by tenant.
+-  `value_to_context_round_trips_an_object` function L514-519 — `()` — and filters by tenant.
+-  `value_to_context_accepts_null_as_empty` function L522-525 — `()` — and filters by tenant.
+-  `value_to_context_rejects_array` function L528-531 — `()` — and filters by tenant.
+-  `context_to_json_round_trips_through_value_to_context` function L534-538 — `()` — and filters by tenant.
+
 #### crates/cloacina-server/src/lib.rs
 
-- pub `routes` module L23 — `-` — Cloacina HTTP API server library.
-- pub `tenant_runner_cache` module L24 — `-` — management, workflow upload, and execution APIs.
-- pub `TenantDatabaseCache` struct L44-47 — `{ databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>, d...` — Cached per-tenant database connections for schema isolation.
-- pub `new` function L50-55 — `(database_url: String) -> Self` — management, workflow upload, and execution APIs.
-- pub `resolve` function L60-92 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
-- pub `evict` function L98-101 — `(&self, tenant_id: &str) -> bool` — CLOACI-T-0581: drop the cached `Database` for a tenant.
-- pub `AppState` struct L106-130 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::routes::...` — Shared application state accessible from all route handlers.
-- pub `run` function L175-625 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
--  `TenantDatabaseCache` type L49-102 — `= TenantDatabaseCache` — management, workflow upload, and execution APIs.
--  `runner_config_for_tenant_cache` function L136-147 — `( reconcile_interval: Option<std::time::Duration>, ) -> cloacina::DefaultRunnerC...` — CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
--  `validate_security_args` function L155-167 — `( require_signatures: bool, verification_org_id: Option<&uuid::Uuid>, ) -> Resul...` — Validate security-related CLI args at server boot.
--  `request_id_middleware` function L629-657 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L659-786 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
--  `api_request_metrics` function L790-812 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
--  `health` function L815-817 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L820-849 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L852-862 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
--  `fallback_404` function L867-869 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns the canonical `ApiError`
--  `shutdown_signal` function L872-894 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L900-948 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L952-954 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L957-3204 — `-` — management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L965 — `: &str` — management, workflow upload, and execution APIs.
--  `test_state` function L968-1006 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `test_state_with_signature_required` function L1011-1021 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
--  `create_test_api_key` function L1024-1032 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L1035-1050 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L1056-1082 — `()` — management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L1088-1100 — `()` — management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L1104-1116 — `()` — management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L1120-1188 — `()` — management, workflow upload, and execution APIs.
--  `test_scheduler_loop_metrics_emit` function L1192-1268 — `()` — management, workflow upload, and execution APIs.
--  `test_supervisor_health_metrics_emit` function L1272-1356 — `()` — management, workflow upload, and execution APIs.
--  `test_accumulator_metrics_emit` function L1360-1436 — `()` — management, workflow upload, and execution APIs.
--  `test_reactor_metrics_emit` function L1440-1517 — `()` — management, workflow upload, and execution APIs.
--  `test_ws_metrics_emit` function L1521-1600 — `()` — management, workflow upload, and execution APIs.
--  `test_persist_failure_metrics_emit` function L1604-1674 — `()` — management, workflow upload, and execution APIs.
--  `test_i0099_cardinality_within_ceiling` function L1687-1972 — `()` — I-0099 cardinality guard — assert that every `cloacina_*` metric
--  `test_api_request_duration_histogram_emitted` function L1976-2020 — `()` — management, workflow upload, and execution APIs.
--  `test_unprefixed_auth_route_returns_404` function L2033-2048 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
--  `test_auth_no_token_returns_401` function L2054-2066 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L2070-2083 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L2087-2100 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L2104-2117 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L2123-2141 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L2145-2161 — `()` — management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L2165-2180 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L2184-2209 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L2213-2228 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L2232-2246 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L2252-2281 — `()` — management, workflow upload, and execution APIs.
--  `test_list_tenants` function L2285-2305 — `()` — management, workflow upload, and execution APIs.
--  `test_tenant_runner_cache_lru_evicts_oldest` function L2315-2405 — `()` — CLOACI-T-0580: LRU eviction.
--  `test_remove_tenant_idempotent_retry` function L2413-2467 — `()` — CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
--  `test_tenant_runners_share_inventory_arc` function L2475-2560 — `()` — CLOACI-T-0580: two per-tenant runners constructed through the
--  `test_remove_tenant_nonexistent_succeeds` function L2564-2580 — `()` — management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L2584-2620 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L2624-2639 — `()` — management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L2645-2659 — `()` — management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L2663-2676 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L2680-2704 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L2708-2732 — `()` — management, workflow upload, and execution APIs.
--  `fixture_path` function L2735-2740 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L2743-2754 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L2757-2770 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L2774-2800 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L2804-2830 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L2834-2854 — `()` — management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L2860-2874 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L2878-2891 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L2895-2909 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L2913-2926 — `()` — management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L2930-2945 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L2949-2967 — `()` — management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L2973-2987 — `()` — management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L2991-3004 — `()` — management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L3010-3022 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_unsigned_with_require_signatures_returns_403` function L3034-3067 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_signed_with_require_signatures_passes_verification` function L3071-3162 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_default_passes` function L3167-3170 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_org_without_require_passes` function L3173-3178 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_with_org_passes` function L3181-3185 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_without_org_fails` function L3188-3203 — `()` — management, workflow upload, and execution APIs.
+- pub `agent_registry` module L23 — `-` — Cloacina HTTP API server library.
+- pub `delivery_sink` module L24 — `-` — management, workflow upload, and execution APIs.
+- pub `fleet_coordinator` module L25 — `-` — management, workflow upload, and execution APIs.
+- pub `fleet_executor` module L26 — `-` — management, workflow upload, and execution APIs.
+- pub `routes` module L27 — `-` — management, workflow upload, and execution APIs.
+- pub `tenant_runner_cache` module L28 — `-` — management, workflow upload, and execution APIs.
+- pub `TenantDatabaseCache` struct L48-51 — `{ databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>, d...` — Cached per-tenant database connections for schema isolation.
+- pub `new` function L54-59 — `(database_url: String) -> Self` — management, workflow upload, and execution APIs.
+- pub `resolve` function L64-96 — `( &self, tenant_id: &str, admin_db: &Database, ) -> Result<Database, cloacina::d...` — Get or create a schema-scoped Database for the given tenant.
+- pub `evict` function L102-105 — `(&self, tenant_id: &str) -> bool` — CLOACI-T-0581: drop the cached `Database` for a tenant.
+- pub `AppState` struct L110-150 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::routes::...` — Shared application state accessible from all route handlers.
+- pub `run` function L229-964 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — management, workflow upload, and execution APIs.
+-  `TenantDatabaseCache` type L53-106 — `= TenantDatabaseCache` — management, workflow upload, and execution APIs.
+-  `runner_config_for_tenant_cache` function L156-174 — `( reconcile_interval: Option<std::time::Duration>, routing_config: Option<cloaci...` — CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
+-  `validate_security_args` function L182-194 — `( require_signatures: bool, verification_org_id: Option<&uuid::Uuid>, ) -> Resul...` — Validate security-related CLI args at server boot.
+-  `build_routing_config` function L206-227 — `(routes: &[String]) -> Result<cloacina::dispatcher::RoutingConfig>` — Run the API server.
+-  `request_id_middleware` function L968-996 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
+-  `build_router` function L998-1170 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
+-  `api_request_metrics` function L1174-1196 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
+-  `health` function L1199-1201 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L1204-1233 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L1236-1246 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
+-  `fallback_404` function L1251-1253 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns the canonical `ApiError`
+-  `shutdown_signal` function L1256-1278 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L1284-1332 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L1336-1338 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L1341-3643 — `-` — management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L1349 — `: &str` — management, workflow upload, and execution APIs.
+-  `shared_test_metrics_handle` function L1360-1370 — `() -> metrics_exporter_prometheus::PrometheusHandle` — One Prometheus recorder per test process, shared by every `test_state()`.
+-  `HANDLE` variable L1361-1362 — `: std::sync::OnceLock<metrics_exporter_prometheus::PrometheusHandle>` — management, workflow upload, and execution APIs.
+-  `test_state` function L1373-1419 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `test_state_with_signature_required` function L1424-1434 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
+-  `create_test_api_key` function L1437-1445 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L1448-1463 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L1469-1495 — `()` — management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L1501-1513 — `()` — management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L1517-1529 — `()` — management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L1533-1601 — `()` — management, workflow upload, and execution APIs.
+-  `test_scheduler_loop_metrics_emit` function L1605-1681 — `()` — management, workflow upload, and execution APIs.
+-  `test_supervisor_health_metrics_emit` function L1685-1769 — `()` — management, workflow upload, and execution APIs.
+-  `test_accumulator_metrics_emit` function L1773-1849 — `()` — management, workflow upload, and execution APIs.
+-  `test_reactor_metrics_emit` function L1853-1930 — `()` — management, workflow upload, and execution APIs.
+-  `test_ws_metrics_emit` function L1934-2013 — `()` — management, workflow upload, and execution APIs.
+-  `test_persist_failure_metrics_emit` function L2017-2087 — `()` — management, workflow upload, and execution APIs.
+-  `test_i0099_cardinality_within_ceiling` function L2100-2411 — `()` — I-0099 cardinality guard — assert that every `cloacina_*` metric
+-  `test_api_request_duration_histogram_emitted` function L2415-2459 — `()` — management, workflow upload, and execution APIs.
+-  `test_unprefixed_auth_route_returns_404` function L2472-2487 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
+-  `test_auth_no_token_returns_401` function L2493-2505 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L2509-2522 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L2526-2539 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L2543-2556 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L2562-2580 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L2584-2600 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L2604-2619 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L2623-2648 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L2652-2667 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L2671-2685 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L2691-2720 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L2724-2744 — `()` — management, workflow upload, and execution APIs.
+-  `test_tenant_runner_cache_lru_evicts_oldest` function L2754-2844 — `()` — CLOACI-T-0580: LRU eviction.
+-  `test_remove_tenant_idempotent_retry` function L2852-2906 — `()` — CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
+-  `test_tenant_runners_share_inventory_arc` function L2914-2999 — `()` — CLOACI-T-0580: two per-tenant runners constructed through the
+-  `test_remove_tenant_nonexistent_succeeds` function L3003-3019 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L3023-3059 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L3063-3078 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L3084-3098 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L3102-3115 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L3119-3143 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L3147-3171 — `()` — management, workflow upload, and execution APIs.
+-  `fixture_path` function L3174-3179 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L3182-3193 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L3196-3209 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L3213-3239 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L3243-3269 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L3273-3293 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L3299-3313 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L3317-3330 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L3334-3348 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L3352-3365 — `()` — management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L3369-3384 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L3388-3406 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L3412-3426 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L3430-3443 — `()` — management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L3449-3461 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_unsigned_with_require_signatures_returns_403` function L3473-3506 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_signed_with_require_signatures_passes_verification` function L3510-3601 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_default_passes` function L3606-3609 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_org_without_require_passes` function L3612-3617 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_with_org_passes` function L3620-3624 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_without_org_fails` function L3627-3642 — `()` — management, workflow upload, and execution APIs.
 
 #### crates/cloacina-server/src/main.rs
 
--  `Cli` struct L30-90 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, bootstra...` — cloacina-server — HTTP API for Cloacina, backed by Postgres.
--  `default_home` function L92-96 — `() -> PathBuf` — command in T-0510 (CLOACI-I-0098).
--  `main` function L99-115 — `() -> Result<()>` — command in T-0510 (CLOACI-I-0098).
+-  `Cli` struct L30-98 — `{ verbose: bool, home: PathBuf, bind: SocketAddr, database_url: String, bootstra...` — cloacina-server — HTTP API for Cloacina, backed by Postgres.
+-  `default_home` function L100-104 — `() -> PathBuf` — command in T-0510 (CLOACI-I-0098).
+-  `main` function L107-124 — `() -> Result<()>` — command in T-0510 (CLOACI-I-0098).
 
 #### crates/cloacina-server/src/tenant_runner_cache.rs
 
 - pub `EvictOutcome` enum L58-68 — `Missing | Drained | ShutdownError | Timeout` — Outcome of a bounded-drain eviction.
 - pub `was_present` function L73-75 — `(&self) -> bool` — `true` if a runner existed for this tenant (drained, errored,
-- pub `TenantRunnerCache` struct L79-93 — `{ cache: Mutex<LruCache<String, Arc<DefaultRunner>>>, shared_runtime: Arc<Runtim...` — LRU-bounded cache of per-tenant `DefaultRunner` instances.
-- pub `new` function L99-106 — `(capacity: NonZeroUsize, base_config: DefaultRunnerConfig) -> Self` — Build a new cache with the given LRU cap.
-- pub `with_graph_scheduler` function L114-117 — `(mut self, scheduler: Arc<ComputationGraphScheduler>) -> Self` — CLOACI-T-0581 follow-up: install a shared graph scheduler.
-- pub `shared_runtime` function L121-123 — `(&self) -> Arc<Runtime>` — Get the shared `Runtime` so callers can install graph schedulers,
-- pub `get_or_create` function L135-200 — `( &self, tenant_id: &str, tenant_database: Database, ) -> Result<Arc<DefaultRunn...` — Look up (or construct) the runner for `tenant_id`, bound to
-- pub `evict` function L206-222 — `(&self, tenant_id: &str) -> Result<bool, cloacina::WorkflowExecutionError>` — Explicitly evict a tenant's runner from the cache, awaiting its
-- pub `evict_with_timeout` function L228-268 — `( &self, tenant_id: &str, drain_timeout: std::time::Duration, ) -> EvictOutcome` — CLOACI-T-0581: bounded-drain eviction.
-- pub `shutdown_all` function L273-288 — `(&self) -> HashMap<String, Result<(), String>>` — Shut down every cached runner.
-- pub `len` function L291-293 — `(&self) -> usize` — Current number of cached runners.
-- pub `is_empty` function L296-298 — `(&self) -> bool` — `true` if the cache holds no runners.
+- pub `FleetRegistrar` type L86 — `= Arc<dyn Fn(&DefaultRunner) + Send + Sync>` — Hook invoked on each freshly-built per-tenant runner to register the fleet
+- pub `TenantRunnerCache` struct L89-107 — `{ cache: Mutex<LruCache<String, Arc<DefaultRunner>>>, shared_runtime: Arc<Runtim...` — LRU-bounded cache of per-tenant `DefaultRunner` instances.
+- pub `new` function L113-121 — `(capacity: NonZeroUsize, base_config: DefaultRunnerConfig) -> Self` — Build a new cache with the given LRU cap.
+- pub `with_fleet_registrar` function L128-131 — `(mut self, registrar: FleetRegistrar) -> Self` — CLOACI-T-0634: install a fleet-executor registrar.
+- pub `with_graph_scheduler` function L139-142 — `(mut self, scheduler: Arc<ComputationGraphScheduler>) -> Self` — CLOACI-T-0581 follow-up: install a shared graph scheduler.
+- pub `shared_runtime` function L146-148 — `(&self) -> Arc<Runtime>` — Get the shared `Runtime` so callers can install graph schedulers,
+- pub `get_or_create` function L160-232 — `( &self, tenant_id: &str, tenant_database: Database, ) -> Result<Arc<DefaultRunn...` — Look up (or construct) the runner for `tenant_id`, bound to
+- pub `evict` function L238-254 — `(&self, tenant_id: &str) -> Result<bool, cloacina::WorkflowExecutionError>` — Explicitly evict a tenant's runner from the cache, awaiting its
+- pub `evict_with_timeout` function L260-300 — `( &self, tenant_id: &str, drain_timeout: std::time::Duration, ) -> EvictOutcome` — CLOACI-T-0581: bounded-drain eviction.
+- pub `shutdown_all` function L305-320 — `(&self) -> HashMap<String, Result<(), String>>` — Shut down every cached runner.
+- pub `len` function L323-325 — `(&self) -> usize` — Current number of cached runners.
+- pub `is_empty` function L328-330 — `(&self) -> bool` — `true` if the cache holds no runners.
 -  `EvictOutcome` type L70-76 — `= EvictOutcome` — next cache lookup.
--  `TenantRunnerCache` type L95-299 — `= TenantRunnerCache` — next cache lookup.
--  `tests` module L302-331 — `-` — next cache lookup.
--  `cap` function L305-307 — `(n: usize) -> NonZeroUsize` — next cache lookup.
--  `empty_cache_is_empty` function L310-314 — `()` — next cache lookup.
--  `evict_missing_tenant_returns_false` function L317-321 — `()` — next cache lookup.
--  `shared_runtime_is_stable_arc` function L324-330 — `()` — next cache lookup.
+-  `TenantRunnerCache` type L109-331 — `= TenantRunnerCache` — next cache lookup.
+-  `tests` module L334-363 — `-` — next cache lookup.
+-  `cap` function L337-339 — `(n: usize) -> NonZeroUsize` — next cache lookup.
+-  `empty_cache_is_empty` function L342-346 — `()` — next cache lookup.
+-  `evict_missing_tenant_returns_false` function L349-353 — `()` — next cache lookup.
+-  `shared_runtime_is_stable_arc` function L356-362 — `()` — next cache lookup.
 
 ### crates/cloacina-server/src/routes
 
 > *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-server/src/routes/agent.rs
+
+- pub `register_agent` function L68-105 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — `POST /v1/agent/register`
+- pub `heartbeat_agent` function L108-127 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `POST /v1/agent/heartbeat`
+- pub `report_result` function L138-186 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `POST /v1/agent/result`
+- pub `fetch_artifact` function L195-224 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `GET /v1/agent/artifact/{digest}` — content-addressed cdylib fetch.
+-  `require_protocol_version` function L53-65 — `(version: u32) -> Result<(), ApiError>` — T-0631 the result endpoint accepts + logs.
+-  `tests` module L227-244 — `-` — T-0631 the result endpoint accepts + logs.
+-  `host_target_triple_is_arch_os_format` function L231-237 — `()` — T-0631 the result endpoint accepts + logs.
+-  `require_protocol_version_accepts_current` function L240-243 — `()` — T-0631 the result endpoint accepts + logs.
 
 #### crates/cloacina-server/src/routes/auth.rs
 
@@ -6594,6 +6987,14 @@
 -  `record_auth_span_fields_unauth_request_leaves_empty` function L574-587 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
 -  `test_ticket_store_evicts_expired_on_issue` function L590-613 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
 
+#### crates/cloacina-server/src/routes/delivery_ws.rs
+
+- pub `delivery_ws` function L50-71 — `( Path(recipient): Path<String>, Query(query): Query<WsAuthQuery>, State(state):...` — `GET /v1/ws/delivery/{recipient}` — substrate delivery subscription.
+-  `authenticate_substrate_ws` function L75-102 — `( state: &AppState, headers: &HeaderMap, query: &WsAuthQuery, ) -> Result<Authen...` — Token extraction + validation.
+-  `handle_delivery_socket` function L105-198 — `( mut socket: WebSocket, recipient: String, tenant: Option<String>, dal: DAL, si...` — Per-connection state machine.
+-  `send_server_frame` function L202-216 — `(socket: &mut WebSocket, msg: &ServerMessage) -> bool` — Serialize and send a `ServerMessage` as a text frame.
+-  `handle_client_frame` function L220-250 — `(text: &str, dal: &DAL) -> bool` — Parse and act on one client frame.
+
 #### crates/cloacina-server/src/routes/error.rs
 
 - pub `ApiError` struct L41-45 — `{ status: StatusCode, code: &'static str, message: String }` — Standardized API error response.
@@ -6645,15 +7046,17 @@
 
 #### crates/cloacina-server/src/routes/mod.rs
 
-- pub `auth` module L19 — `-` — API server route handlers and middleware.
-- pub `error` module L20 — `-` — API server route handlers and middleware.
-- pub `executions` module L21 — `-` — API server route handlers and middleware.
-- pub `health_graphs` module L22 — `-` — API server route handlers and middleware.
-- pub `keys` module L23 — `-` — API server route handlers and middleware.
-- pub `tenants` module L24 — `-` — API server route handlers and middleware.
-- pub `triggers` module L25 — `-` — API server route handlers and middleware.
-- pub `workflows` module L26 — `-` — API server route handlers and middleware.
-- pub `ws` module L27 — `-` — API server route handlers and middleware.
+- pub `agent` module L19 — `-` — API server route handlers and middleware.
+- pub `auth` module L20 — `-` — API server route handlers and middleware.
+- pub `delivery_ws` module L21 — `-` — API server route handlers and middleware.
+- pub `error` module L22 — `-` — API server route handlers and middleware.
+- pub `executions` module L23 — `-` — API server route handlers and middleware.
+- pub `health_graphs` module L24 — `-` — API server route handlers and middleware.
+- pub `keys` module L25 — `-` — API server route handlers and middleware.
+- pub `tenants` module L26 — `-` — API server route handlers and middleware.
+- pub `triggers` module L27 — `-` — API server route handlers and middleware.
+- pub `workflows` module L28 — `-` — API server route handlers and middleware.
+- pub `ws` module L29 — `-` — API server route handlers and middleware.
 
 #### crates/cloacina-server/src/routes/tenants.rs
 
@@ -7299,10 +7702,17 @@
 
 #### crates/cloacinactl/src/nouns/execution/mod.rs
 
-- pub `ExecutionCmd` struct L29-32 — `{ verb: ExecutionVerb }` — `cloacinactl execution <verb>`.
-- pub `run` function L65-116 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl execution <verb>`.
--  `ExecutionVerb` enum L35-62 — `List | Status | Events` — `cloacinactl execution <verb>`.
--  `ExecutionCmd` type L64-117 — `= ExecutionCmd` — `cloacinactl execution <verb>`.
+- pub `ExecutionCmd` struct L31-34 — `{ verb: ExecutionVerb }` — `cloacinactl execution <verb>`.
+- pub `run` function L67-123 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl execution <verb>`.
+-  `ExecutionVerb` enum L37-64 — `List | Status | Events` — `cloacinactl execution <verb>`.
+-  `ExecutionCmd` type L66-124 — `= ExecutionCmd` — `cloacinactl execution <verb>`.
+-  `follow_execution_events` function L135-210 — `( client: &CliClient, exec_id: &str, output: OutputFormat, ) -> Result<(), CliEr...` — Mint a single-use WebSocket ticket, connect to the substrate delivery
+-  `decode_push_payload` function L213-219 — `(frame: &serde_json::Value) -> Option<serde_json::Value>` — Decode `payload_b64` from a `push` envelope into the producer-side JSON event.
+-  `ws_url_for` function L223-242 — `(server: &str, exec_id: &str, ticket: &str) -> Result<String, CliError>` — Build a `ws://` or `wss://` URL for the substrate delivery endpoint of a
+-  `ws_url_tests` module L245-271 — `-` — `cloacinactl execution <verb>`.
+-  `https_becomes_wss` function L249-255 — `()` — `cloacinactl execution <verb>`.
+-  `http_becomes_ws` function L258-264 — `()` — `cloacinactl execution <verb>`.
+-  `unsupported_scheme_errors` function L267-270 — `()` — `cloacinactl execution <verb>`.
 
 ### crates/cloacinactl/src/nouns/graph
 

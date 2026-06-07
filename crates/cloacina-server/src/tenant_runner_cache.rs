@@ -75,6 +75,16 @@ impl EvictOutcome {
     }
 }
 
+/// Hook invoked on each freshly-built per-tenant runner to register the fleet
+/// executor on its dispatcher (CLOACI-I-0114 / T-0634). Per-tenant runners each
+/// own a dispatcher bound to the tenant's schema, so the fleet executor — like
+/// the routing config — must be installed per runner, not just on the global
+/// `state.runner` (which is bound to the admin schema and never executes tenant
+/// tasks). The closure builds a tenant-scoped `FleetExecutor` (per-tenant DAL +
+/// result handler; shared roster/coordinator/wake/runtime) and registers it
+/// under the "fleet" key.
+pub type FleetRegistrar = Arc<dyn Fn(&DefaultRunner) + Send + Sync>;
+
 /// LRU-bounded cache of per-tenant `DefaultRunner` instances.
 pub struct TenantRunnerCache {
     cache: Mutex<LruCache<String, Arc<DefaultRunner>>>,
@@ -83,6 +93,10 @@ pub struct TenantRunnerCache {
     shared_runtime: Arc<Runtime>,
     /// Base runner config; cloned for each new tenant runner.
     base_config: DefaultRunnerConfig,
+    /// CLOACI-T-0634: optional fleet-executor registrar; invoked on every
+    /// per-tenant runner at construction so fleet routing actually fires for
+    /// tenant workflows.
+    fleet_registrar: Option<FleetRegistrar>,
     /// CLOACI-T-0581 follow-up: optional shared `ComputationGraphScheduler`
     /// installed on every per-tenant runner via `set_graph_scheduler` so
     /// the tenant's reconciler can route packaged CGs into it. The
@@ -102,7 +116,18 @@ impl TenantRunnerCache {
             shared_runtime: Arc::new(Runtime::new()),
             base_config,
             graph_scheduler: None,
+            fleet_registrar: None,
         }
+    }
+
+    /// CLOACI-T-0634: install a fleet-executor registrar. Every per-tenant
+    /// runner constructed after this call will have the fleet executor
+    /// registered on its dispatcher (which requires the `base_config` to carry
+    /// a routing config so a dispatcher exists). Without this, tasks routed to
+    /// "fleet" silently fall back to the per-tenant thread executor.
+    pub fn with_fleet_registrar(mut self, registrar: FleetRegistrar) -> Self {
+        self.fleet_registrar = Some(registrar);
+        self
     }
 
     /// CLOACI-T-0581 follow-up: install a shared graph scheduler. Every
@@ -160,6 +185,13 @@ impl TenantRunnerCache {
         // present so the tenant's reconciler can route packaged CGs.
         if let Some(scheduler) = &self.graph_scheduler {
             runner.set_graph_scheduler(scheduler.clone()).await;
+        }
+        // CLOACI-T-0634: register the fleet executor on this runner's dispatcher
+        // so tasks routed to "fleet" reach the agent fleet. Must run before the
+        // runner starts claiming work; the global runner's registration does not
+        // cover tenant schemas.
+        if let Some(registrar) = &self.fleet_registrar {
+            registrar(&runner);
         }
         let runner = Arc::new(runner);
 

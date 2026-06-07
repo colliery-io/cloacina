@@ -43,6 +43,10 @@ tracing-appender = { version = "0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 libc = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
+# CLOACI-T-0629: WS client for `cloacinactl execution events --follow` (substrate consumer).
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
+futures-util = "0.3"
+base64 = "0.22"
 serde_yaml = "0.9"
 
 [dev-dependencies]

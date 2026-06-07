@@ -556,6 +556,182 @@ impl<'a> WorkflowPackagesDAL<'a> {
 
         Ok(())
     }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CLOACI-T-0631: agent fleet artifact fetch.
+    // ────────────────────────────────────────────────────────────────────
+
+    /// Look up a compiled package by its `content_hash` digest and return
+    /// the raw cdylib bytes. Used by `GET /v1/agent/artifact/{digest}` so
+    /// DB-less agents can fetch the artifact referenced in a work packet.
+    ///
+    /// Returns `Ok(None)` if no successful build matches the digest. The
+    /// partial index `idx_wfp_content_hash_success` (postgres migration 022)
+    /// keeps this lookup cheap on the hot path.
+    pub async fn get_compiled_data_by_content_hash(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_compiled_data_by_content_hash_postgres(content_hash)
+                .await,
+            self.get_compiled_data_by_content_hash_sqlite(content_hash)
+                .await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn get_compiled_data_by_content_hash_postgres(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?;
+        let content_hash = content_hash.to_string();
+        let result: Option<UnifiedWorkflowPackage> = conn
+            .interact(move |conn| {
+                workflow_packages::table
+                    .filter(workflow_packages::content_hash.eq(&content_hash))
+                    .filter(workflow_packages::build_status.eq("success"))
+                    .first::<UnifiedWorkflowPackage>(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(result.and_then(|r| r.compiled_data.map(|b| b.into_inner())))
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn get_compiled_data_by_content_hash_sqlite(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?;
+        let content_hash = content_hash.to_string();
+        let result: Option<UnifiedWorkflowPackage> = conn
+            .interact(move |conn| {
+                workflow_packages::table
+                    .filter(workflow_packages::content_hash.eq(&content_hash))
+                    .filter(workflow_packages::build_status.eq("success"))
+                    .first::<UnifiedWorkflowPackage>(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(result.and_then(|r| r.compiled_data.map(|b| b.into_inner())))
+    }
+
+    /// Resolve the **active** content-hash (digest) for a package name within a
+    /// tenant scope — the `FleetExecutor` (CLOACI-T-0633) uses this to build a
+    /// work packet's `ArtifactRef` from the task's package.
+    ///
+    /// "Active" = `build_status = 'success'` AND `NOT superseded`. Both filters
+    /// are load-bearing: dropping `superseded` would route a stale cdylib to
+    /// agents after a re-upload; dropping the status filter would point at an
+    /// unbuilt/failed row. Returns `Ok(None)` if no active row matches.
+    pub async fn get_active_content_hash_for_package(
+        &self,
+        package_name: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Option<String>, RegistryError> {
+        let package_name = package_name.to_string();
+        let tenant_id = tenant_id.map(|s| s.to_string());
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_active_content_hash_postgres(package_name, tenant_id)
+                .await,
+            self.get_active_content_hash_sqlite(package_name, tenant_id)
+                .await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn get_active_content_hash_postgres(
+        &self,
+        package_name: String,
+        tenant_id: Option<String>,
+    ) -> Result<Option<String>, RegistryError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?;
+        let result: Option<UnifiedWorkflowPackage> = conn
+            .interact(move |conn| {
+                let base = workflow_packages::table
+                    .filter(workflow_packages::package_name.eq(package_name))
+                    .filter(workflow_packages::build_status.eq("success"))
+                    .filter(
+                        workflow_packages::superseded
+                            .eq(crate::database::universal_types::UniversalBool(false)),
+                    );
+                match tenant_id {
+                    Some(t) => base
+                        .filter(workflow_packages::tenant_id.eq(t))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional(),
+                    None => base
+                        .filter(workflow_packages::tenant_id.is_null())
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional(),
+                }
+            })
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(result.map(|r| r.content_hash))
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn get_active_content_hash_sqlite(
+        &self,
+        package_name: String,
+        tenant_id: Option<String>,
+    ) -> Result<Option<String>, RegistryError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?;
+        let result: Option<UnifiedWorkflowPackage> = conn
+            .interact(move |conn| {
+                let base = workflow_packages::table
+                    .filter(workflow_packages::package_name.eq(package_name))
+                    .filter(workflow_packages::build_status.eq("success"))
+                    .filter(
+                        workflow_packages::superseded
+                            .eq(crate::database::universal_types::UniversalBool(false)),
+                    );
+                match tenant_id {
+                    Some(t) => base
+                        .filter(workflow_packages::tenant_id.eq(t))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional(),
+                    None => base
+                        .filter(workflow_packages::tenant_id.is_null())
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional(),
+                }
+            })
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(result.map(|r| r.content_hash))
+    }
 }
 
 #[cfg(test)]

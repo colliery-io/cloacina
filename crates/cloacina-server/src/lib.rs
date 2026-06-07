@@ -20,6 +20,10 @@
 //! single `run()` entrypoint that boots the axum HTTP server with auth, tenant
 //! management, workflow upload, and execution APIs.
 
+pub mod agent_registry;
+pub mod delivery_sink;
+pub mod fleet_coordinator;
+pub mod fleet_executor;
 pub mod routes;
 pub mod tenant_runner_cache;
 
@@ -109,6 +113,22 @@ pub struct AppState {
     pub key_cache: Arc<crate::routes::auth::KeyCache>,
     pub endpoint_registry: EndpointRegistry,
     pub graph_scheduler: Arc<ComputationGraphScheduler>,
+    /// Substrate (CLOACI-I-0115): in-process registry of currently-connected
+    /// WS recipients. Plugged into the per-replica `DeliveryRelay` as its sink.
+    pub delivery_sink: Arc<crate::delivery_sink::WsDeliverySink>,
+    /// Substrate (CLOACI-I-0115): wake handle for the local `DeliveryRelay`.
+    /// Producers (CLI/agent handlers) wake this after enqueue / on reconnect
+    /// resync, bypassing the LISTEN/NOTIFY round-trip for same-replica work.
+    pub delivery_wake: cloacina::delivery::WakeHandle,
+    /// Execution-agent fleet (CLOACI-I-0114 / T-0631): in-memory roster of
+    /// registered agents. Consulted by the `FleetExecutor` (T-0633) for
+    /// capacity-aware selection.
+    pub agent_registry: Arc<crate::agent_registry::AgentRegistry>,
+    /// Fleet (CLOACI-T-0633): rendezvous between the `FleetExecutor` and the
+    /// agent's `POST /v1/agent/result` route. The executor registers a oneshot
+    /// before enqueueing a work packet; `report_result` forwards the incoming
+    /// `AgentResultRequest` to the waiting executor.
+    pub fleet_coordinator: Arc<crate::fleet_coordinator::FleetCoordinator>,
     pub security_config: SecurityConfig,
     /// Short-lived WebSocket auth tickets (single-use, TTL-based).
     pub ws_tickets: Arc<crate::routes::auth::WsTicketStore>,
@@ -127,6 +147,11 @@ pub struct AppState {
     /// cooperative cancellation will error on its next DB write once the
     /// schema is dropped.
     pub tenant_deletion_drain_timeout: std::time::Duration,
+    /// CLOACI-T-0639: heartbeat interval (seconds) advertised to fleet agents
+    /// on register. Agents heartbeat at this rate; the liveness sweeper uses the
+    /// same value as its tick + dead-after basis. Operator-configurable via
+    /// `--agent-heartbeat-interval-s`.
+    pub agent_heartbeat_interval_seconds: u32,
 }
 
 /// CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
@@ -135,11 +160,18 @@ pub struct AppState {
 /// honors the operator override).
 fn runner_config_for_tenant_cache(
     reconcile_interval: Option<std::time::Duration>,
+    routing_config: Option<cloacina::dispatcher::RoutingConfig>,
 ) -> cloacina::DefaultRunnerConfig {
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
     if let Some(interval) = reconcile_interval {
         builder = builder.registry_reconcile_interval(interval);
+    }
+    // CLOACI-T-0634: carry the fleet routing config onto per-tenant runners so
+    // their dispatcher resolves the "fleet" key (and a dispatcher exists at all,
+    // which `register_executor` requires).
+    if let Some(rc) = routing_config {
+        builder = builder.routing_config(Some(rc));
     }
     builder
         .build()
@@ -172,6 +204,33 @@ fn validate_security_args(
 /// is a `RunConfig` struct, tracked as a follow-up. T-0567 added the
 /// `verification_org_id` parameter and pushed us to 8.
 #[allow(clippy::too_many_arguments)]
+/// Parse `"glob=key"` routing-rule strings into a `RoutingConfig`
+/// (CLOACI-T-0634). Each entry maps a task-name glob to an executor key
+/// (e.g. `"heavy::*=fleet"`). The default executor remains `"default"` (the
+/// thread executor) for any task no rule matches.
+fn build_routing_config(routes: &[String]) -> Result<cloacina::dispatcher::RoutingConfig> {
+    use cloacina::dispatcher::{RoutingConfig, RoutingRule};
+    let mut config = RoutingConfig::new("default");
+    for raw in routes {
+        let (glob, key) = raw.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!(
+                "invalid --route '{}': expected 'glob=executor_key' (e.g. 'heavy::*=fleet')",
+                raw
+            )
+        })?;
+        let glob = glob.trim();
+        let key = key.trim();
+        if glob.is_empty() || key.is_empty() {
+            return Err(anyhow::anyhow!(
+                "invalid --route '{}': both glob and executor key must be non-empty",
+                raw
+            ));
+        }
+        config = config.with_rule(RoutingRule::new(glob, key));
+    }
+    Ok(config)
+}
+
 pub async fn run(
     home: std::path::PathBuf,
     bind: SocketAddr,
@@ -184,6 +243,17 @@ pub async fn run(
     tenant_runner_cache_size: usize,
     tenant_deletion_drain_timeout: std::time::Duration,
     log_retention_days: u64,
+    // Task-glob → executor-key routing rules, each `"glob=key"` (CLOACI-T-0634).
+    // e.g. `"heavy::*=fleet"` or `"*=fleet"`. Empty = all tasks to the default
+    // thread executor (the fleet executor stays registered but idle).
+    fleet_routes: Vec<String>,
+    // Fleet agent liveness tuning (CLOACI-T-0639). `agent_heartbeat_interval_s`
+    // is advertised to agents (their heartbeat cadence) and is the sweeper's
+    // tick rate; the sweeper marks an agent dead after `agent_liveness_misses`
+    // missed beats (dead-after = interval × misses). Defaults (15, 3) reproduce
+    // the prior hardcoded 15s/45s.
+    agent_heartbeat_interval_s: u32,
+    agent_liveness_misses: u32,
 ) -> Result<()> {
     // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
     validate_security_args(require_signatures, verification_org_id.as_ref())?;
@@ -437,6 +507,42 @@ pub async fn run(
          `ticket_expired`, `invalid_signature`, `tenant_mismatch`, \
          `not_authorized`."
     );
+    // Delivery substrate (CLOACI-I-0115 / T-0628). Backstop sweeper signals.
+    metrics::describe_counter!(
+        "cloacina_delivery_outbox_sweep_runs_total",
+        "Total delivery-outbox sweep ticks. Sustained zero (with non-zero \
+         outbox depth) means the sweeper is wedged; sustained high cadence is \
+         expected and cheap (one scan per `sweep_interval`)."
+    );
+    metrics::describe_counter!(
+        "cloacina_delivery_outbox_sweep_redeliveries_total",
+        "Rows the sweeper reset from `delivered` back to `pending` because \
+         their ack didn't arrive within `stuck_threshold` — i.e. rows the \
+         relay had to retry via the backstop, not the normal NOTIFY path. \
+         Sustained non-zero means recipients are disconnecting before \
+         acking, or NOTIFY is being missed; chase via outbox-depth and the \
+         WS connection metric."
+    );
+    metrics::describe_gauge!(
+        "cloacina_delivery_outbox_open",
+        "Current count of non-`acked` rows in `delivery_outbox` (sum of \
+         `pending` + `delivered`). Sustained growth means delivery is wedged \
+         — the analog of the compiler `sweep_resets_total` signal."
+    );
+    // Execution-agent fleet (CLOACI-I-0114 / T-0634).
+    metrics::describe_counter!(
+        "cloacina_fleet_agents_evicted_total",
+        "Agents removed by the fleet heartbeat sweeper after their heartbeat \
+         went stale (older than 3× the advertised interval). Sustained \
+         non-zero means agents are dying or losing connectivity."
+    );
+    metrics::describe_counter!(
+        "cloacina_fleet_work_reassigned_total",
+        "In-flight delivery_outbox rows re-targeted from an evicted (dead) \
+         agent to a live agent by the heartbeat sweeper's reclaim path \
+         (CLOACI-T-0634). Tracks how much work crashed agents shed onto the \
+         rest of the fleet."
+    );
     metrics::describe_counter!(
         "cloacina_reactor_persist_failures_total",
         "Total `persist_reactor_state` failures, broken down by branch. \
@@ -474,6 +580,27 @@ pub async fn run(
     runner_builder = runner_builder
         .require_signatures(require_signatures)
         .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
+    // Fleet routing (CLOACI-I-0114 / T-0634): map task globs to the "fleet"
+    // executor key. Without any route, all tasks dispatch to the default
+    // thread executor and connected agents stay idle. Built once here and
+    // reused for BOTH the global runner and every per-tenant runner — tenant
+    // workflows execute on per-tenant runners (TenantRunnerCache, T-0580), so
+    // the routing config must reach them too or fleet routing never fires for
+    // tenant tasks (the only kind the server runs).
+    let routing_config = if fleet_routes.is_empty() {
+        None
+    } else {
+        let rc = build_routing_config(&fleet_routes)?;
+        info!(
+            rules = fleet_routes.len(),
+            "Fleet routing configured ({} rule(s))",
+            fleet_routes.len()
+        );
+        Some(rc)
+    };
+    if let Some(rc) = routing_config.clone() {
+        runner_builder = runner_builder.routing_config(Some(rc));
+    }
     let runner_config = runner_builder
         .build()
         .context("Invalid runner configuration")?;
@@ -488,11 +615,96 @@ pub async fn run(
     let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
     let graph_scheduler = Arc::new(ComputationGraphScheduler::with_dal(
         endpoint_registry.clone(),
-        unified_dal,
+        unified_dal.clone(),
     ));
+
+    // Substrate startup (CLOACI-I-0115, tasks T-0626/T-0627): construct the
+    // WS delivery sink and the per-replica DeliveryRelay; spawn the relay's
+    // event-driven drain loop and (on Postgres) the LISTEN task that forwards
+    // NOTIFYs to the relay's wake handle. The `_substrate_shutdown_tx` is
+    // held for the lifetime of `run()`; when it drops on shutdown, the spawned
+    // tasks observe the receiver-side error and exit cleanly.
+    let delivery_sink = Arc::new(crate::delivery_sink::WsDeliverySink::new());
+    let delivery_relay =
+        cloacina::delivery::DeliveryRelay::new(unified_dal.clone(), delivery_sink.clone());
+    let delivery_wake = delivery_relay.wake_handle();
+    let (_substrate_shutdown_tx, substrate_shutdown_rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(delivery_relay.run(substrate_shutdown_rx.clone()));
+    #[cfg(feature = "postgres")]
+    tokio::spawn(cloacina::delivery::run_pg_listener(
+        database_url.clone(),
+        "delivery_outbox".to_string(),
+        delivery_wake.clone(),
+        substrate_shutdown_rx.clone(),
+    ));
+    // Safety-net sweeper (CLOACI-T-0628): periodic backstop for missed NOTIFYs,
+    // disconnects, and replica crashes between commit and ack. Default
+    // 30s/60s cadence/threshold; backend-agnostic.
+    let delivery_sweeper =
+        cloacina::delivery::DeliverySweeper::new(unified_dal.clone(), delivery_wake.clone());
+    tokio::spawn(delivery_sweeper.run(substrate_shutdown_rx.clone()));
 
     // Wire graph scheduler into the runner so the reconciler can route CG packages
     runner.set_graph_scheduler(graph_scheduler.clone()).await;
+
+    // Fleet (CLOACI-I-0114 / T-0633): shared roster + result-rendezvous so the
+    // FleetExecutor (registered on the runner's dispatcher below) and the agent
+    // HTTP routes (which read the same AppState) operate on one instance each.
+    let agent_registry = Arc::new(crate::agent_registry::AgentRegistry::new());
+    let fleet_coordinator = Arc::new(crate::fleet_coordinator::FleetCoordinator::new());
+
+    // CLOACI-T-0634: per-tenant runner cache. Build it here (rather than inline
+    // in the struct literal) so we can attach a fleet registrar — each per-tenant
+    // runner needs its OWN FleetExecutor on its OWN dispatcher (tenant workflows
+    // run on per-tenant runners, not the global one). The registrar builds a
+    // tenant-scoped DAL + result handler (so status/context writes hit the
+    // tenant's schema) and shares the process-global roster/coordinator/wake.
+    let tenant_runner_cache = {
+        let cache = crate::tenant_runner_cache::TenantRunnerCache::new(
+            std::num::NonZeroUsize::new(tenant_runner_cache_size.max(1))
+                .expect("max(1) is non-zero"),
+            runner_config_for_tenant_cache(reconcile_interval, routing_config.clone()),
+        )
+        // CLOACI-T-0581 follow-up: per-tenant runners share the global graph
+        // scheduler so their reconcilers can route packaged CGs. The scheduler
+        // stores tenant_id per graph (T-0579), so health-endpoint filtering
+        // still works.
+        .with_graph_scheduler(graph_scheduler.clone());
+        if routing_config.is_some() {
+            let reg_registry = agent_registry.clone();
+            let reg_coordinator = fleet_coordinator.clone();
+            let reg_wake = delivery_wake.clone();
+            let registrar: crate::tenant_runner_cache::FleetRegistrar =
+                Arc::new(move |runner: &cloacina::DefaultRunner| {
+                    let dal = cloacina::dal::unified::DAL::new(runner.database().clone());
+                    let result_handler = cloacina::executor::TaskResultHandler::new(
+                        dal.clone(),
+                        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                        None,
+                    );
+                    let fleet_executor = crate::fleet_executor::FleetExecutor::new(
+                        dal,
+                        reg_registry.clone(),
+                        reg_coordinator.clone(),
+                        reg_wake.clone(),
+                        result_handler,
+                        runner.runtime(),
+                    );
+                    if runner.register_executor("fleet", Arc::new(fleet_executor)) {
+                        info!("Fleet executor registered on per-tenant runner dispatcher");
+                    } else {
+                        warn!(
+                            "per-tenant runner has no dispatcher — fleet routing will \
+                             not fire for this tenant"
+                        );
+                    }
+                });
+            cache.with_fleet_registrar(registrar)
+        } else {
+            cache
+        }
+    };
 
     let state = AppState {
         database: runner.database().clone(),
@@ -500,6 +712,10 @@ pub async fn run(
         key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
         endpoint_registry,
         graph_scheduler: graph_scheduler.clone(),
+        delivery_sink: delivery_sink.clone(),
+        delivery_wake: delivery_wake.clone(),
+        agent_registry: agent_registry.clone(),
+        fleet_coordinator: fleet_coordinator.clone(),
         security_config: SecurityConfig {
             require_signatures,
             verification_org_id: verification_org_id.map(cloacina::UniversalUuid::from),
@@ -514,23 +730,155 @@ pub async fn run(
         // tunable; 256 default. If the configured cap is zero we fall
         // back to 1 (LruCache requires NonZeroUsize) so misconfiguration
         // doesn't panic the server at boot.
-        tenant_runners: Arc::new(
-            crate::tenant_runner_cache::TenantRunnerCache::new(
-                std::num::NonZeroUsize::new(tenant_runner_cache_size.max(1))
-                    .expect("max(1) is non-zero"),
-                runner_config_for_tenant_cache(reconcile_interval),
-            )
-            // CLOACI-T-0581 follow-up: per-tenant runners share the
-            // global graph scheduler so their reconcilers can route
-            // packaged CGs. The scheduler stores tenant_id per graph
-            // (T-0579), so health-endpoint filtering still works.
-            .with_graph_scheduler(graph_scheduler.clone()),
-        ),
+        tenant_runners: Arc::new(tenant_runner_cache),
         tenant_deletion_drain_timeout,
+        // Clamp to >=1 so the advertised interval matches the sweeper's
+        // clamped cadence (the agent also clamps, but keep server-side parity).
+        agent_heartbeat_interval_seconds: agent_heartbeat_interval_s.max(1),
     };
 
     // Bootstrap: create initial admin key if none exist
     bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
+
+    // Fleet executor registration (CLOACI-I-0114 / T-0633). Build the
+    // FleetExecutor over the shared roster + coordinator + substrate wake, and
+    // register it on the runner's dispatcher under the "fleet" key. Operators
+    // route tasks to the fleet by adding a `RoutingRule` (glob -> "fleet").
+    // Result reconciliation flows through the shared TaskResultHandler so a
+    // fleet-run task's status/retry/context writes are identical to a thread
+    // run. `runner_id = None`: the fleet relies on substrate at-least-once +
+    // reconciliation for dedup rather than the thread executor's per-task
+    // runner claim.
+    {
+        let fleet_result_handler = cloacina::executor::TaskResultHandler::new(
+            unified_dal.clone(),
+            Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            None,
+        );
+        let fleet_executor = crate::fleet_executor::FleetExecutor::new(
+            unified_dal.clone(),
+            agent_registry.clone(),
+            fleet_coordinator.clone(),
+            delivery_wake.clone(),
+            fleet_result_handler,
+            state.runner.runtime(),
+        );
+        if state
+            .runner
+            .register_executor("fleet", Arc::new(fleet_executor))
+        {
+            info!("Fleet executor registered on dispatcher under key 'fleet'");
+        } else {
+            warn!(
+                "Fleet executor NOT registered — runner has no dispatcher \
+                 (push-based execution disabled); fleet routing rules will not fire"
+            );
+        }
+    }
+
+    // Fleet heartbeat sweeper (CLOACI-I-0114 / T-0634). Periodically evicts
+    // agents whose heartbeat has gone stale (so selection + `has_capacity()`
+    // stop counting dead agents) AND reclaims their in-flight work by
+    // re-targeting its delivery_outbox rows to a live agent (otherwise the
+    // rows stay pinned to a dead recipient and spin on NoRoute). Shares the
+    // substrate shutdown channel.
+    {
+        let sweep_registry = agent_registry.clone();
+        let sweep_dal = unified_dal.clone();
+        let sweep_wake = delivery_wake.clone();
+        let mut sweep_shutdown = substrate_shutdown_rx.clone();
+        // Heartbeat interval the server advertises to agents + sweep cadence;
+        // evict after `agent_liveness_misses` missed beats (CLOACI-T-0639).
+        // Both clamped to >=1 so a 0 from the CLI can't wedge the ticker.
+        let beat = std::time::Duration::from_secs(agent_heartbeat_interval_s.max(1) as u64);
+        let dead_after = beat * agent_liveness_misses.max(1);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(beat);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        let dead = sweep_registry.sweep_dead(dead_after);
+                        if !dead.is_empty() {
+                            info!(
+                                evicted = ?dead,
+                                "fleet: heartbeat sweeper evicted stale agent(s)"
+                            );
+                            metrics::counter!("cloacina_fleet_agents_evicted_total")
+                                .increment(dead.len() as u64);
+
+                            // Dead-agent reclaim (CLOACI-T-0634): re-target each
+                            // dead agent's in-flight work to a live agent so it
+                            // isn't pinned to a recipient whose connection is
+                            // gone (which would spin on NoRoute). The work keeps
+                            // its task_execution_id, so the FleetExecutor's
+                            // awaiting rendezvous receives the new agent's result
+                            // unchanged. If no live agent exists, the rows stay
+                            // put and the FleetExecutor's timeout → retry path
+                            // still recovers the task (degraded, not lost).
+                            for dead_rec in &dead {
+                                let dead_id = &dead_rec.agent_id;
+                                let snap = sweep_registry.snapshot();
+                                // Reclaim only to a live agent in the SAME tenant
+                                // as the dead one (REQ-008 tenant isolation),
+                                // greedy on most-free-capacity.
+                                let target = snap
+                                    .iter()
+                                    .filter(|a| {
+                                        a.available_capacity > 0
+                                            && a.tenant_id == dead_rec.tenant_id
+                                    })
+                                    .max_by_key(|a| a.available_capacity);
+                                match target {
+                                    Some(t) => {
+                                        match sweep_dal
+                                            .delivery_outbox()
+                                            .reassign_open_rows(
+                                                &format!("agent:{dead_id}"),
+                                                &format!("agent:{}", t.agent_id),
+                                            )
+                                            .await
+                                        {
+                                            Ok(n) if n > 0 => {
+                                                info!(
+                                                    dead_agent = %dead_id,
+                                                    target_agent = %t.agent_id,
+                                                    reassigned = n,
+                                                    "fleet: reclaimed dead agent's in-flight work"
+                                                );
+                                                metrics::counter!(
+                                                    "cloacina_fleet_work_reassigned_total"
+                                                )
+                                                .increment(n as u64);
+                                                sweep_wake.wake();
+                                            }
+                                            Ok(_) => {}
+                                            Err(e) => warn!(
+                                                dead_agent = %dead_id,
+                                                error = %e,
+                                                "fleet: reclaim reassign failed"
+                                            ),
+                                        }
+                                    }
+                                    None => warn!(
+                                        dead_agent = %dead_id,
+                                        "fleet: no live agent to reclaim work; \
+                                         FleetExecutor timeout will retry"
+                                    ),
+                                }
+                            }
+                        }
+                    }
+                    res = sweep_shutdown.changed() => {
+                        if res.is_err() || *sweep_shutdown.borrow() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     // Keep references for shutdown
     let scheduler_for_shutdown = state.graph_scheduler.clone();
@@ -762,11 +1110,56 @@ fn build_router(state: AppState) -> Router {
             "/ws/accumulator/{name}",
             get(crate::routes::ws::accumulator_ws),
         )
-        .route("/ws/reactor/{name}", get(crate::routes::ws::reactor_ws));
+        .route("/ws/reactor/{name}", get(crate::routes::ws::reactor_ws))
+        // Substrate delivery (CLOACI-I-0115 / T-0627). Auth handled in the
+        // handler (header bearer or single-use ticket); tenant inferred from
+        // the authenticated key and enforced against delivery_outbox.tenant_id.
+        .route(
+            "/ws/delivery/{recipient}",
+            get(crate::routes::delivery_ws::delivery_ws),
+        );
+
+    // Execution-agent fleet (CLOACI-I-0114 / T-0631). All endpoints share
+    // the standard authed-route middleware; tenant + admin checks live in
+    // each handler. T-0633 will wire the FleetExecutor into these routes;
+    // for now register/heartbeat mutate the in-memory roster and result is
+    // a stub.
+    let agent_routes = axum::routing::Router::new()
+        .route(
+            "/agent/register",
+            axum::routing::post(crate::routes::agent::register_agent),
+        )
+        .route(
+            "/agent/heartbeat",
+            axum::routing::post(crate::routes::agent::heartbeat_agent),
+        )
+        .route(
+            "/agent/result",
+            axum::routing::post(crate::routes::agent::report_result),
+        )
+        .route(
+            "/agent/artifact/{digest}",
+            axum::routing::get(crate::routes::agent::fetch_artifact),
+        )
+        // All four agent endpoints authenticate with an API key (bearer) and
+        // extract `Extension<AuthenticatedKey>`. The layer MUST be attached
+        // here, before the merge into `auth_routes` below: `.route_layer` only
+        // covers routes already in the router, so `auth_routes`' own layer does
+        // NOT reach these merged routes. Without this, `register_agent` panics
+        // on the missing extension → 500 → the agent exits on register. The
+        // delivery WS (ws_routes) is deliberately NOT key-authed — it uses a
+        // single-use ws-ticket — so auth stays per-sub-router, not nest-wide.
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::routes::auth::require_auth,
+        ));
 
     // All of v1 in a single nest — API-08 invariant: anything served
     // under `/v1/*` shares the same middleware stack.
-    let v1 = auth_routes.merge(graph_health_routes).merge(ws_routes);
+    let v1 = auth_routes
+        .merge(graph_health_routes)
+        .merge(ws_routes)
+        .merge(agent_routes);
 
     // Public routes — no auth
     Router::new()
@@ -964,33 +1357,83 @@ mod tests {
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
 
+    /// One Prometheus recorder per test process, shared by every `test_state()`.
+    ///
+    /// `install_recorder()` installs the GLOBAL recorder and only succeeds once
+    /// per process. The metric macros (`metrics::counter!`, etc.) always emit to
+    /// that global recorder, so a test that scrapes a *different* handle sees
+    /// nothing. Previously each `test_state()` tried to install and, after the
+    /// first, fell back to a fresh unconnected handle — so every metrics test
+    /// that didn't run first failed. Installing once and handing out clones of
+    /// the same global handle keeps emit + scrape on the same recorder.
+    fn shared_test_metrics_handle() -> metrics_exporter_prometheus::PrometheusHandle {
+        static HANDLE: std::sync::OnceLock<metrics_exporter_prometheus::PrometheusHandle> =
+            std::sync::OnceLock::new();
+        HANDLE
+            .get_or_init(|| {
+                metrics_exporter_prometheus::PrometheusBuilder::new()
+                    .install_recorder()
+                    .expect("install global test Prometheus recorder")
+            })
+            .clone()
+    }
+
+    /// One shared `DefaultRunner` (+ its connection pool) for the whole test
+    /// process. Each `test_state()` previously built its own runner via
+    /// `with_config`, which opens a connection pool plus background services
+    /// that are never torn down — so ~90 serial tests accumulated ~90 pools and
+    /// exhausted postgres `max_connections` ("too many clients") on hosts with a
+    /// modest cap (macos default ~100; the docker postgres bumps it to 500).
+    /// Every test already targets the same `TEST_DB_URL` database with no
+    /// per-test reset, so sharing the runner changes only the connection count,
+    /// not isolation (and tests are `#[serial]`). CLOACI-T-0639 follow-up.
+    async fn shared_test_runner() -> Arc<cloacina::runner::DefaultRunner> {
+        static RUNNER: tokio::sync::OnceCell<Arc<cloacina::runner::DefaultRunner>> =
+            tokio::sync::OnceCell::const_new();
+        RUNNER
+            .get_or_init(|| async {
+                let runner_config = cloacina::runner::DefaultRunnerConfig::builder()
+                    .registry_storage_backend("database")
+                    .build()
+                    .expect("test config must be valid");
+                Arc::new(
+                    cloacina::runner::DefaultRunner::with_config(TEST_DB_URL, runner_config)
+                        .await
+                        .expect("Failed to connect to test database"),
+                )
+            })
+            .await
+            .clone()
+    }
+
     /// Create a test AppState with a real Postgres connection.
     async fn test_state() -> AppState {
-        let runner_config = cloacina::runner::DefaultRunnerConfig::builder()
-            .registry_storage_backend("database")
-            .build()
-            .expect("test config must be valid");
+        let runner = shared_test_runner().await;
 
-        let runner = cloacina::runner::DefaultRunner::with_config(TEST_DB_URL, runner_config)
-            .await
-            .expect("Failed to connect to test database");
+        // Share the one globally-installed recorder so emitted metrics are
+        // visible when this state's `/metrics` handle is scraped.
+        let test_metrics_handle = shared_test_metrics_handle();
 
-        // Create a test-scoped metrics handle (won't conflict with global recorder)
-        let test_metrics_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
-            .install_recorder()
-            .unwrap_or_else(|_| {
-                // If a recorder is already installed (from another test), create a no-op handle
-                metrics_exporter_prometheus::PrometheusBuilder::new()
-                    .build_recorder()
-                    .handle()
-            });
-
+        // Substrate components for the test AppState. Spawned tasks are
+        // intentionally omitted here — test fixtures that exercise delivery
+        // construct their own relay if needed; the sink and a wake handle are
+        // enough for handler-side code to compile and run.
+        let _test_delivery_sink = Arc::new(crate::delivery_sink::WsDeliverySink::new());
+        let _test_delivery_relay = cloacina::delivery::DeliveryRelay::new(
+            cloacina::dal::unified::DAL::new(runner.database().clone()),
+            _test_delivery_sink.clone(),
+        );
+        let _test_delivery_wake = _test_delivery_relay.wake_handle();
         AppState {
             database: runner.database().clone(),
-            runner: Arc::new(runner),
+            runner,
             key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
             endpoint_registry: EndpointRegistry::new(),
             graph_scheduler: Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new())),
+            delivery_sink: _test_delivery_sink,
+            delivery_wake: _test_delivery_wake,
+            agent_registry: Arc::new(crate::agent_registry::AgentRegistry::new()),
+            fleet_coordinator: Arc::new(crate::fleet_coordinator::FleetCoordinator::new()),
             security_config: SecurityConfig::default(),
             ws_tickets: Arc::new(crate::routes::auth::WsTicketStore::new(
                 std::time::Duration::from_secs(60),
@@ -999,9 +1442,10 @@ mod tests {
             tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
             tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
                 std::num::NonZeroUsize::new(8).expect("test cap"),
-                runner_config_for_tenant_cache(None),
+                runner_config_for_tenant_cache(None, None),
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
+            agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
         }
     }
 
@@ -1890,7 +2334,16 @@ mod tests {
         // graph/reactor/accumulator name) plus a safety margin. Inflated
         // labels (e.g., tenant_id, event keys) would push any of these
         // metrics far above the ceiling.
-        let mut series_count: HashMap<&str, usize> = HashMap::new();
+        // Count DISTINCT LABEL SETS per canonical metric — not raw series.
+        // A histogram emits one `_bucket` series per `le` boundary plus `_sum`
+        // and `_count`; those are a fixed Prometheus artifact, not cardinality
+        // risk. Collapsing the `le` label so all buckets of one label set count
+        // once measures the thing the guard actually cares about (unbounded
+        // labels like tenant_id / raw paths still blow up the distinct-set
+        // count). This also keeps the count stable when many tests share one
+        // process-wide recorder (e.g. the request-duration histogram, which the
+        // middleware feeds on every test request).
+        let mut label_sets: HashMap<&str, std::collections::HashSet<String>> = HashMap::new();
         for line in text.lines() {
             if line.starts_with('#') || line.is_empty() {
                 continue;
@@ -1912,10 +2365,27 @@ mod tests {
             } else {
                 name
             };
-            if canonical.starts_with("cloacina_") {
-                *series_count.entry(canonical).or_insert(0) += 1;
+            if !canonical.starts_with("cloacina_") {
+                continue;
             }
+            // Extract the label block between `{` and `}`, dropping the
+            // histogram `le` bucket boundary so buckets collapse to one set.
+            let labels = match (line.find('{'), line.rfind('}')) {
+                (Some(a), Some(b)) if b > a => &line[a + 1..b],
+                _ => "",
+            };
+            let canonical_labels: Vec<&str> = labels
+                .split(',')
+                .map(|kv| kv.trim())
+                .filter(|kv| !kv.is_empty() && !kv.starts_with("le="))
+                .collect();
+            label_sets
+                .entry(canonical)
+                .or_default()
+                .insert(canonical_labels.join(","));
         }
+        let series_count: HashMap<&str, usize> =
+            label_sets.iter().map(|(k, v)| (*k, v.len())).collect();
 
         // Generous per-metric ceiling — every I-0099 metric should be far
         // below this. If a regression inflates labels (tenant_id, event
@@ -2175,8 +2645,8 @@ mod tests {
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body["keys"].as_array().is_some());
-        assert!(!body["keys"].as_array().unwrap().is_empty());
+        assert!(body["items"].as_array().is_some());
+        assert!(!body["items"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -2319,7 +2789,7 @@ mod tests {
         // Override the cache with a small cap for this test.
         state.tenant_runners = Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(2).expect("cap=2"),
-            runner_config_for_tenant_cache(None),
+            runner_config_for_tenant_cache(None, None),
         ));
 
         let schema_a = format!(
@@ -2648,14 +3118,14 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/v1/tenants/default/workflows")
+            .uri("/v1/tenants/public/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body["workflows"].as_array().is_some());
+        assert!(body["items"].as_array().is_some());
     }
 
     #[tokio::test]
@@ -2666,7 +3136,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/v1/tenants/default/workflows/nonexistent_workflow")
+            .uri("/v1/tenants/public/workflows/nonexistent_workflow")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -2690,7 +3160,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/tenants/default/workflows")
+            .uri("/v1/tenants/public/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -2718,7 +3188,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/tenants/default/workflows")
+            .uri("/v1/tenants/public/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -2758,10 +3228,7 @@ mod tests {
         let app = build_router(state.clone());
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri(format!(
-                "/v1/tenants/default/workflows/{}/{}",
-                name, version
-            ))
+            .uri(format!("/v1/tenants/public/workflows/{}/{}", name, version))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -2785,7 +3252,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/tenants/default/workflows")
+            .uri("/v1/tenants/public/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -2815,7 +3282,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/tenants/default/workflows")
+            .uri("/v1/tenants/public/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -2840,7 +3307,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/tenants/default/workflows")
+            .uri("/v1/tenants/public/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -2863,14 +3330,14 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/v1/tenants/default/executions")
+            .uri("/v1/tenants/public/executions")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body["executions"].as_array().is_some());
+        assert!(body["items"].as_array().is_some());
     }
 
     #[tokio::test]
@@ -2881,7 +3348,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/v1/tenants/default/executions/not-a-uuid")
+            .uri("/v1/tenants/public/executions/not-a-uuid")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -2899,7 +3366,7 @@ mod tests {
 
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
-            .uri(format!("/v1/tenants/default/executions/{}", fake_id))
+            .uri(format!("/v1/tenants/public/executions/{}", fake_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -2916,7 +3383,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/v1/tenants/default/executions/not-a-uuid/events")
+            .uri("/v1/tenants/public/executions/not-a-uuid/events")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -2934,7 +3401,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/tenants/default/workflows/nonexistent_wf/execute")
+            .uri("/v1/tenants/public/workflows/nonexistent_wf/execute")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(r#"{"context": {}}"#))
@@ -2955,7 +3422,7 @@ mod tests {
         // an empty events list (the DAL returns Ok([]) for missing executions)
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
-            .uri(format!("/v1/tenants/default/executions/{}/events", fake_id))
+            .uri(format!("/v1/tenants/public/executions/{}/events", fake_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -2976,14 +3443,14 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/v1/tenants/default/triggers")
+            .uri("/v1/tenants/public/triggers")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body["schedules"].as_array().is_some());
+        assert!(body["items"].as_array().is_some());
     }
 
     #[tokio::test]
@@ -2994,7 +3461,7 @@ mod tests {
         let app = build_router(state);
 
         let req = axum::http::Request::builder()
-            .uri("/v1/tenants/default/triggers/nonexistent_trigger")
+            .uri("/v1/tenants/public/triggers/nonexistent_trigger")
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -3018,7 +3485,7 @@ mod tests {
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(body["error"], "not found");
+        assert_eq!(body["error"], "no route matches this request");
     }
 
     // ── Signature contract tests (CLOACI-I-0103 / T-0570) ─────────────────
@@ -3042,7 +3509,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/tenants/default/workflows")
+            .uri("/v1/tenants/public/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",
@@ -3124,7 +3591,7 @@ mod tests {
         let (boundary, body) = multipart_file_body(pkg_bytes);
         let req = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/tenants/default/workflows")
+            .uri("/v1/tenants/public/workflows")
             .header("Authorization", format!("Bearer {}", token))
             .header(
                 "Content-Type",

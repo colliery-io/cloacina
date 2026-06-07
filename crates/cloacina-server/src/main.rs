@@ -87,6 +87,32 @@ struct Cli {
     /// CLOACI-I-0109 / T-0592.
     #[arg(long, default_value_t = 14)]
     log_retention_days: u64,
+
+    /// Fleet routing rules, each `glob=executor_key` (CLOACI-I-0114 / T-0634).
+    /// Repeatable or comma-separated, e.g. `--route 'heavy::*=fleet'` or
+    /// `CLOACINA_FLEET_ROUTES='*=fleet'`. Maps matching task names to the
+    /// execution-agent fleet; unmatched tasks run on the default thread
+    /// executor.
+    #[arg(long = "route", env = "CLOACINA_FLEET_ROUTES", value_delimiter = ',')]
+    routes: Vec<String>,
+
+    /// Heartbeat interval (seconds) the server advertises to fleet agents and
+    /// uses as its liveness sweep cadence. Lower = faster dead-agent detection
+    /// + in-flight reclaim, at the cost of more heartbeat traffic. Default 15.
+    /// CLOACI-T-0639.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_HEARTBEAT_INTERVAL_S",
+        default_value_t = cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS
+    )]
+    agent_heartbeat_interval_s: u32,
+
+    /// Consecutive missed heartbeats before the server marks a fleet agent dead
+    /// and reclaims its in-flight work. Effective dead-after = interval ×
+    /// misses (default 15s × 3 = 45s). Lower = more aggressive failover, higher
+    /// chance of evicting a briefly-slow agent. Default 3. CLOACI-T-0639.
+    #[arg(long, env = "CLOACINA_AGENT_LIVENESS_MISSES", default_value_t = 3)]
+    agent_liveness_misses: u32,
 }
 
 fn default_home() -> PathBuf {
@@ -110,6 +136,9 @@ async fn main() -> Result<()> {
         cli.tenant_runner_cache_size,
         std::time::Duration::from_secs(cli.tenant_deletion_drain_timeout_s),
         cli.log_retention_days,
+        cli.routes,
+        cli.agent_heartbeat_interval_s,
+        cli.agent_liveness_misses,
     )
     .await
 }
