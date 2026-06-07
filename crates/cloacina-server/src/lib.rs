@@ -1378,16 +1378,37 @@ mod tests {
             .clone()
     }
 
+    /// One shared `DefaultRunner` (+ its connection pool) for the whole test
+    /// process. Each `test_state()` previously built its own runner via
+    /// `with_config`, which opens a connection pool plus background services
+    /// that are never torn down — so ~90 serial tests accumulated ~90 pools and
+    /// exhausted postgres `max_connections` ("too many clients") on hosts with a
+    /// modest cap (macos default ~100; the docker postgres bumps it to 500).
+    /// Every test already targets the same `TEST_DB_URL` database with no
+    /// per-test reset, so sharing the runner changes only the connection count,
+    /// not isolation (and tests are `#[serial]`). CLOACI-T-0639 follow-up.
+    async fn shared_test_runner() -> Arc<cloacina::runner::DefaultRunner> {
+        static RUNNER: tokio::sync::OnceCell<Arc<cloacina::runner::DefaultRunner>> =
+            tokio::sync::OnceCell::const_new();
+        RUNNER
+            .get_or_init(|| async {
+                let runner_config = cloacina::runner::DefaultRunnerConfig::builder()
+                    .registry_storage_backend("database")
+                    .build()
+                    .expect("test config must be valid");
+                Arc::new(
+                    cloacina::runner::DefaultRunner::with_config(TEST_DB_URL, runner_config)
+                        .await
+                        .expect("Failed to connect to test database"),
+                )
+            })
+            .await
+            .clone()
+    }
+
     /// Create a test AppState with a real Postgres connection.
     async fn test_state() -> AppState {
-        let runner_config = cloacina::runner::DefaultRunnerConfig::builder()
-            .registry_storage_backend("database")
-            .build()
-            .expect("test config must be valid");
-
-        let runner = cloacina::runner::DefaultRunner::with_config(TEST_DB_URL, runner_config)
-            .await
-            .expect("Failed to connect to test database");
+        let runner = shared_test_runner().await;
 
         // Share the one globally-installed recorder so emitted metrics are
         // visible when this state's `/metrics` handle is scraped.
@@ -1405,7 +1426,7 @@ mod tests {
         let _test_delivery_wake = _test_delivery_relay.wake_handle();
         AppState {
             database: runner.database().clone(),
-            runner: Arc::new(runner),
+            runner,
             key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
             endpoint_registry: EndpointRegistry::new(),
             graph_scheduler: Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new())),
