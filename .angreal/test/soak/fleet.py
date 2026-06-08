@@ -25,7 +25,8 @@ Tunable via env (defaults in parens):
   CLOACINA_SOAK_FLEET_DURATION_S        sustained-load seconds (120)
   CLOACINA_SOAK_FLEET_AGENTS            agent count (3)
   CLOACINA_SOAK_FLEET_CONCURRENCY       per-agent max-concurrency (2)
-  CLOACINA_SOAK_FLEET_SUBMIT_INTERVAL_S seconds between submits (0.5)
+  CLOACINA_SOAK_FLEET_SLEEP_S           per-task sleep, i.e. work duration (1)
+  CLOACINA_SOAK_FLEET_TARGET_INFLIGHT   executions kept outstanding (agents×conc×2)
 """
 
 import os
@@ -58,13 +59,25 @@ test = angreal.command_group(
 )
 soak = angreal.command_group(name="soak", about="sustained-load soak tests")
 
-FIXTURE_SRC = "compiler-happy-rust"
-WORKFLOW_NAME = "compiler_happy_workflow"
+# A workload with real per-task duration (sleeps `sleep_seconds`) so tasks are
+# genuinely in-flight concurrently — a noop completes between samples and never
+# loads the fleet. CLOACI-T-0635.
+FIXTURE_SRC = "fleet-slow-rust"
+WORKFLOW_NAME = "fleet_slow_workflow"
 
 DURATION_S = int(os.environ.get("CLOACINA_SOAK_FLEET_DURATION_S", "120"))
 AGENTS = int(os.environ.get("CLOACINA_SOAK_FLEET_AGENTS", "3"))
 CONCURRENCY = int(os.environ.get("CLOACINA_SOAK_FLEET_CONCURRENCY", "2"))
-SUBMIT_INTERVAL_S = float(os.environ.get("CLOACINA_SOAK_FLEET_SUBMIT_INTERVAL_S", "0.5"))
+# Per-task sleep (seconds). Long enough that tasks overlap and saturate the
+# fleet; short enough that the backlog drains quickly at the end.
+SLEEP_SECONDS = int(os.environ.get("CLOACINA_SOAK_FLEET_SLEEP_S", "1"))
+# Keep this many executions outstanding (closed loop) so the fleet stays
+# saturated for the whole run instead of draining between submits. Defaults to
+# 2× total capacity (agents × concurrency) — enough to keep every slot busy
+# plus a small queue, without an ever-growing backlog.
+TARGET_INFLIGHT = int(
+    os.environ.get("CLOACINA_SOAK_FLEET_TARGET_INFLIGHT", str(AGENTS * CONCURRENCY * 2))
+)
 
 
 def _scrape(url: str) -> str:
@@ -96,11 +109,12 @@ def _metric(text: str, name: str, contains: str = None) -> float:
     return total
 
 
-def _run_once(home: Path) -> str | None:
-    """Submit one workflow run; return the execution id (bare `println!` line)
-    or None on a non-zero exit."""
+def _run_once(home: Path, context: str = None) -> str | None:
+    """Submit one workflow run (optionally with a `--context` file); return the
+    execution id (bare `println!` line) or None on a non-zero exit."""
+    extra = ("--context", context) if context else ()
     code, out, _ = _cloacinactl(
-        home, "-o", "json", "workflow", "run", WORKFLOW_NAME, check=False
+        home, "-o", "json", "workflow", "run", WORKFLOW_NAME, *extra, check=False
     )
     if code != 0 or not out.strip():
         return None
@@ -123,8 +137,8 @@ def fleet():
     """Run the execution-agent fleet soak."""
     print_section_header("Execution-Agent Fleet Soak")
     print(
-        f"  config: duration={DURATION_S}s agents={AGENTS} "
-        f"concurrency={CONCURRENCY} submit_interval={SUBMIT_INTERVAL_S}s"
+        f"  config: duration={DURATION_S}s agents={AGENTS} concurrency={CONCURRENCY} "
+        f"sleep={SLEEP_SECONDS}s target_inflight={TARGET_INFLIGHT}"
     )
 
     print_section_header("Build server + compiler + cloacinactl + agent")
@@ -219,36 +233,54 @@ def fleet():
             raise AssertionError("warm-up did not run on the fleet (no agent report)")
         print("  ok: warm-up executed on the fleet")
 
-        # --- sustained load ------------------------------------------------
-        print_section_header(f"Sustained load for {DURATION_S}s")
+        # --- sustained load: closed loop holding ~TARGET_INFLIGHT outstanding
+        # so the fleet stays saturated for the whole run. `outstanding` is
+        # submitted-minus-completed; we refresh `completed` from /metrics every
+        # 2s and submit whenever we're below target. Each task sleeps
+        # SLEEP_SECONDS, so work genuinely overlaps (active_workflows > 0).
+        print_section_header(
+            f"Sustained load for {DURATION_S}s "
+            f"(slow task ~{SLEEP_SECONDS}s, target in-flight {TARGET_INFLIGHT})"
+        )
+        ctx_file = home / "soak-context.json"
+        ctx_file.write_text(f'{{"sleep_seconds": {SLEEP_SECONDS}}}')
         completed_before = _metric(_scrape(metrics_url), "cloacina_workflows_total",
                                    'status="completed"')
-        submitted: list[str] = []
+        submitted = 0
         failed_submits = 0
+        completed = 0.0
         max_outbox = 0.0
         max_active = 0.0
         deadline = time.time() + DURATION_S
-        next_sample = time.time()
+        last_sample = 0.0
+        last_print = 0.0
         while time.time() < deadline:
-            eid = _run_once(home)
-            if eid:
-                submitted.append(eid)
-            else:
-                failed_submits += 1
-            if time.time() >= next_sample:
+            now = time.time()
+            if now - last_sample >= 2:
                 text = _scrape(metrics_url)
+                completed = (_metric(text, "cloacina_workflows_total", 'status="completed"')
+                             - completed_before)
                 outbox = _metric(text, "cloacina_delivery_outbox_open")
-                active = _metric(text, "cloacina_active_tasks")
+                active_w = _metric(text, "cloacina_active_workflows")
                 evicted = _metric(text, "cloacina_fleet_agents_evicted_total")
                 reassigned = _metric(text, "cloacina_fleet_work_reassigned_total")
                 max_outbox = max(max_outbox, outbox)
-                max_active = max(max_active, active)
-                print(f"  [{int(deadline - time.time())}s left] submitted={len(submitted)} "
-                      f"outbox={outbox:.0f} active_tasks={active:.0f} "
-                      f"evicted={evicted:.0f} reassigned={reassigned:.0f}")
-                next_sample = time.time() + 10
-            time.sleep(SUBMIT_INTERVAL_S)
-        print(f"  submitted {len(submitted)} executions ({failed_submits} submit failures)")
+                max_active = max(max_active, active_w)
+                last_sample = now
+                if now - last_print >= 10:
+                    print(f"  [{int(deadline - now)}s left] submitted={submitted} "
+                          f"completed={completed:.0f} in_flight~{submitted - completed:.0f} "
+                          f"outbox={outbox:.0f} active_wf={active_w:.0f} "
+                          f"evicted={evicted:.0f} reassigned={reassigned:.0f}")
+                    last_print = now
+            if (submitted - completed) < TARGET_INFLIGHT:
+                if _run_once(home, str(ctx_file)):
+                    submitted += 1
+                else:
+                    failed_submits += 1
+            else:
+                time.sleep(0.05)  # fleet saturated — back off briefly
+        print(f"  submitted {submitted} executions ({failed_submits} submit failures)")
 
         # --- drain: wait for in-flight work to settle ----------------------
         print_section_header("Drain")
@@ -285,26 +317,35 @@ def fleet():
                             "(agents were declared dead under load)")
         if reassigned != 0:
             problems.append(f"spurious reclaim: cloacina_fleet_work_reassigned_total={reassigned:.0f}")
-        if completed_delta < len(submitted):
+        if completed_delta < submitted:
             problems.append(f"lost work: completed +{completed_delta:.0f} but submitted "
-                            f"{len(submitted)} during the soak")
+                            f"{submitted} during the soak")
         if failed_after != 0:
             problems.append(f"workflow failures: cloacina_workflows_total{{status=failed}}={failed_after:.0f}")
         dead_agents = [i for i, p in enumerate(agent_procs) if p.poll() is not None]
         if dead_agents:
             problems.append(f"agent process(es) exited during soak: {dead_agents}")
+        # The soak is only meaningful if the fleet was actually under sustained
+        # concurrent load. With slow tasks + closed-loop submission,
+        # active_workflows should reach roughly full slot capacity.
+        load_floor = AGENTS * CONCURRENCY
+        if max_active < load_floor:
+            problems.append(f"fleet never loaded: peak active_workflows {max_active:.0f} "
+                            f"< {load_floor} (agents × concurrency) — workload too light or "
+                            "submission couldn't keep the fleet busy")
 
-        print(f"  submitted={len(submitted)} completed_delta={completed_delta:.0f} "
-              f"max_outbox={max_outbox:.0f} max_active={max_active:.0f} "
-              f"evicted={evicted:.0f} reassigned={reassigned:.0f}")
+        print(f"  submitted={submitted} completed_delta={completed_delta:.0f} "
+              f"peak_active_wf={max_active:.0f} (floor {load_floor}) "
+              f"max_outbox={max_outbox:.0f} evicted={evicted:.0f} reassigned={reassigned:.0f}")
 
         if problems:
             _dump("server.log", home / "server.log")
             raise AssertionError("fleet soak instability:\n  - " + "\n  - ".join(problems))
 
         print_final_success(
-            f"Fleet soak stable over {DURATION_S}s: {len(submitted)} executions "
-            f"completed, outbox flat (max {max_outbox:.0f}), no evictions, no lost work."
+            f"Fleet soak stable over {DURATION_S}s: {submitted} executions completed "
+            f"under sustained load (peak {max_active:.0f} in-flight), outbox bounded "
+            f"(max {max_outbox:.0f}), no evictions, no lost work."
         )
     finally:
         for p in agent_procs:
