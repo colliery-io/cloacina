@@ -4,14 +4,14 @@ level: task
 title: "Liveness, churn, saturation — heartbeat sweeper, dead-agent reclaim/reschedule, capacity throttling"
 short_code: "CLOACI-T-0634"
 created_at: 2026-05-27T17:36:34.681023+00:00
-updated_at: 2026-05-29T17:25:55.253739+00:00
+updated_at: 2026-06-08T13:12:46.579550+00:00
 parent: CLOACI-I-0114
 blocked_by: [CLOACI-T-0633]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0114
 ## Objective **[REQUIRED]**
 
 Make the fleet correct under failure and load. Detect dead agents via heartbeat timeout, reclaim and reschedule their in-flight work without loss or duplicate bookkeeping, and ensure capacity throttling propagates so the scheduler stops marking work when the whole fleet is saturated.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
