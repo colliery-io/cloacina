@@ -1,0 +1,92 @@
+---
+# Default values for cloacina-agent.
+#
+# The execution-agent is a DB-less worker: it registers with a cloacina-server,
+# fetches compiled workflow cdylibs, runs tasks, and reports results. It holds
+# NO database connection, exposes NO HTTP surface, and scales by replica count.
+# At minimum you must set `server.url` and an API key (`apiKey` or
+# `apiKeySecretRef`).
+
+# Number of agents in the fleet. Scale up for more execution capacity; the
+# server spreads work across live agents by free capacity.
+replicaCount: 2
+
+image:
+  repository: ghcr.io/colliery-software/cloacina-agent
+  # Defaults to the chart's appVersion when empty. Pin with --set image.tag=X.Y.Z.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+server:
+  # REQUIRED. Base URL of the cloacina-server to register with (REST + WS).
+  # Typically the in-cluster Service DNS of your server release, e.g.
+  # http://my-release-cloacina-server:8080
+  url: ""
+  # Max work packets each agent runs concurrently (--max-concurrency).
+  maxConcurrency: 4
+  # Free-form capability tags advertised at registration (--capabilities).
+  capabilities: []
+  # Override the advertised host target triple (--target-triple-override).
+  # Leave empty unless you know you need it (OQ-6 fail-closed matching).
+  targetTripleOverride: ""
+
+# API key the agent authenticates with. Its tenant scope decides which tenants'
+# work the agent may receive. Choose ONE:
+#   1. apiKey (inline): this chart renders a Secret. Convenient for dev; the
+#      plaintext lives in your release values, so prefer option 2 in prod.
+#   2. apiKeySecretRef: bring your own Secret (recommended for production).
+apiKey: ""
+apiKeySecretRef:
+  name: ""
+  key: "api-key"
+
+# Artifact cache: agents cache fetched cdylibs by digest to skip re-fetching.
+# With readOnlyRootFilesystem the cache + home must be writable mounts; an
+# emptyDir is provided below. Set `cache.persistent` + a PVC for cache that
+# survives restarts (optional; the cache is just an optimization).
+cache:
+  # Mount path inside the container (matches the image's CLOACINA_AGENT_CACHE_DIR
+  # default). The agent home is mounted writable so this path is writable.
+  emptyDirSizeLimit: ""
+
+# Extra environment variables appended verbatim to the container.
+extraEnv: []
+
+# Per-agent CPU/memory requests + limits. Empty = unset. Example:
+#   requests: {cpu: 250m, memory: 256Mi}
+#   limits: {cpu: "1", memory: 512Mi}
+resources: {}
+
+# Pod-level security context. Agents run as a non-root user (uid 10001) baked
+# into the image.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+# Container-level security context. readOnlyRootFilesystem is on; the home +
+# /tmp emptyDirs below provide the only writable paths (cache + scratch).
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# Update strategy. RollingUpdate is safe: losing an agent mid-task triggers the
+# server's dead-agent reclaim onto a survivor.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 1
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

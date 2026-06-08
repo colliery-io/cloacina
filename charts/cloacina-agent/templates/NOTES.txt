@@ -1,0 +1,37 @@
+cloacina-agent has been installed.
+
+Chart:    {{ .Chart.Name }} {{ .Chart.Version }}
+App:      {{ .Chart.AppVersion }}
+Image:    {{ include "cloacina-agent.image" . }}
+Release:  {{ .Release.Name }} (namespace: {{ .Release.Namespace }})
+Replicas: {{ .Values.replicaCount }}  (max-concurrency {{ .Values.server.maxConcurrency }} each)
+Server:   {{ .Values.server.url }}
+
+1. Wait for the agents to become ready:
+
+    kubectl --namespace {{ .Release.Namespace }} \
+      rollout status deployment/{{ include "cloacina-agent.fullname" . }}
+
+2. Confirm they registered with the server (server-side log):
+
+    kubectl --namespace {{ .Release.Namespace }} \
+      logs deployment/<your-server-release>-cloacina-server | grep -i "agent registered"
+
+3. Route work to the fleet on the SERVER (not here) via
+   `CLOACINA_FLEET_ROUTES` / `--route`, e.g. `**=fleet`. Tasks whose names
+   match dispatch to these agents; everything else runs in-process.
+
+4. Watch the fleet via the server's /metrics:
+   `cloacina_fleet_agents_evicted_total`, `cloacina_fleet_work_reassigned_total`,
+   `cloacina_delivery_outbox_open`.
+
+The agents hold no database connection and expose no HTTP surface — observe
+them via their logs and the server-side fleet metrics above.
+
+Docs: https://cloacina.dev/platform/how-to-guides/deploy-an-execution-agent-fleet
+{{- if .Values.apiKey }}
+
+NOTE: an API key was supplied inline via `apiKey` and stored in Secret
+{{ include "cloacina-agent.apiKeySecretName" . }}. For production, prefer
+`apiKeySecretRef` pointing at a Secret you manage.
+{{- end }}

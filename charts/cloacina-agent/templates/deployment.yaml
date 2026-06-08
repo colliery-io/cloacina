@@ -1,0 +1,89 @@
+{{- include "cloacina-agent.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloacina-agent.fullname" . }}
+  labels:
+    {{- include "cloacina-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "cloacina-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloacina-agent.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cloacina-agent
+          image: {{ include "cloacina-agent.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--max-concurrency"
+            - {{ .Values.server.maxConcurrency | quote }}
+            {{- with .Values.server.capabilities }}
+            - "--capabilities"
+            - {{ join "," . | quote }}
+            {{- end }}
+            {{- if .Values.server.targetTripleOverride }}
+            - "--target-triple-override"
+            - {{ .Values.server.targetTripleOverride | quote }}
+            {{- end }}
+          env:
+            - name: CLOACINA_SERVER
+              value: {{ .Values.server.url | quote }}
+            - name: CLOACINA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cloacina-agent.apiKeySecretName" . }}
+                  key: {{ include "cloacina-agent.apiKeySecretKey" . }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            # readOnlyRootFilesystem: the agent's home (artifact cache lives at
+            # $HOME/.cloacina-agent-cache) and /tmp must be writable.
+            - name: home
+              mountPath: /home/cloacina
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: home
+          emptyDir:
+            {{- with .Values.cache.emptyDirSizeLimit }}
+            sizeLimit: {{ . | quote }}
+            {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

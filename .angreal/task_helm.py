@@ -32,6 +32,7 @@ import angreal  # type: ignore
 
 PROJECT_ROOT = Path(angreal.get_root()).parent
 CHART_DIR = PROJECT_ROOT / "charts" / "cloacina-server"
+AGENT_CHART_DIR = PROJECT_ROOT / "charts" / "cloacina-agent"
 IMAGE_TAG = "cloacina-server:helm-e2e"
 RELEASE_NAME = "cloacina-e2e"
 NAMESPACE = "cloacina-e2e"
@@ -104,7 +105,43 @@ def helm_lint():
         )
         sys.exit(1)
 
-    print("\n✓ helm lint + template variants pass")
+    # ── cloacina-agent chart (CLOACI-T-0635) ───────────────────────────
+    _run(["helm", "lint", str(AGENT_CHART_DIR)])
+
+    # Agent variant 1: inline API key (renders a Secret).
+    _run([
+        "helm", "template", "fleet", str(AGENT_CHART_DIR),
+        "--set", "server.url=http://cloacina-server:8080",
+        "--set", "apiKey=dev-key",
+    ], stdout=subprocess.DEVNULL)
+
+    # Agent variant 2: bring-your-own API-key secret.
+    _run([
+        "helm", "template", "fleet", str(AGENT_CHART_DIR),
+        "--set", "server.url=http://cloacina-server:8080",
+        "--set", "apiKeySecretRef.name=cloacina-agent-key",
+    ], stdout=subprocess.DEVNULL)
+
+    # Agent variant 3: validate fail-fast — must error when unconfigured.
+    rc = subprocess.run(
+        ["helm", "template", "fleet", str(AGENT_CHART_DIR)],
+        capture_output=True, text=True,
+    )
+    if rc.returncode == 0:
+        print(
+            "error: agent helm template should have failed with no server.url/api key",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if "cloacina-agent:" not in rc.stderr:
+        print(
+            "error: expected cloacina-agent validate message in stderr, got:\n"
+            + rc.stderr,
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print("\n✓ helm lint + template variants pass (server + agent)")
 
 
 # ---------------------------------------------------------------------------

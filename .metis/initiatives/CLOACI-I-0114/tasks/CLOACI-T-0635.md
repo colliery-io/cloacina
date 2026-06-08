@@ -32,10 +32,10 @@ Make the fleet operable and durable over time. Add a sustained-load soak that ru
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] New `angreal test soak` fleet variant: server + N agents under sustained load, watching for roster leaks, stuck in-flight/outbox entries, and reconciliation drift over time.
-- [ ] Soak stable over the target duration with no leaked work, no roster drift, flat outbox depth.
+- [x] New `angreal test soak` fleet variant: server + N agents under sustained load, watching for roster leaks, stuck in-flight/outbox entries, and reconciliation drift over time. **Authored 2026-06-08** (`angreal test soak fleet`).
+- [ ] Soak stable over the target duration with no leaked work, no roster drift, flat outbox depth. **(harness done + syntax-verified; needs one real run to confirm)**
 - [x] Diataxis docs: how-to (deploy an agent, route a glob to the fleet, operate it), explanation (where the fleet sits in scaling), reference (agent config/flags, metrics). **Done 2026-06-07.**
-- [ ] Optional: Helm chart agent deployment (server in DB trust zone; agents pointed at it with API key + tenant).
+- [x] Optional: Helm chart agent deployment (server in DB trust zone; agents pointed at it with API key + tenant). **Done 2026-06-08** (`charts/cloacina-agent`).
 - [x] Metrics doc updated with fleet/agent + outbox signals; scrape validated. **Done 2026-06-07** (fleet counters + delivery_outbox gauge in metrics-catalog; Hugo build green).
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
@@ -74,3 +74,26 @@ code match.)
 
 **Still open under T-0635:** fleet soak variant (`angreal test soak` fleet) and
 the optional `charts/cloacina-agent` Helm chart. Docs deliverable complete.
+
+### 2026-06-08 — soak harness + agent Helm chart DONE
+
+**`charts/cloacina-agent`** — Helm chart for the DB-less agent fleet. Deployment
+(no Service/ingress/HTTP probes — outbound worker), `_helpers.tpl`, optional
+inline-`apiKey` Secret vs BYO `apiKeySecretRef`, fail-closed validation
+(requires `server.url` + a key), readOnlyRootFilesystem + writable home/tmp
+emptyDirs, README + NOTES. `helm lint` + template (both key paths) + fail-closed
+all pass; wired into `angreal helm lint` (server + agent).
+
+**`angreal test soak fleet`** (`.angreal/test/soak/fleet.py`) — boots Postgres +
+server (`**=fleet`) + compiler + N agents (host subprocesses, reusing the e2e
+boot helpers), compiles the fixture, warm-up proves the fleet path, then drives
+sustained load for `DURATION_S` while sampling `/metrics`. Stability gate at the
+end: every submitted execution completed (no lost work), `active_tasks/_workflows`
++ `delivery_outbox_open` drain to 0 (no stuck in-flight/outbox), `fleet_agents_
+evicted_total` == 0 (no roster drift), `fleet_work_reassigned_total` == 0, all
+agent procs alive. Tunable via `CLOACINA_SOAK_FLEET_*` env. Registered;
+py_compile + ruff clean. **Needs one real run** (full stack, a few minutes) to
+tick the "stable over duration" criterion — same as how the e2e is run.
+
+Committing both into a T-0635 PR off main. With these, T-0635 is complete pending
+the soak run; that closes I-0114.
