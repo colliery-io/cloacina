@@ -1,0 +1,32 @@
+---
+apiVersion: v2
+name: cloacina-agent
+description: |
+  Cloacina execution-agent — a DB-less worker that registers with a
+  cloacina-server, fetches compiled workflow cdylibs, executes tasks,
+  and reports results. Holds no database connection; deploy outside the
+  DB trust zone and point it at a server with an API key. Pairs with the
+  official cloacina-agent image published to ghcr.io.
+type: application
+
+# Chart's own semver. Bump per chart change.
+version: 0.1.0
+
+# Tracks the cloacina-agent release the default image.tag points at.
+# Override via --set image.tag=X.Y.Z when pinning to a specific release.
+appVersion: "0.6.1"
+
+home: https://cloacina.dev
+sources:
+  - https://github.com/colliery-software/cloacina
+
+maintainers:
+  - name: Colliery Software
+    url: https://github.com/colliery-software
+
+keywords:
+  - workflow
+  - orchestration
+  - execution-agent
+  - fleet
+  - rust
