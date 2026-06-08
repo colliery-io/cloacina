@@ -199,6 +199,16 @@ the multi-tenant cache knobs are exposed via `cloacinactl server start`
 Other runtime-tuning knobs are not surfaced through the wrapper — if
 you need to tune them, invoke `cloacina-server` directly.
 
+### Fleet routing & agent liveness (`cloacina-server`)
+
+These flags configure the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). They live on the `cloacina-server` binary directly (and via the env vars below); the `cloacinactl server start` wrapper does **not** forward them, so set them on `cloacina-server` itself or through the environment.
+
+| Flag | Env Var | Default | Description |
+|---|---|---|---|
+| `--route <GLOB=KEY>` | `CLOACINA_FLEET_ROUTES` | (none) | Task-glob → executor routing rule. Repeatable or comma-separated. A task whose fully-qualified name matches `GLOB` dispatches to executor `KEY` (use `fleet` for the agent fleet); unmatched tasks run on the in-process `default` executor. `*` matches within one `::` segment, `**` across segments — task names are 4-segment (`tenant::package::workflow::task`), so `**=fleet` routes everything. CLOACI-I-0114. |
+| `--agent-heartbeat-interval-s <N>` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Heartbeat interval (seconds) advertised to agents and used as the liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, more heartbeat traffic. CLOACI-T-0639. |
+| `--agent-liveness-misses <N>` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Consecutive missed heartbeats before an agent is declared dead and its in-flight work reclaimed. Effective dead-after = interval × misses (default 45s). CLOACI-T-0639. |
+
 ### `server stop` / `status` / `health`
 
 Same shape as the daemon equivalents, but use the server's PID file
@@ -232,6 +242,36 @@ cloacinactl compiler start [--bind <ADDR>] [--database-url <URL>]
 `stop` / `status` / `health` follow the same pattern as `server`: PID
 file for stop, HTTP `GET /v1/status` for status, HTTP `GET /health`
 for health.
+
+## `agent`
+
+The execution-agent (`cloacina-agent`) is a **DB-less** worker that joins a
+server's [fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). It
+registers over REST, opens the delivery WebSocket, fetches compiled workflow
+cdylibs by digest, executes the task in-process, and reports the result back —
+holding no database connection of its own. It is a standalone binary, not a
+`cloacinactl` subcommand.
+
+```text
+cloacina-agent --server <URL> --api-key <KEY>
+               [--agent-id <ID>] [--max-concurrency <N>]
+               [--capabilities <TAG,TAG>] [--target-triple-override <TRIPLE>]
+               [--cache-dir <PATH>]
+```
+
+| Flag | Env Var | Default | Description |
+|---|---|---|---|
+| `--server <URL>` | `CLOACINA_SERVER` | (required) | Base URL of the server to register with (REST + WS ticket mint). |
+| `--api-key <KEY>` | `CLOACINA_API_KEY` | (required) | API key for REST + WS auth. Its tenant scope determines which tenants' work the agent may receive (REQ-008). |
+| `--agent-id <ID>` | | (server-assigned) | Optional caller-chosen agent id. If omitted, the server assigns one. |
+| `--max-concurrency <N>` | | `4` | Max work packets the agent runs concurrently. The server's capacity-aware selection won't exceed this; a saturated agent refuses further packets. |
+| `--capabilities <TAG,TAG>` | | (none) | Free-form capability tags advertised at registration. |
+| `--target-triple-override <TRIPLE>` | | (host triple) | Override the advertised host target triple. Rarely needed — the server only dispatches a cdylib built for the agent's triple (OQ-6 fail-closed), so this is mainly for testing that path. |
+| `--cache-dir <PATH>` | `CLOACINA_AGENT_CACHE_DIR` | `<TMPDIR>/cloacina-agent-cache` | Where fetched cdylibs are cached by digest; a cache hit skips the REST fetch. |
+
+The agent exposes no HTTP surface of its own — observe it via its logs and the
+server's fleet metrics (`cloacina_fleet_*`). See the how-to guide
+[Deploy an execution-agent fleet]({{< ref "/platform/how-to-guides/deploy-an-execution-agent-fleet" >}}).
 
 ---
 
