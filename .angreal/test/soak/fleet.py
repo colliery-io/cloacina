@@ -108,6 +108,7 @@ def _run_once(home: Path) -> str | None:
     return tail if len(tail) >= 32 else None
 
 
+@test()
 @soak()
 @angreal.command(
     name="fleet",
