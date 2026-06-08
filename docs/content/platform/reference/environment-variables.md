@@ -56,8 +56,27 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Trusted org UUID |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner cache cap |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `--tenant-deletion-drain-timeout-s` | `30` | Drain timeout during teardown |
+| `CLOACINA_FLEET_ROUTES` | `--route` | (none) | Task-glob → executor routing rules, comma-separated `glob=executor_key` (e.g. `**=fleet`). Matching tasks dispatch to the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}); unmatched tasks run on the in-process `default` executor. CLOACI-I-0114. |
+| `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. CLOACI-T-0639. |
+| `CLOACINA_AGENT_LIVENESS_MISSES` | `--agent-liveness-misses` | `3` | Consecutive missed heartbeats before the server marks a fleet agent dead and reclaims its in-flight work. Effective dead-after = interval × misses (default 15s × 3 = 45s). CLOACI-T-0639. |
+
+These three flags are read by the `cloacina-server` binary directly (and via the env vars above); the `cloacinactl server start` wrapper does **not** forward them, so set them on `cloacina-server` itself or through the environment.
 
 The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents.
+
+---
+
+## Execution Agent
+
+The [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}) (`cloacina-agent`) is a DB-less worker that registers with a server, fetches compiled workflow artifacts, executes tasks, and reports results. It holds **no** database connection; all of its configuration is server + API-key oriented.
+
+| Variable | Purpose | Default | Example | Component | Required |
+|----------|---------|---------|---------|-----------|----------|
+| `CLOACINA_SERVER` | Base URL of the `cloacina-server` the agent registers with (used for both REST and the WebSocket ticket mint). Equivalent to `--server`. | None | `http://cloacina-server:8080` | Agent | Yes |
+| `CLOACINA_API_KEY` | API key the agent authenticates with. Its tenant scope determines which tenants' work the agent may receive (REQ-008 tenant isolation). Equivalent to `--api-key`. | None | `sk-...` | Agent | Yes |
+| `CLOACINA_AGENT_CACHE_DIR` | Directory used to cache fetched workflow cdylibs by digest, so a cache hit skips the REST fetch. Equivalent to `--cache-dir`. | `<TMPDIR>/cloacina-agent-cache` | `/var/lib/cloacina-agent/cache` | Agent | No |
+
+The remaining agent options — `--agent-id`, `--max-concurrency` (default `4`), `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference]({{< ref "cli" >}}#agent).
 
 ---
 
@@ -287,6 +306,12 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_VERIFICATION_ORG_ID` | Server | Trusted org UUID for signature verification |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | Server | Per-tenant runner LRU cap |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Server | Drain timeout during tenant teardown |
+| `CLOACINA_FLEET_ROUTES` | Server | Task-glob → executor routing rules |
+| `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | Server | Advertised fleet heartbeat interval + sweep cadence |
+| `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
+| `CLOACINA_SERVER` | Agent | Server base URL the agent registers with |
+| `CLOACINA_API_KEY` | Agent | Agent API key (tenant scope) |
+| `CLOACINA_AGENT_CACHE_DIR` | Agent | Fetched-cdylib cache directory |
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap |
 | `CLOACINA_COMPILER_VENDOR_DIR` | Compiler | Curated vendored cargo registry path |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Compiler | Per-build setrlimit caps |

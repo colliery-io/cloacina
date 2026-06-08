@@ -49,6 +49,8 @@ used as labels. Adding a new metric should preserve this invariant; see
 | `cloacina_reactor_persist_failures_total` | `graph`, `reactor`, `kind` | Reactor state-persistence failures. `kind` ∈ `cache_serialize`, `dirty_serialize`, `seq_serialize`, `save`. The reactor downgrades to `Degraded` after 5 consecutive failures and recovers on the next success. |
 | `cloacina_accumulator_persist_failures_total` | `graph`, `accumulator`, `kind` | Accumulator persist failures. `kind` ∈ `checkpoint` (polling save), `boundary` (persist_boundary), `batch_buffer` (batch buffer save). |
 | `cloacina_context_merge_failures_total` | `kind` | Failures merging dependency contexts. `kind` ∈ `parse` (JSON deserialize failed — fails the task as `ContextLoadFailed`), `merge` (Context API rejected an insert/update; counted but does not fail the task). Closes COR-11. |
+| `cloacina_fleet_agents_evicted_total` | — | Execution-agent fleet: agents removed by the heartbeat sweeper after their heartbeat went stale (older than `--agent-liveness-misses` × the advertised interval). Sustained non-zero means agents are dying or losing connectivity. CLOACI-I-0114 / T-0634. |
+| `cloacina_fleet_work_reassigned_total` | — | Execution-agent fleet: in-flight `delivery_outbox` rows re-targeted from an evicted (dead) agent to a live agent by the sweeper's reclaim path. Tracks how much work crashed agents shed onto the rest of the fleet. CLOACI-T-0634. |
 
 ### Histograms
 
@@ -70,6 +72,7 @@ used as labels. Adding a new metric should preserve this invariant; see
 | `cloacina_accumulator_buffer_depth` | `graph`, `accumulator` | Current internal buffer size for buffered accumulators. Meaningful for `batch` and stateful `stream` kinds; `passthrough` and `polling` emit `0` from runtime startup so dashboards see a stable series per (graph, accumulator). |
 | `cloacina_reactor_cache_age_seconds` | `graph`, `reactor`, `source` | Age in seconds of the most-recent emission per source held in the reactor's input cache. Refreshed on every boundary arrival (all known sources re-emitted, so silent sources show increasing staleness). |
 | `cloacina_ws_connections_active` | `endpoint` | Currently open WebSocket connections. `endpoint` ∈ `accumulator`, `reactor`. RAII-guarded so panics inside the handler still decrement on Drop. |
+| `cloacina_delivery_outbox_open` | — | Current count of non-`acked` rows in `delivery_outbox` (`pending` + `delivered`) — the durable push queue that carries fleet work packets to agents. Sustained growth means delivery is wedged (no live agent for the recipient, or the relay isn't draining). CLOACI-I-0115. |
 
 ## Example PromQL queries
 

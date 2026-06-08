@@ -422,3 +422,4 @@ All horizontal scaling configuration is set through `DefaultRunnerConfig::builde
 - [Task Execution]({{< relref "task-execution-sequence.md" >}}) -- Task lifecycle and state transitions
 - [Dispatcher Architecture]({{< relref "dispatcher-architecture.md" >}}) -- Routing configuration and pluggable executors
 - [Guaranteed Execution Architecture]({{< relref "guaranteed-execution-architecture.md" >}}) -- Reliability guarantees and recovery mechanisms
+- [Execution-Agent Fleet]({{< relref "execution-agent-fleet.md" >}}) -- Offloading task execution to a pool of DB-less remote agents (complements the single-DB multi-runner model above)
