@@ -82,7 +82,6 @@ Task claiming enables horizontal scaling by allowing multiple runner instances t
 |---|---|---|---|
 | `runner_id` | `Option<String>` | `None` | Optional unique identifier for this runner instance. Used in logs and claim ownership. |
 | `runner_name` | `Option<String>` | `None` | Optional human-readable name for this runner instance. |
-| `routing_config` | `Option<RoutingConfig>` | `None` | Task routing configuration for dispatching tasks to specific executor backends. |
 
 ### Tuning the cron knobs
 
@@ -177,7 +176,6 @@ DefaultRunnerConfig::builder()
     // Identity
     .runner_id(Some("runner-01".to_string()))
     .runner_name(Some("Primary Runner".to_string()))
-    .routing_config(None)
 
     .build();
 ```
@@ -209,7 +207,6 @@ let tenant_runner = DefaultRunnerBuilder::new()
 | `database_url(&str)` | Sets the database connection URL (required) |
 | `schema(&str)` | Sets the PostgreSQL schema for multi-tenant isolation. Must be alphanumeric + underscores. PostgreSQL only. |
 | `with_config(DefaultRunnerConfig)` | Sets the full runner configuration |
-| `routing_config(RoutingConfig)` | Sets task routing configuration |
 | `runtime(Runtime)` | Sets a scoped `Runtime` for this runner. When set, the runner and all its components use this runtime's registries instead of the process-global registries. If not set, `Runtime::from_global()` is used. |
 | `build()` | Builds and starts the runner (creates DB, runs migrations, starts background services) |
 
@@ -232,12 +229,28 @@ The daemon maps `config.toml` values to `DefaultRunnerConfig` fields:
 
 The server uses `DefaultRunnerConfig::builder().registry_storage_backend("database").build()`.
 
+### `[server]` section
+
+The `[server]` section configures server-level deployment knobs read by `cloacinactl server start` (which forwards them to the `cloacina-server` binary):
+
+| config.toml Key | Default | Description |
+|---|---|---|
+| `server.default_executor` | `"default"` | Executor key every task is dispatched to. There is no per-task routing — all work goes to this one executor. `"default"` is the in-process thread executor; set `"fleet"` to offload all work to the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). The key is hard-matched against registered executors at server startup; an unknown key fails fast (no silent fallback). |
+
+```toml
+[server]
+default_executor = "fleet"
+```
+
+Overrides for ad-hoc/direct runs use `cloacina-server --default-executor <key>`, `cloacinactl server start --default-executor <key>`, or `CLOACINA_DEFAULT_EXECUTOR=<key>`. Precedence: explicit CLI/env > `config.toml` `[server].default_executor` > built-in `default`.
+
 ## Environment Variables
 
 | Variable | Description |
 |---|---|
 | `DATABASE_URL` | Database connection URL for `server start` and `admin` commands |
 | `CLOACINA_BOOTSTRAP_KEY` | Bootstrap API key for `server start` first startup |
+| `CLOACINA_DEFAULT_EXECUTOR` | Executor key every task is dispatched to (overrides `[server].default_executor`; default `default`, set `fleet` for the agent fleet) |
 | `RUST_LOG` | Log filter directive (e.g., `info`, `debug`, `cloacina=trace`) |
 
 ## See Also

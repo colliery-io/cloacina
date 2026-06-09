@@ -160,19 +160,17 @@ pub struct AppState {
 /// honors the operator override).
 fn runner_config_for_tenant_cache(
     reconcile_interval: Option<std::time::Duration>,
-    routing_config: Option<cloacina::dispatcher::RoutingConfig>,
+    default_executor: &str,
 ) -> cloacina::DefaultRunnerConfig {
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
     if let Some(interval) = reconcile_interval {
         builder = builder.registry_reconcile_interval(interval);
     }
-    // CLOACI-T-0634: carry the fleet routing config onto per-tenant runners so
-    // their dispatcher resolves the "fleet" key (and a dispatcher exists at all,
-    // which `register_executor` requires).
-    if let Some(rc) = routing_config {
-        builder = builder.routing_config(Some(rc));
-    }
+    // CLOACI-T-0640: carry the configured default executor onto per-tenant
+    // runners so their dispatcher sends tenant tasks to the same executor (and
+    // a dispatcher exists at all, which `register_executor` requires).
+    builder = builder.default_executor(default_executor);
     builder
         .build()
         .expect("default tenant runner config builds cleanly")
@@ -204,33 +202,6 @@ fn validate_security_args(
 /// is a `RunConfig` struct, tracked as a follow-up. T-0567 added the
 /// `verification_org_id` parameter and pushed us to 8.
 #[allow(clippy::too_many_arguments)]
-/// Parse `"glob=key"` routing-rule strings into a `RoutingConfig`
-/// (CLOACI-T-0634). Each entry maps a task-name glob to an executor key
-/// (e.g. `"heavy::*=fleet"`). The default executor remains `"default"` (the
-/// thread executor) for any task no rule matches.
-fn build_routing_config(routes: &[String]) -> Result<cloacina::dispatcher::RoutingConfig> {
-    use cloacina::dispatcher::{RoutingConfig, RoutingRule};
-    let mut config = RoutingConfig::new("default");
-    for raw in routes {
-        let (glob, key) = raw.split_once('=').ok_or_else(|| {
-            anyhow::anyhow!(
-                "invalid --route '{}': expected 'glob=executor_key' (e.g. 'heavy::*=fleet')",
-                raw
-            )
-        })?;
-        let glob = glob.trim();
-        let key = key.trim();
-        if glob.is_empty() || key.is_empty() {
-            return Err(anyhow::anyhow!(
-                "invalid --route '{}': both glob and executor key must be non-empty",
-                raw
-            ));
-        }
-        config = config.with_rule(RoutingRule::new(glob, key));
-    }
-    Ok(config)
-}
-
 pub async fn run(
     home: std::path::PathBuf,
     bind: SocketAddr,
@@ -243,10 +214,11 @@ pub async fn run(
     tenant_runner_cache_size: usize,
     tenant_deletion_drain_timeout: std::time::Duration,
     log_retention_days: u64,
-    // Task-glob → executor-key routing rules, each `"glob=key"` (CLOACI-T-0634).
-    // e.g. `"heavy::*=fleet"` or `"*=fleet"`. Empty = all tasks to the default
-    // thread executor (the fleet executor stays registered but idle).
-    fleet_routes: Vec<String>,
+    // Executor every task is dispatched to (CLOACI-T-0640). `"default"` runs all
+    // work on the in-process thread executor; `"fleet"` sends it to the
+    // execution-agent fleet. Validated against the registered executor keys at
+    // boot — an unknown key fails fast.
+    default_executor: String,
     // Fleet agent liveness tuning (CLOACI-T-0639). `agent_heartbeat_interval_s`
     // is advertised to agents (their heartbeat cadence) and is the sweeper's
     // tick rate; the sweeper marks an agent dead after `agent_liveness_misses`
@@ -580,27 +552,17 @@ pub async fn run(
     runner_builder = runner_builder
         .require_signatures(require_signatures)
         .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
-    // Fleet routing (CLOACI-I-0114 / T-0634): map task globs to the "fleet"
-    // executor key. Without any route, all tasks dispatch to the default
-    // thread executor and connected agents stay idle. Built once here and
-    // reused for BOTH the global runner and every per-tenant runner — tenant
-    // workflows execute on per-tenant runners (TenantRunnerCache, T-0580), so
-    // the routing config must reach them too or fleet routing never fires for
-    // tenant tasks (the only kind the server runs).
-    let routing_config = if fleet_routes.is_empty() {
-        None
-    } else {
-        let rc = build_routing_config(&fleet_routes)?;
-        info!(
-            rules = fleet_routes.len(),
-            "Fleet routing configured ({} rule(s))",
-            fleet_routes.len()
-        );
-        Some(rc)
-    };
-    if let Some(rc) = routing_config.clone() {
-        runner_builder = runner_builder.routing_config(Some(rc));
-    }
+    // Default executor (CLOACI-T-0640): every task dispatches to this one
+    // executor key. `"default"` keeps all work on the in-process thread
+    // executor; `"fleet"` sends it to the execution-agent fleet. Applied to BOTH
+    // the global runner and every per-tenant runner — tenant workflows execute
+    // on per-tenant runners (TenantRunnerCache, T-0580), so the setting must
+    // reach them too or fleet dispatch never fires for tenant tasks (the only
+    // kind the server runs). The key is validated against the registered
+    // executors after registration below.
+    let use_fleet = default_executor == "fleet";
+    info!(default_executor = %default_executor, "Default executor configured");
+    runner_builder = runner_builder.default_executor(default_executor.clone());
     let runner_config = runner_builder
         .build()
         .context("Invalid runner configuration")?;
@@ -663,14 +625,14 @@ pub async fn run(
         let cache = crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(tenant_runner_cache_size.max(1))
                 .expect("max(1) is non-zero"),
-            runner_config_for_tenant_cache(reconcile_interval, routing_config.clone()),
+            runner_config_for_tenant_cache(reconcile_interval, &default_executor),
         )
         // CLOACI-T-0581 follow-up: per-tenant runners share the global graph
         // scheduler so their reconcilers can route packaged CGs. The scheduler
         // stores tenant_id per graph (T-0579), so health-endpoint filtering
         // still works.
         .with_graph_scheduler(graph_scheduler.clone());
-        if routing_config.is_some() {
+        if use_fleet {
             let reg_registry = agent_registry.clone();
             let reg_coordinator = fleet_coordinator.clone();
             let reg_wake = delivery_wake.clone();
@@ -740,16 +702,17 @@ pub async fn run(
     // Bootstrap: create initial admin key if none exist
     bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
 
-    // Fleet executor registration (CLOACI-I-0114 / T-0633). Build the
-    // FleetExecutor over the shared roster + coordinator + substrate wake, and
-    // register it on the runner's dispatcher under the "fleet" key. Operators
-    // route tasks to the fleet by adding a `RoutingRule` (glob -> "fleet").
-    // Result reconciliation flows through the shared TaskResultHandler so a
-    // fleet-run task's status/retry/context writes are identical to a thread
-    // run. `runner_id = None`: the fleet relies on substrate at-least-once +
-    // reconciliation for dedup rather than the thread executor's per-task
-    // runner claim.
-    {
+    // Fleet executor registration (CLOACI-I-0114 / T-0633, T-0640). Only wired
+    // up when the operator opts into the fleet via `--default-executor fleet`;
+    // otherwise all work stays on the in-process thread executor and there's no
+    // reason to build it. Build the FleetExecutor over the shared roster +
+    // coordinator + substrate wake, and register it on the runner's dispatcher
+    // under the "fleet" key. Result reconciliation flows through the shared
+    // TaskResultHandler so a fleet-run task's status/retry/context writes are
+    // identical to a thread run. `runner_id = None`: the fleet relies on
+    // substrate at-least-once + reconciliation for dedup rather than the thread
+    // executor's per-task runner claim.
+    if use_fleet {
         let fleet_result_handler = cloacina::executor::TaskResultHandler::new(
             unified_dal.clone(),
             Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -772,9 +735,29 @@ pub async fn run(
         } else {
             warn!(
                 "Fleet executor NOT registered — runner has no dispatcher \
-                 (push-based execution disabled); fleet routing rules will not fire"
+                 (push-based execution disabled); fleet dispatch will not fire"
             );
         }
+    }
+
+    // CLOACI-T-0640: hard-match the configured default executor against the
+    // registered executor keys. The thread runner always registers "default";
+    // "fleet" is registered just above only when opted in. A typo'd key would
+    // otherwise silently send ALL work to a nonexistent executor — every task
+    // would dispatch-error and the server would look hung — so fail fast at boot
+    // instead.
+    if !state.runner.has_executor(&default_executor) {
+        let mut available = vec!["default"];
+        if use_fleet && state.runner.has_executor("fleet") {
+            available.push("fleet");
+        }
+        anyhow::bail!(
+            "--default-executor '{default_executor}' is not a registered executor \
+             (available: {}). Set a valid key via --default-executor / \
+             CLOACINA_DEFAULT_EXECUTOR, or [server].default_executor in config.toml. \
+             Use 'fleet' only with the execution-agent fleet deployed.",
+            available.join(", ")
+        );
     }
 
     // Fleet heartbeat sweeper (CLOACI-I-0114 / T-0634). Periodically evicts
@@ -1442,7 +1425,7 @@ mod tests {
             tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
             tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
                 std::num::NonZeroUsize::new(8).expect("test cap"),
-                runner_config_for_tenant_cache(None, None),
+                runner_config_for_tenant_cache(None, "default"),
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
@@ -2789,7 +2772,7 @@ mod tests {
         // Override the cache with a small cap for this test.
         state.tenant_runners = Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(2).expect("cap=2"),
-            runner_config_for_tenant_cache(None, None),
+            runner_config_for_tenant_cache(None, "default"),
         ));
 
         let schema_a = format!(

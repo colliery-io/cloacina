@@ -1,6 +1,6 @@
 ---
 title: "Deploy an Execution-Agent Fleet"
-description: "Route tasks to a pool of DB-less cloacina-agent workers: configure routing, run agents, verify, tune liveness, and operate the fleet"
+description: "Offload tasks to a pool of DB-less cloacina-agent workers: set the default executor to the fleet, run agents, verify, tune liveness, and operate the fleet"
 weight: 58
 ---
 
@@ -24,26 +24,37 @@ explanation; this is the operational path.
   (`libpq`, `libpython`, `libssl`, `libsasl2`, …). The published agent image
   carries these; a hand-rolled host must install them or `dlopen` fails at load.
 
-## 1. Route tasks to the fleet
+## 1. Send tasks to the fleet
 
-Routing is opt-in per task, configured on the **`cloacina-server`** binary via
-`--route` / `CLOACINA_FLEET_ROUTES` (the `cloacinactl server start` wrapper does
-not forward it — set it on `cloacina-server` or via the environment):
+Execution topology is a single server-level knob: the **default executor** key.
+Every task is dispatched to that one executor — there is no per-task matching.
+The default is `default` (the in-process thread executor); set it to `fleet` to
+send all work to the agent fleet.
 
-```bash
-# Route everything to the fleet:
-CLOACINA_FLEET_ROUTES='**=fleet' cloacina-server --bind 0.0.0.0:8080
+The preferred surface is a `[server]` section in `~/.cloacina/config.toml`, which
+`cloacinactl server start` reads and forwards to the `cloacina-server` binary:
 
-# Or route only one package's tasks, leaving the rest in-process:
-CLOACINA_FLEET_ROUTES='public::heavy-etl::**=fleet' cloacina-server ...
+```toml
+[server]
+default_executor = "fleet"
 ```
 
-Rules are `glob=executor_key`, comma-separated or repeated. Task names are
-four segments — `tenant::package::workflow::task` — and the globs follow the
-dispatcher's matcher: `*` matches **within** one `::` segment, `**` matches
-**across** segments. So `**=fleet` matches every task, while `*=fleet` matches
-nothing (a single segment can't span the whole name). Anything that doesn't
-match a rule runs on the in-process `default` executor.
+For ad-hoc or direct runs you can override it on the binary or via the
+environment (precedence: explicit CLI/env > `config.toml` > built-in `default`):
+
+```bash
+# All three forms are equivalent overrides:
+cloacina-server --default-executor fleet --bind 0.0.0.0:8080
+CLOACINA_DEFAULT_EXECUTOR=fleet cloacina-server --bind 0.0.0.0:8080
+cloacinactl server start --default-executor fleet
+```
+
+> **Deploy the fleet before you select it.** The configured key is hard-matched
+> against registered executors at server startup. `fleet` is only a registered
+> executor when you've opted into the fleet; if you set `default_executor =
+> "fleet"` without the fleet deployed, the server fails fast at boot with an
+> error listing the valid keys (e.g. `default`). There is no silent fallback to
+> `default`. Set `fleet` together with (or after) standing up the agents below.
 
 ## 2. Run the agents
 
@@ -86,8 +97,8 @@ free capacity. Useful options (full list in the [CLI reference]({{< ref "/platfo
 
 ## 3. Verify it's running on the fleet
 
-Upload and run a workflow whose task matches your route, then confirm it
-executed on an agent rather than in-process:
+With `default_executor = "fleet"`, every task runs on the fleet. Upload and run
+any workflow, then confirm it executed on an agent rather than in-process:
 
 ```bash
 cloacinactl package upload my-workflow.cloacina
@@ -102,8 +113,9 @@ Confirm the fleet path (not the `default` executor) handled it:
 - **Metrics:** `/metrics` exposes the `cloacina_fleet_*` and
   `cloacina_delivery_outbox_open` series.
 
-If the task instead runs on `default`, the route didn't match — re-check the glob
-against the fully-qualified `tenant::package::workflow::task` name.
+If the task instead runs on `default`, the server isn't configured for the fleet
+— re-check that `default_executor` resolves to `fleet` (config.toml `[server]`,
+`CLOACINA_DEFAULT_EXECUTOR`, or `--default-executor`).
 
 ## 4. Tune failover aggressiveness
 
@@ -127,7 +139,7 @@ CLOACINA_AGENT_HEARTBEAT_INTERVAL_S=5 CLOACINA_AGENT_LIVENESS_MISSES=2 cloacina-
 - **Losing an agent is safe.** When an agent dies, the sweeper reclaims its
   in-flight work onto a live agent in the same tenant and the task completes
   there — no workflow-level failure. The work re-runs from the start, so
-  fleet-routed tasks should be idempotent.
+  tasks run on the fleet should be idempotent.
 - **Watch these signals:**
   - `cloacina_delivery_outbox_open` climbing → delivery is wedged (often no live
     agent for a tenant's work, or agents can't connect).

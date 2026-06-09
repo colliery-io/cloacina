@@ -81,15 +81,12 @@ The scheduler pushes tasks to executors via the dispatcher:
 sequenceDiagram
     participant S as Scheduler
     participant D as Dispatcher
-    participant R as Router
     participant EX as TaskExecutor
     participant DB as Database
 
     S ->> DB: Mark task Ready
     S ->> D: TaskReadyEvent
-    D ->> R: resolve_executor_key(namespace)
-    R -->> D: executor_key
-    D ->> EX: execute(event)
+    D ->> EX: execute(event) via configured default executor
     EX ->> DB: claim_ready_task (atomic)
     EX ->> EX: Load context, run task
     EX ->> DB: Update state (complete/fail)
@@ -101,7 +98,7 @@ sequenceDiagram
 The execution process:
 1. Scheduler determines task is ready (dependencies satisfied, trigger rules pass)
 2. Scheduler emits `TaskReadyEvent` to dispatcher
-3. Dispatcher routes event to appropriate executor based on task namespace
+3. Dispatcher hands the event to the single configured default executor (no per-task matching)
 4. Executor atomically claims the task (Ready -> Running)
 5. Executor loads context and executes the task
 6. Executor updates task state and returns result
@@ -429,15 +426,9 @@ The dispatcher architecture enables custom execution backends. Implement the `Ta
 
 See [Dispatcher Architecture]({{< relref "dispatcher-architecture.md" >}}) for implementation details.
 
-### Routing Configuration
+### Selecting the Executor
 
-Route tasks to different executors based on namespace patterns:
-
-```rust
-let routing = RoutingConfig::new("default")
-    .with_rule(RoutingRule::new("*::ml::*", "gpu"))
-    .with_rule(RoutingRule::new("*::batch::*", "k8s"));
-```
+Which executor runs tasks is a single server-level deployment knob — the **default executor** key — not a per-task decision. Every task is dispatched to that one executor. The default is `default` (the in-process `ThreadTaskExecutor`); set it to `fleet` (via `[server].default_executor` in `config.toml`, `CLOACINA_DEFAULT_EXECUTOR`, or `--default-executor`) to offload all work to the execution-agent fleet.
 
 ## Conclusion
 

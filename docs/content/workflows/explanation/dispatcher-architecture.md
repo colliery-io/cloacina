@@ -18,61 +18,56 @@ flowchart TB
     end
 
     subgraph Dispatcher["Dispatcher"]
-        R[Router]
         D[DefaultDispatcher]
     end
 
     subgraph Executors["Executors"]
         THREAD[ThreadTaskExecutor]
-        K8S[K8sExecutor]
-        LAMBDA[LambdaExecutor]
+        FLEET[FleetExecutor]
         CUSTOM[CustomExecutor]
     end
 
     SM -->|TaskReadyEvent| D
-    D -->|route| R
-    R -->|dispatch| THREAD
-    R -->|dispatch| K8S
-    R -->|dispatch| LAMBDA
-    R -->|dispatch| CUSTOM
+    D -->|dispatch to configured key| THREAD
+    D -->|dispatch to configured key| FLEET
+    D -->|dispatch to configured key| CUSTOM
 
     THREAD -->|ExecutionResult| D
-    K8S -->|ExecutionResult| D
-    LAMBDA -->|ExecutionResult| D
+    FLEET -->|ExecutionResult| D
     CUSTOM -->|ExecutionResult| D
 
     D -->|state update| DB[(Database)]
 ```
+
+The dispatcher does not match tasks against patterns. Every task is dispatched to a single configured executor — the **default executor** key, a server-level deployment knob (default `default`; e.g. `fleet` when the execution-agent fleet is deployed). Choosing which node or compute a task lands on is an executor-internal concern, not a scheduler/dispatcher one.
 
 ### Key Components
 
 | Component | Purpose |
 |-----------|---------|
 | **TaskReadyEvent** | Event emitted when a task becomes ready for execution |
-| **Dispatcher** | Routes events to appropriate executors based on configuration |
-| **Router** | Pattern-matching engine for task-to-executor routing |
+| **Dispatcher** | Sends every event to the single configured default executor |
 | **TaskExecutor** | Trait implemented by execution backends |
 | **ExecutionResult** | Outcome of task execution (success, failure, retry) |
 
 ## The Dispatcher Trait
 
-The `Dispatcher` trait defines the interface for routing task events:
+The `Dispatcher` trait defines the interface for handing task events to the configured executor:
 
 ```rust
 pub trait Dispatcher: Send + Sync {
-    /// Dispatch a task-ready event to an appropriate executor.
+    /// Dispatch a task-ready event to the configured default executor.
     fn dispatch(&self, event: TaskReadyEvent) -> Result<(), DispatchError>;
 
     /// Register an executor with a given key.
     fn register_executor(&self, key: &str, executor: Arc<dyn TaskExecutor>);
 
-    /// Check if any registered executor has capacity.
+    /// Check if the configured executor has capacity.
     fn has_capacity(&self) -> bool;
-
-    /// Resolve which executor key should handle a task.
-    fn resolve_executor_key(&self, task_namespace: &str) -> String;
 }
 ```
+
+There is no per-task routing decision: `dispatch` always forwards to the executor registered under the configured default-executor key. The configured key is hard-matched against the registered executors at server startup, so an unknown key fails fast rather than falling back silently.
 
 ## The TaskExecutor Trait
 
@@ -204,76 +199,62 @@ impl TaskExecutor for MyCustomExecutor {
 }
 ```
 
-## Routing Configuration
+## Selecting the Executor
 
-The dispatcher uses glob-pattern routing to direct tasks to executors:
+Execution topology is a single server-level deployment knob: the **default executor** key. Every task is dispatched to that one executor; there is no per-task matching, no glob rules, and no precedence chain.
 
-```rust
-use cloacina::dispatcher::{RoutingConfig, RoutingRule};
+The key defaults to `default` (the in-process `ThreadTaskExecutor`). Set it to another registered key — e.g. `fleet` for the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}) — to send all work there. The preferred surface is `[server].default_executor` in `~/.cloacina/config.toml`:
 
-// Route ML tasks to GPU executor, everything else to default
-let routing = RoutingConfig::new("default")
-    .with_rule(RoutingRule::new("*::ml::*", "gpu"))
-    .with_rule(RoutingRule::new("*::batch::*", "k8s"));
+```toml
+[server]
+default_executor = "fleet"
 ```
 
-### Pattern Syntax
+For ad-hoc or direct runs, override it on the binary or via the environment (precedence: explicit CLI/env > `config.toml` > built-in `default`):
 
-| Pattern | Matches |
-|---------|---------|
-| `*` | Single path segment |
-| `**` | Multiple path segments |
-| `exact` | Exact match |
+```bash
+cloacina-server --default-executor fleet
+CLOACINA_DEFAULT_EXECUTOR=fleet cloacina-server
+```
 
-Examples:
-- `*::ml::*` matches `public::ml::train`, `tenant::ml::inference`
-- `batch::**` matches `batch::jobs::daily`, `batch::jobs::hourly::cleanup`
-- `public::embedded::my_workflow::*` matches all tasks in `my_workflow`
+The configured key is hard-matched against the registered executors at startup. A typo or an unknown key fails fast with an error listing the valid keys (e.g. `default`, plus `fleet` when the fleet is deployed) — there is no silent fallback.
+
+> **Why no per-task routing?** Choosing which node or compute a task runs on is an executor-internal concern (a future capability — executors will route work to specific nodes/capabilities). The scheduler and dispatcher do not make that decision per task, so routing was removed from the scheduler rather than merely demoted.
 
 ## Registering Custom Executors
 
-Register executors with the dispatcher before starting the runner:
+Register executors with the dispatcher before starting the runner. Whichever key matches the configured default executor receives all dispatched tasks:
 
 ```rust
 use cloacina::runner::DefaultRunner;
-use cloacina::dispatcher::{RoutingConfig, RoutingRule};
 
-// Create runner with custom routing
+// The default ThreadTaskExecutor is registered automatically as "default".
+// Register additional executors under their own keys; the configured
+// default-executor key selects which one receives work.
 let runner = DefaultRunner::builder()
     .database_url("postgresql://localhost/cloacina")
-    .routing_config(
-        RoutingConfig::new("default")
-            .with_rule(RoutingRule::new("*::gpu::*", "gpu"))
-    )
     .build()
     .await?;
-
-// The default ThreadTaskExecutor is registered automatically as "default"
-// Register additional executors for custom routing targets
 ```
 
 ## Execution Flow
 
 1. **Scheduler** evaluates task dependencies and trigger rules
 2. **State Manager** marks task as Ready and emits `TaskReadyEvent`
-3. **Dispatcher** receives event and routes via `Router`
-4. **Router** matches task namespace against rules, returns executor key
-5. **Executor** receives event, executes task, returns `ExecutionResult`
-6. **Dispatcher** processes result, updates database state
+3. **Dispatcher** receives event and hands it to the configured default executor
+4. **Executor** receives event, executes task, returns `ExecutionResult`
+5. **Dispatcher** processes result, updates database state
 
 ```mermaid
 sequenceDiagram
     participant S as Scheduler
     participant D as Dispatcher
-    participant R as Router
     participant E as Executor
     participant DB as Database
 
     S->>DB: Mark task Ready
     S->>D: TaskReadyEvent
-    D->>R: resolve_executor_key(namespace)
-    R-->>D: "gpu"
-    D->>E: execute(event)
+    D->>E: execute(event) via configured default executor
     E->>DB: Load context
     E->>E: Run task
     E->>DB: Save context
@@ -287,7 +268,7 @@ The dispatcher handles errors at multiple levels:
 
 | Error Type | Handling |
 |------------|----------|
-| **DispatchError::NoExecutor** | No executor registered for routing target |
+| **DispatchError::ExecutorNotFound** | No executor registered under the configured default-executor key. Normally pre-empted at startup: the boot-time hard-match rejects an unknown default-executor key before any task is dispatched |
 | **DispatchError::NoCapacity** | All executors at capacity (task stays Ready) |
 | **DispatchError::ExecutionFailed** | Task execution failed (retry or fail based on policy) |
 

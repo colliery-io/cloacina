@@ -75,7 +75,6 @@ graph TB
 
     subgraph "Dispatch Layer"
         DD[DefaultDispatcher]
-        R[Router]
     end
 
     subgraph "Execution Layer"
@@ -99,9 +98,7 @@ graph TB
     DR --> RR
 
     TS -->|TaskReadyEvent| DD
-    DD --> R
-    R -->|resolve executor| DD
-    DD -->|execute| TTE
+    DD -->|execute via configured default executor| TTE
 
     US -->|execute workflow| DR
     RR --> WR
@@ -124,7 +121,7 @@ graph TB
 
 **Unified Scheduler** (`Scheduler`) drives both cron and trigger-based workflow execution from a single polling loop. It queries the database for due cron schedules, atomically claims them to prevent duplicate execution across instances, polls registered triggers respecting per-trigger intervals, and deduplicates trigger firings based on context hashes. It follows a saga pattern: create an audit record, hand off to the `WorkflowExecutor`, then link the result back.
 
-**DefaultDispatcher** routes `TaskReadyEvent`s to the appropriate executor based on configurable glob patterns. The `Router` evaluates rules in order and returns the first matching executor key, falling back to the default executor if no rules match.
+**DefaultDispatcher** hands every `TaskReadyEvent` to the single configured default executor — a server-level deployment knob (`[server].default_executor`, default `default`; e.g. `fleet` for the agent fleet). There is no per-task matching; the configured key is hard-matched against registered executors at startup, with no silent fallback.
 
 **RegistryReconciler** manages the lifecycle of packaged workflows. It periodically compares the set of packages known to the `WorkflowRegistry` against what is currently registered in the global task and workflow registries, loading new packages and unloading removed ones.
 
@@ -250,5 +247,5 @@ All services respond to a shared broadcast shutdown signal. When `runner.shutdow
 - [Horizontal Scaling]({{< relref "horizontal-scaling.md" >}}) -- Task claiming, heartbeats, and multi-runner deployments
 - [Task Execution]({{< relref "task-execution-sequence.md" >}}) -- Detailed task lifecycle and state transitions
 - [Context System]({{< relref "context-management.md" >}}) -- How data flows between tasks
-- [Dispatcher Architecture]({{< relref "dispatcher-architecture.md" >}}) -- Pluggable executor backends and routing
+- [Dispatcher Architecture]({{< relref "dispatcher-architecture.md" >}}) -- Pluggable executor backends and the default executor
 - [Packaged Workflow Architecture]({{< relref "packaged-workflow-architecture.md" >}}) -- How `.cloacina` packages work

@@ -193,19 +193,32 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
 | `--log-retention-days <N>` | | `14` | Number of daily-rotated log files to retain. `0` disables pruning entirely. CLOACI-I-0109 / T-0592. |
 
 This subcommand was renamed from `serve` in an earlier release; older
-docs may still mention the old name. The reconciler poll interval and
-the multi-tenant cache knobs are exposed via `cloacinactl server start`
-(the wrapper forwards them to the underlying `cloacina-server` binary).
-Other runtime-tuning knobs are not surfaced through the wrapper — if
-you need to tune them, invoke `cloacina-server` directly.
+docs may still mention the old name. The reconciler poll interval, the
+multi-tenant cache knobs, and the default executor are exposed via
+`cloacinactl server start` (the wrapper forwards them to the underlying
+`cloacina-server` binary). Other runtime-tuning knobs are not surfaced
+through the wrapper — if you need to tune them, invoke `cloacina-server`
+directly.
 
-### Fleet routing & agent liveness (`cloacina-server`)
+### Default executor (`cloacinactl server start` + `cloacina-server`)
 
-These flags configure the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). They live on the `cloacina-server` binary directly (and via the env vars below); the `cloacinactl server start` wrapper does **not** forward them, so set them on `cloacina-server` itself or through the environment.
+Execution topology is a single deployment knob (CLOACI-T-0640). The
+preferred way to set it is `[server].default_executor` in `config.toml`;
+`cloacinactl server start` reads it and forwards `--default-executor` to
+`cloacina-server`. The flag/env below override the config value for ad-hoc
+runs. The key is hard-matched against the registered executors at startup —
+an unknown key fails fast.
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
-| `--route <GLOB=KEY>` | `CLOACINA_FLEET_ROUTES` | (none) | Task-glob → executor routing rule. Repeatable or comma-separated. A task whose fully-qualified name matches `GLOB` dispatches to executor `KEY` (use `fleet` for the agent fleet); unmatched tasks run on the in-process `default` executor. `*` matches within one `::` segment, `**` across segments — task names are 4-segment (`tenant::package::workflow::task`), so `**=fleet` routes everything. CLOACI-I-0114. |
+| `--default-executor <KEY>` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). Forwarded by `cloacinactl server start`; also settable directly on `cloacina-server`. CLOACI-T-0640. |
+
+### Fleet agent liveness (`cloacina-server`)
+
+These flags tune the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). They live on the `cloacina-server` binary directly (and via the env vars below); the `cloacinactl server start` wrapper does **not** forward them, so set them on `cloacina-server` itself or through the environment.
+
+| Flag | Env Var | Default | Description |
+|---|---|---|---|
 | `--agent-heartbeat-interval-s <N>` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Heartbeat interval (seconds) advertised to agents and used as the liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, more heartbeat traffic. CLOACI-T-0639. |
 | `--agent-liveness-misses <N>` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Consecutive missed heartbeats before an agent is declared dead and its in-flight work reclaimed. Effective dead-after = interval × misses (default 45s). CLOACI-T-0639. |
 

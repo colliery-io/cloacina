@@ -40,7 +40,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::dal::DAL;
-use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
+use crate::dispatcher::{DefaultDispatcher, Dispatcher, TaskExecutor};
 use crate::executor::types::ExecutorConfig;
 use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::executor::ThreadTaskExecutor;
@@ -157,13 +157,10 @@ impl DefaultRunner {
             executor_config,
         );
 
-        // Configure dispatcher for push-based task execution
+        // Configure dispatcher for push-based task execution. Every task is sent
+        // to the one configured executor key (CLOACI-T-0640).
         let dal = DAL::new(database.clone());
-        let routing_config = config
-            .routing_config()
-            .cloned()
-            .unwrap_or_else(RoutingConfig::default);
-        let dispatcher = DefaultDispatcher::new(dal, routing_config);
+        let dispatcher = DefaultDispatcher::new(dal, config.default_executor());
 
         dispatcher.register_executor("default", Arc::new(executor) as Arc<dyn TaskExecutor>);
 
@@ -194,10 +191,11 @@ impl DefaultRunner {
     }
 
     /// Register an additional `TaskExecutor` on the runner's dispatcher under
-    /// a routing key (CLOACI-T-0633). The `"default"` thread executor is
+    /// an executor key (CLOACI-T-0633). The `"default"` thread executor is
     /// registered at construction; this lets a host (e.g. `cloacina-server`)
     /// plug in extra backends — notably the `FleetExecutor` under key
-    /// `"fleet"` — so glob `RoutingRule`s can dispatch matching tasks to it.
+    /// `"fleet"` — so the server can select it via `default_executor`
+    /// (CLOACI-T-0640).
     ///
     /// Returns `true` if registered, `false` if the scheduler has no
     /// dispatcher configured (push-based execution disabled).
@@ -208,6 +206,17 @@ impl DefaultRunner {
         } else {
             false
         }
+    }
+
+    /// Returns `true` if an executor is registered under `key` on this runner's
+    /// dispatcher. Returns `false` when no dispatcher is configured (push-based
+    /// execution disabled). Used to validate a configured `default_executor`
+    /// key at startup (CLOACI-T-0640).
+    pub fn has_executor(&self, key: &str) -> bool {
+        self.scheduler
+            .dispatcher()
+            .map(|d| d.has_executor(key))
+            .unwrap_or(false)
     }
 
     /// Returns a handle to the scoped `Runtime` this runner uses.

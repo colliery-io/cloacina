@@ -88,13 +88,15 @@ struct Cli {
     #[arg(long, default_value_t = 14)]
     log_retention_days: u64,
 
-    /// Fleet routing rules, each `glob=executor_key` (CLOACI-I-0114 / T-0634).
-    /// Repeatable or comma-separated, e.g. `--route 'heavy::*=fleet'` or
-    /// `CLOACINA_FLEET_ROUTES='*=fleet'`. Maps matching task names to the
-    /// execution-agent fleet; unmatched tasks run on the default thread
-    /// executor.
-    #[arg(long = "route", env = "CLOACINA_FLEET_ROUTES", value_delimiter = ',')]
-    routes: Vec<String>,
+    /// Executor every task is dispatched to (CLOACI-T-0640). `default` (the
+    /// in-process thread executor) unless set to another registered key —
+    /// notably `fleet` to send all work to the execution-agent fleet. The key
+    /// must match a registered executor or the server fails fast at startup.
+    /// Operators normally set this via `[server].default_executor` in
+    /// `config.toml` (forwarded by `cloacinactl server start`); this flag/env
+    /// is the override for direct `cloacina-server` runs.
+    #[arg(long, env = "CLOACINA_DEFAULT_EXECUTOR", default_value = "default")]
+    default_executor: String,
 
     /// Heartbeat interval (seconds) the server advertises to fleet agents and
     /// uses as its liveness sweep cadence. Lower = faster dead-agent detection
@@ -136,7 +138,7 @@ async fn main() -> Result<()> {
         cli.tenant_runner_cache_size,
         std::time::Duration::from_secs(cli.tenant_deletion_drain_timeout_s),
         cli.log_retention_days,
-        cli.routes,
+        cli.default_executor,
         cli.agent_heartbeat_interval_s,
         cli.agent_liveness_misses,
     )

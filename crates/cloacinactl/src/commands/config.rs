@@ -53,6 +53,9 @@ pub struct CloacinaConfig {
 
     /// Watch directory settings.
     pub watch: WatchSection,
+
+    /// `cloacina-server` settings.
+    pub server: ServerSection,
 }
 
 /// A named server-targeting profile.
@@ -123,6 +126,25 @@ impl Default for CompilerSection {
 #[serde(default, deny_unknown_fields)]
 pub struct WatchSection {
     pub directories: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ServerSection {
+    /// Executor every task is dispatched to (CLOACI-T-0640). `"default"` runs
+    /// all work on the in-process thread executor; `"fleet"` sends it to the
+    /// execution-agent fleet. This is the preferred way to set the server's
+    /// execution topology — `cloacinactl server start` forwards it to
+    /// `cloacina-server` via `--default-executor`.
+    pub default_executor: String,
+}
+
+impl Default for ServerSection {
+    fn default() -> Self {
+        Self {
+            default_executor: "default".to_string(),
+        }
+    }
 }
 
 impl CloacinaConfig {
@@ -455,6 +477,20 @@ pub fn resolve_database_url(cli_url: Option<&str>, config_path: &Path) -> Result
     })
 }
 
+/// Resolve the server's default executor from CLI arg or config file
+/// (CLOACI-T-0640).
+///
+/// config.toml is the preferred surface, but an explicit `--default-executor`
+/// flag (or `CLOACINA_DEFAULT_EXECUTOR` env, captured by clap) still wins for
+/// ad-hoc runs — same precedence as `resolve_database_url`:
+/// explicit arg > `[server].default_executor` > built-in `"default"`.
+pub fn resolve_default_executor(cli_value: Option<&str>, config_path: &Path) -> String {
+    if let Some(value) = cli_value {
+        return value.to_string();
+    }
+    CloacinaConfig::load(config_path).server.default_executor
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,6 +509,23 @@ mod tests {
         assert_eq!(config.daemon.cron_recovery_interval_s, 300);
         assert_eq!(config.daemon.cron_lost_threshold_min, 10);
         assert!(config.watch.directories.is_empty());
+        assert_eq!(config.server.default_executor, "default");
+    }
+
+    #[test]
+    fn resolve_default_executor_precedence() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+
+        // No config, no CLI → built-in default.
+        assert_eq!(resolve_default_executor(None, &path), "default");
+
+        // config.toml [server].default_executor is used when no CLI override.
+        std::fs::write(&path, "[server]\ndefault_executor = \"fleet\"\n").unwrap();
+        assert_eq!(resolve_default_executor(None, &path), "fleet");
+
+        // Explicit CLI value wins over config.toml.
+        assert_eq!(resolve_default_executor(Some("default"), &path), "default");
     }
 
     #[test]

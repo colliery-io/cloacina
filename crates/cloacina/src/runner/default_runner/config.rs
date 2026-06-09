@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
-use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
+use crate::dispatcher::{DefaultDispatcher, Dispatcher, TaskExecutor};
 use crate::executor::types::ExecutorConfig;
 use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::executor::ThreadTaskExecutor;
@@ -102,7 +102,10 @@ pub struct DefaultRunnerConfig {
     stale_claim_threshold: Duration,
     runner_id: Option<String>,
     runner_name: Option<String>,
-    routing_config: Option<RoutingConfig>,
+    /// Executor key every task is dispatched to (CLOACI-T-0640). `"default"`
+    /// (thread) unless the server opts into another registered executor (e.g.
+    /// `"fleet"`).
+    default_executor: String,
 }
 
 impl DefaultRunnerConfig {
@@ -263,9 +266,9 @@ impl DefaultRunnerConfig {
         self.runner_name.as_deref()
     }
 
-    /// Routing configuration for task dispatch.
-    pub fn routing_config(&self) -> Option<&RoutingConfig> {
-        self.routing_config.as_ref()
+    /// Executor key every task is dispatched to.
+    pub fn default_executor(&self) -> &str {
+        &self.default_executor
     }
 }
 
@@ -318,7 +321,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 stale_claim_threshold: Duration::from_secs(60),
                 runner_id: None,
                 runner_name: None,
-                routing_config: None,
+                default_executor: "default".to_string(),
             },
         }
     }
@@ -486,9 +489,10 @@ impl DefaultRunnerConfigBuilder {
         self
     }
 
-    /// Sets the routing configuration.
-    pub fn routing_config(mut self, value: Option<RoutingConfig>) -> Self {
-        self.config.routing_config = value;
+    /// Sets the executor key every task is dispatched to (CLOACI-T-0640).
+    /// Defaults to `"default"` (the thread executor).
+    pub fn default_executor(mut self, value: impl Into<String>) -> Self {
+        self.config.default_executor = value.into();
         self
     }
 
@@ -741,14 +745,10 @@ impl DefaultRunnerBuilder {
             executor_config,
         );
 
-        // Configure dispatcher for push-based task execution
+        // Configure dispatcher for push-based task execution. Every task is sent
+        // to the one configured executor key (CLOACI-T-0640).
         let dal = crate::dal::DAL::new(database.clone());
-        let routing_config = self
-            .config
-            .routing_config()
-            .cloned()
-            .unwrap_or_else(RoutingConfig::default);
-        let dispatcher = DefaultDispatcher::new(dal, routing_config);
+        let dispatcher = DefaultDispatcher::new(dal, self.config.default_executor());
 
         // Register the executor with the dispatcher
         dispatcher.register_executor("default", Arc::new(executor) as Arc<dyn TaskExecutor>);
@@ -769,24 +769,22 @@ impl DefaultRunnerBuilder {
         Ok(default_runner)
     }
 
-    /// Sets custom routing configuration for task dispatch.
+    /// Sets the executor key every task is dispatched to (CLOACI-T-0640).
     ///
-    /// Use this to route different tasks to different executor backends.
+    /// Defaults to `"default"` (the thread executor). Set to another registered
+    /// executor key (e.g. `"fleet"`) to send all work there instead.
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let runner = DefaultRunner::builder()
     ///     .database_url("sqlite://test.db")
-    ///     .routing_config(
-    ///         RoutingConfig::new("default")
-    ///             .with_rule(RoutingRule::new("ml::*", "gpu"))
-    ///     )
+    ///     .default_executor("fleet")
     ///     .build()
     ///     .await?;
     /// ```
-    pub fn routing_config(mut self, config: RoutingConfig) -> Self {
-        self.config.routing_config = Some(config);
+    pub fn default_executor(mut self, executor: impl Into<String>) -> Self {
+        self.config.default_executor = executor.into();
         self
     }
 }

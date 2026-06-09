@@ -19,7 +19,6 @@ Practical recipes for solving specific problems with the workflow system.
 ## Configuration
 
 - [Variable Registry]({{< ref "/workflows/how-to-guides/variable-registry" >}}) — Use CLOACINA_VAR_ env vars for runtime configuration
-- [Custom Task Routing]({{< ref "/workflows/how-to-guides/custom-task-routing" >}}) — Route tasks to different executors by name pattern
 
 ## Operations
 

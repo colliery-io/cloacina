@@ -16,8 +16,10 @@
 
 //! Default dispatcher implementation.
 //!
-//! Provides the standard dispatcher that routes tasks to executors based on
-//! configurable glob patterns.
+//! Provides the standard dispatcher that sends every task to a single
+//! server-configured executor. Choosing *which* node/compute a task runs on is
+//! deliberately an executor-internal concern (CLOACI-T-0640) — the scheduler and
+//! dispatcher only know the one configured executor key.
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
@@ -25,57 +27,59 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
-use super::router::Router;
 use super::traits::{Dispatcher, TaskExecutor};
-use super::types::{DispatchError, ExecutionStatus, RoutingConfig, TaskReadyEvent};
+use super::types::{DispatchError, ExecutionStatus, TaskReadyEvent};
 use crate::dal::DAL;
 
-/// Default dispatcher implementation with glob-based routing.
+/// Default dispatcher implementation.
 ///
-/// The DefaultDispatcher maintains a registry of executor backends and routes
-/// tasks based on pattern matching rules. It handles the full dispatch lifecycle
-/// including state transitions and result handling.
+/// The DefaultDispatcher maintains a registry of executor backends and sends
+/// every task to the single configured `default_executor_key`. It handles the
+/// full dispatch lifecycle including state transitions and result handling.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// use cloacina::dispatcher::{DefaultDispatcher, RoutingConfig, RoutingRule};
+/// use cloacina::dispatcher::DefaultDispatcher;
 ///
-/// let config = RoutingConfig::new("default")
-///     .with_rule(RoutingRule::new("ml::*", "gpu"))
-///     .with_rule(RoutingRule::new("heavy_*", "high_memory"));
-///
-/// let dispatcher = DefaultDispatcher::new(dal, config);
+/// // Every task runs on the "default" (thread) executor.
+/// let dispatcher = DefaultDispatcher::new(dal, "default");
 /// dispatcher.register_executor("default", Arc::new(thread_executor));
-/// dispatcher.register_executor("gpu", Arc::new(gpu_executor));
+///
+/// // Or send everything to the fleet:
+/// let dispatcher = DefaultDispatcher::new(dal, "fleet");
+/// dispatcher.register_executor("fleet", Arc::new(fleet_executor));
 /// ```
 pub struct DefaultDispatcher {
     /// Registered executor backends
     executors: RwLock<HashMap<String, Arc<dyn TaskExecutor>>>,
-    /// Routing logic
-    router: Router,
+    /// The single executor key every task is dispatched to.
+    default_executor_key: String,
     /// Data access layer for state updates
     dal: DAL,
 }
 
 impl DefaultDispatcher {
-    /// Creates a new DefaultDispatcher with the given DAL and routing configuration.
-    pub fn new(dal: DAL, routing: RoutingConfig) -> Self {
+    /// Creates a new DefaultDispatcher that dispatches every task to
+    /// `default_executor` (e.g. `"default"` for the thread executor, `"fleet"`
+    /// for the execution-agent fleet).
+    pub fn new(dal: DAL, default_executor: impl Into<String>) -> Self {
         Self {
             executors: RwLock::new(HashMap::new()),
-            router: Router::new(routing),
+            default_executor_key: default_executor.into(),
             dal,
         }
     }
 
-    /// Creates a dispatcher with default routing (all tasks go to "default" executor).
+    /// Creates a dispatcher that sends every task to the `"default"` (thread)
+    /// executor.
     pub fn with_defaults(dal: DAL) -> Self {
-        Self::new(dal, RoutingConfig::default())
+        Self::new(dal, "default")
     }
 
-    /// Gets a reference to the router for inspection.
-    pub fn router(&self) -> &Router {
-        &self.router
+    /// The executor key every task is dispatched to.
+    pub fn default_executor_key(&self) -> &str {
+        &self.default_executor_key
     }
 
     /// Gets a reference to the DAL.
@@ -135,7 +139,7 @@ impl DefaultDispatcher {
 #[async_trait]
 impl Dispatcher for DefaultDispatcher {
     async fn dispatch(&self, event: TaskReadyEvent) -> Result<(), DispatchError> {
-        let executor_key = self.router.resolve(&event.task_name);
+        let executor_key = self.default_executor_key.as_str();
 
         let executor = {
             let executors = self.executors.read();
@@ -179,8 +183,14 @@ impl Dispatcher for DefaultDispatcher {
         executors.values().any(|e| e.has_capacity())
     }
 
-    fn resolve_executor_key(&self, task_name: &str) -> String {
-        self.router.resolve(task_name).to_string()
+    fn resolve_executor_key(&self, _task_name: &str) -> String {
+        // Routing is gone (CLOACI-T-0640): every task goes to the one configured
+        // executor regardless of task name.
+        self.default_executor_key.clone()
+    }
+
+    fn has_executor(&self, key: &str) -> bool {
+        self.executors.read().contains_key(key)
     }
 }
 
@@ -255,41 +265,9 @@ mod tests {
 
     #[test]
     fn test_register_executor() {
-        // We can't easily test dispatch without a real DAL, but we can test registration
-        let _config = RoutingConfig::default();
-
-        // Just verify the types work together
+        // We can't easily test dispatch without a real DAL, but we can verify
+        // the types work together.
         let _executor: Arc<dyn TaskExecutor> = Arc::new(MockExecutor::new("test"));
-    }
-
-    #[test]
-    fn test_resolve_executor_key() {
-        // Create a mock DAL-less test by just testing routing
-        let config = RoutingConfig::new("default")
-            .with_rule(super::super::types::RoutingRule::new("ml::*", "gpu"));
-        let router = Router::new(config);
-
-        assert_eq!(router.resolve("ml::train"), "gpu");
-        assert_eq!(router.resolve("etl::extract"), "default");
-    }
-
-    #[test]
-    fn test_routing_config_default() {
-        let config = RoutingConfig::default();
-        assert_eq!(config.default_executor, "default");
-        assert!(config.rules.is_empty());
-    }
-
-    #[test]
-    fn test_routing_config_with_multiple_rules() {
-        let config = RoutingConfig::new("default")
-            .with_rule(super::super::types::RoutingRule::new("ml::*", "gpu"))
-            .with_rule(super::super::types::RoutingRule::new("io::*", "io_pool"));
-        let router = Router::new(config);
-
-        assert_eq!(router.resolve("ml::train"), "gpu");
-        assert_eq!(router.resolve("io::read"), "io_pool");
-        assert_eq!(router.resolve("unknown::task"), "default");
     }
 
     #[test]

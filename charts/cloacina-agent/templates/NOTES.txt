@@ -17,9 +17,11 @@ Server:   {{ .Values.server.url }}
     kubectl --namespace {{ .Release.Namespace }} \
       logs deployment/<your-server-release>-cloacina-server | grep -i "agent registered"
 
-3. Route work to the fleet on the SERVER (not here) via
-   `CLOACINA_FLEET_ROUTES` / `--route`, e.g. `**=fleet`. Tasks whose names
-   match dispatch to these agents; everything else runs in-process.
+3. Send work to the fleet on the SERVER (not here) by setting its default
+   executor to `fleet` — `[server].default_executor = "fleet"` in config.toml,
+   or `CLOACINA_DEFAULT_EXECUTOR=fleet` / `--default-executor fleet`. Every
+   task then dispatches to these agents (the server hard-matches the key at
+   startup, so deploy the fleet before flipping it).
 
 4. Watch the fleet via the server's /metrics:
    `cloacina_fleet_agents_evicted_total`, `cloacina_fleet_work_reassigned_total`,

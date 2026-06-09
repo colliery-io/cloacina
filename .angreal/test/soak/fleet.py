@@ -170,10 +170,11 @@ def fleet():
             print(f"(failed to read {path}: {exc})")
 
     try:
-        # --- server (all tasks routed to the fleet) ------------------------
+        # --- server (all tasks dispatched to the fleet) --------------------
         print_section_header("Boot server + compiler + agents")
         server_env = os.environ.copy()
-        server_env["CLOACINA_FLEET_ROUTES"] = "**=fleet"
+        # CLOACI-T-0640: single server-level executor knob (no glob routing).
+        server_env["CLOACINA_DEFAULT_EXECUTOR"] = "fleet"
         server_proc = subprocess.Popen(
             ["target/debug/cloacina-server", "--home", str(home),
              "--database-url", db_url, "--bind", server_bind,
