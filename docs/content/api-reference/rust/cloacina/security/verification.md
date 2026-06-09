@@ -34,6 +34,13 @@ When `false`, packages load without verification (for local development). |
 
 Only needed if using database-stored signing keys for signing operations.
 For verification-only scenarios (loading packages), this is not required. |
+| `verification_org_id` | `Option < UniversalUuid >` | Organization ID against which uploaded-package signatures are
+verified. The verification flow looks up trusted keys scoped to
+this org (`KeyManager::find_trusted_key(org_id, fingerprint)`).
+`None` means "no org binding configured" — verification cannot
+run, and `require_signatures = true` becomes fail-safe (reject
+all uploads). Set this to the server's default-org UUID when
+signature verification is enabled. (T-0557 Bug 2) |
 
 #### Methods
 
@@ -54,6 +61,7 @@ Create a security config that requires signatures.
         Self {
             require_signatures: true,
             key_encryption_key: None,
+            verification_org_id: None,
         }
     }
 ```
@@ -409,6 +417,115 @@ pub fn verify_package_offline<P: AsRef<Path>, S: AsRef<Path>>(
         package_hash,
         signer_fingerprint: signature.key_fingerprint,
         signer_name: None,
+    })
+}
+```
+
+</details>
+
+
+
+### `cloacina::security::verification::verify_package_bytes`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+async fn verify_package_bytes (package_data : & [u8] , org_id : UniversalUuid , signature_source : SignatureSource , package_signer : & DbPackageSigner , key_manager : & DbKeyManager ,) -> Result < VerificationResult , VerificationError >
+```
+
+Verify a package signature against in-memory bytes. Same flow as `verify_package` but takes a `&[u8]` instead of a path; useful for upload handlers that already have the package buffered (T-0557 Bug 2).
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub async fn verify_package_bytes(
+    package_data: &[u8],
+    org_id: UniversalUuid,
+    signature_source: SignatureSource,
+    package_signer: &DbPackageSigner,
+    key_manager: &DbKeyManager,
+) -> Result<VerificationResult, VerificationError> {
+    let package_hash = compute_package_hash(package_data)?;
+
+    let signature = match signature_source {
+        SignatureSource::Database => load_signature_from_db(&package_hash, package_signer).await?,
+        SignatureSource::DetachedFile { path } => load_signature_from_file(&path)?,
+        SignatureSource::Auto => {
+            // No on-disk path to derive a sidecar from — fall back to
+            // database lookup. Callers wanting detached-file behavior
+            // must pass `DetachedFile` explicitly.
+            load_signature_from_db(&package_hash, package_signer).await?
+        }
+    };
+
+    if signature.package_hash != package_hash {
+        audit::log_verification_failure(
+            org_id,
+            &package_hash,
+            "tampered",
+            Some(&signature.key_fingerprint),
+        );
+        return Err(VerificationError::TamperedPackage {
+            expected: signature.package_hash,
+            actual: package_hash,
+        });
+    }
+
+    let trusted_key = key_manager
+        .find_trusted_key(org_id, &signature.key_fingerprint)
+        .await
+        .map_err(|e| VerificationError::KeyManagerError {
+            error: e.to_string(),
+        })?
+        .ok_or_else(|| {
+            audit::log_verification_failure(
+                org_id,
+                &package_hash,
+                "untrusted_signer",
+                Some(&signature.key_fingerprint),
+            );
+            VerificationError::UntrustedSigner {
+                fingerprint: signature.key_fingerprint.clone(),
+            }
+        })?;
+
+    let hash_bytes = hex::decode(&package_hash).map_err(|e| VerificationError::HashError {
+        error: e.to_string(),
+    })?;
+
+    let sig_bytes = signature.signature_bytes().map_err(|_| {
+        audit::log_verification_failure(
+            org_id,
+            &package_hash,
+            "invalid_signature",
+            Some(&signature.key_fingerprint),
+        );
+        VerificationError::InvalidSignature
+    })?;
+
+    if verify_signature(&hash_bytes, &sig_bytes, &trusted_key.public_key).is_err() {
+        audit::log_verification_failure(
+            org_id,
+            &package_hash,
+            "invalid_signature",
+            Some(&signature.key_fingerprint),
+        );
+        return Err(VerificationError::InvalidSignature);
+    }
+
+    audit::log_verification_success(
+        org_id,
+        &package_hash,
+        &signature.key_fingerprint,
+        trusted_key.key_name.as_deref(),
+    );
+
+    Ok(VerificationResult {
+        package_hash,
+        signer_fingerprint: signature.key_fingerprint,
+        signer_name: trusted_key.key_name,
     })
 }
 ```

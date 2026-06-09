@@ -28,6 +28,16 @@ Configuration for the unified scheduler.
 | `max_acceptable_delay` | `Duration` | Maximum acceptable delay for cron (used for observability / alerting). |
 | `trigger_base_poll_interval` | `Duration` | Base poll interval — the tick rate of the run loop. |
 | `trigger_poll_timeout` | `Duration` | Maximum time to wait for a single trigger poll operation. |
+| `reactor_poll_interval` | `Duration` | How often to poll reactor subscriptions for new firings
+(CLOACI-I-0100 / T-0599). Defaults to the base tick interval. |
+| `reactor_poll_batch_limit` | `i64` | Maximum number of unconsumed firings to drain per subscription
+per tick. Caps unbounded backlog work on a single tick. |
+| `reactor_firings_prune_interval` | `Duration` | How often to prune old `reactor_firings` rows
+(CLOACI-I-0100 / T-0601). Defaults to 1 hour. |
+| `reactor_firings_retention` | `Duration` | Retention window for `reactor_firings` rows. Anything with
+`fired_at < now - retention` is deleted on each prune sweep.
+Defaults to 7 days. Subscriptions whose watermark predates the
+retention window will miss firings — documented gotcha. |
 
 
 
@@ -54,8 +64,18 @@ The scheduler runs a single polling loop that:
 | `executor` | `Arc < dyn WorkflowExecutor >` |  |
 | `config` | `SchedulerConfig` |  |
 | `shutdown` | `watch :: Receiver < bool >` |  |
+| `runtime` | `Arc < Runtime >` | Scoped runtime used to look up trigger constructors. |
 | `last_poll_times` | `HashMap < String , Instant >` | Tracks when each trigger was last polled (by trigger name). |
 | `last_cron_check` | `Option < Instant >` | Tracks when cron schedules were last checked. |
+| `last_reactor_poll` | `Option < Instant >` | Tracks when reactor subscriptions were last polled
+(CLOACI-I-0100 / T-0599). |
+| `last_reactor_prune` | `Option < Instant >` | Tracks when the `reactor_firings` TTL prune last ran
+(CLOACI-I-0100 / T-0601). |
+| `predicate_cache` | `PredicateCache` | Per-subscription compiled CEL predicate cache (CLOACI-T-0602).
+Key is the subscription id; value is `(expression_string, program)`
+so we can invalidate on expression-text change without restart.
+Arc<Mutex> for shared interior mutability across Scheduler clones
+(the active poller is single-threaded, but Clone is on the type). |
 
 #### Methods
 
@@ -63,7 +83,7 @@ The scheduler runs a single polling loop that:
 
 
 ```rust
-fn new (dal : Arc < DAL > , executor : Arc < dyn WorkflowExecutor > , config : SchedulerConfig , shutdown : watch :: Receiver < bool > ,) -> Self
+fn new (dal : Arc < DAL > , executor : Arc < dyn WorkflowExecutor > , config : SchedulerConfig , shutdown : watch :: Receiver < bool > , runtime : Arc < Runtime > ,) -> Self
 ```
 
 Creates a new unified scheduler.
@@ -73,7 +93,7 @@ Creates a new unified scheduler.
 | Name | Type | Description |
 |------|------|-------------|
 | `dal` | `-` | Data access layer for database operations |
-| `executor` | `-` | Pipeline executor for workflow execution |
+| `executor` | `-` | Workflow executor for workflow execution |
 | `config` | `-` | Scheduler configuration |
 | `shutdown` | `-` | Shutdown signal receiver |
 
@@ -87,14 +107,19 @@ Creates a new unified scheduler.
         executor: Arc<dyn WorkflowExecutor>,
         config: SchedulerConfig,
         shutdown: watch::Receiver<bool>,
+        runtime: Arc<Runtime>,
     ) -> Self {
         Self {
             dal,
             executor,
             config,
             shutdown,
+            runtime,
             last_poll_times: HashMap::new(),
             last_cron_check: None,
+            last_reactor_poll: None,
+            last_reactor_prune: None,
+            predicate_cache: Arc::new(parking_lot::Mutex::new(HashMap::new())),
         }
     }
 ```
@@ -107,7 +132,7 @@ Creates a new unified scheduler.
 
 
 ```rust
-fn with_defaults (dal : Arc < DAL > , executor : Arc < dyn WorkflowExecutor > , shutdown : watch :: Receiver < bool > ,) -> Self
+fn with_defaults (dal : Arc < DAL > , executor : Arc < dyn WorkflowExecutor > , shutdown : watch :: Receiver < bool > , runtime : Arc < Runtime > ,) -> Self
 ```
 
 Creates a new unified scheduler with default configuration.
@@ -120,8 +145,9 @@ Creates a new unified scheduler with default configuration.
         dal: Arc<DAL>,
         executor: Arc<dyn WorkflowExecutor>,
         shutdown: watch::Receiver<bool>,
+        runtime: Arc<Runtime>,
     ) -> Self {
-        Self::new(dal, executor, SchedulerConfig::default(), shutdown)
+        Self::new(dal, executor, SchedulerConfig::default(), shutdown, runtime)
     }
 ```
 
@@ -178,6 +204,30 @@ The loop continues until a shutdown signal is received.
                     // --- Triggers ---
                     if let Err(e) = self.check_and_process_triggers().await {
                         error!("Error processing triggers: {}", e);
+                    }
+
+                    // --- Reactor subscriptions (CLOACI-I-0100 / T-0599) ---
+                    let should_poll_reactors = match self.last_reactor_poll {
+                        Some(last) => now.duration_since(last) >= self.config.reactor_poll_interval,
+                        None => true,
+                    };
+                    if should_poll_reactors {
+                        self.last_reactor_poll = Some(now);
+                        if let Err(e) = self.check_and_process_reactor_subscriptions().await {
+                            error!("Error processing reactor subscriptions: {}", e);
+                        }
+                    }
+
+                    // --- Reactor firings TTL prune (CLOACI-I-0100 / T-0601) ---
+                    let should_prune = match self.last_reactor_prune {
+                        Some(last) => {
+                            now.duration_since(last) >= self.config.reactor_firings_prune_interval
+                        }
+                        None => true,
+                    };
+                    if should_prune {
+                        self.last_reactor_prune = Some(now);
+                        self.prune_reactor_firings().await;
                     }
                 }
                 _ = self.shutdown.changed() => {
@@ -333,19 +383,33 @@ Processes a single cron schedule using the saga pattern.
                 }
             };
 
-            // Step 2: Hand off to pipeline executor
+            // Step 2: Hand off to workflow executor
             match self.execute_cron_workflow(schedule, scheduled_time).await {
-                Ok(pipeline_execution_id) => {
+                Ok(workflow_execution_id) => {
                     // Step 3: Link audit record
                     if let Err(e) = self
                         .dal
                         .schedule_execution()
-                        .update_pipeline_execution_id(audit_record_id, pipeline_execution_id)
+                        .update_workflow_execution_id(audit_record_id, workflow_execution_id)
                         .await
                     {
                         error!(
                             "Failed to complete audit trail for cron schedule {} execution: {}",
                             schedule.id, e
+                        );
+                    }
+
+                    // Step 4: Mark execution complete so cron_recovery does not
+                    // treat it as lost and reschedule it on every tick.
+                    if let Err(e) = self
+                        .dal
+                        .schedule_execution()
+                        .complete(audit_record_id, Utc::now())
+                        .await
+                    {
+                        warn!(
+                            "Failed to mark cron schedule execution {} complete: {}",
+                            audit_record_id, e
                         );
                     }
 
@@ -359,10 +423,19 @@ Processes a single cron schedule using the saga pattern.
                         "Failed to execute workflow {} for cron schedule {} (scheduled: {}): {}",
                         schedule.workflow_name, schedule.id, scheduled_time, e
                     );
-                    error!(
-                        "Execution lost: audit record {} exists but pipeline execution failed",
-                        audit_record_id
-                    );
+                    // Mark execution complete (failed) so cron_recovery does not
+                    // treat it as lost and retry it indefinitely.
+                    if let Err(e) = self
+                        .dal
+                        .schedule_execution()
+                        .complete(audit_record_id, Utc::now())
+                        .await
+                    {
+                        warn!(
+                            "Failed to mark cron schedule execution {} complete after failure: {}",
+                            audit_record_id, e
+                        );
+                    }
                 }
             }
         }
@@ -519,7 +592,7 @@ Calculates the next run time for a cron schedule.
 async fn execute_cron_workflow (& self , schedule : & Schedule , scheduled_time : DateTime < Utc > ,) -> Result < UniversalUuid , WorkflowExecutionError >
 ```
 
-Executes a cron workflow by handing it off to the pipeline executor.
+Executes a cron workflow by handing it off to the workflow executor.
 
 <details>
 <summary>Source</summary>
@@ -566,17 +639,17 @@ Executes a cron workflow by handing it off to the pipeline executor.
             schedule.workflow_name, schedule.id, scheduled_time
         );
 
-        let pipeline_result = self
+        let workflow_result = self
             .executor
             .execute(&schedule.workflow_name, context)
             .await?;
 
         debug!(
             "Successfully handed off workflow '{}' to executor (execution_id: {})",
-            schedule.workflow_name, pipeline_result.execution_id
+            schedule.workflow_name, workflow_result.execution_id
         );
 
-        Ok(UniversalUuid(pipeline_result.execution_id))
+        Ok(UniversalUuid(workflow_result.execution_id))
     }
 ```
 
@@ -605,7 +678,7 @@ Creates an audit record for a cron execution.
     ) -> Result<UniversalUuid, ValidationError> {
         let new_execution = NewScheduleExecution {
             schedule_id,
-            pipeline_execution_id: None,
+            workflow_execution_id: None,
             scheduled_time: Some(UniversalTimestamp(scheduled_time)),
             claimed_at: Some(UniversalTimestamp(Utc::now())),
             context_hash: None,
@@ -720,9 +793,11 @@ Processes a single trigger schedule.
             trigger_name, schedule.workflow_name
         );
 
-        // Get the trigger instance from registry
-        let trigger = get_trigger(trigger_name).ok_or_else(|| TriggerError::TriggerNotFound {
-            name: trigger_name.to_string(),
+        // Get the trigger instance from the scoped runtime
+        let trigger = self.runtime.get_trigger(trigger_name).ok_or_else(|| {
+            TriggerError::TriggerNotFound {
+                name: trigger_name.to_string(),
+            }
         })?;
 
         // Poll the trigger with timeout
@@ -788,25 +863,25 @@ Processes a single trigger schedule.
         // Extract context from result
         let context = poll_result.into_context().unwrap_or_else(Context::new);
 
-        // Hand off to pipeline executor
+        // Hand off to workflow executor
         match self.execute_trigger_workflow(schedule, context).await {
-            Ok(pipeline_execution_id) => {
-                // Link the execution to the pipeline execution
+            Ok(workflow_execution_id) => {
+                // Link the execution to the workflow execution
                 if let Err(e) = self
                     .dal
                     .schedule_execution()
-                    .update_pipeline_execution_id(execution.id, pipeline_execution_id)
+                    .update_workflow_execution_id(execution.id, workflow_execution_id)
                     .await
                 {
                     warn!(
-                        "Failed to link schedule execution to pipeline execution: {}",
+                        "Failed to link schedule execution to workflow execution: {}",
                         e
                     );
                 }
 
                 info!(
                     "Successfully scheduled workflow '{}' for trigger '{}' (execution: {})",
-                    schedule.workflow_name, trigger_name, pipeline_execution_id
+                    schedule.workflow_name, trigger_name, workflow_execution_id
                 );
             }
             Err(e) => {
@@ -862,7 +937,7 @@ Creates an audit record for a trigger execution.
     ) -> Result<crate::models::schedule::ScheduleExecution, TriggerError> {
         let new_execution = NewScheduleExecution {
             schedule_id,
-            pipeline_execution_id: None,
+            workflow_execution_id: None,
             scheduled_time: None,
             claimed_at: None,
             context_hash: Some(context_hash.to_string()),
@@ -896,7 +971,7 @@ Creates an audit record for a trigger execution.
 async fn execute_trigger_workflow (& self , schedule : & Schedule , mut context : Context < serde_json :: Value > ,) -> Result < UniversalUuid , WorkflowExecutionError >
 ```
 
-Executes a trigger workflow by handing it off to the pipeline executor.
+Executes a trigger workflow by handing it off to the workflow executor.
 
 <details>
 <summary>Source</summary>
@@ -931,6 +1006,393 @@ Executes a trigger workflow by handing it off to the pipeline executor.
         );
 
         Ok(UniversalUuid(result.execution_id))
+    }
+```
+
+</details>
+
+
+
+##### `poll_reactor_subscriptions_once` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn poll_reactor_subscriptions_once (& self) -> Result < () , WorkflowExecutionError >
+```
+
+Polls the `reactor_trigger_subscriptions` table and dispatches one workflow execution per unconsumed `reactor_firings` row.
+
+Watermark advance happens after dispatch — at-least-once on crash.
+Workflow idempotency is the user's concern (same as cron-triggered
+workflows).
+Run one pass over enabled reactor subscriptions, draining new
+firings and dispatching workflows. Exposed publicly so that
+integration tests can drive the loop deterministically without
+waiting on the background tick, and so operators can trigger
+an immediate poll in ad-hoc scripts.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn poll_reactor_subscriptions_once(&self) -> Result<(), WorkflowExecutionError> {
+        self.check_and_process_reactor_subscriptions().await
+    }
+```
+
+</details>
+
+
+
+##### `check_and_process_reactor_subscriptions` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn check_and_process_reactor_subscriptions (& self) -> Result < () , WorkflowExecutionError >
+```
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn check_and_process_reactor_subscriptions(&self) -> Result<(), WorkflowExecutionError> {
+        let subs = match self.dal.reactor_subscriptions().list_all_enabled().await {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!("Failed to list reactor subscriptions: {}", e);
+                return Ok(());
+            }
+        };
+
+        if subs.is_empty() {
+            return Ok(());
+        }
+
+        debug!(
+            "Polling {} reactor subscription(s) for new firings",
+            subs.len()
+        );
+
+        for sub in subs {
+            if let Err(e) = self.process_reactor_subscription(&sub).await {
+                error!(
+                    subscription = %sub.id.0,
+                    reactor = %sub.reactor_name,
+                    workflow = %sub.workflow_name,
+                    "Failed to process reactor subscription: {}",
+                    e
+                );
+            }
+        }
+
+        Ok(())
+    }
+```
+
+</details>
+
+
+
+##### `process_reactor_subscription` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn process_reactor_subscription (& self , sub : & crate :: dal :: unified :: ReactorSubscription ,) -> Result < () , WorkflowExecutionError >
+```
+
+Drain new firings for one subscription and dispatch each as a workflow execution.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn process_reactor_subscription(
+        &self,
+        sub: &crate::dal::unified::ReactorSubscription,
+    ) -> Result<(), WorkflowExecutionError> {
+        let firings = self
+            .dal
+            .reactor_subscriptions()
+            .poll_unconsumed(
+                &sub.tenant_id,
+                &sub.reactor_name,
+                sub.last_seen_fired_at,
+                self.config.reactor_poll_batch_limit,
+            )
+            .await
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+                message: format!(
+                    "reactor poll_unconsumed failed for subscription {}: {}",
+                    sub.id.0, e
+                ),
+            })?;
+
+        // CLOACI-T-0602 — borrow the CEL predicate string (if any) so we
+        // can evaluate it inside the per-firing loop below.
+        let predicate_expr = sub.predicate_expression.as_deref();
+
+        for firing in firings {
+            // Build the workflow's input context from the firing payload.
+            let mut context = Context::<serde_json::Value>::new();
+
+            if let Some(payload) = &firing.payload {
+                match bincode::deserialize::<std::collections::HashMap<String, Vec<u8>>>(
+                    payload.as_slice(),
+                ) {
+                    Ok(entries) => {
+                        for (source, bytes) in entries {
+                            // Boundary payloads are bincode; surface as JSON
+                            // when we can, otherwise as a hex string. The
+                            // workflow author knows the source schema and
+                            // can re-decode as needed.
+                            let value = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                                Ok(v) => v,
+                                Err(_) => serde_json::json!(hex::encode(&bytes)),
+                            };
+                            if let Err(e) = context.insert(&source, value) {
+                                warn!(
+                                    "reactor firing {}: failed to insert source '{}' into context: {}",
+                                    firing.id.0, source, e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "reactor firing {}: failed to decode payload, dispatching with empty context: {}",
+                            firing.id.0, e
+                        );
+                    }
+                }
+            }
+
+            let _ = context.insert("reactor_name", serde_json::json!(sub.reactor_name.clone()));
+            let _ = context.insert("reactor_firing_id", serde_json::json!(firing.id.0));
+            let _ = context.insert(
+                "reactor_fired_at",
+                serde_json::json!(firing.fired_at.0.to_rfc3339()),
+            );
+
+            // CLOACI-T-0602 — predicate evaluation. If the subscription
+            // carries a CEL filter, evaluate it now. Skip dispatch when
+            // it's false; advance the watermark either way (the firing
+            // was *seen* even if we decided not to fire). Eval errors are
+            // logged warn and treated as skip — fail-closed semantics
+            // mirror the spec: a broken filter shouldn't fire workflows.
+            if let Some(expr) = predicate_expr {
+                match self.evaluate_predicate(sub.id, expr, &context) {
+                    Ok(true) => {} // proceed to dispatch
+                    Ok(false) => {
+                        debug!(
+                            subscription = %sub.id.0,
+                            firing = %firing.id.0,
+                            "predicate evaluated false; skipping dispatch + advancing watermark",
+                        );
+                        if let Err(e) = self
+                            .dal
+                            .reactor_subscriptions()
+                            .advance_watermark(sub.id.0, firing.fired_at)
+                            .await
+                        {
+                            warn!(
+                                subscription = %sub.id.0,
+                                firing = %firing.id.0,
+                                "watermark advance failed for filtered firing; \
+                                 it may re-evaluate next tick: {}",
+                                e
+                            );
+                            return Ok(());
+                        }
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!(
+                            subscription = %sub.id.0,
+                            firing = %firing.id.0,
+                            "predicate eval error (treating as skip): {}",
+                            e
+                        );
+                        if let Err(e) = self
+                            .dal
+                            .reactor_subscriptions()
+                            .advance_watermark(sub.id.0, firing.fired_at)
+                            .await
+                        {
+                            warn!(
+                                subscription = %sub.id.0,
+                                firing = %firing.id.0,
+                                "watermark advance failed after predicate error: {}",
+                                e
+                            );
+                            return Ok(());
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            // Dispatch — fire-and-forget. The poller hands off the
+            // workflow and moves on; failures are surfaced via the
+            // standard execution audit, not by blocking this tick.
+            match self
+                .executor
+                .execute_async(&sub.workflow_name, context)
+                .await
+            {
+                Ok(handle) => {
+                    debug!(
+                        subscription = %sub.id.0,
+                        firing = %firing.id.0,
+                        execution = %handle.execution_id,
+                        "dispatched workflow '{}' for reactor '{}'",
+                        sub.workflow_name, sub.reactor_name,
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        subscription = %sub.id.0,
+                        firing = %firing.id.0,
+                        "failed to dispatch workflow '{}' for reactor '{}': {}",
+                        sub.workflow_name, sub.reactor_name, e
+                    );
+                    // Stop draining this subscription on dispatch error so
+                    // the watermark stays put and the firing is retried on
+                    // the next tick. Other subscriptions still progress.
+                    return Err(e);
+                }
+            }
+
+            // Advance watermark only after successful dispatch.
+            if let Err(e) = self
+                .dal
+                .reactor_subscriptions()
+                .advance_watermark(sub.id.0, firing.fired_at)
+                .await
+            {
+                warn!(
+                    subscription = %sub.id.0,
+                    firing = %firing.id.0,
+                    "watermark advance failed; firing may be re-dispatched: {}",
+                    e
+                );
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+```
+
+</details>
+
+
+
+##### `evaluate_predicate` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn evaluate_predicate (& self , sub_id : UniversalUuid , expr : & str , context : & Context < serde_json :: Value > ,) -> Result < bool , String >
+```
+
+Evaluate a CEL predicate for a subscription firing (CLOACI-T-0602).
+
+Compiles `expr` on first sight per subscription id and caches
+the `Program` for future firings. If the expression text changes
+(subscriber re-subscribes with a different `when=`), the cache
+entry is invalidated by comparing the stored expression string.
+Returns:
+- `Ok(true)`  — predicate fired, dispatch should proceed.
+- `Ok(false)` — predicate did not fire, skip + advance watermark.
+- `Err(_)`    — compile error or runtime evaluation error.
+Caller treats as skip per the fail-closed contract.
+Variables exposed to the CEL expression:
+- `payload`  — a map keyed by boundary source name, values are
+the JSON-decoded payloads (or hex strings for non-JSON bytes).
+- `reactor`  — the reactor name (string).
+- `tenant`   — the tenant id (string).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    fn evaluate_predicate(
+        &self,
+        sub_id: UniversalUuid,
+        expr: &str,
+        context: &Context<serde_json::Value>,
+    ) -> Result<bool, String> {
+        // Cache lookup. Re-compile only when the stored expression
+        // string doesn't match — handles "subscriber upserted with a
+        // new `when=`" without an explicit invalidation API.
+        let program = {
+            let mut cache = self.predicate_cache.lock();
+            match cache.get(&sub_id) {
+                Some((cached_expr, prog)) if cached_expr == expr => prog.clone(),
+                _ => {
+                    let prog = Arc::new(
+                        cel_interpreter::Program::compile(expr)
+                            .map_err(|e| format!("compile error: {}", e))?,
+                    );
+                    cache.insert(sub_id, (expr.to_string(), prog.clone()));
+                    prog
+                }
+            }
+        };
+        eval_cel_predicate_program(&program, context)
+    }
+```
+
+</details>
+
+
+
+##### `prune_reactor_firings` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn prune_reactor_firings (& self)
+```
+
+TTL prune of `reactor_firings` (CLOACI-I-0100 / T-0601).
+
+Best-effort: errors log warn and never propagate. Subscriptions
+whose `last_seen_fired_at` predates the cutoff will skip past
+firings that get pruned — documented gotcha in the tutorial.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    async fn prune_reactor_firings(&self) {
+        let cutoff_dt = Utc::now()
+            - chrono::Duration::from_std(self.config.reactor_firings_retention)
+                .unwrap_or(chrono::Duration::days(7));
+        let cutoff = UniversalTimestamp(cutoff_dt);
+
+        match self
+            .dal
+            .reactor_subscriptions()
+            .prune_firings_older_than(cutoff)
+            .await
+        {
+            Ok(0) => {
+                debug!("reactor_firings prune: no rows older than {}", cutoff_dt);
+            }
+            Ok(n) => {
+                debug!(
+                    "reactor_firings prune: deleted {} row(s) older than {}",
+                    n, cutoff_dt
+                );
+                metrics::counter!("cloacina_reactor_firings_pruned_total").increment(n as u64);
+            }
+            Err(e) => {
+                warn!("reactor_firings prune failed: {}", e);
+            }
+        }
     }
 ```
 
@@ -1042,6 +1504,64 @@ Enables a trigger by name.
         }
         Ok(())
     }
+```
+
+</details>
+
+
+
+
+
+## Functions
+
+### `cloacina::cron_trigger_scheduler::eval_cel_predicate_program`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn eval_cel_predicate_program (program : & cel_interpreter :: Program , context : & Context < serde_json :: Value > ,) -> Result < bool , String >
+```
+
+Evaluate a compiled CEL `Program` against a workflow context, returning the boolean result. CLOACI-T-0602 helper, factored so the cache + pure evaluation logic can be tested independently.
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn eval_cel_predicate_program(
+    program: &cel_interpreter::Program,
+    context: &Context<serde_json::Value>,
+) -> Result<bool, String> {
+    use cel_interpreter::{Context as CelContext, Value as CelValue};
+
+    let mut cel_ctx = CelContext::default();
+    let mut payload = serde_json::Map::new();
+    for (k, v) in context.data().iter() {
+        if k == "reactor_name" || k == "reactor_firing_id" || k == "reactor_fired_at" {
+            continue;
+        }
+        payload.insert(k.clone(), v.clone());
+    }
+    cel_ctx
+        .add_variable("payload", serde_json::Value::Object(payload))
+        .map_err(|e| format!("cel add_variable(payload): {}", e))?;
+    cel_ctx
+        .add_variable(
+            "reactor",
+            context.get("reactor_name").cloned().unwrap_or_default(),
+        )
+        .map_err(|e| format!("cel add_variable(reactor): {}", e))?;
+    cel_ctx
+        .add_variable("tenant", serde_json::Value::String(String::new()))
+        .map_err(|e| format!("cel add_variable(tenant): {}", e))?;
+
+    match program.execute(&cel_ctx) {
+        Ok(CelValue::Bool(b)) => Ok(b),
+        Ok(other) => Err(format!("predicate must evaluate to bool, got {:?}", other)),
+        Err(e) => Err(format!("eval error: {}", e)),
+    }
+}
 ```
 
 </details>

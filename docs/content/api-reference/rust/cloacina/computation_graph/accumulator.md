@@ -19,7 +19,7 @@ See CLOACI-S-0004 for the full specification.
 Handle for persisting accumulator state via the DAL.
 
 Wraps simple key-value checkpoint storage keyed by (graph_name, accumulator_name).
-Serialization uses the same debug-JSON/release-bincode pattern as boundary wire format.
+Serialization uses bincode wire format.
 
 #### Fields
 
@@ -78,11 +78,24 @@ Persist accumulator state.
     pub async fn save<T: Serialize>(&self, state: &T) -> Result<(), AccumulatorError> {
         let bytes = types::serialize(state)
             .map_err(|e| AccumulatorError::Checkpoint(format!("serialization failed: {}", e)))?;
-        self.dal
+        let result = self
+            .dal
             .checkpoint()
             .save_checkpoint(&self.graph_name, &self.accumulator_name, bytes)
             .await
-            .map_err(|e| AccumulatorError::Checkpoint(e.to_string()))
+            .map_err(|e| AccumulatorError::Checkpoint(e.to_string()));
+        // Only count successful writes — failed checkpoints surface via
+        // `cloacina_accumulator_events_total` already (the event still
+        // emitted) plus the warning log emitted by the caller.
+        if result.is_ok() {
+            metrics::counter!(
+                "cloacina_accumulator_checkpoint_writes_total",
+                "graph" => self.graph_name.clone(),
+                "accumulator" => self.accumulator_name.clone(),
+            )
+            .increment(1);
+        }
+        result
     }
 ```
 
@@ -225,7 +238,7 @@ Context provided to the accumulator by the runtime.
 
 Sends serialized boundaries to the reactor.
 
-Wire format: bincode in release, JSON in debug.
+Wire format: bincode.
 Tracks a monotonically increasing sequence number per accumulator
 for deduplication and ordering guarantees.
 
@@ -384,18 +397,12 @@ Configuration for the accumulator runtime.
 
 
 
-### `cloacina::computation_graph::accumulator::NoEventSource`<E>
+### `cloacina::computation_graph::accumulator::NoEventSource`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
 
 
 Placeholder type for when no event source is provided.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `0` | `std :: marker :: PhantomData < E >` |  |
 
 
 
@@ -403,6 +410,8 @@ Placeholder type for when no event source is provided.
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
+
+**Derives:** `Default`
 
 Configuration for the batch accumulator runtime.
 
@@ -539,7 +548,7 @@ pub async fn accumulator_runtime<A: Accumulator>(
     socket_rx: mpsc::Receiver<Vec<u8>>,
     config: AccumulatorRuntimeConfig,
 ) {
-    accumulator_runtime_inner::<A, NoEventSource<A::Event>>(acc, ctx, socket_rx, config, None).await
+    accumulator_runtime_inner::<A, NoEventSource>(acc, ctx, socket_rx, config, None).await
 }
 ```
 
@@ -553,10 +562,10 @@ pub async fn accumulator_runtime<A: Accumulator>(
 
 
 ```rust
-async fn accumulator_runtime_with_source < A , S > (acc : A , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , config : AccumulatorRuntimeConfig , source : S ,) where A : Accumulator , S : EventSource < Event = A :: Event > ,
+async fn accumulator_runtime_with_source < A , S > (acc : A , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , config : AccumulatorRuntimeConfig , source : S ,) where A : Accumulator , S : EventSource ,
 ```
 
-Run an accumulator with an active event source that pulls events from an external system. The event source runs on its own task and pushes events into the merge channel concurrently with the socket receiver.
+Run an accumulator with an active event source that pulls events from an external system. The event source runs on its own task and pushes raw bytes into the merge channel concurrently with the socket receiver.
 
 <details>
 <summary>Source</summary>
@@ -570,7 +579,7 @@ pub async fn accumulator_runtime_with_source<A, S>(
     source: S,
 ) where
     A: Accumulator,
-    S: EventSource<Event = A::Event>,
+    S: EventSource,
 {
     accumulator_runtime_inner(acc, ctx, socket_rx, config, Some(source)).await
 }
@@ -586,7 +595,7 @@ pub async fn accumulator_runtime_with_source<A, S>(
 
 
 ```rust
-async fn accumulator_runtime_inner < A : Accumulator , S : EventSource < Event = A :: Event > > (mut acc : A , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , config : AccumulatorRuntimeConfig , event_source : Option < S > ,)
+async fn accumulator_runtime_inner < A : Accumulator , S : EventSource > (mut acc : A , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , config : AccumulatorRuntimeConfig , event_source : Option < S > ,)
 ```
 
 Inner runtime shared by both `accumulator_runtime` and `accumulator_runtime_with_source`.
@@ -595,7 +604,7 @@ Inner runtime shared by both `accumulator_runtime` and `accumulator_runtime_with
 <summary>Source</summary>
 
 ```rust
-async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Event>>(
+async fn accumulator_runtime_inner<A: Accumulator, S: EventSource>(
     mut acc: A,
     ctx: AccumulatorContext,
     socket_rx: mpsc::Receiver<Vec<u8>>,
@@ -605,14 +614,27 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Eve
     // Report starting health
     set_health(&ctx, AccumulatorHealth::Starting);
 
+    // Passthrough/stream accumulators don't buffer — seed the gauge at 0 so
+    // dashboards have a stable series per (graph, accumulator).
+    set_accumulator_buffer_depth(&ctx, 0.0);
+
+    // Kind label is fixed at runtime startup: with an event source we are
+    // stream-backed, otherwise passthrough. Hardcoded into the bounded enum
+    // documented on `cloacina_accumulator_events_total`.
+    let kind: &'static str = if event_source.is_some() {
+        "stream"
+    } else {
+        "passthrough"
+    };
+
     // Initialize — may restore state from checkpoint
     if let Err(e) = acc.init(&ctx).await {
         tracing::error!(name = %ctx.name, "accumulator init failed: {}", e);
         return;
     }
 
-    // Create merge channel
-    let (event_tx, mut event_rx) = mpsc::channel::<A::Event>(config.merge_channel_capacity);
+    // Create merge channel — carries raw bytes from all sources
+    let (event_tx, mut event_rx) = mpsc::channel::<Vec<u8>>(config.merge_channel_capacity);
 
     // Spawn event source task (or no-op wait if none provided)
     let name_loop = ctx.name.clone();
@@ -636,7 +658,7 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Eve
         })
     };
 
-    // Spawn socket receiver task
+    // Spawn socket receiver task — forwards raw bytes without deserialization
     let event_tx_socket = event_tx.clone();
     let mut shutdown_socket = ctx.shutdown.clone();
     let name_socket = ctx.name.clone();
@@ -645,15 +667,8 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Eve
         loop {
             tokio::select! {
                 Some(bytes) = socket_rx.recv() => {
-                    match types::deserialize::<A::Event>(&bytes) {
-                        Ok(event) => {
-                            if event_tx_socket.send(event).await.is_err() {
-                                break; // merge channel closed
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(name = %name_socket, "socket deserialize error: {}", e);
-                        }
+                    if event_tx_socket.send(bytes).await.is_err() {
+                        break; // merge channel closed
                     }
                 }
                 _ = shutdown_socket.changed() => {
@@ -669,6 +684,7 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Eve
     loop {
         tokio::select! {
             Some(event) = event_rx.recv() => {
+                let emit_started = std::time::Instant::now();
                 if let Some(boundary) = acc.process(event) {
                     if let Err(e) = ctx.output.send(&boundary).await {
                         tracing::error!(name = %ctx.name, "boundary send failed: {}", e);
@@ -676,6 +692,7 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Eve
                         persist_boundary(&ctx, &boundary).await;
                     }
                 }
+                record_accumulator_event(&ctx, kind, emit_started);
             }
             _ = shutdown_proc.changed() => {
                 tracing::debug!(name = %ctx.name, "processor task shutting down");
@@ -742,6 +759,8 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
     socket_rx: mpsc::Receiver<Vec<u8>>,
 ) {
     set_health(&ctx, AccumulatorHealth::Starting);
+    // Polling accumulators don't buffer — emit a stable 0 series for dashboards.
+    set_accumulator_buffer_depth(&ctx, 0.0);
 
     // Restore last poll output from checkpoint and emit to reactor
     if let Some(ref handle) = ctx.checkpoint {
@@ -773,6 +792,7 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
     loop {
         tokio::select! {
             _ = timer.tick() => {
+                let emit_started = std::time::Instant::now();
                 if let Some(output) = poller.poll().await {
                     if let Err(e) = ctx.output.send(&output).await {
                         tracing::error!(name = %ctx.name, "polling boundary send failed: {}", e);
@@ -782,14 +802,17 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
                         if let Some(ref handle) = ctx.checkpoint {
                             if let Err(e) = handle.save(&output).await {
                                 tracing::warn!(name = %ctx.name, "polling checkpoint save failed: {}", e);
+                                record_accumulator_persist_failure(&ctx, "checkpoint");
                             }
                         }
                     }
+                    record_accumulator_event(&ctx, "polling", emit_started);
                 }
             }
             Some(bytes) = socket_rx.recv() => {
-                // Socket events are deserialized as Output and sent directly
-                match types::deserialize::<P::Output>(&bytes) {
+                let emit_started = std::time::Instant::now();
+                // Socket receives JSON from external sources
+                match serde_json::from_slice::<P::Output>(&bytes) {
                     Ok(output) => {
                         if let Err(e) = ctx.output.send(&output).await {
                             tracing::error!(name = %ctx.name, "socket boundary send failed: {}", e);
@@ -801,6 +824,7 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
                         tracing::warn!(name = %ctx.name, "socket deserialize error: {}", e);
                     }
                 }
+                record_accumulator_event(&ctx, "polling", emit_started);
             }
             _ = shutdown.changed() => {
                 tracing::debug!(name = %ctx.name, "polling accumulator shutting down");
@@ -848,7 +872,7 @@ pub fn flush_signal() -> (mpsc::Sender<()>, mpsc::Receiver<()>) {
 
 
 ```rust
-async fn batch_accumulator_runtime < B : BatchAccumulator > (mut acc : B , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , mut flush_rx : mpsc :: Receiver < () > , config : BatchAccumulatorConfig ,) where B :: Event : Serialize ,
+async fn batch_accumulator_runtime < B : BatchAccumulator > (mut acc : B , ctx : AccumulatorContext , socket_rx : mpsc :: Receiver < Vec < u8 > > , mut flush_rx : mpsc :: Receiver < () > , config : BatchAccumulatorConfig ,)
 ```
 
 Run a batch accumulator that buffers events and flushes on signal, timer, or size threshold.
@@ -867,23 +891,19 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
     socket_rx: mpsc::Receiver<Vec<u8>>,
     mut flush_rx: mpsc::Receiver<()>,
     config: BatchAccumulatorConfig,
-) where
-    B::Event: Serialize,
-{
+) {
     set_health(&ctx, AccumulatorHealth::Starting);
+    set_accumulator_buffer_depth(&ctx, 0.0);
 
     // Restore buffered events from checkpoint if available
-    let mut buffer: Vec<B::Event> = Vec::new();
+    let mut buffer: Vec<Vec<u8>> = Vec::new();
     if let Some(ref handle) = ctx.checkpoint {
         match handle.load::<Vec<Vec<u8>>>().await {
             Ok(Some(raw_events)) => {
-                for raw in raw_events {
-                    if let Ok(event) = types::deserialize::<B::Event>(&raw) {
-                        buffer.push(event);
-                    }
-                }
+                buffer = raw_events;
                 if !buffer.is_empty() {
                     tracing::info!(name = %ctx.name, events = buffer.len(), "batch buffer restored from checkpoint");
+                    set_accumulator_buffer_depth(&ctx, buffer.len() as f64);
                 }
             }
             Ok(None) => {}
@@ -909,27 +929,23 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
     loop {
         tokio::select! {
             Some(bytes) = socket_rx.recv() => {
-                match types::deserialize::<B::Event>(&bytes) {
-                    Ok(event) => {
-                        buffer.push(event);
-                        // Persist buffer snapshot for crash resilience
-                        persist_batch_buffer(&ctx, &buffer).await;
-                        // Check size threshold
-                        if let Some(max) = config.max_buffer_size {
-                            if buffer.len() >= max {
-                                flush_batch(&mut acc, &mut buffer, &ctx).await;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(name = %ctx.name, "batch deserialize error: {}", e);
+                buffer.push(bytes);
+                set_accumulator_buffer_depth(&ctx, buffer.len() as f64);
+                // Persist buffer snapshot for crash resilience
+                persist_batch_buffer(&ctx, &buffer).await;
+                // Check size threshold
+                if let Some(max) = config.max_buffer_size {
+                    if buffer.len() >= max {
+                        flush_batch(&mut acc, &mut buffer, &ctx).await;
+                        set_accumulator_buffer_depth(&ctx, 0.0);
                     }
                 }
             }
             Some(()) = flush_rx.recv() => {
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
+                set_accumulator_buffer_depth(&ctx, 0.0);
                 // Clear checkpoint after flush (buffer is empty)
-                persist_batch_buffer::<B::Event>(&ctx, &[]).await;
+                persist_batch_buffer(&ctx, &[]).await;
             }
             _ = async {
                 match timer.as_mut() {
@@ -938,11 +954,13 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
                 }
             } => {
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
+                set_accumulator_buffer_depth(&ctx, 0.0);
             }
             _ = shutdown.changed() => {
                 tracing::debug!(name = %ctx.name, "batch accumulator shutting down, draining buffer");
                 // Drain remaining buffer on shutdown
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
+                set_accumulator_buffer_depth(&ctx, 0.0);
                 break;
             }
         }
@@ -960,7 +978,7 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
 
 
 ```rust
-async fn persist_batch_buffer < E : Serialize > (ctx : & AccumulatorContext , buffer : & [E])
+async fn persist_batch_buffer (ctx : & AccumulatorContext , buffer : & [Vec < u8 >])
 ```
 
 Persist batch buffer snapshot to DAL for crash resilience (best-effort).
@@ -969,15 +987,11 @@ Persist batch buffer snapshot to DAL for crash resilience (best-effort).
 <summary>Source</summary>
 
 ```rust
-async fn persist_batch_buffer<E: Serialize>(ctx: &AccumulatorContext, buffer: &[E]) {
+async fn persist_batch_buffer(ctx: &AccumulatorContext, buffer: &[Vec<u8>]) {
     if let Some(ref handle) = ctx.checkpoint {
-        // Serialize each event to raw bytes, then save the vec of raw bytes
-        let raw: Vec<Vec<u8>> = buffer
-            .iter()
-            .filter_map(|e| types::serialize(e).ok())
-            .collect();
-        if let Err(e) = handle.save(&raw).await {
+        if let Err(e) = handle.save(&buffer.to_vec()).await {
             tracing::warn!(name = %ctx.name, "batch buffer checkpoint failed: {}", e);
+            record_accumulator_persist_failure(ctx, "batch_buffer");
         }
     }
 }
@@ -993,7 +1007,7 @@ async fn persist_batch_buffer<E: Serialize>(ctx: &AccumulatorContext, buffer: &[
 
 
 ```rust
-async fn flush_batch < B : BatchAccumulator > (acc : & mut B , buffer : & mut Vec < B :: Event > , ctx : & AccumulatorContext ,)
+async fn flush_batch < B : BatchAccumulator > (acc : & mut B , buffer : & mut Vec < Vec < u8 > > , ctx : & AccumulatorContext ,)
 ```
 
 Flush the buffer through the batch accumulator and send boundary if produced.
@@ -1004,12 +1018,13 @@ Flush the buffer through the batch accumulator and send boundary if produced.
 ```rust
 async fn flush_batch<B: BatchAccumulator>(
     acc: &mut B,
-    buffer: &mut Vec<B::Event>,
+    buffer: &mut Vec<Vec<u8>>,
     ctx: &AccumulatorContext,
 ) {
     if buffer.is_empty() {
         return;
     }
+    let emit_started = std::time::Instant::now();
     let batch = std::mem::take(buffer);
     let count = batch.len();
     if let Some(output) = acc.process_batch(batch) {
@@ -1020,6 +1035,10 @@ async fn flush_batch<B: BatchAccumulator>(
             persist_boundary(ctx, &output).await;
         }
     }
+    // One emit_total + emit_duration per flush — operators see flush rate
+    // and per-flush latency, while `cloacina_accumulator_buffer_depth` shows
+    // the size that drove the flush.
+    record_accumulator_event(ctx, "batch", emit_started);
 }
 ```
 
@@ -1053,6 +1072,133 @@ fn set_health(ctx: &AccumulatorContext, health: AccumulatorHealth) {
 
 
 
+### `cloacina::computation_graph::accumulator::record_accumulator_persist_failure`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn record_accumulator_persist_failure (ctx : & AccumulatorContext , kind : & 'static str)
+```
+
+Increment `cloacina_accumulator_persist_failures_total{graph,accumulator,kind}` with a bounded `kind ∈ {checkpoint, boundary, batch_buffer}` label. Replaces the silent `let _ = persist_*` failure paths flagged as OPS-15 (CLOACI-I-0108 / T-0590).
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn record_accumulator_persist_failure(ctx: &AccumulatorContext, kind: &'static str) {
+    metrics::counter!(
+        "cloacina_accumulator_persist_failures_total",
+        "graph" => graph_label(ctx),
+        "accumulator" => ctx.name.clone(),
+        "kind" => kind,
+    )
+    .increment(1);
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::accumulator::graph_label`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn graph_label (ctx : & AccumulatorContext) -> String
+```
+
+Derive the bounded `graph` metric label for an accumulator. When the checkpoint handle is present (production / DAL-backed deployments) we use the deployed graph name; embedded / test runtimes without a DAL fall back to the `embedded` sentinel so the label space stays closed.
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn graph_label(ctx: &AccumulatorContext) -> String {
+    ctx.checkpoint
+        .as_ref()
+        .map(|c| c.graph_name().to_string())
+        .unwrap_or_else(|| "embedded".to_string())
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::accumulator::record_accumulator_event`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn record_accumulator_event (ctx : & AccumulatorContext , kind : & 'static str , emit_started : std :: time :: Instant ,)
+```
+
+Record one accumulator event and its emit duration. Called by each runtime once per event processed; `kind` is set by the runtime (`passthrough` / `stream` / `polling` / `batch`).
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn record_accumulator_event(
+    ctx: &AccumulatorContext,
+    kind: &'static str,
+    emit_started: std::time::Instant,
+) {
+    let graph = graph_label(ctx);
+    metrics::counter!(
+        "cloacina_accumulator_events_total",
+        "graph" => graph.clone(),
+        "accumulator" => ctx.name.clone(),
+        "kind" => kind,
+    )
+    .increment(1);
+    metrics::histogram!(
+        "cloacina_accumulator_emit_duration_seconds",
+        "graph" => graph,
+        "accumulator" => ctx.name.clone(),
+    )
+    .record(emit_started.elapsed().as_secs_f64());
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::accumulator::set_accumulator_buffer_depth`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn set_accumulator_buffer_depth (ctx : & AccumulatorContext , depth : f64)
+```
+
+Update the `cloacina_accumulator_buffer_depth` gauge. Only batch and stateful stream accumulators have meaningful buffers; the other kinds emit `0` from runtime startup so dashboards see a consistent series per `(graph, accumulator)` tuple.
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn set_accumulator_buffer_depth(ctx: &AccumulatorContext, depth: f64) {
+    metrics::gauge!(
+        "cloacina_accumulator_buffer_depth",
+        "graph" => graph_label(ctx),
+        "accumulator" => ctx.name.clone(),
+    )
+    .set(depth);
+}
+```
+
+</details>
+
+
+
 ### `cloacina::computation_graph::accumulator::persist_boundary`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
@@ -1074,17 +1220,29 @@ async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) 
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!(name = %ctx.name, "boundary persistence serialization failed: {}", e);
+                record_accumulator_persist_failure(ctx, "boundary");
                 return;
             }
         };
         let seq = ctx.output.sequence_number() as i64;
-        if let Err(e) = handle
+        match handle
             .dal()
             .checkpoint()
             .save_boundary(handle.graph_name(), handle.accumulator_name(), bytes, seq)
             .await
         {
-            tracing::warn!(name = %ctx.name, "boundary persistence failed: {}", e);
+            Ok(_) => {
+                metrics::counter!(
+                    "cloacina_accumulator_checkpoint_writes_total",
+                    "graph" => handle.graph_name().to_string(),
+                    "accumulator" => handle.accumulator_name().to_string(),
+                )
+                .increment(1);
+            }
+            Err(e) => {
+                tracing::warn!(name = %ctx.name, "boundary persistence failed: {}", e);
+                record_accumulator_persist_failure(ctx, "boundary");
+            }
         }
     }
 }
@@ -1157,7 +1315,8 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
     loop {
         tokio::select! {
             Some(bytes) = socket_rx.recv() => {
-                match types::deserialize::<T>(&bytes) {
+                // Socket receives JSON from external sources
+                match serde_json::from_slice::<T>(&bytes) {
                     Ok(value) => {
                         // Append to buffer
                         acc.buffer.push_back(value);

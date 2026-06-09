@@ -22,7 +22,7 @@ Represents a recovery event record (domain type).
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_execution_id` | `Option < UniversalUuid >` |  |
 | `recovery_type` | `String` |  |
 | `recovered_at` | `UniversalTimestamp` |  |
@@ -45,7 +45,7 @@ Structure for creating new recovery event records (domain type).
 
 | Name | Type | Description |
 |------|------|-------------|
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_execution_id` | `Option < UniversalUuid >` |  |
 | `recovery_type` | `String` |  |
 | `details` | `Option < String >` |  |
@@ -63,5 +63,5 @@ Enumeration of possible recovery types in the system.
 
 - **`TaskReset`**
 - **`TaskAbandoned`**
-- **`PipelineFailed`**
+- **`WorkflowFailed`**
 - **`WorkflowUnavailable`**

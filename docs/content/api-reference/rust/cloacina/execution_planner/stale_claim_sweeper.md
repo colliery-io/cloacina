@@ -201,6 +201,8 @@ Perform a single sweep pass.
                 continue;
             }
 
+            metrics::counter!("cloacina_scheduler_stale_claims_swept_total").increment(1);
+
             info!(
                 "Released stale claim: task {} (runner {}, last heartbeat {}s ago)",
                 claim.task_id,

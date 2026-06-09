@@ -60,8 +60,8 @@ Insertable context with explicit ID and timestamps (for SQLite compatibility).
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_name` | `String` |  |
-| `pipeline_version` | `String` |  |
+| `workflow_name` | `String` |  |
+| `workflow_version` | `String` |  |
 | `status` | `String` |  |
 | `context_id` | `Option < UniversalUuid >` |  |
 | `started_at` | `UniversalTimestamp` |  |
@@ -88,8 +88,8 @@ Insertable context with explicit ID and timestamps (for SQLite compatibility).
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_name` | `String` |  |
-| `pipeline_version` | `String` |  |
+| `workflow_name` | `String` |  |
+| `workflow_version` | `String` |  |
 | `status` | `String` |  |
 | `context_id` | `Option < UniversalUuid >` |  |
 | `started_at` | `UniversalTimestamp` |  |
@@ -110,7 +110,7 @@ Insertable context with explicit ID and timestamps (for SQLite compatibility).
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_name` | `String` |  |
 | `status` | `String` |  |
 | `started_at` | `Option < UniversalTimestamp >` |  |
@@ -144,7 +144,7 @@ Insertable context with explicit ID and timestamps (for SQLite compatibility).
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_name` | `String` |  |
 | `status` | `String` |  |
 | `attempt` | `i32` |  |
@@ -169,7 +169,7 @@ Insertable context with explicit ID and timestamps (for SQLite compatibility).
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
 | `task_execution_id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_name` | `String` |  |
 | `context_id` | `Option < UniversalUuid >` |  |
 | `created_at` | `UniversalTimestamp` |  |
@@ -190,7 +190,7 @@ Insertable context with explicit ID and timestamps (for SQLite compatibility).
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
 | `task_execution_id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_name` | `String` |  |
 | `context_id` | `Option < UniversalUuid >` |  |
 | `created_at` | `UniversalTimestamp` |  |
@@ -210,7 +210,7 @@ Insertable context with explicit ID and timestamps (for SQLite compatibility).
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_execution_id` | `Option < UniversalUuid >` |  |
 | `recovery_type` | `String` |  |
 | `recovered_at` | `UniversalTimestamp` |  |
@@ -232,7 +232,7 @@ Insertable context with explicit ID and timestamps (for SQLite compatibility).
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_execution_id` | `Option < UniversalUuid >` |  |
 | `recovery_type` | `String` |  |
 | `recovered_at` | `UniversalTimestamp` |  |
@@ -256,13 +256,16 @@ Unified execution event model for audit trail of state transitions. Append-only:
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_execution_id` | `Option < UniversalUuid >` |  |
 | `event_type` | `String` |  |
 | `event_data` | `Option < String >` |  |
 | `worker_id` | `Option < String >` |  |
 | `created_at` | `UniversalTimestamp` |  |
 | `sequence_num` | `i64` |  |
+| `request_id` | `Option < UniversalUuid >` |  |
+| `runner_id` | `Option < UniversalUuid >` |  |
+| `tenant_id` | `Option < String >` |  |
 
 
 
@@ -278,12 +281,20 @@ Unified execution event model for audit trail of state transitions. Append-only:
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_execution_id` | `Option < UniversalUuid >` |  |
 | `event_type` | `String` |  |
 | `event_data` | `Option < String >` |  |
 | `worker_id` | `Option < String >` |  |
 | `created_at` | `UniversalTimestamp` |  |
+| `request_id` | `Option < UniversalUuid >` | CLOACI-T-0583: id of the originating request (from the tracing span,
+after T-0578 lands). `None` on transitional paths. |
+| `runner_id` | `Option < UniversalUuid >` | CLOACI-T-0583: id of the runner instance that emitted the event.
+Populated for per-tenant runner emissions (after T-0580), `None` for
+the single-runner daemon path. |
+| `tenant_id` | `Option < String >` | CLOACI-T-0583: tenant scope. Populated from `AuthenticatedKey`
+(server) or the current tenant context. `None` on the daemon path
+and on background-scheduler emissions that don't have a tenant. |
 
 
 
@@ -318,6 +329,53 @@ Unified task outbox model for work distribution. Transient: rows are deleted imm
 | Name | Type | Description |
 |------|------|-------------|
 | `task_execution_id` | `UniversalUuid` |  |
+| `created_at` | `UniversalTimestamp` |  |
+
+
+
+### `cloacina::dal::unified::models::UnifiedDeliveryOutbox`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`, `Queryable`, `Selectable`
+
+Unified delivery-outbox row: durable, ack-tracked, recipient-addressed push delivery for the interservice communication substrate.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | `i64` |  |
+| `recipient` | `String` |  |
+| `kind` | `String` |  |
+| `tenant_id` | `Option < String >` |  |
+| `payload` | `UniversalBinary` |  |
+| `delivery_state` | `String` |  |
+| `delivery_attempts` | `i32` |  |
+| `created_at` | `UniversalTimestamp` |  |
+| `delivered_at` | `Option < UniversalTimestamp >` |  |
+| `acked_at` | `Option < UniversalTimestamp >` |  |
+
+
+
+### `cloacina::dal::unified::models::NewUnifiedDeliveryOutbox`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Insertable`
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `recipient` | `String` |  |
+| `kind` | `String` |  |
+| `tenant_id` | `Option < String >` |  |
+| `payload` | `UniversalBinary` |  |
+| `delivery_state` | `String` |  |
+| `delivery_attempts` | `i32` |  |
 | `created_at` | `UniversalTimestamp` |  |
 
 
@@ -395,7 +453,7 @@ Unified task outbox model for work distribution. Transient: rows are deleted imm
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
 | `schedule_id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `Option < UniversalUuid >` |  |
+| `workflow_execution_id` | `Option < UniversalUuid >` |  |
 | `scheduled_time` | `Option < UniversalTimestamp >` |  |
 | `claimed_at` | `Option < UniversalTimestamp >` |  |
 | `context_hash` | `Option < String >` |  |
@@ -419,7 +477,7 @@ Unified task outbox model for work distribution. Transient: rows are deleted imm
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
 | `schedule_id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `Option < UniversalUuid >` |  |
+| `workflow_execution_id` | `Option < UniversalUuid >` |  |
 | `scheduled_time` | `Option < UniversalTimestamp >` |  |
 | `claimed_at` | `Option < UniversalTimestamp >` |  |
 | `context_hash` | `Option < String >` |  |
@@ -485,6 +543,13 @@ Unified task outbox model for work distribution. Transient: rows are deleted imm
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
 | `tenant_id` | `Option < String >` |  |
+| `content_hash` | `String` |  |
+| `superseded` | `UniversalBool` |  |
+| `compiled_data` | `Option < UniversalBinary >` |  |
+| `build_status` | `String` |  |
+| `build_error` | `Option < String >` |  |
+| `build_claimed_at` | `Option < UniversalTimestamp >` |  |
+| `compiled_at` | `Option < UniversalTimestamp >` |  |
 
 
 
@@ -510,6 +575,13 @@ Unified task outbox model for work distribution. Transient: rows are deleted imm
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
 | `tenant_id` | `Option < String >` |  |
+| `content_hash` | `String` |  |
+| `superseded` | `UniversalBool` |  |
+| `compiled_data` | `Option < UniversalBinary >` |  |
+| `build_status` | `String` |  |
+| `build_error` | `Option < String >` |  |
+| `build_claimed_at` | `Option < UniversalTimestamp >` |  |
+| `compiled_at` | `Option < UniversalTimestamp >` |  |
 
 
 
@@ -650,6 +722,7 @@ Unified task outbox model for work distribution. Transient: rows are deleted imm
 | `key_fingerprint` | `String` |  |
 | `signature` | `UniversalBinary` |  |
 | `signed_at` | `UniversalTimestamp` |  |
+| `org_id` | `Option < UniversalUuid >` |  |
 
 
 
@@ -669,6 +742,7 @@ Unified task outbox model for work distribution. Transient: rows are deleted imm
 | `key_fingerprint` | `String` |  |
 | `signature` | `UniversalBinary` |  |
 | `signed_at` | `UniversalTimestamp` |  |
+| `org_id` | `Option < UniversalUuid >` |  |
 
 
 

@@ -299,6 +299,28 @@ Returns a task outbox DAL for work distribution operations.
 
 
 
+##### `delivery_outbox` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn delivery_outbox (& self) -> DeliveryOutboxDAL < '_ >
+```
+
+Returns a delivery outbox DAL for the interservice communication substrate (durable, ack-tracked, recipient-addressed push delivery).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn delivery_outbox(&self) -> DeliveryOutboxDAL<'_> {
+        DeliveryOutboxDAL::new(self)
+    }
+```
+
+</details>
+
+
+
 ##### `recovery_event` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
@@ -402,6 +424,28 @@ Returns a workflow packages DAL for package operations.
 ```rust
     pub fn workflow_packages(&self) -> WorkflowPackagesDAL<'_> {
         WorkflowPackagesDAL::new(self)
+    }
+```
+
+</details>
+
+
+
+##### `reactor_subscriptions` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn reactor_subscriptions (& self) -> ReactorSubscriptionsDAL < '_ >
+```
+
+Returns a reactor subscriptions DAL for reactor-triggered workflow fan-out (CLOACI-I-0100 / T-0598).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn reactor_subscriptions(&self) -> ReactorSubscriptionsDAL<'_> {
+        ReactorSubscriptionsDAL::new(self)
     }
 ```
 

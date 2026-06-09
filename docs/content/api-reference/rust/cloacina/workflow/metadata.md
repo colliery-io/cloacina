@@ -28,7 +28,7 @@ use std::collections::HashMap;
 
 let mut metadata = WorkflowMetadata::default();
 metadata.version = "a1b2c3d4".to_string();
-metadata.description = Some("Production ETL pipeline".to_string());
+metadata.description = Some("Production ETL workflow".to_string());
 metadata.tags.insert("team".to_string(), "data-engineering".to_string());
 ```
 

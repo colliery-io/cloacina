@@ -20,14 +20,14 @@ and configure the behavior of the execution engine.
 Execution scope information for a context
 
 This structure holds metadata about the current execution context, including
-identifiers for both pipeline and task executions. It is used to track and
+identifiers for both workflow and task executions. It is used to track and
 correlate execution contexts throughout the system.
 
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
-| `pipeline_execution_id` | `UniversalUuid` | Unique identifier for the pipeline execution |
+| `workflow_execution_id` | `UniversalUuid` | Unique identifier for the workflow execution |
 | `task_execution_id` | `Option < UniversalUuid >` | Optional unique identifier for the specific task execution |
 | `task_name` | `Option < String >` | Optional name of the task being executed |
 
@@ -51,7 +51,7 @@ thread-safe access to dependency contexts through a read-write lock.
 | Name | Type | Description |
 |------|------|-------------|
 | `database` | `Database` | Database connection for loading dependency data |
-| `pipeline_execution_id` | `UniversalUuid` | ID of the pipeline execution being processed |
+| `workflow_execution_id` | `UniversalUuid` | ID of the workflow execution being processed |
 | `dependency_tasks` | `Vec < crate :: task :: TaskNamespace >` | List of task namespaces that this loader depends on |
 | `loaded_contexts` | `RwLock < HashMap < String , HashMap < String , serde_json :: Value > > >` | Thread-safe cache of loaded dependency contexts |
 
@@ -61,7 +61,7 @@ thread-safe access to dependency contexts through a read-write lock.
 
 
 ```rust
-fn new (database : Database , pipeline_execution_id : UniversalUuid , dependency_tasks : Vec < crate :: task :: TaskNamespace > ,) -> Self
+fn new (database : Database , workflow_execution_id : UniversalUuid , dependency_tasks : Vec < crate :: task :: TaskNamespace > ,) -> Self
 ```
 
 Creates a new dependency loader instance
@@ -71,7 +71,7 @@ Creates a new dependency loader instance
 | Name | Type | Description |
 |------|------|-------------|
 | `database` | `-` | Database connection for loading dependencies |
-| `pipeline_execution_id` | `-` | ID of the pipeline execution |
+| `workflow_execution_id` | `-` | ID of the workflow execution |
 | `dependency_tasks` | `-` | List of task namespaces that this loader depends on |
 
 
@@ -81,12 +81,12 @@ Creates a new dependency loader instance
 ```rust
     pub fn new(
         database: Database,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         dependency_tasks: Vec<crate::task::TaskNamespace>,
     ) -> Self {
         Self {
             database,
-            pipeline_execution_id,
+            workflow_execution_id,
             dependency_tasks,
             loaded_contexts: RwLock::new(HashMap::new()),
         }
@@ -201,7 +201,7 @@ Loads the context data for a specific dependency task
         let dal = DAL::new(self.database.clone());
         let task_metadata = dal
             .task_execution_metadata()
-            .get_by_pipeline_and_task(self.pipeline_execution_id, task_namespace)
+            .get_by_workflow_and_task(self.workflow_execution_id, task_namespace)
             .await?;
 
         if let Some(context_id) = task_metadata.context_id {
@@ -261,6 +261,6 @@ by an executor instance and is ready to be processed.
 | Name | Type | Description |
 |------|------|-------------|
 | `task_execution_id` | `UniversalUuid` | Unique identifier for this task execution |
-| `pipeline_execution_id` | `UniversalUuid` | ID of the pipeline this task belongs to |
+| `workflow_execution_id` | `UniversalUuid` | ID of the workflow execution this task belongs to |
 | `task_name` | `String` | Name of the task being executed |
 | `attempt` | `i32` | Current attempt number for this task execution |

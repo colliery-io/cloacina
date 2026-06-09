@@ -1,10 +1,10 @@
 # cloacina::execution_planner::scheduler_loop <span class="plissken-badge plissken-badge-source" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">Rust</span>
 
 
-Scheduler loop and pipeline processing.
+Scheduler loop and workflow execution processing.
 
 This module contains the main scheduling loop that continuously processes
-active pipeline executions and manages task readiness.
+active workflow executions and manages task readiness.
 
 ## Structs
 

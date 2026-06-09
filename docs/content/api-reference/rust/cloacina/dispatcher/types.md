@@ -25,7 +25,7 @@ The actual context loading is deferred to execution time.
 | Name | Type | Description |
 |------|------|-------------|
 | `task_execution_id` | `UniversalUuid` | Unique identifier for this task execution |
-| `pipeline_execution_id` | `UniversalUuid` | Parent pipeline execution ID |
+| `workflow_execution_id` | `UniversalUuid` | Parent workflow execution ID |
 | `task_name` | `String` | Fully qualified task name (namespace::task) |
 | `attempt` | `i32` | Current attempt number (starts at 1) |
 
@@ -35,7 +35,7 @@ The actual context loading is deferred to execution time.
 
 
 ```rust
-fn new (task_execution_id : UniversalUuid , pipeline_execution_id : UniversalUuid , task_name : String , attempt : i32 ,) -> Self
+fn new (task_execution_id : UniversalUuid , workflow_execution_id : UniversalUuid , task_name : String , attempt : i32 ,) -> Self
 ```
 
 Creates a new TaskReadyEvent.
@@ -46,13 +46,13 @@ Creates a new TaskReadyEvent.
 ```rust
     pub fn new(
         task_execution_id: UniversalUuid,
-        pipeline_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         task_name: String,
         attempt: i32,
     ) -> Self {
         Self {
             task_execution_id,
-            pipeline_execution_id,
+            workflow_execution_id,
             task_name,
             attempt,
         }
@@ -242,148 +242,6 @@ Returns the current capacity (available slots).
 ```rust
     pub fn available_capacity(&self) -> usize {
         self.max_concurrent.saturating_sub(self.active_tasks)
-    }
-```
-
-</details>
-
-
-
-
-
-### `cloacina::dispatcher::types::RoutingConfig`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-**Derives:** `Debug`, `Clone`
-
-Configuration for task routing.
-
-Defines how tasks are routed to different executor backends based on
-pattern matching rules.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `default_executor` | `String` | Default executor key when no rules match |
-| `rules` | `Vec < RoutingRule >` | Routing rules evaluated in order |
-
-#### Methods
-
-##### `new` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn new (default_executor : impl Into < String >) -> Self
-```
-
-Creates a new routing configuration with a default executor.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub fn new(default_executor: impl Into<String>) -> Self {
-        Self {
-            default_executor: default_executor.into(),
-            rules: Vec::new(),
-        }
-    }
-```
-
-</details>
-
-
-
-##### `with_rule` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn with_rule (mut self , rule : RoutingRule) -> Self
-```
-
-Adds a routing rule.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub fn with_rule(mut self, rule: RoutingRule) -> Self {
-        self.rules.push(rule);
-        self
-    }
-```
-
-</details>
-
-
-
-##### `with_rules` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn with_rules (mut self , rules : impl IntoIterator < Item = RoutingRule >) -> Self
-```
-
-Adds multiple routing rules.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub fn with_rules(mut self, rules: impl IntoIterator<Item = RoutingRule>) -> Self {
-        self.rules.extend(rules);
-        self
-    }
-```
-
-</details>
-
-
-
-
-
-### `cloacina::dispatcher::types::RoutingRule`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-**Derives:** `Debug`, `Clone`
-
-A routing rule for directing tasks to specific executors.
-
-Rules are evaluated in order, and the first matching rule determines
-which executor handles the task.
-
-#### Fields
-
-| Name | Type | Description |
-|------|------|-------------|
-| `task_pattern` | `String` | Glob pattern to match task names (e.g., "ml::*", "heavy::*") |
-| `executor` | `String` | Executor key to route matching tasks to |
-
-#### Methods
-
-##### `new` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn new (task_pattern : impl Into < String > , executor : impl Into < String >) -> Self
-```
-
-Creates a new routing rule.
-
-<details>
-<summary>Source</summary>
-
-```rust
-    pub fn new(task_pattern: impl Into<String>, executor: impl Into<String>) -> Self {
-        Self {
-            task_pattern: task_pattern.into(),
-            executor: executor.into(),
-        }
     }
 ```
 

@@ -19,7 +19,7 @@ at runtime based on the database connection type.
 Data access layer for recovery event operations with runtime backend selection.
 
 This DAL provides methods for creating and querying recovery events,
-which track recovery operations performed on tasks and pipelines.
+which track recovery operations performed on tasks and workflow executions.
 
 #### Fields
 

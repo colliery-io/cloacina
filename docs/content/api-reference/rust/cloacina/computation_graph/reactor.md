@@ -297,6 +297,9 @@ The Reactor.
 | `expected_sources` | `Vec < SourceName >` | Expected source names (used to seed DirtyFlags for WhenAll). |
 | `graph_name` | `String` | Graph name (for DAL persistence keying). |
 | `dal` | `Option < crate :: dal :: unified :: DAL >` | DAL handle for cache persistence. None in embedded mode. |
+| `tenant_id` | `Option < String >` | Tenant scope for the reactor's package, used as the
+`reactor_firings.tenant_id` row key (CLOACI-I-0100 / T-0599).
+`None` for cross-tenant or embedded reactors. |
 | `health` | `Option < watch :: Sender < ReactorHealth > >` | Health state reporter. None when health tracking not needed. |
 | `accumulator_health_rxs` | `Vec < (String , watch :: Receiver < super :: accumulator :: AccumulatorHealth > ,) >` | Accumulator health receivers for startup gating and degraded mode detection. |
 | `batch_flush_senders` | `Vec < mpsc :: Sender < () > >` | Flush senders for batch accumulators — signalled after graph execution. |
@@ -325,7 +328,7 @@ fn new (graph : CompiledGraphFn , criteria : ReactionCriteria , input_strategy :
         Self {
             graph,
             criteria,
-            input_strategy: input_strategy,
+            input_strategy,
             accumulator_rx,
             manual_rx,
             shutdown,
@@ -334,6 +337,7 @@ fn new (graph : CompiledGraphFn , criteria : ReactionCriteria , input_strategy :
             expected_sources: Vec::new(),
             graph_name: String::new(),
             dal: None,
+            tenant_id: None,
             health: None,
             accumulator_health_rxs: Vec::new(),
             batch_flush_senders: Vec::new(),
@@ -406,6 +410,29 @@ Set the DAL handle for cache persistence.
 ```rust
     pub fn with_dal(mut self, dal: crate::dal::unified::DAL) -> Self {
         self.dal = Some(dal);
+        self
+    }
+```
+
+</details>
+
+
+
+##### `with_tenant_id` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn with_tenant_id (mut self , tenant_id : Option < String >) -> Self
+```
+
+Set the tenant scope for reactor firings (CLOACI-I-0100 / T-0599).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn with_tenant_id(mut self, tenant_id: Option<String>) -> Self {
+        self.tenant_id = tenant_id;
         self
     }
 ```
@@ -535,6 +562,17 @@ Run the reactor. Spawns receiver + executor tasks.
 
 ```rust
     pub async fn run(mut self) {
+        // Compute the bounded `strategy` metric label once per run. Mapping
+        // collapses the two-axis (criteria × input_strategy) design into the
+        // three values documented for `cloacina_reactor_fires_total`:
+        // Sequential ⇒ "sequential", Latest+WhenAny ⇒ "when_any",
+        // Latest+WhenAll ⇒ "when_all".
+        let strategy_label: &'static str = match (&self.input_strategy, &self.criteria) {
+            (InputStrategy::Sequential, _) => "sequential",
+            (InputStrategy::Latest, ReactionCriteria::WhenAny) => "when_any",
+            (InputStrategy::Latest, ReactionCriteria::WhenAll) => "when_all",
+        };
+
         // Report starting health
         if let Some(ref health) = self.health {
             let _ = health.send(ReactorHealth::Starting);
@@ -696,10 +734,15 @@ Run the reactor. Spawns receiver + executor tasks.
         let input_strategy = self.input_strategy.clone();
 
         // Sequential queue — only used when InputStrategy::Sequential
-        let seq_queue: Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>> =
-            Arc::new(RwLock::new(VecDeque::new()));
+        let seq_queue: SeqQueue = Arc::new(RwLock::new(VecDeque::new()));
 
         let (strategy_tx, mut strategy_rx) = mpsc::channel::<StrategySignal>(64);
+
+        // Per-source last-arrival timestamps for `cloacina_reactor_cache_age_seconds`.
+        // Shared between receiver and executor so both tasks can refresh the
+        // gauge — receiver on every boundary, executor before each fire.
+        let last_received_at: Arc<RwLock<HashMap<SourceName, std::time::Instant>>> =
+            Arc::new(RwLock::new(HashMap::new()));
 
         // Spawn receiver task
         let cache_recv = cache.clone();
@@ -710,11 +753,33 @@ Run the reactor. Spawns receiver + executor tasks.
         let mut accumulator_rx = self.accumulator_rx;
         let mut manual_rx = self.manual_rx;
         let strategy_tx_recv = strategy_tx.clone();
+        let last_received_recv = last_received_at.clone();
+        let graph_name_recv = self.graph_name.clone();
 
         let receiver_handle = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     Some((source, bytes)) = accumulator_rx.recv() => {
+                        // Record arrival timestamp + refresh `cache_age_seconds`
+                        // for every known source. Refreshing all sources on
+                        // every arrival is how silent sources show staleness
+                        // in dashboards without needing a separate periodic
+                        // ticker.
+                        let now = std::time::Instant::now();
+                        {
+                            let mut map = last_received_recv.write().await;
+                            map.insert(source.clone(), now);
+                            for (src, ts) in map.iter() {
+                                let age = now.saturating_duration_since(*ts).as_secs_f64();
+                                metrics::gauge!(
+                                    "cloacina_reactor_cache_age_seconds",
+                                    "graph" => graph_name_recv.clone(),
+                                    "reactor" => graph_name_recv.clone(),
+                                    "source" => src.as_str().to_string(),
+                                )
+                                .set(age);
+                            }
+                        }
                         match input_strategy_recv {
                             InputStrategy::Latest => {
                                 cache_recv.write().await.update(source.clone(), bytes);
@@ -754,9 +819,14 @@ Run the reactor. Spawns receiver + executor tasks.
         let graph = self.graph.clone();
         let criteria = self.criteria.clone();
         let dal_exec = self.dal.clone();
+        let tenant_id_exec = self.tenant_id.clone();
         let graph_name_exec = self.graph_name.clone();
         let batch_flush = self.batch_flush_senders.clone();
         let fire_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        // Consecutive persist failures — drives the I-0108 / T-0590
+        // watchdog that flips the reactor to `Degraded` after 5 in a row.
+        let persist_streak = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let health_exec = self.health.clone();
 
         loop {
             tokio::select! {
@@ -777,13 +847,31 @@ Run the reactor. Spawns receiver + executor tasks.
                             if should_run && !paused.load(Ordering::SeqCst) {
                                 let snapshot = cache_exec.read().await.snapshot();
                                 dirty_exec.write().await.clear_all();
+                                let fire_started = std::time::Instant::now();
+                                write_reactor_firing(
+                                    &dal_exec, &tenant_id_exec, &graph_name_exec, &snapshot,
+                                ).await;
                                 let result = (graph)(snapshot).await;
+                                metrics::counter!(
+                                    "cloacina_reactor_fires_total",
+                                    "graph" => graph_name_exec.clone(),
+                                    "reactor" => graph_name_exec.clone(),
+                                    "strategy" => strategy_label,
+                                )
+                                .increment(1);
+                                metrics::histogram!(
+                                    "cloacina_reactor_fire_duration_seconds",
+                                    "graph" => graph_name_exec.clone(),
+                                    "reactor" => graph_name_exec.clone(),
+                                )
+                                .record(fire_started.elapsed().as_secs_f64());
                                 match &result {
                                     GraphResult::Completed { .. } => {
                                         let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                                         tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                         persist_reactor_state(
                                             &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec, None,
+                                            &persist_streak, &health_exec,
                                         ).await;
                                         for sender in &batch_flush {
                                             let _ = sender.try_send(());
@@ -803,6 +891,7 @@ Run the reactor. Spawns receiver + executor tasks.
                             persist_reactor_state(
                                 &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec,
                                 Some(&seq_queue_exec),
+                                &persist_streak, &health_exec,
                             ).await;
                             // Drain the queue — one execution per queued boundary
                             loop {
@@ -811,7 +900,24 @@ Run the reactor. Spawns receiver + executor tasks.
                                     Some((source, bytes)) => {
                                         cache_exec.write().await.update(source, bytes);
                                         let snapshot = cache_exec.read().await.snapshot();
+                                        let fire_started = std::time::Instant::now();
+                                        write_reactor_firing(
+                                            &dal_exec, &tenant_id_exec, &graph_name_exec, &snapshot,
+                                        ).await;
                                         let result = (graph)(snapshot).await;
+                                        metrics::counter!(
+                                            "cloacina_reactor_fires_total",
+                                            "graph" => graph_name_exec.clone(),
+                                            "reactor" => graph_name_exec.clone(),
+                                            "strategy" => strategy_label,
+                                        )
+                                        .increment(1);
+                                        metrics::histogram!(
+                                            "cloacina_reactor_fire_duration_seconds",
+                                            "graph" => graph_name_exec.clone(),
+                                            "reactor" => graph_name_exec.clone(),
+                                        )
+                                        .record(fire_started.elapsed().as_secs_f64());
                                         match &result {
                                             GraphResult::Completed { .. } => {
                                                 let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -819,6 +925,7 @@ Run the reactor. Spawns receiver + executor tasks.
                                                 persist_reactor_state(
                                                     &dal_exec, &graph_name_exec, &cache_exec,
                                                     &dirty_exec, Some(&seq_queue_exec),
+                                                    &persist_streak, &health_exec,
                                                 ).await;
                                                 // Signal batch accumulators to flush
                                                 for sender in &batch_flush {
@@ -842,6 +949,7 @@ Run the reactor. Spawns receiver + executor tasks.
                     persist_reactor_state(
                         &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec,
                         Some(&seq_queue_exec),
+                        &persist_streak, &health_exec,
                     ).await;
                     break;
                 }
@@ -979,16 +1087,103 @@ pub fn reactor_health_channel() -> (watch::Sender<ReactorHealth>, watch::Receive
 
 
 
+### `cloacina::computation_graph::reactor::write_reactor_firing`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+async fn write_reactor_firing (dal : & Option < crate :: dal :: unified :: DAL > , tenant_id : & Option < String > , reactor_name : & str , snapshot : & cloacina_computation_graph :: InputCache ,)
+```
+
+Write one `reactor_firings` row to the DAL on each fire.
+
+Best-effort: a DAL failure logs a warning but never blocks the
+in-process CG dispatch (the supervisor's persist-failure watchdog
+catches sustained DAL trouble via `persist_reactor_state`).
+Skipped silently when no DAL is wired (embedded mode) or no tenant
+is set (cross-tenant / test reactors).
+
+<details>
+<summary>Source</summary>
+
+```rust
+async fn write_reactor_firing(
+    dal: &Option<crate::dal::unified::DAL>,
+    tenant_id: &Option<String>,
+    reactor_name: &str,
+    snapshot: &cloacina_computation_graph::InputCache,
+) {
+    let Some(dal) = dal else { return };
+    let Some(tenant) = tenant_id else { return };
+    if reactor_name.is_empty() {
+        return;
+    }
+
+    // Serialize boundary cache as a stable map keyed by source name string —
+    // matches what subscribers will deserialize as their input context.
+    let entries: std::collections::HashMap<String, Vec<u8>> = snapshot
+        .entries_raw()
+        .iter()
+        .map(|(name, bytes)| (name.as_str().to_string(), bytes.clone()))
+        .collect();
+    let payload = match bincode::serialize(&entries) {
+        Ok(b) => Some(b),
+        Err(e) => {
+            tracing::warn!(
+                reactor = reactor_name,
+                "failed to bincode-serialize firing payload: {}",
+                e
+            );
+            None
+        }
+    };
+
+    let fired_at = crate::database::universal_types::UniversalTimestamp::now();
+    if let Err(e) = dal
+        .reactor_subscriptions()
+        .insert_firing(reactor_name, tenant, payload, fired_at)
+        .await
+    {
+        tracing::warn!(
+            reactor = reactor_name,
+            tenant = tenant.as_str(),
+            "failed to write reactor_firings row: {}",
+            e
+        );
+        return;
+    }
+
+    metrics::counter!(
+        "cloacina_reactor_firings_total",
+        "graph" => reactor_name.to_string(),
+        "reactor" => reactor_name.to_string(),
+    )
+    .increment(1);
+}
+```
+
+</details>
+
+
+
 ### `cloacina::computation_graph::reactor::persist_reactor_state`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
 
 
 ```rust
-async fn persist_reactor_state (dal : & Option < crate :: dal :: unified :: DAL > , graph_name : & str , cache : & Arc < RwLock < InputCache > > , dirty : & Arc < RwLock < DirtyFlags > > , seq_queue : Option < & Arc < RwLock < VecDeque < (SourceName , Vec < u8 >) > > > > ,)
+async fn persist_reactor_state (dal : & Option < crate :: dal :: unified :: DAL > , graph_name : & str , cache : & Arc < RwLock < InputCache > > , dirty : & Arc < RwLock < DirtyFlags > > , seq_queue : Option < & SeqQueue > , persist_streak : & Arc < std :: sync :: atomic :: AtomicU32 > , health : & Option < watch :: Sender < ReactorHealth > > ,)
 ```
 
 Persist reactor state to DAL (best-effort, logs on failure).
+
+Tracks consecutive failures via `persist_streak` and downgrades the
+reactor to `ReactorHealth::Degraded` after
+`PERSIST_FAILURE_DEGRADE_THRESHOLD` consecutive failures. On the next
+successful persist after the threshold has been crossed, the streak is
+reset and the reactor reports `Live` again — operators see persist
+trouble on `/v1/health/graphs/{name}` without tailing logs.
 
 <details>
 <summary>Source</summary>
@@ -999,7 +1194,9 @@ async fn persist_reactor_state(
     graph_name: &str,
     cache: &Arc<RwLock<InputCache>>,
     dirty: &Arc<RwLock<DirtyFlags>>,
-    seq_queue: Option<&Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>>>,
+    seq_queue: Option<&SeqQueue>,
+    persist_streak: &Arc<std::sync::atomic::AtomicU32>,
+    health: &Option<watch::Sender<ReactorHealth>>,
 ) {
     let dal = match dal {
         Some(d) if !graph_name.is_empty() => d,
@@ -1014,6 +1211,7 @@ async fn persist_reactor_state(
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(graph = %graph_name, "cache serialization failed: {}", e);
+            record_reactor_persist_failure(graph_name, "cache_serialize", persist_streak, health);
             return;
         }
     };
@@ -1022,6 +1220,7 @@ async fn persist_reactor_state(
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(graph = %graph_name, "dirty flags serialization failed: {}", e);
+            record_reactor_persist_failure(graph_name, "dirty_serialize", persist_streak, health);
             return;
         }
     };
@@ -1035,6 +1234,12 @@ async fn persist_reactor_state(
                 Ok(b) => Some(b),
                 Err(e) => {
                     tracing::warn!(graph = %graph_name, "sequential queue serialization failed: {}", e);
+                    record_reactor_persist_failure(
+                        graph_name,
+                        "seq_serialize",
+                        persist_streak,
+                        health,
+                    );
                     None
                 }
             }
@@ -1049,6 +1254,66 @@ async fn persist_reactor_state(
         .await
     {
         tracing::warn!(graph = %graph_name, "reactor state persistence failed: {}", e);
+        record_reactor_persist_failure(graph_name, "save", persist_streak, health);
+        return;
+    }
+
+    // Success path — reset streak and recover health if we'd previously
+    // degraded due to persist trouble.
+    let prev = persist_streak.swap(0, std::sync::atomic::Ordering::Relaxed);
+    if prev >= PERSIST_FAILURE_DEGRADE_THRESHOLD {
+        if let Some(ref tx) = health {
+            tracing::info!(graph = %graph_name, "persist recovered after {} failures", prev);
+            let _ = tx.send(ReactorHealth::Live);
+        }
+    }
+}
+```
+
+</details>
+
+
+
+### `cloacina::computation_graph::reactor::record_reactor_persist_failure`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn record_reactor_persist_failure (graph_name : & str , kind : & 'static str , persist_streak : & Arc < std :: sync :: atomic :: AtomicU32 > , health : & Option < watch :: Sender < ReactorHealth > > ,)
+```
+
+Increment the bounded persist-failures counter for a reactor, bump the reactor-level streak, and push the reactor to `Degraded` once the streak crosses [`PERSIST_FAILURE_DEGRADE_THRESHOLD`]. The `kind ∈ {cache_serialize, dirty_serialize, seq_serialize, save}` label surface attributes the failure to a specific branch of [`persist_reactor_state`].
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn record_reactor_persist_failure(
+    graph_name: &str,
+    kind: &'static str,
+    persist_streak: &Arc<std::sync::atomic::AtomicU32>,
+    health: &Option<watch::Sender<ReactorHealth>>,
+) {
+    metrics::counter!(
+        "cloacina_reactor_persist_failures_total",
+        "graph" => graph_name.to_string(),
+        "reactor" => graph_name.to_string(),
+        "kind" => kind,
+    )
+    .increment(1);
+    let streak = persist_streak.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if streak == PERSIST_FAILURE_DEGRADE_THRESHOLD {
+        if let Some(ref tx) = health {
+            tracing::warn!(
+                graph = %graph_name,
+                streak,
+                "persist failure streak hit threshold — downgrading reactor to Degraded"
+            );
+            let _ = tx.send(ReactorHealth::Degraded {
+                disconnected: vec!["persist".to_string()],
+            });
+        }
     }
 }
 ```

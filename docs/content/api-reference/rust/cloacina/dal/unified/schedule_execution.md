@@ -24,7 +24,7 @@ Statistics about schedule execution performance
 | Name | Type | Description |
 |------|------|-------------|
 | `total_executions` | `i64` | Total number of executions attempted |
-| `successful_executions` | `i64` | Number of executions that successfully handed off to pipeline executor |
+| `successful_executions` | `i64` | Number of executions that successfully handed off to workflow executor |
 | `lost_executions` | `i64` | Number of executions that were lost (started but never completed within expected time) |
 | `success_rate` | `f64` | Success rate as a percentage |
 

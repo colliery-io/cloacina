@@ -23,7 +23,7 @@ Represents a task execution metadata record (domain type).
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
 | `task_execution_id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_name` | `String` |  |
 | `context_id` | `Option < UniversalUuid >` |  |
 | `created_at` | `UniversalTimestamp` |  |
@@ -45,6 +45,6 @@ Structure for creating new task execution metadata (domain type).
 | Name | Type | Description |
 |------|------|-------------|
 | `task_execution_id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_name` | `String` |  |
 | `context_id` | `Option < UniversalUuid >` |  |

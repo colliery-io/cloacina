@@ -48,29 +48,29 @@ reusable across executions.
 | `slot_token` | `SlotToken` |  |
 | `task_execution_id` | `UniversalUuid` |  |
 | `dal` | `Option < DAL >` |  |
+| `cancel_rx` | `Option < tokio :: sync :: watch :: Receiver < bool > >` |  |
 
 #### Methods
 
-##### `new` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">pub(crate)</span>
+##### `new` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
 
 
 ```rust
 fn new (slot_token : SlotToken , task_execution_id : UniversalUuid) -> Self
 ```
 
-Creates a new TaskHandle.
-
-This is called internally by the executor — tasks receive it as a parameter.
+Creates a new TaskHandle for unit tests. Production code uses [`with_dal_and_cancel`](Self::with_dal_and_cancel).
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub(crate) fn new(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self {
+    fn new(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self {
         Self {
             slot_token,
             task_execution_id,
             dal: None,
+            cancel_rx: None,
         }
     }
 ```
@@ -79,28 +79,30 @@ This is called internally by the executor — tasks receive it as a parameter.
 
 
 
-##### `with_dal` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">pub(crate)</span>
+##### `with_dal_and_cancel` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">pub(crate)</span>
 
 
 ```rust
-fn with_dal (slot_token : SlotToken , task_execution_id : UniversalUuid , dal : DAL ,) -> Self
+fn with_dal_and_cancel (slot_token : SlotToken , task_execution_id : UniversalUuid , dal : DAL , cancel_rx : tokio :: sync :: watch :: Receiver < bool > ,) -> Self
 ```
 
-Creates a new TaskHandle with DAL for sub_status persistence.
+Creates a new TaskHandle with DAL and a cancellation watch receiver fed by the executor's heartbeat loop. When the heartbeat detects that the task's claim has been lost, it sets the channel to `true`; tasks can observe this via [`is_cancelled`](Self::is_cancelled) and [`cancelled`](Self::cancelled) for cooperative shutdown.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub(crate) fn with_dal(
+    pub(crate) fn with_dal_and_cancel(
         slot_token: SlotToken,
         task_execution_id: UniversalUuid,
         dal: DAL,
+        cancel_rx: tokio::sync::watch::Receiver<bool>,
     ) -> Self {
         Self {
             slot_token,
             task_execution_id,
             dal: Some(dal),
+            cancel_rx: Some(cancel_rx),
         }
     }
 ```
@@ -263,24 +265,65 @@ Returns whether the handle currently holds a concurrency slot.
 
 
 
-##### `into_slot_token` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #ff5722; color: white;">pub(crate)</span>
+##### `is_cancelled` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
-fn into_slot_token (self) -> SlotToken
+fn is_cancelled (& self) -> bool
 ```
 
-Consumes the handle, returning the inner SlotToken.
+Returns `true` if the executor has signaled that this task's claim was lost and the task should stop at the next safe point. Long-running tasks can poll this at checkpoint boundaries and return early to free resources; if they don't, the executor still aborts the task via `tokio::select!` racing on the same channel.
 
-Used by the executor to reclaim ownership of the permit after
-task execution completes.
+Always returns `false` for handles created without a cancellation
+channel (e.g. in tests via [`TaskHandle::new`]).
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub(crate) fn into_slot_token(self) -> SlotToken {
-        self.slot_token
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel_rx
+            .as_ref()
+            .map(|rx| *rx.borrow())
+            .unwrap_or(false)
+    }
+```
+
+</details>
+
+
+
+##### `cancelled` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn cancelled (& self)
+```
+
+Resolves when the executor signals cancellation (claim lost). Useful inside `tokio::select!` to race user work against the cancel signal:
+
+```ignore
+tokio::select! {
+_ = handle.cancelled() => return Ok(()),
+_ = do_work() => { /* normal path */ }
+}
+```
+If no cancellation channel is wired up (test handles), the future
+never resolves.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn cancelled(&self) {
+        match self.cancel_rx.as_ref() {
+            Some(rx) => {
+                let mut rx = rx.clone();
+                let _ = rx.wait_for(|&v| v).await;
+            }
+            None => std::future::pending::<()>().await,
+        }
     }
 ```
 

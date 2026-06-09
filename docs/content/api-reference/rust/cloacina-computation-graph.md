@@ -81,9 +81,8 @@ The input cache holds the last-seen serialized boundary per source.
 
 The reactor's receiver task updates this cache continuously. The executor
 takes a snapshot before calling the compiled graph function.
-Serialization format:
-- **Release builds**: bincode (compact binary, fast)
-- **Debug builds**: JSON (human-readable, inspectable)
+Serialization format: bincode (compact binary). The FFI packaging bridge
+converts bincode→JSON at the boundary for plugin compatibility.
 
 #### Fields
 
@@ -381,13 +380,45 @@ Return entries as a JSON-friendly map.
 
 Metadata about a registered computation graph.
 
+`accumulator_names` and `reaction_mode` are the canonical fields consumed
+by the packaging FFI and the reconciler. Bundled-form graphs populate
+these from the local declaration; split-form graphs mirror the
+referenced reactor's declaration. Trigger-less graphs carry empty
+`accumulator_names` and `trigger_reactor = None`.
+
 #### Fields
 
 | Name | Type | Description |
 |------|------|-------------|
 | `graph_fn` | `CompiledGraphFn` | The compiled graph function. |
-| `accumulator_names` | `Vec < String >` | Accumulator names declared in the graph topology. |
-| `reaction_mode` | `String` | Reaction mode: "when_any" or "when_all". |
+| `trigger_reactor` | `Option < String >` | Name of the reactor this graph is bound to, if any. `None` for
+trigger-less graphs (T-02/T-03 invoke these directly from workflow
+tasks or Python tasks). |
+| `accumulator_names` | `Vec < String >` | Accumulator names. For split-form graphs this mirrors the reactor's
+accumulators; for trigger-less graphs it is empty. |
+| `reaction_mode` | `String` | Reaction mode: `"when_any"`, `"when_all"`, or `"none"` for
+trigger-less graphs. |
+
+
+
+### `cloacina-computation-graph::ReactorRegistration`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+**Derives:** `Debug`, `Clone`
+
+Runtime-side description of a reactor.
+
+Populated by the `#[reactor]` macro's emitted inventory entry.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `name` | `String` |  |
+| `accumulator_names` | `Vec < String >` |  |
+| `reaction_mode` | `ReactionMode` |  |
 
 
 
@@ -420,6 +451,18 @@ Errors that can occur during graph execution.
 
 
 
+### `cloacina-computation-graph::ReactionMode` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+How a reactor decides when to fire.
+
+#### Variants
+
+- **`WhenAny`** - Fire as soon as any one accumulator has new input.
+- **`WhenAll`** - Fire only when every accumulator has new input since the last firing.
+
+
+
 ## Functions
 
 ### `cloacina-computation-graph::serialize`
@@ -431,24 +474,17 @@ Errors that can occur during graph execution.
 fn serialize < T : Serialize > (value : & T) -> Result < Vec < u8 > , GraphError >
 ```
 
-Serialize a value to bytes using the build-profile-appropriate format.
+Serialize a value to bincode bytes.
 
-- Release: bincode (fast, compact)
-- Debug: JSON (readable, inspectable in logs)
+Bincode is used for all internal wire formats (boundary channels,
+checkpoint persistence, accumulator-to-reactor messaging).
 
 <details>
 <summary>Source</summary>
 
 ```rust
 pub fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, GraphError> {
-    #[cfg(debug_assertions)]
-    {
-        serde_json::to_vec(value).map_err(|e| GraphError::Serialization(e.to_string()))
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        bincode::serialize(value).map_err(|e| GraphError::Serialization(e.to_string()))
-    }
+    bincode::serialize(value).map_err(|e| GraphError::Serialization(e.to_string()))
 }
 ```
 
@@ -465,21 +501,14 @@ pub fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, GraphError> {
 fn deserialize < T : DeserializeOwned > (bytes : & [u8]) -> Result < T , GraphError >
 ```
 
-Deserialize bytes to a value using the build-profile-appropriate format.
+Deserialize bincode bytes to a value.
 
 <details>
 <summary>Source</summary>
 
 ```rust
 pub fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, GraphError> {
-    #[cfg(debug_assertions)]
-    {
-        serde_json::from_slice(bytes).map_err(|e| GraphError::Deserialization(e.to_string()))
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        bincode::deserialize(bytes).map_err(|e| GraphError::Deserialization(e.to_string()))
-    }
+    bincode::deserialize(bytes).map_err(|e| GraphError::Deserialization(e.to_string()))
 }
 ```
 
@@ -502,110 +531,6 @@ fn hex_encode (bytes : & [u8]) -> String
 ```rust
 fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
-}
-```
-
-</details>
-
-
-
-### `cloacina-computation-graph::register_computation_graph_constructor`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn register_computation_graph_constructor < F > (graph_name : String , constructor : F) where F : Fn () -> ComputationGraphRegistration + Send + Sync + 'static ,
-```
-
-Register a computation graph constructor in the global registry.
-
-<details>
-<summary>Source</summary>
-
-```rust
-pub fn register_computation_graph_constructor<F>(graph_name: String, constructor: F)
-where
-    F: Fn() -> ComputationGraphRegistration + Send + Sync + 'static,
-{
-    let mut registry = GLOBAL_COMPUTATION_GRAPH_REGISTRY.write();
-    registry.insert(graph_name.clone(), Box::new(constructor));
-    tracing::debug!("Registered computation graph constructor: {}", graph_name);
-}
-```
-
-</details>
-
-
-
-### `cloacina-computation-graph::global_computation_graph_registry`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn global_computation_graph_registry () -> GlobalComputationGraphRegistry
-```
-
-Get the global computation graph registry.
-
-<details>
-<summary>Source</summary>
-
-```rust
-pub fn global_computation_graph_registry() -> GlobalComputationGraphRegistry {
-    GLOBAL_COMPUTATION_GRAPH_REGISTRY.clone()
-}
-```
-
-</details>
-
-
-
-### `cloacina-computation-graph::list_registered_graphs`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn list_registered_graphs () -> Vec < String >
-```
-
-List all registered computation graph names.
-
-<details>
-<summary>Source</summary>
-
-```rust
-pub fn list_registered_graphs() -> Vec<String> {
-    let registry = GLOBAL_COMPUTATION_GRAPH_REGISTRY.read();
-    registry.keys().cloned().collect()
-}
-```
-
-</details>
-
-
-
-### `cloacina-computation-graph::deregister_computation_graph`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn deregister_computation_graph (graph_name : & str)
-```
-
-Remove a computation graph from the global registry.
-
-<details>
-<summary>Source</summary>
-
-```rust
-pub fn deregister_computation_graph(graph_name: &str) {
-    let mut registry = GLOBAL_COMPUTATION_GRAPH_REGISTRY.write();
-    registry.remove(graph_name);
-    tracing::debug!("Deregistered computation graph constructor: {}", graph_name);
 }
 ```
 

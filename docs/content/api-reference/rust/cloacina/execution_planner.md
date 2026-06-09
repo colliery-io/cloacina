@@ -54,7 +54,6 @@ Creates a new TaskScheduler instance with default configuration using global wor
 
 This is the recommended constructor for most use cases. The TaskScheduler will:
 - Use all workflows registered in the global registry
-- Enable automatic recovery of orphaned tasks
 - Use default poll interval (100ms)
 
 **Parameters:**
@@ -72,7 +71,7 @@ A new TaskScheduler instance ready to schedule and manage workflow executions.
 
 | Exception | Description |
 |-----------|-------------|
-| `Error` | May return ValidationError if recovery operations fail. |
+| `Error` | May return ValidationError if construction fails. |
 
 
 **Examples:**
@@ -108,8 +107,6 @@ async fn with_poll_interval (database : Database , poll_interval : Duration ,) -
 
 Creates a new TaskScheduler with custom poll interval using global workflow registry.
 
-Uses all workflows registered in the global registry and enables automatic recovery.
-
 **Parameters:**
 
 | Name | Type | Description |
@@ -122,13 +119,6 @@ Uses all workflows registered in the global registry and enables automatic recov
 
 A new TaskScheduler instance ready to schedule and manage workflow executions.
 
-**Raises:**
-
-| Exception | Description |
-|-----------|-------------|
-| `Error` | May return ValidationError if recovery operations fail. |
-
-
 <details>
 <summary>Source</summary>
 
@@ -137,10 +127,7 @@ A new TaskScheduler instance ready to schedule and manage workflow executions.
         database: Database,
         poll_interval: Duration,
     ) -> Result<Self, ValidationError> {
-        let scheduler = Self::with_poll_interval_sync(database, poll_interval);
-        let recovery_manager = RecoveryManager::new(&scheduler.dal, scheduler.runtime.clone());
-        recovery_manager.recover_orphaned_tasks().await?;
-        Ok(scheduler)
+        Ok(Self::with_poll_interval_sync(database, poll_interval))
     }
 ```
 
@@ -166,7 +153,7 @@ Creates a new TaskScheduler with custom poll interval (synchronous version).
 
         Self {
             dal,
-            runtime: Arc::new(Runtime::from_global()),
+            runtime: Arc::new(Runtime::new()),
             instance_id: Uuid::new_v4(),
             poll_interval,
             dispatcher: None,
@@ -319,7 +306,7 @@ Schedules a new workflow execution with the provided input context.
 This method:
 1. Validates the workflow exists in the registry
 2. Stores the input context in the database
-3. Creates a new pipeline execution record
+3. Creates a new workflow execution record
 4. Initializes task execution records for all workflow tasks
 
 **Parameters:**
@@ -332,7 +319,7 @@ This method:
 
 **Returns:**
 
-The UUID of the created pipeline execution on success.
+The UUID of the created workflow execution on success.
 
 **Raises:**
 
@@ -410,38 +397,43 @@ let execution_id = scheduler.schedule_workflow_execution("my-workflow", context)
             ));
         }
 
-        // Prepare pipeline data
-        let pipeline_id = UniversalUuid::new_v4();
+        // Prepare workflow execution data
+        let workflow_execution_id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
-        let pipeline_name = workflow_name.to_string();
-        let pipeline_version = current_version.clone();
+        let wf_name = workflow_name.to_string();
+        let wf_version = current_version.clone();
 
-        // Create pipeline AND tasks in a single atomic transaction
-        // This prevents the race condition where the scheduler sees a pipeline before tasks exist
+        // Create workflow execution AND tasks in a single atomic transaction
+        // This prevents the race condition where the scheduler sees a workflow execution before tasks exist
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.create_pipeline_postgres(
-                pipeline_id,
+            self.create_workflow_execution_postgres(
+                workflow_execution_id,
                 now,
-                pipeline_name,
-                pipeline_version,
+                wf_name,
+                wf_version,
                 stored_context,
                 task_data,
             )
             .await?,
-            self.create_pipeline_sqlite(
-                pipeline_id,
+            self.create_workflow_execution_sqlite(
+                workflow_execution_id,
                 now,
-                pipeline_name,
-                pipeline_version,
+                wf_name,
+                wf_version,
                 stored_context,
                 task_data,
             )
             .await?
         );
 
-        info!("Workflow execution scheduled: {}", pipeline_id);
-        Ok(pipeline_id.into())
+        // NOTE: cloacina_active_workflows gauge is SQL-derived — re-seeded
+        // each tick in SchedulerLoop::process_active_executions from the
+        // workflow_executions row count. We intentionally do NOT increment
+        // here; doing so would cause gauge drift on any code path that skips
+        // finalize_workflow_execution (crash, claim loss, etc.).
+        info!("Workflow execution scheduled: {}", workflow_execution_id);
+        Ok(workflow_execution_id.into())
     }
 ```
 
@@ -449,26 +441,26 @@ let execution_id = scheduler.schedule_workflow_execution("my-workflow", context)
 
 
 
-##### `create_pipeline_postgres` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+##### `create_workflow_execution_postgres` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
 
 
 ```rust
-async fn create_pipeline_postgres (& self , pipeline_id : UniversalUuid , now : UniversalTimestamp , pipeline_name : String , pipeline_version : String , stored_context : Option < UniversalUuid > , task_data : Vec < (String , String , String , i32) > ,) -> Result < () , ValidationError >
+async fn create_workflow_execution_postgres (& self , workflow_execution_id : UniversalUuid , now : UniversalTimestamp , workflow_name : String , workflow_version : String , stored_context : Option < UniversalUuid > , task_data : Vec < (String , String , String , i32) > ,) -> Result < () , ValidationError >
 ```
 
-Creates pipeline and tasks in PostgreSQL.
+Creates workflow execution and tasks in PostgreSQL.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    async fn create_pipeline_postgres(
+    async fn create_workflow_execution_postgres(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         now: UniversalTimestamp,
-        pipeline_name: String,
-        pipeline_version: String,
+        workflow_name: String,
+        workflow_version: String,
         stored_context: Option<UniversalUuid>,
         task_data: Vec<(String, String, String, i32)>,
     ) -> Result<(), ValidationError> {
@@ -481,12 +473,12 @@ Creates pipeline and tasks in PostgreSQL.
 
         conn.interact(move |conn| {
             conn.transaction(|conn| {
-                // Insert pipeline
-                diesel::insert_into(pipeline_executions::table)
+                // Insert workflow execution
+                diesel::insert_into(workflow_executions::table)
                     .values(&NewUnifiedWorkflowExecution {
-                        id: pipeline_id,
-                        pipeline_name,
-                        pipeline_version,
+                        id: workflow_execution_id,
+                        workflow_name,
+                        workflow_version,
                         status: "Pending".to_string(),
                         context_id: stored_context,
                         started_at: now,
@@ -500,7 +492,7 @@ Creates pipeline and tasks in PostgreSQL.
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: pipeline_id,
+                            workflow_execution_id,
                             task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,
@@ -527,26 +519,26 @@ Creates pipeline and tasks in PostgreSQL.
 
 
 
-##### `create_pipeline_sqlite` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+##### `create_workflow_execution_sqlite` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
 
 
 ```rust
-async fn create_pipeline_sqlite (& self , pipeline_id : UniversalUuid , now : UniversalTimestamp , pipeline_name : String , pipeline_version : String , stored_context : Option < UniversalUuid > , task_data : Vec < (String , String , String , i32) > ,) -> Result < () , ValidationError >
+async fn create_workflow_execution_sqlite (& self , workflow_execution_id : UniversalUuid , now : UniversalTimestamp , workflow_name : String , workflow_version : String , stored_context : Option < UniversalUuid > , task_data : Vec < (String , String , String , i32) > ,) -> Result < () , ValidationError >
 ```
 
-Creates pipeline and tasks in SQLite.
+Creates workflow execution and tasks in SQLite.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    async fn create_pipeline_sqlite(
+    async fn create_workflow_execution_sqlite(
         &self,
-        pipeline_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
         now: UniversalTimestamp,
-        pipeline_name: String,
-        pipeline_version: String,
+        workflow_name: String,
+        workflow_version: String,
         stored_context: Option<UniversalUuid>,
         task_data: Vec<(String, String, String, i32)>,
     ) -> Result<(), ValidationError> {
@@ -559,12 +551,12 @@ Creates pipeline and tasks in SQLite.
 
         conn.interact(move |conn| {
             conn.transaction(|conn| {
-                // Insert pipeline
-                diesel::insert_into(pipeline_executions::table)
+                // Insert workflow execution
+                diesel::insert_into(workflow_executions::table)
                     .values(&NewUnifiedWorkflowExecution {
-                        id: pipeline_id,
-                        pipeline_name,
-                        pipeline_version,
+                        id: workflow_execution_id,
+                        workflow_name,
+                        workflow_version,
                         status: "Pending".to_string(),
                         context_id: stored_context,
                         started_at: now,
@@ -578,7 +570,7 @@ Creates pipeline and tasks in SQLite.
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
-                            pipeline_execution_id: pipeline_id,
+                            workflow_execution_id,
                             task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,
@@ -613,12 +605,12 @@ Creates pipeline and tasks in SQLite.
 async fn run_scheduling_loop (& self) -> Result < () , ValidationError >
 ```
 
-Runs the main scheduling loop that continuously processes active pipeline executions.
+Runs the main scheduling loop that continuously processes active workflow executions.
 
 This loop:
-1. Checks for active pipeline executions
+1. Checks for active workflow executions
 2. Updates task readiness based on dependencies and trigger rules
-3. Marks completed pipelines
+3. Marks completed workflow executions
 4. Repeats every second
 
 **Returns:**
@@ -664,21 +656,21 @@ scheduler.run_scheduling_loop().await?;
 
 
 
-##### `process_active_pipelines` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `process_active_executions` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
  <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
 
 
 ```rust
-async fn process_active_pipelines (& self) -> Result < () , ValidationError >
+async fn process_active_executions (& self) -> Result < () , ValidationError >
 ```
 
-Processes all active pipeline executions to update task readiness.
+Processes all active workflow executions to update task readiness.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
+    pub async fn process_active_executions(&self) -> Result<(), ValidationError> {
         let scheduler_loop = SchedulerLoop::with_dispatcher(
             &self.dal,
             self.runtime.clone(),
@@ -686,7 +678,7 @@ Processes all active pipeline executions to update task readiness.
             self.poll_interval,
             self.dispatcher.clone(),
         );
-        scheduler_loop.process_active_pipelines().await
+        scheduler_loop.process_active_executions().await
     }
 ```
 

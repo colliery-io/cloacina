@@ -27,6 +27,9 @@ Domain model for a package signature.
 | `key_fingerprint` | `String` | SHA256 hex fingerprint of the signing key |
 | `signature` | `Vec < u8 >` | Ed25519 signature (64 bytes) |
 | `signed_at` | `UniversalTimestamp` |  |
+| `org_id` | `Option < UniversalUuid >` | Organization id this signature is scoped to. NULL on rows that
+pre-date the column (CLOACI-I-0103). Server-side verification rejects
+NULL when `--require-signatures` is on. |
 
 
 
@@ -46,6 +49,7 @@ Model for creating a new package signature.
 | `package_hash` | `String` |  |
 | `key_fingerprint` | `String` |  |
 | `signature` | `Vec < u8 >` |  |
+| `org_id` | `Option < UniversalUuid >` |  |
 
 #### Methods
 
@@ -65,7 +69,29 @@ fn new (package_hash : String , key_fingerprint : String , signature : Vec < u8 
             package_hash,
             key_fingerprint,
             signature,
+            org_id: None,
         }
+    }
+```
+
+</details>
+
+
+
+##### `with_org_id` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn with_org_id (mut self , org_id : UniversalUuid) -> Self
+```
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn with_org_id(mut self, org_id: UniversalUuid) -> Self {
+        self.org_id = Some(org_id);
+        self
     }
 ```
 

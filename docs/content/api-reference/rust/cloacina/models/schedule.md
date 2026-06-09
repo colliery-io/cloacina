@@ -301,7 +301,7 @@ Represents a schedule execution record (domain type).
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
 | `schedule_id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `Option < UniversalUuid >` |  |
+| `workflow_execution_id` | `Option < UniversalUuid >` |  |
 | `scheduled_time` | `Option < UniversalTimestamp >` |  |
 | `claimed_at` | `Option < UniversalTimestamp >` |  |
 | `context_hash` | `Option < String >` |  |
@@ -326,7 +326,7 @@ Structure for creating new schedule execution records.
 | Name | Type | Description |
 |------|------|-------------|
 | `schedule_id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `Option < UniversalUuid >` |  |
+| `workflow_execution_id` | `Option < UniversalUuid >` |  |
 | `scheduled_time` | `Option < UniversalTimestamp >` |  |
 | `claimed_at` | `Option < UniversalTimestamp >` |  |
 | `context_hash` | `Option < String >` |  |

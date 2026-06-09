@@ -257,7 +257,9 @@ containing all the information needed to execute the workflow.
 | Name | Type | Description |
 |------|------|-------------|
 | `metadata` | `WorkflowMetadata` | Full metadata from the database |
-| `package_data` | `Vec < u8 >` | Binary data from registry storage |
+| `package_data` | `Vec < u8 >` | Source archive (.cloacina bzip2 tar) from registry storage |
+| `compiled_data` | `Option < Vec < u8 > >` | Compiled cdylib bytes produced by the compiler service.
+`None` for pure-Python packages; `Some` for Rust/mixed packages. |
 
 #### Methods
 
@@ -265,7 +267,7 @@ containing all the information needed to execute the workflow.
 
 
 ```rust
-fn new (metadata : WorkflowMetadata , package_data : Vec < u8 >) -> Self
+fn new (metadata : WorkflowMetadata , package_data : Vec < u8 > , compiled_data : Option < Vec < u8 > > ,) -> Self
 ```
 
 Create a new loaded workflow.
@@ -274,10 +276,15 @@ Create a new loaded workflow.
 <summary>Source</summary>
 
 ```rust
-    pub fn new(metadata: WorkflowMetadata, package_data: Vec<u8>) -> Self {
+    pub fn new(
+        metadata: WorkflowMetadata,
+        package_data: Vec<u8>,
+        compiled_data: Option<Vec<u8>>,
+    ) -> Self {
         Self {
             metadata,
             package_data,
+            compiled_data,
         }
     }
 ```

@@ -32,6 +32,13 @@ Domain model for workflow package metadata.
 | `created_at` | `UniversalTimestamp` |  |
 | `updated_at` | `UniversalTimestamp` |  |
 | `tenant_id` | `Option < String >` |  |
+| `content_hash` | `String` |  |
+| `superseded` | `bool` |  |
+| `compiled_data` | `Option < Vec < u8 > >` |  |
+| `build_status` | `String` |  |
+| `build_error` | `Option < String >` |  |
+| `build_claimed_at` | `Option < UniversalTimestamp >` |  |
+| `compiled_at` | `Option < UniversalTimestamp >` |  |
 
 
 

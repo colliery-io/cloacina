@@ -97,7 +97,7 @@ Load a workflow plugin from library bytes.
 fn execute_task (& self , request : TaskExecutionRequest) -> Result < TaskExecutionResult , String >
 ```
 
-Call execute_task (method index 1) on the loaded plugin.
+Call execute_task on the loaded plugin.
 
 <details>
 <summary>Source</summary>
@@ -109,7 +109,7 @@ Call execute_task (method index 1) on the loaded plugin.
             .lock()
             .map_err(|e| format!("Plugin mutex poisoned: {}", e))?;
         handle
-            .call_method(1, &(request,))
+            .call_method(cloacina_workflow_plugin::METHOD_EXECUTE_TASK, &(request,))
             .map_err(|e| format!("execute_task FFI call failed: {}", e))
     }
 ```
@@ -138,7 +138,6 @@ from the same package. No per-execution temp files or dlopen cycles.
 |------|------|-------------|
 | `plugin` | `Arc < LoadedWorkflowPlugin >` | Shared handle to the loaded plugin library |
 | `task_name` | `String` | Name of the task within the package |
-| `package_name` | `String` | Name of the package containing this task |
 | `dependencies` | `Vec < TaskNamespace >` | Task dependencies as fully qualified namespaces |
 
 #### Methods
@@ -172,7 +171,7 @@ Load a plugin library from bytes. Called once per package during registration.
 
 
 ```rust
-fn new (plugin : Arc < LoadedWorkflowPlugin > , task_name : String , package_name : String , dependencies : Vec < TaskNamespace > ,) -> Self
+fn new (plugin : Arc < LoadedWorkflowPlugin > , task_name : String , dependencies : Vec < TaskNamespace > ,) -> Self
 ```
 
 Create a new dynamic library task with a shared plugin handle.
@@ -184,13 +183,11 @@ Create a new dynamic library task with a shared plugin handle.
     pub(super) fn new(
         plugin: Arc<LoadedWorkflowPlugin>,
         task_name: String,
-        package_name: String,
         dependencies: Vec<TaskNamespace>,
     ) -> Self {
         Self {
             plugin,
             task_name,
-            package_name,
             dependencies,
         }
     }

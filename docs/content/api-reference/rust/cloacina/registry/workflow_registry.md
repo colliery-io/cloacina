@@ -26,7 +26,7 @@ managing packaged workflows with proper lifecycle management.
 |------|------|-------------|
 | `storage` | `S` | Storage backend for binary data |
 | `database` | `Database` | Database for metadata storage |
-| `loader` | `PackageLoader` | Package loader for metadata extraction |
+| `loader` | `PackageLoader` | Package loader for metadata extraction (FFI-driven; the
+reconciler reads metadata via fidius directly). |
 | `registrar` | `TaskRegistrar` | Task registrar for global registry integration |
-| `validator` | `PackageValidator` | Package validator for safety checks |
 | `loaded_packages` | `HashMap < Uuid , Vec < TaskNamespace > >` | Map of package IDs to registered task namespaces for cleanup tracking |

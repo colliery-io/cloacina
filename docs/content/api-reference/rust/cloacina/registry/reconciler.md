@@ -23,6 +23,14 @@ Configuration for the Registry Reconciler
 | `package_operation_timeout` | `Duration` | Maximum time to wait for a single package load/unload operation |
 | `continue_on_package_error` | `bool` | Whether to continue reconciliation if individual package operations fail |
 | `default_tenant_id` | `String` | Default tenant ID to use for package loading |
+| `require_signatures` | `bool` | Defense-in-depth: when true, the reconciler refuses to load any
+`workflow_packages` row that has no companion `package_signatures`
+row (CLOACI-T-0571). The upload route is the strong gate
+(CLOACI-I-0103); this catches direct DB inserts that bypass it. |
+| `verification_org_id` | `Option < crate :: UniversalUuid >` | Trusted org UUID used as the `org_id` field on the audit-log
+entry when a signature-existence check fails. None when
+`require_signatures` is false. Mirrors
+`cloacina-server`'s `--verification-org-id` CLI flag. |
 
 
 
@@ -111,6 +119,23 @@ Tracks the state of loaded packages
 | `workflow_name` | `Option < String >` | Workflow name registered for this package |
 | `trigger_names` | `Vec < String >` | Trigger names registered for this package |
 | `graph_name` | `Option < String >` | Computation graph name loaded for this package (if any) |
+| `reactor_names` | `Vec < String >` | Reactor names this package owns (declared via `#[reactor]` or
+`#[computation_graph]`'s bundled reactor). Used by the reverse-order
+unload pipeline (T-0554 Phase 2): the package's own reactors are
+torn down via `scheduler.unload_reactor` after subscribers have
+been unbound. Cross-package subscribers (graphs that bind to a
+reactor owned by another package) do NOT appear here. |
+| `cron_schedule_ids` | `Vec < String >` | Cron schedule IDs created when the reconciler registered this
+package's `#[trigger(cron = ...)]` declarations through an
+attached `CronWorkflowRegistrar`. Empty when no registrar is
+attached (e.g. the standalone daemon path runs cron registration
+out-of-band). Used by `unload_package` to drop the schedules
+when the package is removed. |
+| `triggerless_graph_names` | `Vec < String >` | Trigger-less graph names registered through the FFI bridge for
+this package (T-0553 follow-up — Trigger-less CG FFI bridge).
+Populated by `step_load_triggerless_cgs` for cdylib packages;
+empty for in-process / Python loads. `unload_package` drops
+each name from the runtime. |
 
 
 
@@ -165,6 +190,10 @@ Registry Reconciler for synchronizing database state with in-memory registries
 |------|------|-------------|
 | `registry` | `Arc < dyn WorkflowRegistry >` | Reference to the workflow registry for database operations |
 | `config` | `ReconcilerConfig` | Configuration for reconciliation behavior |
+| `runtime` | `Option < Arc < crate :: Runtime > >` | Optional runtime handle. When set, the reconciler pushes
+newly-loaded/unloaded registrations through the runtime so executors
+looking up tasks/workflows/triggers/CGs/stream backends stay in sync
+with dynamic package loads. |
 | `loaded_packages` | `Arc < tokio :: sync :: RwLock < HashMap < WorkflowPackageId , PackageState > > >` | Tracking of currently loaded packages |
 | `package_loader` | `PackageLoader` | Package loader for extracting metadata from .so files |
 | `task_registrar` | `TaskRegistrar` | Task registrar for managing dynamic task registration |
@@ -172,6 +201,12 @@ Registry Reconciler for synchronizing database state with in-memory registries
 | `interval` | `Interval` | Reconciliation interval timer |
 | `graph_scheduler` | `Arc < tokio :: sync :: RwLock < Option < Arc < ComputationGraphScheduler > > > >` | Optional graph scheduler for computation graph packages.
 Shared reference so it can be set after construction. |
+| `cron_registrar` | `Option < Arc < dyn CronWorkflowRegistrar > >` | Optional cron registrar. When attached, the reconciler registers
+each `#[trigger(cron = ...)]` declaration in the package at load
+time and deregisters at unload. Without it, cron triggers are a
+no-op (the standalone daemon historically did this out-of-band;
+server mode had no cron registration at all). Closes the gap
+where packaged cron triggers never fired under cloacina-server. |
 
 #### Methods
 
@@ -204,13 +239,38 @@ Create a new Registry Reconciler
         Ok(Self {
             registry,
             config,
+            runtime: None,
             loaded_packages: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             package_loader,
             task_registrar,
             shutdown_rx,
             interval,
             graph_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
+            cron_registrar: None,
         })
+    }
+```
+
+</details>
+
+
+
+##### `with_runtime` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn with_runtime (mut self , runtime : Arc < crate :: Runtime >) -> Self
+```
+
+Attach a Runtime to this reconciler. Package load/unload operations will push registrations through the runtime so executors see the same view as the reconciler.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn with_runtime(mut self, runtime: Arc<crate::Runtime>) -> Self {
+        self.runtime = Some(runtime);
+        self
     }
 ```
 
@@ -262,6 +322,51 @@ Replace the graph scheduler slot with a shared reference from the runner. This a
         slot: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>>>>,
     ) {
         self.graph_scheduler = slot;
+    }
+```
+
+</details>
+
+
+
+##### `with_cron_registrar` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn with_cron_registrar (mut self , registrar : Arc < dyn CronWorkflowRegistrar >) -> Self
+```
+
+Attach a cron registrar that the reconciler will use to install cron schedules for each `#[trigger(cron = ...)]` declaration in loaded packages, and to drop them on unload. Builder-style counterpart for callers that wire the reconciler in one chained expression.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn with_cron_registrar(mut self, registrar: Arc<dyn CronWorkflowRegistrar>) -> Self {
+        self.cron_registrar = Some(registrar);
+        self
+    }
+```
+
+</details>
+
+
+
+##### `set_cron_registrar` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn set_cron_registrar (& mut self , registrar : Arc < dyn CronWorkflowRegistrar >)
+```
+
+Inject a cron registrar after construction (mirrors `set_graph_scheduler_slot`). Used by `DefaultRunner` setup because the runner needs to construct the reconciler before it can build the cron registrar (the registrar holds runner-owned resources).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn set_cron_registrar(&mut self, registrar: Arc<dyn CronWorkflowRegistrar>) {
+        self.cron_registrar = Some(registrar);
     }
 ```
 
@@ -390,16 +495,44 @@ Perform a single reconciliation operation
             loaded_packages.keys().cloned().collect();
         drop(loaded_packages);
 
-        // Determine what needs to be loaded and unloaded
-        let packages_to_load: Vec<_> = db_package_ids
+        // Determine what needs to be loaded and unloaded.
+        //
+        // T-0553 follow-up: sort `packages_to_load` by registration
+        // timestamp (`created_at`) so cross-package binding order is
+        // deterministic. The HashSet difference produces an arbitrary
+        // iteration order, which broke cross-package fan-out (subscriber
+        // loading before publisher → "no such reactor is loaded"). For
+        // unloads, sort REVERSE by created_at so dependents tear down
+        // before publishers — this complements the per-package reverse
+        // step pipeline (workflows → CGs → reactors → triggers → tasks)
+        // by also reversing across packages.
+        let mut packages_to_load: Vec<_> = db_package_ids
             .difference(&loaded_package_ids)
             .cloned()
             .collect();
+        packages_to_load.sort_by_key(|id| {
+            db_packages
+                .iter()
+                .find(|p| p.id == *id)
+                .map(|p| p.created_at)
+                .unwrap_or_else(chrono::Utc::now)
+        });
 
-        let packages_to_unload: Vec<_> = loaded_package_ids
+        let mut packages_to_unload: Vec<_> = loaded_package_ids
             .difference(&db_package_ids)
             .cloned()
             .collect();
+        // Best-effort reverse-creation-order unload using whatever metadata
+        // the loaded_packages map still holds; fall back to package_id as
+        // a stable tiebreaker.
+        {
+            let snapshot = self.loaded_packages.read().await;
+            packages_to_unload.sort_by(|a, b| {
+                let a_t = snapshot.get(a).map(|s| s.metadata.created_at);
+                let b_t = snapshot.get(b).map(|s| s.metadata.created_at);
+                b_t.cmp(&a_t).then_with(|| b.cmp(a))
+            });
+        }
 
         debug!(
             "Reconciliation: {} packages to load, {} to unload",

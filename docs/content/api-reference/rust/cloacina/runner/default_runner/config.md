@@ -28,7 +28,7 @@ polling intervals, and database connection management.
 | `max_concurrent_tasks` | `usize` |  |
 | `scheduler_poll_interval` | `Duration` |  |
 | `task_timeout` | `Duration` |  |
-| `pipeline_timeout` | `Option < Duration >` |  |
+| `workflow_timeout` | `Option < Duration >` |  |
 | `db_pool_size` | `u32` |  |
 | `enable_recovery` | `bool` |  |
 | `enable_cron_scheduling` | `bool` |  |
@@ -47,13 +47,21 @@ polling intervals, and database connection management.
 | `registry_enable_startup_reconciliation` | `bool` |  |
 | `registry_storage_path` | `Option < std :: path :: PathBuf >` |  |
 | `registry_storage_backend` | `String` |  |
+| `require_signatures` | `bool` | CLOACI-T-0571: defense-in-depth signature existence check.
+When true, the reconciler refuses to load packages with no
+matching `package_signatures` row. |
+| `verification_org_id` | `Option < crate :: UniversalUuid >` | Trusted org UUID forwarded to the reconciler for audit logging
+when the existence check fails. Mirrors `cloacina-server`'s
+`--verification-org-id`. |
 | `enable_claiming` | `bool` |  |
 | `heartbeat_interval` | `Duration` |  |
 | `stale_claim_sweep_interval` | `Duration` |  |
 | `stale_claim_threshold` | `Duration` |  |
 | `runner_id` | `Option < String >` |  |
 | `runner_name` | `Option < String >` |  |
-| `routing_config` | `Option < RoutingConfig >` |  |
+| `default_executor` | `String` | Executor key every task is dispatched to (CLOACI-T-0640). `"default"`
+(thread) unless the server opts into another registered executor (e.g.
+`"fleet"`). |
 
 #### Methods
 
@@ -145,21 +153,21 @@ Maximum time allowed for a single task to execute.
 
 
 
-##### `pipeline_timeout` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `workflow_timeout` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
-fn pipeline_timeout (& self) -> Option < Duration >
+fn workflow_timeout (& self) -> Option < Duration >
 ```
 
-Optional maximum time for an entire pipeline execution.
+Optional maximum time for an entire workflow execution.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn pipeline_timeout(&self) -> Option<Duration> {
-        self.pipeline_timeout
+    pub fn workflow_timeout(&self) -> Option<Duration> {
+        self.workflow_timeout
     }
 ```
 
@@ -541,6 +549,50 @@ Path for registry storage (filesystem backend).
 
 
 
+##### `require_signatures` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn require_signatures (& self) -> bool
+```
+
+CLOACI-T-0571: when true, the reconciler refuses to load packages with no matching `package_signatures` row.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn require_signatures(&self) -> bool {
+        self.require_signatures
+    }
+```
+
+</details>
+
+
+
+##### `verification_org_id` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn verification_org_id (& self) -> Option < crate :: UniversalUuid >
+```
+
+Trusted org UUID forwarded to the reconciler for audit logging when the signature-existence check fails.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn verification_org_id(&self) -> Option<crate::UniversalUuid> {
+        self.verification_org_id
+    }
+```
+
+</details>
+
+
+
 ##### `registry_storage_backend` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
@@ -695,21 +747,21 @@ Optional runner name for logging.
 
 
 
-##### `routing_config` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `default_executor` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
-fn routing_config (& self) -> Option < & RoutingConfig >
+fn default_executor (& self) -> & str
 ```
 
-Routing configuration for task dispatch.
+Executor key every task is dispatched to.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn routing_config(&self) -> Option<&RoutingConfig> {
-        self.routing_config.as_ref()
+    pub fn default_executor(&self) -> &str {
+        &self.default_executor
     }
 ```
 
@@ -813,21 +865,21 @@ Sets the task timeout.
 
 
 
-##### `pipeline_timeout` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `workflow_timeout` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
-fn pipeline_timeout (mut self , value : Option < Duration >) -> Self
+fn workflow_timeout (mut self , value : Option < Duration >) -> Self
 ```
 
-Sets the pipeline timeout.
+Sets the workflow timeout.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn pipeline_timeout(mut self, value: Option<Duration>) -> Self {
-        self.config.pipeline_timeout = value;
+    pub fn workflow_timeout(mut self, value: Option<Duration>) -> Self {
+        self.config.workflow_timeout = value;
         self
     }
 ```
@@ -1250,6 +1302,52 @@ Sets the registry storage backend.
 
 
 
+##### `require_signatures` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn require_signatures (mut self , value : bool) -> Self
+```
+
+CLOACI-T-0571: enable the reconciler's defense-in-depth signature-existence check. Mirrors `cloacina-server`'s `--require-signatures` CLI flag.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn require_signatures(mut self, value: bool) -> Self {
+        self.config.require_signatures = value;
+        self
+    }
+```
+
+</details>
+
+
+
+##### `verification_org_id` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn verification_org_id (mut self , value : Option < crate :: UniversalUuid >) -> Self
+```
+
+CLOACI-T-0571: trusted org UUID forwarded to the reconciler so signature-existence-check failures are audit-logged with the correct org_id. Mirrors `cloacina-server`'s `--verification-org-id` CLI flag.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn verification_org_id(mut self, value: Option<crate::UniversalUuid>) -> Self {
+        self.config.verification_org_id = value;
+        self
+    }
+```
+
+</details>
+
+
+
 ##### `runner_id` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
@@ -1296,21 +1394,21 @@ Sets the runner name.
 
 
 
-##### `routing_config` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `default_executor` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
-fn routing_config (mut self , value : Option < RoutingConfig >) -> Self
+fn default_executor (mut self , value : impl Into < String >) -> Self
 ```
 
-Sets the routing configuration.
+Sets the executor key every task is dispatched to (CLOACI-T-0640). Defaults to `"default"` (the thread executor).
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn routing_config(mut self, value: Option<RoutingConfig>) -> Self {
-        self.config.routing_config = value;
+    pub fn default_executor(mut self, value: impl Into<String>) -> Self {
+        self.config.default_executor = value.into();
         self
     }
 ```
@@ -1369,28 +1467,44 @@ Sets the heartbeat interval for claimed tasks.
 
 
 ```rust
-fn build (self) -> DefaultRunnerConfig
+fn build (self) -> Result < DefaultRunnerConfig , ConfigError >
 ```
 
-Builds the configuration.
+Builds and validates the configuration.
+
+Returns an error if any configuration value is out of bounds.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn build(self) -> DefaultRunnerConfig {
-        assert!(
-            self.config.max_concurrent_tasks > 0,
-            "max_concurrent_tasks must be > 0"
-        );
-        assert!(self.config.db_pool_size > 0, "db_pool_size must be > 0");
-        assert!(
-            self.config.stale_claim_threshold > self.config.heartbeat_interval,
-            "stale_claim_threshold ({:?}) must be greater than heartbeat_interval ({:?})",
-            self.config.stale_claim_threshold,
-            self.config.heartbeat_interval
-        );
-        self.config
+    pub fn build(self) -> Result<DefaultRunnerConfig, ConfigError> {
+        if self.config.max_concurrent_tasks == 0 {
+            return Err(ConfigError::Invalid(
+                "max_concurrent_tasks must be > 0".into(),
+            ));
+        }
+        if self.config.db_pool_size == 0 {
+            return Err(ConfigError::Invalid("db_pool_size must be > 0".into()));
+        }
+        if self.config.scheduler_poll_interval < Duration::from_millis(10) {
+            return Err(ConfigError::Invalid(
+                "scheduler_poll_interval must be >= 10ms".into(),
+            ));
+        }
+        if self.config.stale_claim_threshold <= self.config.heartbeat_interval {
+            return Err(ConfigError::Invalid(format!(
+                "stale_claim_threshold ({:?}) must be greater than heartbeat_interval ({:?})",
+                self.config.stale_claim_threshold, self.config.heartbeat_interval
+            )));
+        }
+        if self.config.cron_max_catchup_executions > 1000 {
+            return Err(ConfigError::Invalid(format!(
+                "cron_max_catchup_executions ({}) must be <= 1000",
+                self.config.cron_max_catchup_executions
+            )));
+        }
+        Ok(self.config)
     }
 ```
 
@@ -1441,6 +1555,7 @@ let tenant_b = DefaultRunnerBuilder::new()
 | `schema` | `Option < String >` |  |
 | `config` | `DefaultRunnerConfig` |  |
 | `runtime` | `Option < Runtime >` |  |
+| `runtime_arc` | `Option < Arc < Runtime > >` |  |
 
 #### Methods
 
@@ -1463,6 +1578,7 @@ Creates a new builder with default configuration
             schema: None,
             config: DefaultRunnerConfig::default(),
             runtime: None,
+            runtime_arc: None,
         }
     }
 ```
@@ -1574,6 +1690,34 @@ If not set, [`Runtime::from_global()`] is used as the default.
 
 
 
+##### `runtime_arc` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn runtime_arc (mut self , runtime : Arc < Runtime >) -> Self
+```
+
+Use an existing shared [`Arc<Runtime>`] for this runner.
+
+Unlike [`runtime`](Self::runtime), this preserves the caller's `Arc`
+identity so other components (e.g. Python decorators installed via
+`ScopedRuntime`) that already hold a clone of the same `Arc<Runtime>`
+share state with the runner. If both are set, `runtime_arc` wins.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub fn runtime_arc(mut self, runtime: Arc<Runtime>) -> Self {
+        self.runtime_arc = Some(runtime);
+        self
+    }
+```
+
+</details>
+
+
+
 ##### `validate_schema_name` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">pub(super)</span>
 
 
@@ -1673,8 +1817,12 @@ Builds the DefaultRunner
                 .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
         }
 
-        // Resolve runtime: use provided or snapshot from globals
-        let runtime = Arc::new(self.runtime.unwrap_or_else(Runtime::from_global));
+        // Resolve runtime: prefer a caller-supplied Arc (so shared state with
+        // e.g. Python ScopedRuntime is preserved), else wrap a by-value
+        // Runtime, else create a fresh inventory-seeded one.
+        let runtime = self
+            .runtime_arc
+            .unwrap_or_else(|| Arc::new(self.runtime.unwrap_or_default()));
 
         // Create scheduler with the scoped runtime
         let scheduler = TaskScheduler::with_poll_interval(
@@ -1702,14 +1850,10 @@ Builds the DefaultRunner
             executor_config,
         );
 
-        // Configure dispatcher for push-based task execution
+        // Configure dispatcher for push-based task execution. Every task is sent
+        // to the one configured executor key (CLOACI-T-0640).
         let dal = crate::dal::DAL::new(database.clone());
-        let routing_config = self
-            .config
-            .routing_config()
-            .cloned()
-            .unwrap_or_else(RoutingConfig::default);
-        let dispatcher = DefaultDispatcher::new(dal, routing_config);
+        let dispatcher = DefaultDispatcher::new(dal, self.config.default_executor());
 
         // Register the executor with the dispatcher
         dispatcher.register_executor("default", Arc::new(executor) as Arc<dyn TaskExecutor>);
@@ -1721,19 +1865,7 @@ Builds the DefaultRunner
             database,
             config: self.config.clone(),
             scheduler: Arc::new(scheduler),
-            runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
-                scheduler_handle: None,
-                executor_handle: None,
-                cron_recovery_handle: None,
-                registry_reconciler_handle: None,
-                unified_scheduler_handle: None,
-                shutdown_sender: None,
-            })),
-            cron_recovery: Arc::new(RwLock::new(None)), // Initially empty
-            workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
-            registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
-            unified_scheduler: Arc::new(RwLock::new(None)), // Initially empty
-            graph_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            service_manager: Arc::new(RwLock::new(ServiceManager::new())),
         };
 
         // Start the background services immediately
@@ -1747,26 +1879,24 @@ Builds the DefaultRunner
 
 
 
-##### `routing_config` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `default_executor` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
-fn routing_config (mut self , config : RoutingConfig) -> Self
+fn default_executor (mut self , executor : impl Into < String >) -> Self
 ```
 
-Sets custom routing configuration for task dispatch.
+Sets the executor key every task is dispatched to (CLOACI-T-0640).
 
-Use this to route different tasks to different executor backends.
+Defaults to `"default"` (the thread executor). Set to another registered
+executor key (e.g. `"fleet"`) to send all work there instead.
 
 **Examples:**
 
 ```rust,ignore
 let runner = DefaultRunner::builder()
     .database_url("sqlite://test.db")
-    .routing_config(
-        RoutingConfig::new("default")
-            .with_rule(RoutingRule::new("ml::*", "gpu"))
-    )
+    .default_executor("fleet")
     .build()
     .await?;
 ```
@@ -1775,10 +1905,25 @@ let runner = DefaultRunner::builder()
 <summary>Source</summary>
 
 ```rust
-    pub fn routing_config(mut self, config: RoutingConfig) -> Self {
-        self.config.routing_config = Some(config);
+    pub fn default_executor(mut self, executor: impl Into<String>) -> Self {
+        self.config.default_executor = executor.into();
         self
     }
 ```
 
 </details>
+
+
+
+
+
+## Enums
+
+### `cloacina::runner::default_runner::config::ConfigError` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+Errors that can occur during configuration validation.
+
+#### Variants
+
+- **`Invalid`**

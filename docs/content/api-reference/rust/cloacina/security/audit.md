@@ -467,3 +467,174 @@ pub fn log_verification_failure(
 ```
 
 </details>
+
+
+
+### `cloacina::security::audit::log_tenant_teardown_step`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn log_tenant_teardown_step (event_type : & 'static str , tenant_id : & str , count : usize , step_duration_ms : u64 ,)
+```
+
+CLOACI-T-0581: log a successful tenant teardown step. `step` is one of the `TENANT_TEARDOWN_*` event-kind constants. Each step also carries its row/entity count (e.g. number of keys revoked) so operators can sanity-check at a glance.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn log_tenant_teardown_step(
+    event_type: &'static str,
+    tenant_id: &str,
+    count: usize,
+    step_duration_ms: u64,
+) {
+    tracing::info!(
+        event_type = event_type,
+        tenant_id = %tenant_id,
+        count = count,
+        step_duration_ms = step_duration_ms,
+        "tenant teardown step"
+    );
+}
+```
+
+</details>
+
+
+
+### `cloacina::security::audit::log_tenant_teardown_outcome`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn log_tenant_teardown_outcome (tenant_id : & str , success : bool , total_duration_ms : u64)
+```
+
+CLOACI-T-0581: log the overall teardown outcome.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn log_tenant_teardown_outcome(tenant_id: &str, success: bool, total_duration_ms: u64) {
+    if success {
+        tracing::info!(
+            event_type = events::TENANT_TEARDOWN_COMPLETED,
+            tenant_id = %tenant_id,
+            total_duration_ms = total_duration_ms,
+            "tenant teardown completed"
+        );
+    } else {
+        tracing::warn!(
+            event_type = events::TENANT_TEARDOWN_FAILED,
+            tenant_id = %tenant_id,
+            total_duration_ms = total_duration_ms,
+            "tenant teardown failed"
+        );
+    }
+}
+```
+
+</details>
+
+
+
+### `cloacina::security::audit::log_compiler_build_started`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn log_compiler_build_started (build_claim_id : UniversalUuid , package_name : & str , package_version : & str , cargo_toml_hash : & str , cargo_lock_hash : Option < & str > , compiler_instance_id : UniversalUuid ,)
+```
+
+Log a compiler build start event. Emitted by `cloacina-compiler` once per build claim, after the source archive is unpacked and content hashes are computed, just before the cargo subprocess fires. CLOACI-T-0576.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn log_compiler_build_started(
+    build_claim_id: UniversalUuid,
+    package_name: &str,
+    package_version: &str,
+    cargo_toml_hash: &str,
+    cargo_lock_hash: Option<&str>,
+    compiler_instance_id: UniversalUuid,
+) {
+    tracing::info!(
+        event_type = events::COMPILER_BUILD_STARTED,
+        build_claim_id = %build_claim_id,
+        package_name = %package_name,
+        package_version = %package_version,
+        cargo_toml_hash = %cargo_toml_hash,
+        cargo_lock_hash = cargo_lock_hash.unwrap_or("<none>"),
+        compiler_instance_id = %compiler_instance_id,
+        "Compiler build started"
+    );
+}
+```
+
+</details>
+
+
+
+### `cloacina::security::audit::log_compiler_build_finished`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn log_compiler_build_finished (build_claim_id : UniversalUuid , package_name : & str , package_version : & str , cargo_toml_hash : & str , cargo_lock_hash : Option < & str > , compiler_instance_id : UniversalUuid , outcome : & str , exit_status : Option < i32 > , exit_signal : Option < & str > , wall_clock_ms : u64 , failure_reason : Option < & str > ,)
+```
+
+Log a compiler build finished event. Emitted exactly once per build claim on every outcome path (`success`, `failed`, `timeout_killed`, `internal_error`). CLOACI-T-0576.
+
+`exit_status` is `Some(code)` only when cargo exited via `exit()`;
+`exit_signal` is `Some(name)` only when cargo was signal-terminated.
+On `timeout_killed`, the compiler SIGKILL'd cargo itself —
+`exit_signal = Some("SIGKILL")`. `failure_reason` is `<none>` on
+`success`.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn log_compiler_build_finished(
+    build_claim_id: UniversalUuid,
+    package_name: &str,
+    package_version: &str,
+    cargo_toml_hash: &str,
+    cargo_lock_hash: Option<&str>,
+    compiler_instance_id: UniversalUuid,
+    outcome: &str,
+    exit_status: Option<i32>,
+    exit_signal: Option<&str>,
+    wall_clock_ms: u64,
+    failure_reason: Option<&str>,
+) {
+    tracing::info!(
+        event_type = events::COMPILER_BUILD_FINISHED,
+        build_claim_id = %build_claim_id,
+        package_name = %package_name,
+        package_version = %package_version,
+        cargo_toml_hash = %cargo_toml_hash,
+        cargo_lock_hash = cargo_lock_hash.unwrap_or("<none>"),
+        compiler_instance_id = %compiler_instance_id,
+        outcome = %outcome,
+        exit_status = exit_status
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "<none>".to_string()),
+        exit_signal = exit_signal.unwrap_or("<none>"),
+        wall_clock_ms = wall_clock_ms,
+        failure_reason = failure_reason.unwrap_or("<none>"),
+        "Compiler build finished"
+    );
+}
+```
+
+</details>

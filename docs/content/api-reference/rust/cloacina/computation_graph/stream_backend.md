@@ -159,7 +159,7 @@ Check if a backend type is registered.
 
 
 ```rust
-fn create_future (& self , type_name : & str , config : StreamConfig ,) -> Option < Pin < Box < dyn Future < Output = Result < Box < dyn StreamBackend > , StreamError > > + Send > > >
+fn create_future (& self , type_name : & str , config : StreamConfig ,) -> Option < StreamBackendFuture >
 ```
 
 Get the creation future for a backend type without holding the lock across await. Returns the future that will create the backend, or None if the type isn't registered.
@@ -172,8 +172,7 @@ Get the creation future for a backend type without holding the lock across await
         &self,
         type_name: &str,
         config: StreamConfig,
-    ) -> Option<Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>>
-    {
+    ) -> Option<StreamBackendFuture> {
         let factory = self.backends.get(type_name)?;
         Some(factory(config))
     }
@@ -265,57 +264,6 @@ Errors from stream backend operations.
 
 ## Functions
 
-### `cloacina::computation_graph::stream_backend::global_stream_registry`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn global_stream_registry () -> & 'static Mutex < StreamBackendRegistry >
-```
-
-Get a reference to the global stream backend registry.
-
-<details>
-<summary>Source</summary>
-
-```rust
-pub fn global_stream_registry() -> &'static Mutex<StreamBackendRegistry> {
-    &GLOBAL_REGISTRY
-}
-```
-
-</details>
-
-
-
-### `cloacina::computation_graph::stream_backend::register_stream_backend`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn register_stream_backend (type_name : & str , factory : StreamBackendFactory)
-```
-
-Register a backend in the global registry.
-
-<details>
-<summary>Source</summary>
-
-```rust
-pub fn register_stream_backend(type_name: &str, factory: StreamBackendFactory) {
-    global_stream_registry()
-        .lock()
-        .unwrap()
-        .register(type_name, factory);
-}
-```
-
-</details>
-
-
-
 ### `cloacina::computation_graph::stream_backend::mock_backend`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
@@ -341,39 +289,6 @@ pub fn mock_backend(capacity: usize) -> (MockBackend, MockBackendProducer) {
         },
         MockBackendProducer { sender: tx },
     )
-}
-```
-
-</details>
-
-
-
-### `cloacina::computation_graph::stream_backend::register_mock_backend`
-
-<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
-
-
-```rust
-fn register_mock_backend ()
-```
-
-Register the mock backend in the global registry.
-
-<details>
-<summary>Source</summary>
-
-```rust
-pub fn register_mock_backend() {
-    register_stream_backend(
-        "mock",
-        Box::new(|_config| {
-            Box::pin(async {
-                Err(StreamError::Connection(
-                    "mock backend must be created via mock_backend(), not the registry".to_string(),
-                ))
-            })
-        }),
-    );
 }
 ```
 

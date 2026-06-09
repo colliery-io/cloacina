@@ -22,7 +22,7 @@ Represents a task execution record (domain type).
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` |  |
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_name` | `String` |  |
 | `status` | `String` |  |
 | `started_at` | `Option < UniversalTimestamp >` |  |
@@ -57,7 +57,7 @@ Structure for creating new task executions (domain type).
 
 | Name | Type | Description |
 |------|------|-------------|
-| `pipeline_execution_id` | `UniversalUuid` |  |
+| `workflow_execution_id` | `UniversalUuid` |  |
 | `task_name` | `String` |  |
 | `status` | `String` |  |
 | `attempt` | `i32` |  |

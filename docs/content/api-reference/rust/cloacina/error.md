@@ -60,15 +60,20 @@ that prevent safe execution.
 - **`ExecutionFailed`**
 - **`TaskSchedulingFailed`**
 - **`InvalidTriggerRule`**
+- **`InvalidPredicate`** - CLOACI-T-0602 — caller passed a CEL expression to
+`subscribe_workflow_to_reactor` that fails to compile.
 - **`InvalidTaskName`**
 - **`ContextEvaluationFailed`**
 - **`RecoveryFailed`**
 - **`TaskRecoveryAbandoned`**
-- **`PipelineRecoveryFailed`**
+- **`WorkflowRecoveryFailed`**
 - **`DatabaseConnection`**
 - **`DatabaseQuery`**
 - **`Database`**
 - **`ConnectionPool`**
+- **`InvalidStateTransition`** - CLOACI-T-0625 — a delivery-outbox row was asked to make a state
+transition its current state does not permit (e.g. acking a pending
+row, or transitioning a terminal `acked` row).
 - **`Context`**
 
 
@@ -86,11 +91,13 @@ Errors that can occur during task execution.
 - **`TaskExecution`**
 - **`Context`**
 - **`TaskTimeout`**
+- **`ClaimLost`**
 - **`Semaphore`**
-- **`PipelineNotFound`**
+- **`WorkflowExecutionNotFound`**
 - **`Serialization`**
 - **`InvalidScope`**
 - **`Validation`**
+- **`ContextLoadFailed`**
 
 
 

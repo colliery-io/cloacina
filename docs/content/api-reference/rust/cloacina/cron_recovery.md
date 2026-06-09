@@ -4,7 +4,7 @@
 Cron execution recovery service for handling lost executions.
 
 This module provides a recovery mechanism that detects and retries cron executions
-that were claimed but never successfully handed off to the pipeline executor.
+that were claimed but never successfully handed off to the workflow executor.
 It implements the recovery side of the guaranteed execution pattern.
 
 ## Structs
@@ -68,7 +68,7 @@ Creates a new cron recovery service.
 | Name | Type | Description |
 |------|------|-------------|
 | `dal` | `-` | Data access layer for database operations |
-| `executor` | `-` | Pipeline executor for retrying executions |
+| `executor` | `-` | Workflow executor for retrying executions |
 | `config` | `-` | Recovery service configuration |
 | `shutdown` | `-` | Shutdown signal receiver |
 
@@ -255,8 +255,20 @@ Attempts to recover a single lost execution.
 
         let execution_age = Utc::now() - scheduled_time;
 
-        // Check if execution is too old to recover
-        if execution_age > chrono::Duration::from_std(self.config.max_recovery_age).unwrap() {
+        // Check if execution is too old to recover. `from_std` returns
+        // `Err` only when the duration overflows chrono's range (~290 yr);
+        // treat that as "max recovery age is effectively infinite" rather
+        // than panicking — a poisoned config value must not crash the
+        // recovery loop. CLOACI-I-0110 / COR-06.
+        let max_recovery_age = chrono::Duration::from_std(self.config.max_recovery_age)
+            .unwrap_or_else(|e| {
+                warn!(
+                    "max_recovery_age out of chrono::Duration range ({:?}): {}; treating as MAX",
+                    self.config.max_recovery_age, e
+                );
+                chrono::Duration::MAX
+            });
+        if execution_age > max_recovery_age {
             warn!(
                 "Execution {} is too old to recover (age: {:?}), abandoning",
                 execution.id, execution_age
@@ -368,14 +380,14 @@ Attempts to recover a single lost execution.
             .execute(&schedule.workflow_name, context)
             .await
         {
-            Ok(pipeline_result) => {
-                // Update the audit record with the new pipeline execution ID
+            Ok(workflow_result) => {
+                // Update the audit record with the new workflow execution ID
                 if let Err(e) = self
                     .dal
                     .schedule_execution()
-                    .update_pipeline_execution_id(
+                    .update_workflow_execution_id(
                         execution.id,
-                        crate::database::UniversalUuid(pipeline_result.execution_id),
+                        crate::database::UniversalUuid(workflow_result.execution_id),
                     )
                     .await
                 {
@@ -387,8 +399,8 @@ Attempts to recover a single lost execution.
                 }
 
                 info!(
-                    "Successfully recovered execution {} (new pipeline: {})",
-                    execution.id, pipeline_result.execution_id
+                    "Successfully recovered execution {} (new workflow execution: {})",
+                    execution.id, workflow_result.execution_id
                 );
 
                 // Clear recovery attempts on success

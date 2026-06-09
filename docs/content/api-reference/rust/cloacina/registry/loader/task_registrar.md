@@ -101,7 +101,7 @@ Create a task registrar with a shared handle cache.
 
 
 ```rust
-async fn register_package_tasks (& self , package_id : & str , package_data : & [u8] , _metadata : & PackageMetadata , tenant_id : Option < & str > ,) -> Result < Vec < TaskNamespace > , LoaderError >
+async fn register_package_tasks (& self , package_id : & str , package_data : & [u8] , _metadata : & PackageMetadata , tenant_id : Option < & str > , runtime : & Arc < Runtime > ,) -> Result < Vec < TaskNamespace > , LoaderError >
 ```
 
 Register package tasks with the global task registry using new host-managed approach.
@@ -130,6 +130,7 @@ Register package tasks with the global task registry using new host-managed appr
         package_data: &[u8],
         _metadata: &PackageMetadata,
         tenant_id: Option<&str>,
+        runtime: &Arc<Runtime>,
     ) -> Result<Vec<TaskNamespace>, LoaderError> {
         let tenant_id = tenant_id.unwrap_or("public");
 
@@ -201,19 +202,17 @@ Register package tasks with the global task registry using new host-managed appr
 
             let plugin = plugin.clone();
             let task_name = task_id.to_string();
-            let pkg_name = package_name.to_string();
             let deps = dependency_namespaces.clone();
 
             let constructor = Box::new(move || {
                 Arc::new(DynamicLibraryTask::new(
                     plugin.clone(),
                     task_name.clone(),
-                    pkg_name.clone(),
                     deps.clone(),
                 )) as Arc<dyn Task>
             });
 
-            register_task_constructor(namespace.clone(), constructor);
+            runtime.register_task(namespace.clone(), constructor);
 
             registered_namespaces.push(namespace);
         }

@@ -3,8 +3,10 @@
 
 Default dispatcher implementation.
 
-Provides the standard dispatcher that routes tasks to executors based on
-configurable glob patterns.
+Provides the standard dispatcher that sends every task to a single
+server-configured executor. Choosing *which* node/compute a task runs on is
+deliberately an executor-internal concern (CLOACI-T-0640) — the scheduler and
+dispatcher only know the one configured executor key.
 
 ## Structs
 
@@ -13,24 +15,24 @@ configurable glob patterns.
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
-Default dispatcher implementation with glob-based routing.
+Default dispatcher implementation.
 
-The DefaultDispatcher maintains a registry of executor backends and routes
-tasks based on pattern matching rules. It handles the full dispatch lifecycle
-including state transitions and result handling.
+The DefaultDispatcher maintains a registry of executor backends and sends
+every task to the single configured `default_executor_key`. It handles the
+full dispatch lifecycle including state transitions and result handling.
 
 **Examples:**
 
 ```rust,ignore
-use cloacina::dispatcher::{DefaultDispatcher, RoutingConfig, RoutingRule};
+use cloacina::dispatcher::DefaultDispatcher;
 
-let config = RoutingConfig::new("default")
-    .with_rule(RoutingRule::new("ml::*", "gpu"))
-    .with_rule(RoutingRule::new("heavy_*", "high_memory"));
-
-let dispatcher = DefaultDispatcher::new(dal, config);
+// Every task runs on the "default" (thread) executor.
+let dispatcher = DefaultDispatcher::new(dal, "default");
 dispatcher.register_executor("default", Arc::new(thread_executor));
-dispatcher.register_executor("gpu", Arc::new(gpu_executor));
+
+// Or send everything to the fleet:
+let dispatcher = DefaultDispatcher::new(dal, "fleet");
+dispatcher.register_executor("fleet", Arc::new(fleet_executor));
 ```
 
 #### Fields
@@ -38,7 +40,7 @@ dispatcher.register_executor("gpu", Arc::new(gpu_executor));
 | Name | Type | Description |
 |------|------|-------------|
 | `executors` | `RwLock < HashMap < String , Arc < dyn TaskExecutor > > >` | Registered executor backends |
-| `router` | `Router` | Routing logic |
+| `default_executor_key` | `String` | The single executor key every task is dispatched to. |
 | `dal` | `DAL` | Data access layer for state updates |
 
 #### Methods
@@ -47,19 +49,19 @@ dispatcher.register_executor("gpu", Arc::new(gpu_executor));
 
 
 ```rust
-fn new (dal : DAL , routing : RoutingConfig) -> Self
+fn new (dal : DAL , default_executor : impl Into < String >) -> Self
 ```
 
-Creates a new DefaultDispatcher with the given DAL and routing configuration.
+Creates a new DefaultDispatcher that dispatches every task to `default_executor` (e.g. `"default"` for the thread executor, `"fleet"` for the execution-agent fleet).
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn new(dal: DAL, routing: RoutingConfig) -> Self {
+    pub fn new(dal: DAL, default_executor: impl Into<String>) -> Self {
         Self {
             executors: RwLock::new(HashMap::new()),
-            router: Router::new(routing),
+            default_executor_key: default_executor.into(),
             dal,
         }
     }
@@ -76,14 +78,14 @@ Creates a new DefaultDispatcher with the given DAL and routing configuration.
 fn with_defaults (dal : DAL) -> Self
 ```
 
-Creates a dispatcher with default routing (all tasks go to "default" executor).
+Creates a dispatcher that sends every task to the `"default"` (thread) executor.
 
 <details>
 <summary>Source</summary>
 
 ```rust
     pub fn with_defaults(dal: DAL) -> Self {
-        Self::new(dal, RoutingConfig::default())
+        Self::new(dal, "default")
     }
 ```
 
@@ -91,21 +93,21 @@ Creates a dispatcher with default routing (all tasks go to "default" executor).
 
 
 
-##### `router` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+##### `default_executor_key` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
 ```rust
-fn router (& self) -> & Router
+fn default_executor_key (& self) -> & str
 ```
 
-Gets a reference to the router for inspection.
+The executor key every task is dispatched to.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    pub fn router(&self) -> &Router {
-        &self.router
+    pub fn default_executor_key(&self) -> &str {
+        &self.default_executor_key
     }
 ```
 
@@ -143,7 +145,7 @@ Gets a reference to the DAL.
 async fn handle_result (& self , event : & TaskReadyEvent , result : super :: types :: ExecutionResult ,) -> Result < () , DispatchError >
 ```
 
-Handles the execution result by updating database state.
+Logs the execution result. State transitions are owned by the executor (via `complete_task_transaction` / `mark_task_failed`) — the dispatcher only routes and logs.
 
 <details>
 <summary>Source</summary>
@@ -156,10 +158,6 @@ Handles the execution result by updating database state.
     ) -> Result<(), DispatchError> {
         match result.status {
             ExecutionStatus::Completed => {
-                self.dal
-                    .task_execution()
-                    .mark_completed(event.task_execution_id)
-                    .await?;
                 info!(
                     task_id = %event.task_execution_id,
                     task_name = %event.task_name,
@@ -169,10 +167,6 @@ Handles the execution result by updating database state.
             }
             ExecutionStatus::Failed => {
                 let error_msg = result.error.as_deref().unwrap_or("Unknown error");
-                self.dal
-                    .task_execution()
-                    .mark_failed(event.task_execution_id, error_msg)
-                    .await?;
                 warn!(
                     task_id = %event.task_execution_id,
                     task_name = %event.task_name,

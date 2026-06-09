@@ -29,6 +29,23 @@ use cloacina::database::connection::Database;
 
 ## Structs
 
+### `cloacina::database::connection::CurrentSchemaRow`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+**Derives:** `diesel :: QueryableByName`, `Debug`
+
+Row shape for the `SELECT current_schema()` defense-in-depth probe. `current_schema()` returns NULL when no schema is set; we model that as `Option<String>`. CLOACI-T-0582.
+
+#### Fields
+
+| Name | Type | Description |
+|------|------|-------------|
+| `s` | `Option < String >` |  |
+
+
+
 ### `cloacina::database::connection::Database`
 
 <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
@@ -49,6 +66,11 @@ efficiently. Supports runtime backend selection between PostgreSQL and SQLite.
 | `pool` | `AnyPool` | The connection pool (PostgreSQL or SQLite) |
 | `backend` | `BackendType` | The detected backend type |
 | `schema` | `Option < String >` | The PostgreSQL schema name for multi-tenant isolation (ignored for SQLite) |
+| `_memory_tempfile` | `Option < Arc < NamedTempFile > >` | Backing tempfile when the user requested `:memory:` (or
+`sqlite://:memory:`). Held via Arc so every Database clone keeps the
+file alive; when the last clone drops, NamedTempFile::Drop deletes
+the file. See `materialize_sqlite_connection` for why we substitute
+a real tempfile for in-memory requests. |
 
 #### Methods
 
@@ -213,12 +235,28 @@ This is the fallible version of [`new_with_schema`](Self::new_with_schema).
                     pool: AnyPool::Postgres(pool),
                     backend,
                     schema: validated_schema,
+                    #[cfg(feature = "sqlite")]
+                    _memory_tempfile: None,
                 })
             }
             BackendType::Sqlite => {
-                let connection_url = Self::build_sqlite_url(connection_string);
+                let (connection_url, memory_tempfile) =
+                    Self::materialize_sqlite_connection(connection_string)?;
                 let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
-                let sqlite_pool_size = 1;
+                // CLOACI-T-0622: bumped from 1 to 4. The original `=1` was
+                // a workaround for diesel's sqlite open path not passing
+                // SQLITE_OPEN_URI, which made every new connection to
+                // `:memory:` open a fresh private DB. T-0608 fixed that
+                // by materialising `:memory:` as a per-Database tempfile,
+                // so every pool connection now opens the same real file.
+                // Combined with WAL + `busy_timeout=30000` (applied on
+                // every checkout, see `get_sqlite_connection`), multi-
+                // connection sqlite is safe. A pool of 1 serialises the
+                // executor against the unified scheduler tick (reactor
+                // poll + firings pruner, both added under I-0100/T-0602),
+                // which on macOS CI was producing contention severe
+                // enough to look like a deadlock.
+                let sqlite_pool_size = 4;
                 let pool = SqlitePool::builder(manager)
                     .max_size(sqlite_pool_size)
                     .build()
@@ -236,6 +274,7 @@ This is the fallible version of [`new_with_schema`](Self::new_with_schema).
                     pool: AnyPool::Sqlite(pool),
                     backend,
                     schema: validated_schema,
+                    _memory_tempfile: memory_tempfile,
                 })
             }
         }
@@ -264,13 +303,16 @@ This is the fallible version of [`new_with_schema`](Self::new_with_schema).
                 pool,
                 backend: BackendType::Postgres,
                 schema: validated_schema,
+                #[cfg(feature = "sqlite")]
+                _memory_tempfile: None,
             });
         }
 
         #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
         {
             let _ = backend; // suppress unused warning
-            let connection_url = Self::build_sqlite_url(connection_string);
+            let (connection_url, memory_tempfile) =
+                Self::materialize_sqlite_connection(connection_string)?;
             let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
             let sqlite_pool_size = 1;
             let pool = SqlitePool::builder(manager)
@@ -290,6 +332,7 @@ This is the fallible version of [`new_with_schema`](Self::new_with_schema).
                 pool,
                 backend: BackendType::Sqlite,
                 schema: validated_schema,
+                _memory_tempfile: memory_tempfile,
             });
         }
     }
@@ -447,26 +490,66 @@ Builds a PostgreSQL connection URL.
 
 
 
-##### `build_sqlite_url` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+##### `materialize_sqlite_connection` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
 
 
 ```rust
-fn build_sqlite_url (connection_string : & str) -> String
+fn materialize_sqlite_connection (connection_string : & str ,) -> Result < (String , Option < Arc < NamedTempFile > >) , DatabaseError >
 ```
 
-Builds a SQLite connection URL.
+Resolve a SQLite connection string into (url, optional tempfile owner).
+
+`:memory:` (with or without the `sqlite://` prefix) is substituted
+for a per-Database tempfile on disk. This is the only reliable way
+to get multi-connection sharing under diesel — the standard
+`file::memory:?cache=shared` form requires `SQLITE_OPEN_URI`, which
+diesel's open path doesn't set. Without that flag, sqlite silently
+creates a file literally named `:memory:` in CWD and the supposed
+"shared cache" never happens.
+The returned `NamedTempFile` must be held for the lifetime of the
+Database (we wrap it in `Arc` and stash it on `Self` so Clone'd
+Databases share ownership and the file is deleted only when the
+last clone drops).
+Returns `(url, Some(handle))` for `:memory:` requests; otherwise
+`(url, None)` and the file path passes through unchanged.
 
 <details>
 <summary>Source</summary>
 
 ```rust
-    fn build_sqlite_url(connection_string: &str) -> String {
-        // Strip sqlite:// prefix if present
-        if let Some(path) = connection_string.strip_prefix("sqlite://") {
-            path.to_string()
-        } else {
-            connection_string.to_string()
+    fn materialize_sqlite_connection(
+        connection_string: &str,
+    ) -> Result<(String, Option<Arc<NamedTempFile>>), DatabaseError> {
+        let stripped = connection_string
+            .strip_prefix("sqlite://")
+            .unwrap_or(connection_string);
+        if stripped != ":memory:" {
+            return Ok((stripped.to_string(), None));
         }
+
+        // Build a tempfile in the system temp dir. We use NamedTempFile so
+        // the path is stable across pool connection opens. The file gets
+        // unlinked on Drop.
+        let tempfile = NamedTempFile::new().map_err(|e| DatabaseError::PoolCreation {
+            backend: "SQLite",
+            source: Box::new(e),
+        })?;
+        let path = tempfile
+            .path()
+            .to_str()
+            .ok_or_else(|| DatabaseError::PoolCreation {
+                backend: "SQLite",
+                source: Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "tempfile path is not valid UTF-8",
+                )),
+            })?
+            .to_string();
+        info!(
+            "SQLite `:memory:` substituted with tempfile path '{}' (per-Database, cleaned on drop)",
+            path
+        );
+        Ok((path, Some(Arc::new(tempfile))))
     }
 ```
 
@@ -688,18 +771,115 @@ For SQLite, this is a no-op and returns an error.
         let conn = pool.get().await?;
 
         if let Some(ref schema) = self.schema {
-            // Validate schema name to prevent SQL injection
-            // This should already be validated at construction time, but we validate
-            // again here for defense in depth
-            if let Ok(validated) = validate_schema_name(schema) {
-                let schema_name = validated.to_string();
-                let _ = conn
+            // Validate schema name to prevent SQL injection.
+            // Already validated at construction; re-validate as defense in depth.
+            let validated_schema = match validate_schema_name(schema) {
+                Ok(v) => v.to_string(),
+                Err(e) => {
+                    // CLOACI-T-0582: a re-validation failure means the
+                    // tenant schema name was tampered with after pool
+                    // construction. Fail closed, do not return the conn.
+                    drop(conn);
+                    return Err(search_path_pool_error(schema, &format!("{}", e)));
+                }
+            };
+
+            // CLOACI-T-0582: previously this was `let _ = conn.interact(...)`
+            // which silently masked SET failures and routed subsequent
+            // queries to the default search_path (typically `public` +
+            // admin schema). Fail closed instead: propagate the error and
+            // discard the connection so it isn't reused with an unknown
+            // search_path state.
+            let schema_name = validated_schema.clone();
+            let set_result: Result<Result<usize, diesel::result::Error>, _> = conn
+                .interact(move |conn| {
+                    let set_search_path_sql = format!("SET search_path TO {}, public", schema_name);
+                    diesel::sql_query(&set_search_path_sql).execute(conn)
+                })
+                .await;
+            match set_result {
+                Ok(Ok(_)) => { /* SET succeeded */ }
+                Ok(Err(diesel_err)) => {
+                    tracing::error!(
+                        tenant_schema = %validated_schema,
+                        error = %diesel_err,
+                        "SET search_path failed; rejecting tenant-scoped connection (CLOACI-T-0582)"
+                    );
+                    drop(conn);
+                    return Err(search_path_pool_error(
+                        &validated_schema,
+                        &format!("{}", diesel_err),
+                    ));
+                }
+                Err(interact_err) => {
+                    tracing::error!(
+                        tenant_schema = %validated_schema,
+                        error = %interact_err,
+                        "SET search_path interact failed; rejecting connection (CLOACI-T-0582)"
+                    );
+                    drop(conn);
+                    return Err(search_path_pool_error(
+                        &validated_schema,
+                        &format!("{}", interact_err),
+                    ));
+                }
+            }
+
+            // CLOACI-T-0582: defense-in-depth check, gated by the
+            // process-wide strict-search-path flag. Verifies the SET
+            // actually landed in the expected schema by reading
+            // `current_schema()` (the first schema in the path).
+            if is_strict_search_path() {
+                let expected_schema = validated_schema.clone();
+                let probe: Result<Result<CurrentSchemaRow, diesel::result::Error>, _> = conn
                     .interact(move |conn| {
-                        let set_search_path_sql =
-                            format!("SET search_path TO {}, public", schema_name);
-                        diesel::sql_query(&set_search_path_sql).execute(conn)
+                        diesel::sql_query("SELECT current_schema() AS s").get_result(conn)
                     })
                     .await;
+                match probe {
+                    Ok(Ok(row)) if row.s.as_deref() == Some(expected_schema.as_str()) => {
+                        // Match — connection is good.
+                    }
+                    Ok(Ok(row)) => {
+                        tracing::error!(
+                            tenant_schema = %expected_schema,
+                            actual = ?row.s,
+                            "current_schema() mismatch — connection search_path is not the expected tenant schema (CLOACI-T-0582)"
+                        );
+                        drop(conn);
+                        return Err(search_path_pool_error(
+                            &expected_schema,
+                            &format!(
+                                "search_path mismatch: expected '{}', got {:?}",
+                                expected_schema, row.s
+                            ),
+                        ));
+                    }
+                    Ok(Err(diesel_err)) => {
+                        tracing::error!(
+                            tenant_schema = %expected_schema,
+                            error = %diesel_err,
+                            "current_schema() probe failed; rejecting connection (CLOACI-T-0582)"
+                        );
+                        drop(conn);
+                        return Err(search_path_pool_error(
+                            &expected_schema,
+                            &format!("{}", diesel_err),
+                        ));
+                    }
+                    Err(interact_err) => {
+                        tracing::error!(
+                            tenant_schema = %expected_schema,
+                            error = %interact_err,
+                            "current_schema() interact failed; rejecting connection (CLOACI-T-0582)"
+                        );
+                        drop(conn);
+                        return Err(search_path_pool_error(
+                            &expected_schema,
+                            &format!("{}", interact_err),
+                        ));
+                    }
+                }
             }
         }
 
@@ -774,7 +954,17 @@ Returns an error if this is a PostgreSQL backend.
         #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
         let pool = &self.pool;
 
-        pool.get().await
+        let conn = pool.get().await?;
+        // Ensure SQLite pragmas are set on every checkout — pragmas are per-connection
+        // and may be lost if the pool recycles the connection.
+        conn.interact(|conn| {
+            use diesel::prelude::*;
+            let _ = diesel::sql_query("PRAGMA journal_mode=WAL;").execute(conn);
+            let _ = diesel::sql_query("PRAGMA busy_timeout=30000;").execute(conn);
+        })
+        .await
+        .ok();
+        Ok(conn)
     }
 ```
 
@@ -800,3 +990,90 @@ migration execution, and schema validation failures.
 - **`InvalidUrl`** - Failed to parse database URL
 - **`Schema`** - Schema validation failed
 - **`Migration`** - Migration execution failed
+
+
+
+## Functions
+
+### `cloacina::database::connection::set_strict_search_path`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn set_strict_search_path (enabled : bool)
+```
+
+Set the process-wide strict-search-path flag. Idempotent; safe to call at any point during process startup. CLOACI-T-0582.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn set_strict_search_path(enabled: bool) {
+    STRICT_SEARCH_PATH.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+```
+
+</details>
+
+
+
+### `cloacina::database::connection::is_strict_search_path`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+
+
+```rust
+fn is_strict_search_path () -> bool
+```
+
+Read the process-wide strict-search-path flag. CLOACI-T-0582.
+
+<details>
+<summary>Source</summary>
+
+```rust
+pub fn is_strict_search_path() -> bool {
+    STRICT_SEARCH_PATH.load(std::sync::atomic::Ordering::Relaxed)
+}
+```
+
+</details>
+
+
+
+### `cloacina::database::connection::search_path_pool_error`
+
+<span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-default-fg-color--light); color: white;">private</span>
+
+
+```rust
+fn search_path_pool_error (tenant_schema : & str , cause : & str ,) -> deadpool :: managed :: PoolError < deadpool_diesel :: Error >
+```
+
+Construct a `PoolError::Backend` carrying a CLOACI-T-0582 search_path failure so callers see a typed error rather than a silent fallback. The error message names the tenant schema and the underlying cause.
+
+<details>
+<summary>Source</summary>
+
+```rust
+fn search_path_pool_error(
+    tenant_schema: &str,
+    cause: &str,
+) -> deadpool::managed::PoolError<deadpool_diesel::Error> {
+    // Encode as `Ping(QueryBuilderError)` so the public PoolError surface
+    // stays unchanged while still surfacing our message. `QueryBuilderError`
+    // takes `Box<dyn Error + Send + Sync>` which gives us free-form text.
+    let inner = diesel::result::Error::QueryBuilderError(
+        format!(
+            "search_path setup failed for tenant '{}': {} (CLOACI-T-0582)",
+            tenant_schema, cause
+        )
+        .into(),
+    );
+    deadpool::managed::PoolError::Backend(deadpool_diesel::Error::Ping(inner))
+}
+```
+
+</details>

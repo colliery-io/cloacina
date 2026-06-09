@@ -4,7 +4,7 @@ level: task
 title: "Server-level default executor (Airflow-style) — execution as a deployment knob, glob routing as override"
 short_code: "CLOACI-T-0640"
 created_at: 2026-06-08T15:03:27.135237+00:00
-updated_at: 2026-06-08T15:15:25.592113+00:00
+updated_at: 2026-06-09T09:45:31.812644+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -80,32 +80,34 @@ constraints. Decide the defaults deliberately now.
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 *(Rewritten 2026-06-08 after the scope pivot: glob routing is DELETED, not
 demoted; execution is a single deployment knob; config.toml is the preferred
 surface. See Status Updates for the decision record.)*
 
-- [ ] **Single executor knob.** The server has one `default_executor` setting.
+- [x] **Single executor knob.** The server has one `default_executor` setting.
       Unset → every task runs on `default` (thread, in-process). Set to `fleet` →
       every task dispatches to the execution-agent fleet.
-- [ ] **config.toml is the preferred surface.** A `[server]` section
+- [x] **config.toml is the preferred surface.** A `[server]` section
       (`default_executor = "..."`) in `~/.cloacina/config.toml` configures it.
       `cloacinactl server start` reads it and forwards to `cloacina-server`.
       Precedence (mirrors `resolve_database_url`): explicit `--default-executor` /
       `CLOACINA_DEFAULT_EXECUTOR` > config.toml `[server].default_executor` >
       built-in `default`.
-- [ ] **Hard validation at boot.** `--default-executor <key>` must match a
+- [x] **Hard validation at boot.** `--default-executor <key>` must match a
       registered executor key. An unknown key fails fast at startup with an error
       listing the valid keys (no silent "all work to a nonexistent executor" stall).
-- [ ] **Glob routing fully removed.** `Router` / `RoutingConfig` / `RoutingRule`,
+- [x] **Glob routing fully removed.** `Router` / `RoutingConfig` / `RoutingRule`,
       the `--route` flag + `CLOACINA_FLEET_ROUTES` env var, `build_routing_config`,
       and all glob-routing docs/tests are deleted. The dispatcher sends every task
       to the one configured executor key (no per-task matching).
-- [ ] **Forwarding gap closed.** `cloacinactl server start` forwards the resolved
+- [x] **Forwarding gap closed.** `cloacinactl server start` forwards the resolved
       default executor to the `cloacina-server` binary (today it forwards neither
       `--route` nor an executor setting).
-- [ ] **Docs reframed.** Execution documented as a single deployment knob set via
+- [x] **Docs reframed.** Execution documented as a single deployment knob set via
       config.toml; fleet is opt-in (`default_executor = "fleet"`). Decision
       recorded: per-task routing is deferred to a future executor-internal feature
       (executors route work to specific nodes/compute; the scheduler does not).
@@ -336,10 +338,45 @@ Verified: zero authored-content references to the old surface (only the GENERATE
 from source clears it); no dangling links to the deleted `custom-task-routing.md`;
 `_index.md` Configuration section still non-empty.
 
-### Next step
-Verify (commands handed to user): `angreal check crate crates/cloacina`,
-`crates/cloacina-server`, `crates/cloacinactl`; `angreal test unit`; and
-`angreal test e2e default-executor` (needs Docker). **Regenerate generated docs**
-(`angreal docs` for the rustdoc api-reference + Hugo `docs/public/`, and
-`metis index` for `.metis/code-index.md`) so the generated trees drop the deleted
-routing symbols. Then open the standalone PR.
+### 2026-06-08 — Committed + PR open (task stays ACTIVE until merge)
+
+Branch `feat/T-0640-default-executor`, commit `850a7250`. **PR #121**:
+https://github.com/colliery-io/cloacina/pull/121 (base `main`, squash-merge).
+Pre-commit `Cargo check (both backends)` passed at commit time. Generated
+`.metis/code-index*` + `.index-dirty` churn deliberately excluded from the commit
+(regenerates via `metis index`). Per user direction: leave this task **active**
+until the PR merges.
+
+### 2026-06-09 — CI: flaky timeout on PR #121 (not the change), reran
+
+PR #121 still OPEN. 50+ checks green (postgres build/test, unit both OSes, all
+integration incl. sqlite-ubuntu, macros, tutorials/examples, docs, helm e2e).
+TWO reds, same root cause: `test_scenario_31_task_handle.py` hit the 180s pytest
+timeout and was killed (`Feature Build (sqlite-only)` + `Integration Tests
+(sqlite, macos-14)`). That's the Python `TaskHandle` async scenario — NOT touched
+by T-0640 (`git show --stat 850a7250` has no task_handle/scenario_31); dispatcher
+logged `Registered executor default ThreadTaskExecutor` normally. Flaky hang, not
+a regression. Reran failed jobs of run 27177461193; both IN_PROGRESS. If they fail
+again on the same scenario it's a pre-existing flake to file separately, not a
+T-0640 blocker.
+
+### 2026-06-09 — MERGED + closed out
+
+PR #121 squash-merged to `main` (squash commit `f742b3d`, 2026-06-09 09:41 UTC);
+feature branch deleted. CI was fully green at merge (the earlier 2 reds were the
+`test_scenario_31_task_handle.py` 180s flake, which cleared on rerun). All six
+acceptance criteria met → checked.
+
+On-merge cleanup done:
+- Pulled `main`; verified router.rs + custom-task-routing.md are gone.
+- Regenerated `.metis/code-index.md` via `metis index` (full reindex: 518 files,
+  8412 symbols) — 0 references to the deleted `Router`/`RoutingConfig`/`RoutingRule`
+  remain; new `default_executor`/`has_executor` symbols present.
+- Authored docs confirmed clean of the old surface.
+
+Remaining (handed to user — heavy build, not run in-tool): regenerate the rustdoc
+**api-reference** + Hugo site via `angreal docs`. 5 generated files under
+`docs/content/api-reference/rust/cloacina/dispatcher|runner` still show the deleted
+`Router`/`RoutingConfig`/`RoutingRule` until that runs. These are generated-from-
+source artifacts; running `angreal docs` and committing the regenerated tree (with
+the code-index churn) is the only follow-up. Task complete.

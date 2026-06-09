@@ -36,7 +36,7 @@ use cloacina::*;
 #     fn dependencies(&self) -> &[String] { &self.deps }
 # }
 let workflow = Workflow::builder("etl-pipeline")
-    .description("Customer data ETL pipeline")
+    .description("Customer data ETL workflow")
     .tag("environment", "staging")
     .tag("owner", "data-team")
     .add_task(TestTask::new("extract_customers", vec![]))?

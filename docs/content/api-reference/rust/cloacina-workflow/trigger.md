@@ -3,8 +3,11 @@
 
 Trigger types for workflow authoring.
 
-These types are used by `#[trigger]` macro-generated code.
-The full `Trigger` trait lives in `cloacina` (runtime crate).
+T-0552 (I-0102 follow-up) relocated the `Trigger` trait from `cloacina`
+(engine-only) into this leaf crate so packaged cdylibs can collect
+`TriggerEntry` inventory entries (which hold `Arc<dyn Trigger>`) at
+link time, and the unified `cloacina::package!()` shell macro can walk
+them at FFI call time. Engine paths re-export `cloacina_workflow::Trigger`.
 
 ## Enums
 

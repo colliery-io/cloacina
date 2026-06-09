@@ -29,6 +29,9 @@ Metadata extracted from a workflow package.
 | `graph_data` | `Option < serde_json :: Value >` | Workflow graph data (if available) |
 | `architecture` | `String` | Library architecture info |
 | `symbols` | `Vec < String >` | Required symbols present in the library |
+| `workflow_triggers` | `Vec < String >` | I-0102 / T-A: Trigger names this package's workflow subscribes to,
+sourced from `#[workflow(triggers = […])]`. The reconciler binds
+each named trigger to the workflow at load time. |
 
 
 
@@ -291,9 +294,8 @@ The loaded library is cached to prevent dlclose — see struct-level docs.
 
         let handle = fidius_host::PluginHandle::from_loaded(plugin);
 
-        // Method index 0 = get_task_metadata (zero-arg, encoded as empty tuple)
         let ffi_metadata: cloacina_workflow_plugin::PackageTasksMetadata = handle
-            .call_method(0, &())
+            .call_method(cloacina_workflow_plugin::METHOD_GET_TASK_METADATA, &())
             .map_err(|e| LoaderError::MetadataExtraction {
                 reason: format!("Failed to call get_task_metadata: {}", e),
             })?;
@@ -386,6 +388,7 @@ Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
             graph_data,
             architecture,
             symbols: vec!["fidius_get_registry".to_string()],
+            workflow_triggers: meta.triggers,
         })
     }
 ```
@@ -446,10 +449,10 @@ Returns `None` if the plugin doesn't support graph metadata (workflow-only packa
 
         let handle = fidius_host::PluginHandle::from_loaded(plugin);
 
-        // Method index 2 = get_graph_metadata (zero-arg)
-        let result = match handle
-            .call_method::<(), cloacina_workflow_plugin::GraphPackageMetadata>(2, &())
-        {
+        let result = match handle.call_method::<(), cloacina_workflow_plugin::GraphPackageMetadata>(
+            cloacina_workflow_plugin::METHOD_GET_GRAPH_METADATA,
+            &(),
+        ) {
             Ok(meta) => Ok(Some(meta)),
             Err(e) => {
                 // Plugin doesn't support graph metadata — that's OK for workflow-only packages
@@ -471,6 +474,232 @@ Returns `None` if the plugin doesn't support graph metadata (workflow-only packa
 
 
 
+##### `extract_reactor_metadata` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn extract_reactor_metadata (& self , package_data : & [u8] ,) -> Result < Vec < cloacina_workflow_plugin :: ReactorPackageMetadata > , LoaderError >
+```
+
+Extract reactor metadata from compiled library bytes (T-B / I-0102).
+
+Calls `get_reactor_metadata()` (method index 4) on the fidius plugin.
+Plugins that predate trait v2 — and per-macro `_ffi` blocks emitting
+the empty stub — both return `Ok(vec![])` here. Real reactor entries
+come from packages built against the unified `cloacina::package!()`
+shell.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn extract_reactor_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Vec<cloacina_workflow_plugin::ReactorPackageMetadata>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self.temp_dir.path().join(format!(
+            "reactor_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        let result = crate::computation_graph::packaging_bridge::call_get_reactor_metadata(&handle)
+            .map_err(|e| LoaderError::MetadataExtraction { reason: e });
+
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
+
+        result
+    }
+```
+
+</details>
+
+
+
+##### `extract_trigger_metadata` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn extract_trigger_metadata (& self , package_data : & [u8] ,) -> Result < Vec < cloacina_workflow_plugin :: TriggerPackageMetadata > , LoaderError >
+```
+
+Extract trigger metadata from compiled library bytes (T-B / I-0102).
+
+Calls `get_trigger_metadata()` (method index 5) on the fidius plugin.
+Cron-vs-custom routing happens at the reconciler based on the
+returned `cron_expression` field.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn extract_trigger_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self.temp_dir.path().join(format!(
+            "trigger_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        let result = crate::computation_graph::packaging_bridge::call_get_trigger_metadata(&handle)
+            .map_err(|e| LoaderError::MetadataExtraction { reason: e });
+
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
+
+        result
+    }
+```
+
+</details>
+
+
+
+##### `extract_triggerless_graph_metadata` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn extract_triggerless_graph_metadata (& self , package_data : & [u8] ,) -> Result < Vec < cloacina_workflow_plugin :: TriggerlessGraphMetadataEntry > , LoaderError >
+```
+
+Extract trigger-less computation graph metadata from compiled library bytes (T-0553 follow-up — Trigger-less CG FFI bridge).
+
+Calls `get_triggerless_graph_metadata()` (method index 7) on
+the fidius plugin. Returns one entry per `#[computation_graph]`
+without a `trigger = reactor(...)` clause; the reconciler
+installs each into the runtime via a host-side adapter that
+dispatches `graph_fn` through `invoke_triggerless_graph` (FFI
+method index 8).
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn extract_triggerless_graph_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Vec<cloacina_workflow_plugin::TriggerlessGraphMetadataEntry>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self.temp_dir.path().join(format!(
+            "triggerless_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        // Method index 7 = get_triggerless_graph_metadata. NotImplemented
+        // (older plugins) returns an Ok(Vec::new()) at the call_method
+        // layer — the reconciler treats that as "package declares no
+        // trigger-less graphs".
+        let result: Result<
+            Vec<cloacina_workflow_plugin::TriggerlessGraphMetadataEntry>,
+            fidius_host::CallError,
+        > = handle.call_method(
+            cloacina_workflow_plugin::METHOD_GET_TRIGGERLESS_GRAPH_METADATA,
+            &(),
+        );
+
+        let out = match result {
+            Ok(v) => Ok(v),
+            Err(fidius_host::CallError::NotImplemented { .. }) => Ok(Vec::new()),
+            Err(e) => Err(LoaderError::MetadataExtraction {
+                reason: format!("get_triggerless_graph_metadata failed: {:?}", e),
+            }),
+        };
+
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
+
+        out
+    }
+```
+
+</details>
+
+
+
 ##### `temp_dir` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
 
 
@@ -478,7 +707,7 @@ Returns `None` if the plugin doesn't support graph metadata (workflow-only packa
 fn temp_dir (& self) -> & Path
 ```
 
-Get the temporary directory path for manual file operations.
+Get the temporary directory path. Test-only: production code does not inspect the loader's temp dir directly.
 
 <details>
 <summary>Source</summary>

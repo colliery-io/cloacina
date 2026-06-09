@@ -279,7 +279,7 @@ Check if a key is authorized for a specific operation.
 
 Registry mapping endpoint names to channel senders.
 
-Shared between the Graph Scheduler (registers on spawn) and
+Shared between the Reactive Scheduler (registers on spawn) and
 WebSocket handlers (look up on message receipt).
 
 #### Fields
@@ -877,6 +877,60 @@ List all accumulators with their current health status.
                     .get(name)
                     .map(|rx| rx.borrow().clone())
                     .unwrap_or(AccumulatorHealth::Live); // default for accumulators without health tracking
+                (name.clone(), health)
+            })
+            .collect()
+    }
+```
+
+</details>
+
+
+
+##### `list_accumulators_with_health_for_key` <span class="plissken-badge plissken-badge-visibility" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: #4caf50; color: white;">pub</span>
+ <span class="plissken-badge plissken-badge-async" style="display: inline-block; padding: 0.1em 0.35em; font-size: 0.55em; font-weight: 600; border-radius: 0.2em; vertical-align: middle; background: var(--md-primary-fg-color); color: white;">async</span>
+
+
+```rust
+async fn list_accumulators_with_health_for_key (& self , ctx : & KeyContext < '_ > ,) -> Vec < (String , AccumulatorHealth) >
+```
+
+CLOACI-T-0579: list accumulators authorized for the given caller. Filters by each accumulator's `AccumulatorAuthPolicy::is_authorized` against the caller's `KeyContext`. Admin keys see everything; tenant-scoped keys see only their own accumulators; producer-pin keys see whichever they're explicitly allowed on.
+
+Closes SEC-05 (cross-tenant health enumeration). The route handler
+at `/v1/health/accumulators` uses this instead of the unfiltered
+`list_accumulators_with_health` so tenant B can't enumerate tenant
+A's accumulator names.
+
+<details>
+<summary>Source</summary>
+
+```rust
+    pub async fn list_accumulators_with_health_for_key(
+        &self,
+        ctx: &KeyContext<'_>,
+    ) -> Vec<(String, AccumulatorHealth)> {
+        let inner = self.inner.read().await;
+        inner
+            .accumulators
+            .keys()
+            .filter(|name| {
+                // Apply the per-accumulator policy. Accumulators without a
+                // policy entry default to `allow_all_authenticated` so the
+                // pre-tenancy single-tenant deployments aren't suddenly
+                // empty after this change.
+                let allowed = match inner.accumulator_policies.get(*name) {
+                    Some(policy) => policy.is_authorized(ctx),
+                    None => AccumulatorAuthPolicy::allow_all().is_authorized(ctx),
+                };
+                allowed
+            })
+            .map(|name| {
+                let health = inner
+                    .accumulator_health
+                    .get(name)
+                    .map(|rx| rx.borrow().clone())
+                    .unwrap_or(AccumulatorHealth::Live);
                 (name.clone(), health)
             })
             .collect()

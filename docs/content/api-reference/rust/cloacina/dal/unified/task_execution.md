@@ -3,14 +3,14 @@
 
 Task Execution Data Access Layer for Unified Backend Support
 
-This module provides the data access layer for managing task executions in the pipeline system
+This module provides the data access layer for managing task executions in the workflow system
 with runtime backend selection between PostgreSQL and SQLite.
 Key features:
 - Task state management (Ready, Running, Completed, Failed, Skipped)
 - Retry mechanism with configurable backoff
 - Recovery system for handling orphaned tasks
 - Atomic task claiming for distributed execution
-- Pipeline completion and failure detection
+- Workflow completion and failure detection
 
 ## Structs
 
@@ -21,7 +21,7 @@ Key features:
 
 **Derives:** `Debug`, `Default`
 
-Statistics about retry behavior for a pipeline execution.
+Statistics about retry behavior for a workflow execution.
 
 #### Fields
 
@@ -48,7 +48,7 @@ Result structure for atomic task claiming operations.
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | `UniversalUuid` | Unique identifier of the claimed task |
-| `pipeline_execution_id` | `UniversalUuid` | ID of the pipeline execution this task belongs to |
+| `workflow_execution_id` | `UniversalUuid` | ID of the workflow execution this task belongs to |
 | `task_name` | `String` | Name of the task that was claimed |
 | `attempt` | `i32` | Current attempt number for this task |
 
