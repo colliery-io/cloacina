@@ -521,3 +521,111 @@ def cli():
                 except subprocess.TimeoutExpired:
                     server.kill()
             server_stderr.close()
+
+
+@test()
+@e2e()
+@angreal.command(
+    name="default-executor",
+    about="boot-time --default-executor hard-match (CLOACI-T-0640)",
+    when_to_use=[
+        "verifying the server fails fast on an unknown default executor",
+        "verifying `--default-executor fleet` boots (fleet executor registers)",
+    ],
+    when_not_to_use=["unit testing", "running without docker"],
+)
+def default_executor():
+    """CLOACI-T-0640: the executor is a single server-level knob, hard-matched
+    against the registered executors at boot.
+
+    - Negative: an unknown key (`--default-executor nope`) must abort startup
+      with a clear error rather than silently dispatching all work into the void.
+    - Positive: `--default-executor fleet` must boot — the server registers the
+      fleet executor when opted in, so validation passes (no agents needed).
+
+    The default (`default`/thread) boot path is already covered by the `cli`
+    scenario, which boots with no `--default-executor` flag.
+    """
+    print_section_header("default-executor boot validation")
+    _build_binaries()
+    _start_postgres()
+
+    db_url = "postgres://cloacina:cloacina@localhost:5432/cloacina"
+
+    # --- negative: unknown executor key aborts startup ----------------------
+    with tempfile.TemporaryDirectory() as home_s:
+        home = Path(home_s)
+        # Validation fires after DB connect + executor registration, so the
+        # server reaches it quickly and then `run()` returns Err → exit non-zero.
+        # `--bind` is required but never actually served (we bail first).
+        proc = subprocess.run(
+            [
+                "target/debug/cloacina-server",
+                "--home", str(home),
+                "--database-url", db_url,
+                "--bind", "127.0.0.1:18085",
+                "--default-executor", "nope",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        if proc.returncode == 0:
+            raise AssertionError(
+                "server booted with an unknown --default-executor 'nope' "
+                f"(expected non-zero exit).\nstdout:\n{proc.stdout}\n"
+                f"stderr:\n{proc.stderr}"
+            )
+        combined = (proc.stderr + proc.stdout).lower()
+        if "not a registered executor" not in combined:
+            raise AssertionError(
+                "expected a hard-match error mentioning 'not a registered "
+                f"executor'; got exit={proc.returncode}\nstderr:\n{proc.stderr}"
+            )
+        print("  ok: unknown --default-executor 'nope' fails fast at boot")
+
+    # --- positive: `fleet` boots (fleet executor registered when opted in) --
+    bind = "127.0.0.1:18086"
+    base_url = f"http://{bind}"
+    with tempfile.TemporaryDirectory() as home_s:
+        home = Path(home_s)
+        server_stderr = open(home / "server-stderr.log", "wb")
+        server = subprocess.Popen(
+            [
+                "target/debug/cloacina-server",
+                "--home", str(home),
+                "--database-url", db_url,
+                "--bind", bind,
+                "--bootstrap-key", "test-bootstrap-fleet-boot",
+                "--default-executor", "fleet",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=server_stderr,
+        )
+        try:
+            if server.poll() is not None:
+                server_stderr.flush()
+                tail = open(home / "server-stderr.log").read()[-4096:]
+                raise AssertionError(
+                    f"server with --default-executor fleet exited "
+                    f"{server.returncode} during startup\nstderr tail:\n{tail}"
+                )
+            _wait_for_health(base_url, server_proc=server)
+            print("  ok: --default-executor fleet boots and serves /health")
+            print_final_success("default-executor boot validation")
+        except Exception:
+            server_stderr.flush()
+            try:
+                tail = open(home / "server-stderr.log").read()[-4096:]
+                print(f"--- server stderr tail ---\n{tail}\n--- end ---")
+            except Exception as e:
+                print(f"(failed to read server-stderr.log: {e})")
+            raise
+        finally:
+            if server.poll() is None:
+                server.send_signal(signal.SIGTERM)
+                try:
+                    server.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+            server_stderr.close()

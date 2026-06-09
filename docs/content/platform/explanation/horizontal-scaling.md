@@ -6,7 +6,7 @@ weight: 40
 
 ## Introduction
 
-When you run a single Cloacina instance, task execution is straightforward: the scheduler marks tasks as `Ready`, the dispatcher routes them to the executor, and the executor runs them. But what happens when you deploy multiple runner instances against the same PostgreSQL database? Without coordination, two runners could pick up the same task and execute it twice.
+When you run a single Cloacina instance, task execution is straightforward: the scheduler marks tasks as `Ready`, the dispatcher hands them to the configured executor, and the executor runs them. But what happens when you deploy multiple runner instances against the same PostgreSQL database? Without coordination, two runners could pick up the same task and execute it twice.
 
 This document explains the mechanisms Cloacina uses to prevent duplicate execution, detect crashed runners, and recover orphaned tasks in a multi-runner deployment.
 
@@ -253,49 +253,15 @@ tracing::info_span!(
 )
 ```
 
-## Dispatcher and Routing
+## Dispatcher and the Default Executor
 
-The `DefaultDispatcher` routes tasks to executors based on configurable glob patterns. In a multi-runner deployment, each runner has its own dispatcher with its own routing configuration. This enables heterogeneous deployments where different runners handle different types of work.
+The `DefaultDispatcher` hands every task to a single configured executor — the **default executor** key. There is no per-task matching: the dispatcher does not select an executor by task name. The key defaults to `default` (the in-process `ThreadTaskExecutor`) and is set server-wide via `[server].default_executor` in `~/.cloacina/config.toml` (or `CLOACINA_DEFAULT_EXECUTOR` / `--default-executor`). The configured key is hard-matched against the registered executors at startup; an unknown key fails fast.
 
-### Routing Configuration
+In a multi-runner deployment, the executor key does not pick *which runner* claims a task — claiming does. Each runner runs the same scheduling loop and competes for ready tasks; the default-executor key only decides *how* a claimed task runs (in-process, or offloaded to the `fleet` executor when the [execution-agent fleet]({{< relref "execution-agent-fleet.md" >}}) is deployed).
 
-```rust
-let config = RoutingConfig::new("default")
-    .with_rule(RoutingRule::new("ml::*", "gpu"))
-    .with_rule(RoutingRule::new("**::batch::*", "k8s"))
-    .with_rule(RoutingRule::new("heavy_*", "high_memory"));
-```
+> **Choosing the node/compute a task lands on is an executor-internal concern** — a future capability where executors route work to specific nodes or capabilities. The scheduler and dispatcher don't make that decision per task.
 
-The `Router` evaluates rules in order and returns the first matching executor key:
-
-```mermaid
-flowchart LR
-    T[Task Name] --> R1{ml::* ?}
-    R1 -->|Yes| GPU[gpu executor]
-    R1 -->|No| R2{**::batch::* ?}
-    R2 -->|Yes| K8S[k8s executor]
-    R2 -->|No| R3{heavy_* ?}
-    R3 -->|Yes| HM[high_memory executor]
-    R3 -->|No| DEF[default executor]
-```
-
-Pattern matching supports:
-- **Exact match**: `ml::train` matches only `ml::train`
-- **Single wildcard** (`*`): matches any sequence within a namespace segment -- `ml::*` matches `ml::train` and `ml::predict` but not `etl::extract`
-- **Double wildcard** (`**`): matches any sequence including namespace separators -- `**::heavy_*` matches `ml::heavy_train` and `etl::data::heavy_load`
-- **Prefix/suffix wildcards**: `heavy_*` matches `heavy_compute`, `*_gpu` matches `train_gpu`
-
-### Multi-Runner Routing Strategy
-
-In a typical multi-runner deployment, you might configure runners with different routing rules to specialize them:
-
-```
-Runner A (GPU box):    ml::* -> gpu,  default -> default
-Runner B (CPU farm):   etl::* -> default,  default -> default
-Runner C (General):    ** -> default
-```
-
-All three runners share the same PostgreSQL database. The claiming mechanism ensures that even if all three runners see the same `TaskReadyEvent`, only one will actually execute the task. The routing configuration controls which runner *attempts* to claim which tasks, but claiming provides the final safety net.
+All runners share the same PostgreSQL database. The claiming mechanism ensures that even if every runner sees the same `TaskReadyEvent`, only one actually executes the task.
 
 ## Deployment Pattern
 
@@ -420,6 +386,6 @@ All horizontal scaling configuration is set through `DefaultRunnerConfig::builde
 
 - [Architecture Overview]({{< relref "architecture-overview.md" >}}) -- System-wide component relationships
 - [Task Execution]({{< relref "task-execution-sequence.md" >}}) -- Task lifecycle and state transitions
-- [Dispatcher Architecture]({{< relref "dispatcher-architecture.md" >}}) -- Routing configuration and pluggable executors
+- [Dispatcher Architecture]({{< relref "dispatcher-architecture.md" >}}) -- The default executor and pluggable executor backends
 - [Guaranteed Execution Architecture]({{< relref "guaranteed-execution-architecture.md" >}}) -- Reliability guarantees and recovery mechanisms
 - [Execution-Agent Fleet]({{< relref "execution-agent-fleet.md" >}}) -- Offloading task execution to a pool of DB-less remote agents (complements the single-DB multi-runner model above)

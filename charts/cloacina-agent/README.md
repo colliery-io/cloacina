@@ -5,8 +5,10 @@ Deploys a fleet of [execution agents](https://cloacina.dev/platform/explanation/
 fetch compiled workflow cdylibs, execute tasks, and report results.
 
 Agents hold **no** database connection and expose **no** HTTP surface, so they
-can run outside the database trust zone. Routing is configured on the *server*
-(`CLOACINA_FLEET_ROUTES` / `--route`); this chart just runs the workers.
+can run outside the database trust zone. Whether work reaches the fleet is set
+on the *server* via its default executor (`[server].default_executor = "fleet"`
+in config.toml, or `CLOACINA_DEFAULT_EXECUTOR=fleet`); this chart just runs the
+workers.
 
 ## Quick start
 

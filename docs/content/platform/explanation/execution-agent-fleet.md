@@ -1,6 +1,6 @@
 ---
 title: "Execution-Agent Fleet"
-description: "How Cloacina offloads task execution to a pool of DB-less remote agents — registration, routing, delivery, execution, and dead-agent reclaim"
+description: "How Cloacina offloads task execution to a pool of DB-less remote agents — registration, dispatch, delivery, execution, and dead-agent reclaim"
 weight: 45
 ---
 
@@ -21,24 +21,27 @@ task, and report the result. This is the right tool when you want to:
 - scale execution capacity independently of the server, or
 - isolate heavy or untrusted task execution away from the control plane.
 
-Routing is opt-in and per-task: tasks whose names match a configured glob run on
-the fleet; everything else keeps running in-process on the server's `default`
-executor. You can adopt the fleet for one workflow without changing anything
-else.
+Adopting the fleet is a single server-level switch: set the **default executor**
+to `fleet` (via `[server].default_executor` in `config.toml`, or
+`CLOACINA_DEFAULT_EXECUTOR=fleet` / `--default-executor fleet`). Every task then
+runs on the fleet instead of the in-process `default` executor — there is no
+per-task matching. The `fleet` key is only a registered executor when you've
+opted in; if you select it without the fleet deployed, the server fails fast at
+startup.
 
 ## The pieces
 
 | Component | Role |
 |---|---|
-| `cloacina-server` | DB authority. Routes matching tasks to the fleet, selects an agent, pushes work, reconciles results. |
+| `cloacina-server` | DB authority. When the default executor is `fleet`, dispatches tasks to the fleet, selects an agent, pushes work, reconciles results. |
 | `cloacina-agent` | DB-less worker. Registers, fetches the compiled cdylib, executes the task, reports the result. |
 | `cloacina-compiler` | Builds uploaded workflow packages into `.cloacina` cdylibs the agents load. (Unchanged by the fleet.) |
 | `delivery_outbox` | Durable, ack-tracked push queue (the substrate, CLOACI-I-0115) that carries work packets to agents over a WebSocket. |
 
 ## How a task reaches an agent
 
-When a fleet-routed task becomes `Ready`, the server's `FleetExecutor` runs the
-following, end to end:
+When the default executor is `fleet` and a task becomes `Ready`, the server's
+`FleetExecutor` runs the following, end to end:
 
 1. **Claim.** The executor atomically claims the task (the same `claim_for_runner`
    mechanism the in-process executor uses) so exactly one invocation owns it,
@@ -102,7 +105,7 @@ retry (degraded, not lost).
 Two things worth knowing about the recovery characteristics:
 
 - **It is failover, not checkpointing.** The survivor re-runs the task from the
-  start; there is no mid-task resume. Tasks routed to the fleet should be
+  start; there is no mid-task resume. Tasks run on the fleet should be
   idempotent, like any retryable task.
 - **Detection latency is tunable.** Total time to recover ≈ (dead-after
   detection) + (re-run). The detection floor is `interval × misses`; lower both
@@ -116,9 +119,9 @@ Two things worth knowing about the recovery characteristics:
 | Scale the control plane; runners may hold DB access | [Multiple runners on one DB]({{< ref "horizontal-scaling" >}}). |
 | Scale execution on workers that must **not** touch the DB, or isolate heavy/untrusted task code | **Execution-agent fleet.** |
 
-The models compose: a server can run some tasks in-process and route others to
-the fleet via per-task globs, and you can run several servers against one DB
-while each fans matching work out to agents.
+The models compose: a server runs all work either in-process or on the fleet
+(per its `default_executor`), and you can run several servers against one DB,
+each fanning its work out to agents when set to `fleet`.
 
 ## Observability
 

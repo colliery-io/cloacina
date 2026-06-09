@@ -633,8 +633,8 @@ def helm_fleet():
             "-n", FLEET_NS, f"--from-literal=key={FLEET_BOOTSTRAP_KEY}",
         ])
 
-        # 4. Install the server chart: bundled postgres, fleet routing, known key.
-        print("\n--- 4. helm install server (routes **=fleet) ---\n")
+        # 4. Install the server chart: bundled postgres, fleet executor, known key.
+        print("\n--- 4. helm install server (default executor = fleet) ---\n")
         _run(["helm", "dependency", "update", str(CHART_DIR)])
         values = home / "server-values.yaml"
         values.write_text(
@@ -653,8 +653,8 @@ def helm_fleet():
             "  key: key\n"
             "server:\n"
             "  extraEnv:\n"
-            "    - name: CLOACINA_FLEET_ROUTES\n"
-            '      value: "**=fleet"\n'
+            "    - name: CLOACINA_DEFAULT_EXECUTOR\n"
+            '      value: "fleet"\n'
             # Aggressive liveness (CLOACI-T-0639) so the reclaim step doesn't
             # wait the default 45-60s: dead-after = 5s x 2 = 10s. Also exercises
             # the new --agent-heartbeat-interval-s / --agent-liveness-misses

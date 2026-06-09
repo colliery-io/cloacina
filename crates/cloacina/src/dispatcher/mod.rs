@@ -22,31 +22,29 @@
 //! ## Architecture
 //!
 //! ```text
-//! Scheduler (mark_ready) --> Dispatcher --> Executor(s)
-//!                                |
-//!                                v
-//!                           Routing Logic
+//! Scheduler (mark_ready) --> Dispatcher --> Executor
 //! ```
 //!
-//! The dispatcher receives `TaskReadyEvent`s from the scheduler and routes them to
-//! the appropriate executor based on configurable routing rules.
+//! The dispatcher receives `TaskReadyEvent`s from the scheduler and sends every
+//! task to a single server-configured executor (CLOACI-T-0640). Selecting which
+//! node/compute a task lands on is an executor-internal concern, not something
+//! the scheduler/dispatcher decides.
 //!
 //! ## Key Components
 //!
 //! - [`TaskReadyEvent`]: Event emitted when a task becomes ready for execution
-//! - [`Dispatcher`]: Trait for routing events to executors
+//! - [`Dispatcher`]: Trait for dispatching events to the configured executor
 //! - [`TaskExecutor`]: Trait for executor backends that receive and execute tasks
-//! - [`DefaultDispatcher`]: Standard implementation with glob-based routing
+//! - [`DefaultDispatcher`]: Standard single-executor implementation
 //!
 //! ## Usage
 //!
 //! ```rust,ignore
-//! use cloacina::dispatcher::{DefaultDispatcher, RoutingConfig, TaskReadyEvent};
+//! use cloacina::dispatcher::{DefaultDispatcher, TaskReadyEvent};
 //! use cloacina::dispatcher::TaskExecutor;
 //!
-//! // Create dispatcher with routing configuration
-//! let config = RoutingConfig::default();
-//! let mut dispatcher = DefaultDispatcher::new(dal, config);
+//! // Dispatch every task to the "default" (thread) executor.
+//! let mut dispatcher = DefaultDispatcher::new(dal, "default");
 //!
 //! // Register executor backends
 //! dispatcher.register_executor("default", Arc::new(thread_executor));
@@ -56,14 +54,9 @@
 //! ```
 
 pub mod default;
-pub mod router;
 pub mod traits;
 pub mod types;
 
 pub use default::DefaultDispatcher;
-pub use router::Router;
 pub use traits::{Dispatcher, TaskExecutor};
-pub use types::{
-    DispatchError, ExecutionResult, ExecutionStatus, ExecutorMetrics, RoutingConfig, RoutingRule,
-    TaskReadyEvent,
-};
+pub use types::{DispatchError, ExecutionResult, ExecutionStatus, ExecutorMetrics, TaskReadyEvent};

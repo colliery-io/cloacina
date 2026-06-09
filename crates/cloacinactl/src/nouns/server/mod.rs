@@ -48,6 +48,12 @@ enum ServerVerb {
 
         #[arg(long, env = "CLOACINA_REQUIRE_SIGNATURES")]
         require_signatures: bool,
+
+        /// Executor every task is dispatched to (CLOACI-T-0640): `default`
+        /// (in-process thread executor) or `fleet` (execution-agent fleet).
+        /// Overrides `[server].default_executor` in config.toml when set.
+        #[arg(long, env = "CLOACINA_DEFAULT_EXECUTOR")]
+        default_executor: Option<String>,
     },
     /// Stop a locally-running server via PID file + SIGTERM.
     Stop {
@@ -69,6 +75,7 @@ impl ServerCmd {
                 database_url,
                 bootstrap_key,
                 require_signatures,
+                default_executor,
             } => {
                 start::run(
                     globals,
@@ -76,6 +83,7 @@ impl ServerCmd {
                     database_url,
                     bootstrap_key,
                     require_signatures,
+                    default_executor,
                 )
                 .await
             }

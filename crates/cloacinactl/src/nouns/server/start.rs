@@ -29,9 +29,16 @@ pub async fn run(
     database_url: Option<String>,
     bootstrap_key: Option<String>,
     require_signatures: bool,
+    default_executor: Option<String>,
 ) -> Result<()> {
     let config_path = globals.home.join("config.toml");
     let db_url = config::resolve_database_url(database_url.as_deref(), &config_path)?;
+    // CLOACI-T-0640: config.toml `[server].default_executor` is the preferred
+    // surface; an explicit `--default-executor` overrides it. Forward the
+    // resolved value so the server doesn't re-read config (cloacinactl is the
+    // config-aware front door, same as `--database-url`).
+    let default_executor =
+        config::resolve_default_executor(default_executor.as_deref(), &config_path);
 
     // Write PID file before exec — we're the process about to become server.
     pid::write(&globals.home.join("server.pid"))?;
@@ -42,7 +49,9 @@ pub async fn run(
         .arg("--bind")
         .arg(bind.to_string())
         .arg("--database-url")
-        .arg(&db_url);
+        .arg(&db_url)
+        .arg("--default-executor")
+        .arg(&default_executor);
     if globals.verbose {
         cmd.arg("--verbose");
     }

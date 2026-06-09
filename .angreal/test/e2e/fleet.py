@@ -12,7 +12,7 @@ Why the compiler is in the loop: workflow packages are uploaded as *source*
 the cdylib and store it before the reconciler will register the workflow and
 the agent can fetch + dlopen the artifact. This mirrors the compiler e2e's
 happy path (compiler.py) — we reuse its proven helpers — but boots the server
-with `CLOACINA_FLEET_ROUTES=*=fleet` and adds an agent subprocess.
+with `CLOACINA_DEFAULT_EXECUTOR=fleet` and adds an agent subprocess.
 
 Requires Docker. Run with: `angreal test e2e fleet`.
 """
@@ -103,11 +103,9 @@ def fleet():
         # --- server (all tasks routed to the fleet) -------------------------
         server_log = open(home / "server.log", "w")
         server_env = os.environ.copy()
-        # `**` (not `*`) to match across `::` segments — task names are fully
-        # qualified, e.g. `public::compiler-happy-rust::compiler_happy_workflow::noop`.
-        # A single `*` only matches within one segment (dispatcher/router.rs), so
-        # `*=fleet` would silently fall back to the default thread executor.
-        server_env["CLOACINA_FLEET_ROUTES"] = "**=fleet"
+        # CLOACI-T-0640: the executor is a single server-level knob now. Send
+        # every task to the fleet by setting the default executor — no globs.
+        server_env["CLOACINA_DEFAULT_EXECUTOR"] = "fleet"
         server_proc = subprocess.Popen(
             [
                 "target/debug/cloacina-server",

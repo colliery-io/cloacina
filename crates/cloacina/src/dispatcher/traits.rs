@@ -25,17 +25,18 @@ use std::sync::Arc;
 
 use super::types::{DispatchError, ExecutionResult, ExecutorMetrics, TaskReadyEvent};
 
-/// Dispatcher routes task-ready events to appropriate executors.
+/// Dispatcher hands task-ready events to the configured executor.
 ///
-/// The dispatcher acts as a routing layer between the scheduler and executors,
-/// enabling flexible task routing based on configuration rules.
+/// The dispatcher acts as a thin layer between the scheduler and executors,
+/// sending every task to a single server-configured executor key
+/// (CLOACI-T-0640). Selecting which node/compute a task lands on is an
+/// executor-internal concern.
 ///
 /// # Implementation Requirements
 ///
 /// Implementors must ensure:
 /// - Thread safety (Send + Sync)
 /// - Proper executor registration and lookup
-/// - Routing based on configuration
 ///
 /// # Example
 ///
@@ -95,6 +96,13 @@ pub trait Dispatcher: Send + Sync {
     ///
     /// Useful for debugging and monitoring which executor will handle a task.
     fn resolve_executor_key(&self, task_name: &str) -> String;
+
+    /// Returns `true` if an executor is registered under `key`.
+    ///
+    /// Used to validate a configured `default_executor` key at startup so a
+    /// typo fails fast instead of silently sending all work to a nonexistent
+    /// executor (CLOACI-T-0640).
+    fn has_executor(&self, key: &str) -> bool;
 }
 
 /// Executor receives task-ready events and executes them.

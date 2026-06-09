@@ -564,7 +564,7 @@ pub use database::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
 pub use database::{UniversalBool, UniversalTimestamp, UniversalUuid};
 pub use dispatcher::{
     DefaultDispatcher, DispatchError, Dispatcher, ExecutionResult, ExecutionStatus,
-    ExecutorMetrics, RoutingConfig, RoutingRule, TaskExecutor, TaskReadyEvent,
+    ExecutorMetrics, TaskExecutor, TaskReadyEvent,
 };
 pub use error::{
     CheckpointError, ContextError, ExecutorError, RegistrationError, SubgraphError, TaskError,
