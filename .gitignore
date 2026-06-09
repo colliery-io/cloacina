@@ -60,8 +60,11 @@ dist/
 *.cloacina
 test-quick/
 .claude/*
+.claude_handovers/
+diataxis/
 run_demos.sh
 docs/content/api-reference/_nav.yml
 
 # Transient test output (don't commit)
 integration-test.log
+.metis/*.log
