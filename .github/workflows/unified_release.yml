@@ -25,6 +25,16 @@ jobs:
   nightly-suite:
     name: Release Validation (Nightly Suite)
     uses: ./.github/workflows/nightly.yml
+    # The caller's permissions are the ceiling for the called workflow. The
+    # workflow-level block above is intentionally minimal, so grant here the
+    # superset the nested nightly jobs need: packages:write (nightly-docker),
+    # actions:write (prune-caches), issues:write (notify-failure/close-resolved),
+    # contents:read (checkout). Without this the run fails at startup.
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+      issues: write
 
   # -----------------------------------------------------------------------
   # Step 2: Version verification
