@@ -81,7 +81,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina-workflow = "0.6.1"  # Includes macros by default
+cloacina-workflow = "0.7.0"  # Includes macros by default
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }

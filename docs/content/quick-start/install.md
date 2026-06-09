@@ -25,7 +25,7 @@ add to your shell rc.
 ### Pinning a version
 
 ```sh
-curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.6.1
+curl -fsSL https://get.cloacina.dev/install.sh | bash -s -- --version v0.7.0
 ```
 
 Use a specific tag from the releases page. Any release that has the
@@ -112,7 +112,7 @@ See the [Python quick start]({{< ref "/python" >}}) for usage.
 The server is published as a container image on every release:
 
 ```sh
-docker pull ghcr.io/colliery-io/cloacina-server:v0.6.1
+docker pull ghcr.io/colliery-io/cloacina-server:v0.7.0
 ```
 
 See [Running the server image]({{< ref "/platform/how-to-guides/running-the-server-image" >}}) for the full container deploy walkthrough — environment variables, signature enforcement, log retention.

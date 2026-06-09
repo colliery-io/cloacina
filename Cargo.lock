@@ -501,7 +501,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cloacina"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-agent"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -580,14 +580,14 @@ dependencies = [
 
 [[package]]
 name = "cloacina-build"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "pyo3-build-config",
 ]
 
 [[package]]
 name = "cloacina-compiler"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-computation-graph"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "bincode",
  "once_cell",
@@ -630,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-macros"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "once_cell",
@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-python"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -671,7 +671,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-server"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-testing"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-workflow"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -741,7 +741,7 @@ dependencies = [
 
 [[package]]
 name = "cloacina-workflow-plugin"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "cloacina-computation-graph",
  "cloacina-workflow",
@@ -755,7 +755,7 @@ dependencies = [
 
 [[package]]
 name = "cloacinactl"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "base64",

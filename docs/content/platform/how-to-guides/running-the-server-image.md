@@ -17,7 +17,7 @@ pulling, configuring, and running it.
 docker pull ghcr.io/colliery-io/cloacina-server:latest
 
 # Pin to a specific version
-docker pull ghcr.io/colliery-io/cloacina-server:0.6.1
+docker pull ghcr.io/colliery-io/cloacina-server:0.7.0
 
 # Track main (rebuilt every night at 03:00 UTC)
 docker pull ghcr.io/colliery-io/cloacina-server:nightly

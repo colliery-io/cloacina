@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-09
+
+### Added
+
+- **Execution-agent fleet** (CLOACI-I-0114 / CLOACI-I-0115) — a horizontally scalable, database-less execution tier. Remote `cloacina-agent` workers pull ready work from the server, run it, and report results back over HTTP, so task execution scales out independently of the scheduler and without granting workers direct database access. Ships with a `cloacina-agent` Helm chart (server + compiler + N agents), in-flight reclaim on agent loss, and a fleet soak harness (roster/outbox/drift). See [Execution-Agent Fleet](https://cloacina.colliery.io/platform/explanation/execution-agent-fleet/) and [Deploy an Execution-Agent Fleet](https://cloacina.colliery.io/platform/how-to-guides/deploy-an-execution-agent-fleet/).
+- **Server-level default executor** (CLOACI-T-0640) — execution topology is now a single deployment knob (Airflow `[core] executor` style). The preferred surface is `[server].default_executor` in `~/.cloacina/config.toml`; override it ad-hoc with `--default-executor` or the `CLOACINA_DEFAULT_EXECUTOR` env var (precedence: explicit CLI/env > `config.toml` > built-in `default`). Set it to `fleet` to route all work to the execution-agent fleet. The configured key is **hard-matched** against the registered executors at startup — an unknown key fails fast with an error listing the valid keys, never a silent fallback.
+
 ### Security
 
 - **`cloacina-compiler` Phase 1 hardening** (CLOACI-I-0104) — bounded-cost mitigations for malicious `build.rs` source. `cargo build` now runs with `--frozen --offline` by default against an operator-curated `CARGO_HOME` (`--vendor-dir` / `CLOACINA_COMPILER_VENDOR_DIR`); packages whose deps aren't vendored fail fast with a structured rejection naming the missing crates. Builds are bounded by a wall-clock timeout (`--build-timeout-s`, default 600s) — overruns are SIGKILL'd and reclaimed by the existing stale-build sweeper. On Linux, four kernel-enforced rlimits are applied to the cargo subprocess via `setrlimit` in a `pre_exec` hook: CPU-seconds (tracks `--build-timeout-s`), virtual address space (`--build-rlimit-mem`, default `4G`, accepts `K`/`M`/`G` suffixes), open file descriptors (`--build-rlimit-files`, default 1024), and user processes (`--build-rlimit-procs`, default 256). Every build emits a `compiler.build.started` and `compiler.build.finished` structured audit event via `tracing`, including build-claim id, `Cargo.toml` / `Cargo.lock` SHA-256, outcome, cargo exit code/signal, wall-clock duration, and a process-wide `compiler_instance_id`. See [Run cloacina-compiler in Production](https://cloacina.colliery.io/platform/how-to-guides/running-the-compiler/) for the deployment runbook. Phase 2 (CLOACI-I-0105) adds a bubblewrap + landlock sandbox.
@@ -79,6 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```
 
   See [CLOACI-S-0011](https://github.com/colliery-io/cloacina/blob/main/.metis/specs/CLOACI-S-0011.md) for the primitive nomenclature and the [Computation Graph in a Workflow Task](https://cloacina.colliery.io/computation-graphs/how-to-guides/computation-graph-in-workflow/) how-to for the new embedded-CG pattern.
+
+- **Glob-based task routing removed** (CLOACI-T-0640) — the per-task routing surface is gone. `Router`, `RoutingConfig`, and `RoutingRule` are removed from the public prelude (`cloacina::dispatcher`), and `cloacina-server` no longer accepts `--route` / `CLOACINA_FLEET_ROUTES`. The dispatcher now sends every task to the single configured default executor (see **Added → Server-level default executor**); choosing which node or compute a task lands on is an executor-internal concern, not a scheduler/dispatcher one. **Migration:** replace any `--route "**=fleet"` / `CLOACINA_FLEET_ROUTES` usage with `--default-executor fleet` (or `[server].default_executor = "fleet"`); library consumers that referenced `RoutingConfig`/`RoutingRule`/`Router` should remove them and configure the default executor via `DefaultRunnerConfig::default_executor`.
 
 ## [0.6.1] - 2026-05-09
 

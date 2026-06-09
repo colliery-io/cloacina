@@ -89,17 +89,17 @@ packaged = []
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina-computation-graph = "0.6.1"
-cloacina-macros = "0.6.1"
-cloacina-workflow = { version = "0.6.1", features = ["packaged"] }
-cloacina-workflow-plugin = "0.6.1"
+cloacina-computation-graph = "0.7.0"
+cloacina-macros = "0.7.0"
+cloacina-workflow = { version = "0.7.0", features = ["packaged"] }
+cloacina-workflow-plugin = "0.7.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["full"] }
 
 [build-dependencies]
-cloacina-build = "0.6.1"
+cloacina-build = "0.7.0"
 ```
 
 {{< hint type=info title="Why both cdylib and rlib?" >}}

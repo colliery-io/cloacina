@@ -834,8 +834,8 @@ default = []
 packaged = ["cloacina-computation-graph", "cloacina-workflow-plugin", "tokio"]
 
 [dependencies]
-cloacina-computation-graph = { version = "0.6.1" }
-cloacina-workflow-plugin = { version = "0.6.1", optional = true }
+cloacina-computation-graph = { version = "0.7.0" }
+cloacina-workflow-plugin = { version = "0.7.0", optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 
 [lib]
