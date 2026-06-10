@@ -14,15 +14,16 @@
  *  limitations under the License.
  */
 
-//! HTTP client wrapper that injects auth, maps HTTP status to CliError, and
-//! exposes a `ClientContext` for tenant/path resolution at each call site.
+//! CLI-facing wrapper over the published `cloacina-client` crate (T-0646).
+//!
+//! The HTTP client itself moved to `crates/cloacina-client` so external
+//! consumers get the exact surface the CLI exercises; this wrapper keeps
+//! the CLI-shaped pieces — `ClientContext` resolution and `CliError`
+//! exit-code mapping — and delegates everything else.
 
 use std::sync::Arc;
-use std::time::Duration;
 
-use reqwest::{Method, Response};
 use serde::de::DeserializeOwned;
-use serde_json::Value;
 
 use crate::shared::client_ctx::ClientContext;
 use crate::shared::error::CliError;
@@ -30,7 +31,7 @@ use crate::shared::error::CliError;
 /// Shared HTTP client used by every verb handler.
 pub struct CliClient {
     ctx: ClientContext,
-    http: reqwest::Client,
+    inner: cloacina_client::Client,
 }
 
 /// Prompt the user for destructive-op confirmation unless stdin isn't a TTY
@@ -58,48 +59,26 @@ pub fn confirm_destructive(action: &str) -> Result<(), CliError> {
 
 impl CliClient {
     pub fn new(ctx: ClientContext) -> Result<Arc<Self>, CliError> {
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(CliError::from_reqwest)?;
-        Ok(Arc::new(Self { ctx, http }))
+        let mut builder = cloacina_client::ClientBuilder::new(&ctx.server).api_key(&ctx.api_key);
+        if let Some(tenant) = &ctx.tenant {
+            builder = builder.tenant(tenant);
+        }
+        let inner = builder.build().map_err(CliError::from)?;
+        Ok(Arc::new(Self { ctx, inner }))
     }
 
     pub fn ctx(&self) -> &ClientContext {
         &self.ctx
     }
 
-    fn url(&self, path: &str) -> String {
-        let base = self.ctx.server.trim_end_matches('/');
-        let path = path.trim_start_matches('/');
-        format!("{base}/{path}")
-    }
-
-    fn apply_auth(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        // Tenant is part of the URL path (`/tenants/{tenant}/...`), not a
-        // header — auth is just the bearer token.
-        req.bearer_auth(&self.ctx.api_key)
-    }
-
-    async fn send(&self, req: reqwest::RequestBuilder) -> Result<Response, CliError> {
-        let response = req.send().await.map_err(CliError::from_reqwest)?;
-        Ok(response)
-    }
-
-    async fn parse_response<T: DeserializeOwned>(response: Response) -> Result<T, CliError> {
-        let status = response.status().as_u16();
-        if response.status().is_success() {
-            return response.json::<T>().await.map_err(CliError::from_reqwest);
-        }
-        let body = response.json::<Value>().await.unwrap_or(Value::Null);
-        Err(CliError::from_status(status, body))
+    /// The underlying published client, for typed/WS calls.
+    pub fn inner(&self) -> &cloacina_client::Client {
+        &self.inner
     }
 
     /// Typed GET.
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, CliError> {
-        let req = self.apply_auth(self.http.request(Method::GET, self.url(path)));
-        Self::parse_response(self.send(req).await?).await
+        self.inner.get_json(path).await.map_err(CliError::from)
     }
 
     /// Typed POST (JSON body).
@@ -108,21 +87,14 @@ impl CliClient {
         path: &str,
         body: &B,
     ) -> Result<T, CliError> {
-        let req = self
-            .apply_auth(self.http.request(Method::POST, self.url(path)))
-            .json(body);
-        Self::parse_response(self.send(req).await?).await
+        self.inner
+            .post_json(path, body)
+            .await
+            .map_err(CliError::from)
     }
 
     /// DELETE without a response body.
     pub async fn delete(&self, path: &str) -> Result<(), CliError> {
-        let req = self.apply_auth(self.http.request(Method::DELETE, self.url(path)));
-        let response = self.send(req).await?;
-        let status = response.status().as_u16();
-        if response.status().is_success() {
-            return Ok(());
-        }
-        let body = response.json::<Value>().await.unwrap_or(Value::Null);
-        Err(CliError::from_status(status, body))
+        self.inner.delete_path(path).await.map_err(CliError::from)
     }
 }

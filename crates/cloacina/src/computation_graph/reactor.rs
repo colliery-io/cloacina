@@ -182,27 +182,9 @@ pub enum ManualCommand {
     FireWith(InputCache),
 }
 
-/// Commands sent by WebSocket operators to a reactor.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "command", rename_all = "snake_case")]
-pub enum ReactorCommand {
-    ForceFire,
-    FireWith { cache: HashMap<String, Vec<u8>> },
-    GetState,
-    Pause,
-    Resume,
-}
-
-/// Responses sent back to WebSocket operators.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ReactorResponse {
-    Fired,
-    State { cache: HashMap<String, String> },
-    Paused,
-    Resumed,
-    Error { message: String },
-}
+// Client-facing WS command protocol — moved to `cloacina-api-types` in
+// T-0642 (CLOACI-I-0113); re-exported here so existing paths keep working.
+pub use cloacina_api_types::reactor::{ReactorCommand, ReactorResponse};
 
 /// Handle to a running reactor — exposes shared state for WebSocket queries.
 ///

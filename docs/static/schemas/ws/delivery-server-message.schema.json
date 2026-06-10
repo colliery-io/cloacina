@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://colliery-io.github.io/cloacina/schemas/ws/delivery-server-message.schema.json",
+  "title": "Substrate delivery — server → recipient frames",
+  "description": "Versioned envelope for the interservice communication substrate (CLOACI-S-0012). JSON text frames; payloads are base64-encoded bytes. Delivery is at-least-once: recipients must be idempotent on `id`.",
+  "oneOf": [
+    {
+      "title": "welcome",
+      "description": "Sent first on every new connection. Echoes the negotiated protocol version and (advisory) the highest row id known at connect time.",
+      "type": "object",
+      "properties": {
+        "type": { "const": "welcome" },
+        "protocol_version": { "type": "integer", "minimum": 1 },
+        "max_known_id": { "type": "integer" }
+      },
+      "required": ["type", "protocol_version", "max_known_id"],
+      "additionalProperties": false
+    },
+    {
+      "title": "push",
+      "description": "A delivery-outbox row addressed to this recipient. `payload_b64` is the base64-encoded raw payload bytes; the inner format is producer-defined per `kind` (execution events use JSON).",
+      "type": "object",
+      "properties": {
+        "type": { "const": "push" },
+        "protocol_version": { "type": "integer", "minimum": 1 },
+        "id": { "type": "integer", "description": "Outbox row id — ack with this value; dedup on it across reconnects" },
+        "kind": { "type": "string", "description": "Producer-defined payload discriminator (e.g. `execution_event`)" },
+        "recipient": { "type": "string" },
+        "tenant_id": { "type": ["string", "null"] },
+        "payload_b64": { "type": "string", "contentEncoding": "base64" }
+      },
+      "required": ["type", "protocol_version", "id", "kind", "recipient", "tenant_id", "payload_b64"],
+      "additionalProperties": false
+    }
+  ]
+}

@@ -26,14 +26,15 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     response::IntoResponse,
     Extension, Json,
 };
 
 use cloacina::computation_graph::registry::KeyContext;
+use cloacina_api_types::{AccumulatorStatus, GraphStatus, ListResponse};
 
 use crate::routes::auth::AuthenticatedKey;
+use crate::routes::error::ApiError;
 use crate::AppState;
 
 /// Build a `KeyContext` from the `AuthenticatedKey` for policy
@@ -66,6 +67,16 @@ fn graph_visible(auth: &AuthenticatedKey, graph_tenant: Option<&str>) -> bool {
 
 /// GET /v1/health/accumulators — list registered accumulators with health,
 /// filtered by the caller's authorization. CLOACI-T-0579 / SEC-05.
+#[utoipa::path(
+    get,
+    path = "/v1/health/accumulators",
+    tag = "graph-health",
+    responses(
+        (status = 200, description = "Registered accumulators with health, filtered by authorization", body = ListResponse<AccumulatorStatus>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_accumulators(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -76,33 +87,37 @@ pub async fn list_accumulators(
         .list_accumulators_with_health_for_key(&ctx)
         .await;
 
-    let accumulators: Vec<serde_json::Value> = accumulators_with_health
+    let accumulators: Vec<AccumulatorStatus> = accumulators_with_health
         .into_iter()
-        .map(|(name, health)| {
-            serde_json::json!({
-                "name": name,
-                "status": health
-            })
+        .map(|(name, health)| AccumulatorStatus {
+            name,
+            status: serde_json::to_value(health).unwrap_or(serde_json::Value::Null),
         })
         .collect();
 
     // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
-    let total = accumulators.len();
-    Json(serde_json::json!({
-        "items": accumulators,
-        "total": total,
-    }))
+    Json(ListResponse::new(accumulators))
 }
 
 /// GET /v1/health/graphs — list loaded graphs visible to the caller.
 /// CLOACI-T-0579 / SEC-05.
+#[utoipa::path(
+    get,
+    path = "/v1/health/graphs",
+    tag = "graph-health",
+    responses(
+        (status = 200, description = "Loaded graphs visible to the caller", body = ListResponse<GraphStatus>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_graphs(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
     let loaded = state.graph_scheduler.list_graphs().await;
 
-    let graphs: Vec<serde_json::Value> = loaded
+    let graphs: Vec<GraphStatus> = loaded
         .into_iter()
         .filter(|g| graph_visible(&auth, g.tenant_id.as_deref()))
         .map(|g| {
@@ -113,27 +128,35 @@ pub async fn list_graphs(
                 .unwrap_or(
                     serde_json::json!({"state": if !g.running { "stopped" } else { "running" }}),
                 );
-            serde_json::json!({
-                "name": g.name,
-                "health": health,
-                "accumulators": g.accumulators,
+            GraphStatus {
+                name: g.name,
+                health,
+                accumulators: g.accumulators,
                 // `paused` reflects the pause state of the graph's reactor.
-                "paused": g.paused,
-            })
+                paused: g.paused,
+            }
         })
         .collect();
 
     // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
-    let total = graphs.len();
-    Json(serde_json::json!({
-        "items": graphs,
-        "total": total,
-    }))
+    Json(ListResponse::new(graphs))
 }
 
 /// GET /v1/health/graphs/{name} — single graph health, gated by caller
 /// authorization. Cross-tenant requests 404 rather than 403 so an
 /// adversary can't probe for tenant graph names. CLOACI-T-0579.
+#[utoipa::path(
+    get,
+    path = "/v1/health/graphs/{name}",
+    tag = "graph-health",
+    params(("name" = String, Path, description = "Graph name")),
+    responses(
+        (status = 200, description = "Single graph health", body = GraphStatus),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Graph not found (or not visible to caller)", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn get_graph(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -154,23 +177,19 @@ pub async fn get_graph(
                 serde_json::json!({"state": if !g.running { "stopped" } else { "running" }}),
             );
 
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "name": g.name,
-                "health": health,
-                "accumulators": g.accumulators,
-                // `paused` reflects the pause state of the graph's reactor.
-                "paused": g.paused,
-            })),
-        )
+        Json(GraphStatus {
+            name: g.name,
+            health,
+            accumulators: g.accumulators,
+            // `paused` reflects the pause state of the graph's reactor.
+            paused: g.paused,
+        })
+        .into_response()
     } else {
-        (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": format!("graph '{}' not found", name)
-            })),
-        )
+        // T-0642: normalized from a bare `{"error": ...}` body to the
+        // standard ApiError shape (adds the machine-readable `code`).
+        ApiError::not_found("graph_not_found", format!("graph '{}' not found", name))
+            .into_response()
     }
 }
 

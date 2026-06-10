@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://colliery-io.github.io/cloacina/schemas/ws/delivery-client-message.schema.json",
+  "title": "Substrate delivery — recipient → server frames",
+  "description": "Client side of the substrate delivery envelope (CLOACI-S-0012). JSON text frames. The server validates `protocol_version` on `hello` and closes with code 4426 when it doesn't speak the requested version; malformed frames close with 4400.",
+  "oneOf": [
+    {
+      "title": "hello",
+      "description": "Optional connect-time handshake declaring the client's protocol version. `since_id` is an advisory cursor hint; v1 ignores it (the server resets delivered→pending and replays via the relay).",
+      "type": "object",
+      "properties": {
+        "type": { "const": "hello" },
+        "protocol_version": { "type": "integer", "minimum": 1 },
+        "since_id": { "type": ["integer", "null"] }
+      },
+      "required": ["type", "protocol_version", "since_id"],
+      "additionalProperties": false
+    },
+    {
+      "title": "ack",
+      "description": "Recipient confirms it has processed row `id`. Idempotent — re-acking an acked or unknown row is a no-op.",
+      "type": "object",
+      "properties": {
+        "type": { "const": "ack" },
+        "protocol_version": { "type": "integer", "minimum": 1 },
+        "id": { "type": "integer" }
+      },
+      "required": ["type", "protocol_version", "id"],
+      "additionalProperties": false
+    }
+  ]
+}

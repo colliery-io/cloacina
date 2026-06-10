@@ -4,14 +4,14 @@ level: initiative
 title: "Cloacina server SDKs — OpenAPI spec, Rust/Python/TS clients for service consumers"
 short_code: "CLOACI-I-0113"
 created_at: 2026-05-22T13:41:37.227777+00:00
-updated_at: 2026-05-22T13:41:37.227777+00:00
+updated_at: 2026-06-10T01:39:11.495286+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -47,7 +47,7 @@ This blocks platform-style adoption where a team wants to run cloacina-server as
 - Holding server routes/DTOs fixed. Route handlers and DTOs may churn freely to become cleanly spec-able under utoipa; this is *encouraged*, not avoided.
 - Replacing `cloacinactl`. The CLI keeps shipping; internally it migrates to depend on `cloacina-client`.
 - Embedded-runtime changes. `cloacina` (Rust lib) and `cloaca` (Python embedded) are untouched.
-- Admin UI / dashboard. SDKs only.
+- Admin UI / dashboard. SDKs only. (A UI is the planned follow-on initiative consuming `@cloacina/client`; it informs sequencing here but its scope lives elsewhere.)
 - Backwards-compatibility guarantees prior to first tagged SDK release.
 
 ## Requirements **[CONDITIONAL: Requirements-Heavy Initiative]**
@@ -62,6 +62,8 @@ This blocks platform-style adoption where a team wants to run cloacina-server as
 - REQ-006: Each SDK ships with quickstart + reference docs integrated into the existing Diataxis site.
 - REQ-007: Each SDK ships a **live-server contract test suite** that runs the generated client against a real `cloacina-server` instance (not mocks, not the spec alone). Suite must cover every documented endpoint and at least one WS subscription lifecycle. Failures here mean the utoipa annotation has drifted from the handler — the test is *the* drift detector, not the spec-vs-spec diff.
 - REQ-008: SDK releases are version-locked to server releases. SDK `vX.Y.Z` is built, tested, and published against server `vX.Y.Z`; no independent SDK MINOR/PATCH cadence.
+- REQ-009: `cloacina-server` ships configurable CORS (allowed origins, methods, headers) so the TS SDK is actually usable from browsers — disabled by default, explicit opt-in via server config. This is Phase 1 server-side work; a browser UI cannot exist without it.
+- REQ-010: API key + tenant header is the accepted v1 auth story for browser consumers (first-party admin UI). This is a deliberate decision, not an accident — browser-grade auth (sessions/OIDC) is out of scope for this initiative and owned by the future UI initiative. TS SDK docs must state this explicitly.
 - NFR-001: Generated code regenerates deterministically; CI fails if checked-in spec or generated client drifts from a fresh generation against the live server.
 - NFR-002: SDK calls add < 5ms overhead vs raw `reqwest`/`httpx`/`fetch` for a single round-trip on localhost.
 - NFR-003: No SDK leaks server-internal types (diesel models, internal enums); all DTOs live in a server-public schema module.
@@ -134,7 +136,7 @@ cloacina-server  ──┐                                ┌── cloacinactl 
 ### Resolved decisions
 
 - **Repo layout:** monorepo. Client crates/packages live under this repo so spec/server/client drift surfaces in a single PR and CI run. Python SDK under `clients/python/`, TS under `clients/typescript/`, Rust client as `crates/cloacina-client`.
-- **Generator choice:** language-native (`openapi-python-client` for Python; `openapi-typescript-codegen` or `openapi-typescript` for TS). Avoids JVM dep. Final pick happens in phase 1 after generating against the real spec.
+- **Generator choice:** language-native (`openapi-python-client` for Python; `openapi-typescript-codegen` or `openapi-typescript` for TS). Avoids JVM dep. Final pick happens in phase 1 after generating against the real spec. **TS pick (T-0645): `openapi-typescript@7.13.0` + `openapi-fetch` runtime.** Both candidates were generated against the real spec; `openapi-typescript-codegen` is unmaintained (its README points to a successor project) while `openapi-typescript` v7 is actively maintained, handles OpenAPI 3.1 natively, and emits a single deterministic types file with a ~6 kB fetch-based runtime that works in browsers and node without per-service class codegen.
 - **API versioning:** explicit lockstep with `cloacina` release version. No independent SDK MINOR/PATCH cadence.
 - **Server DTO refactor appetite:** broad. Route handlers and DTOs may churn freely to become cleanly spec-able.
 
@@ -162,4 +164,4 @@ Phased, each phase a candidate task batch on decomposition:
 4. **TypeScript SDK** — generator pinned, ergonomics shim, ESM/CJS, WS, packaged, live-server contract suite green. Exit: `npm install @cloacina/client` works in node + browser smoke *and* the SDK contract suite passes in CI.
 5. **Cross-SDK release** — full `angreal test sdk-contract` matrix green against current `cloacina-server`, Diataxis tutorial/how-to/reference per language, version-lockstep release tooling, tagged release matching the next server version.
 
-Sequencing note: phases 3 and 4 run in parallel once phase 1 lands. Phase 2 sequences before phase 5 so `cloacinactl` exercises the same client surface third parties see. Each of phases 2–4 owns its own live-server contract suite — the phase doesn't exit until its suite is green; the cross-SDK matrix in phase 5 is an aggregation, not the first time anything is tested.
+Sequencing note: **Phase 1 → Phase 4 is the spine.** The follow-on UI initiative consumes the TS SDK, so the TS SDK starts as soon as the spec lands and is not queued behind the Rust extract or Python SDK. Phases 2, 3, and 4 all run in parallel once phase 1 lands. Phase 2 sequences before phase 5 so `cloacinactl` exercises the same client surface third parties see — the UI plays the identical forcing-function role for the TS SDK. Each of phases 2–4 owns its own live-server contract suite — the phase doesn't exit until its suite is green; the cross-SDK matrix in phase 5 is an aggregation, not the first time anything is tested.

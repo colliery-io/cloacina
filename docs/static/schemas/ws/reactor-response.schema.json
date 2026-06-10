@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://colliery-io.github.io/cloacina/schemas/ws/reactor-response.schema.json",
+  "title": "Reactor endpoint — server → operator responses",
+  "description": "Exactly one JSON text-frame response per command on GET /v1/ws/reactor/{name}.",
+  "oneOf": [
+    {
+      "title": "fired",
+      "type": "object",
+      "properties": { "type": { "const": "fired" } },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    {
+      "title": "state",
+      "description": "Current input cache. Values are JSON string renderings of the cached boundary data.",
+      "type": "object",
+      "properties": {
+        "type": { "const": "state" },
+        "cache": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "required": ["type", "cache"],
+      "additionalProperties": false
+    },
+    {
+      "title": "paused",
+      "type": "object",
+      "properties": { "type": { "const": "paused" } },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    {
+      "title": "resumed",
+      "type": "object",
+      "properties": { "type": { "const": "resumed" } },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    {
+      "title": "error",
+      "description": "Command failed (parse error, authorization denial, or no reactor handle). The connection stays open.",
+      "type": "object",
+      "properties": {
+        "type": { "const": "error" },
+        "message": { "type": "string" }
+      },
+      "required": ["type", "message"],
+      "additionalProperties": false
+    }
+  ]
+}

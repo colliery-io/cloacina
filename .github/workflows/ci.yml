@@ -42,6 +42,7 @@ jobs:
       harness: ${{ steps.filter.outputs.harness }}
       examples: ${{ steps.filter.outputs.examples }}
       charts: ${{ steps.filter.outputs.charts }}
+      api: ${{ steps.filter.outputs.api }}
     steps:
       - uses: actions/checkout@v4
 
@@ -72,6 +73,15 @@ jobs:
               # rebuild + re-run the kind install.
               - 'Dockerfile'
               - '.dockerignore'
+            # Public API contract surface (CLOACI-T-0643): anything that can
+            # change the OpenAPI document, the committed document itself, or
+            # the generated SDK code derived from it (T-0645).
+            api:
+              - 'crates/cloacina-server/**'
+              - 'crates/cloacina-api-types/**'
+              - 'docs/static/openapi.json'
+              - 'clients/typescript/**'
+              - 'Cargo.*'
 
   # Quick gate - only runs if code, harness, or workflows changed
   quick-checks:
@@ -118,6 +128,62 @@ jobs:
 
       - name: Cargo check (PostgreSQL)
         run: cargo check --features postgres
+
+  # OpenAPI spec drift gate (CLOACI-T-0643 / NFR-001): the committed
+  # docs/static/openapi.json must match a fresh `emit-openapi` from the
+  # server. Fails when routes/DTOs change without regenerating the spec.
+  spec-check:
+    name: OpenAPI Spec Drift
+    needs: changes
+    if: |
+      needs.changes.outputs.api == 'true' ||
+      needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-spec-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-spec-
+            ${{ runner.os }}-cargo-check-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Spec drift check
+        run: angreal docs spec-check
+
+      # Generated-SDK drift (T-0645 / NFR-001): the committed TS types must
+      # match a fresh generation from the committed spec.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: TS generated-types drift check
+        working-directory: clients/typescript
+        run: |
+          npm ci
+          npm run check:generated
+          npm run typecheck
+          npm run build
 
   # Rust + Python tests (Python is now native in cloacina core)
   cloacina-tests:

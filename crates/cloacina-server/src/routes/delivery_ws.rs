@@ -166,11 +166,12 @@ async fn handle_delivery_socket(
             },
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Text(text))) => {
-                    if !handle_client_frame(&text, &dal).await {
-                        // Unparsable / protocol violation — close with policy code.
+                    if let FrameOutcome::Close { code, reason } =
+                        handle_client_frame(&text, &dal).await
+                    {
                         let _ = socket.send(Message::Close(Some(axum::extract::ws::CloseFrame {
-                            code: 4400,
-                            reason: "invalid client frame".into(),
+                            code,
+                            reason: reason.into(),
                         }))).await;
                         break;
                     }
@@ -213,9 +214,15 @@ async fn send_server_frame(socket: &mut WebSocket, msg: &ServerMessage) -> bool 
     }
 }
 
-/// Parse and act on one client frame. Returns `false` if the frame is
-/// malformed (caller should close the connection); `true` otherwise.
-async fn handle_client_frame(text: &str, dal: &DAL) -> bool {
+/// Result of processing one client frame: keep going, or close with a
+/// specific code + reason.
+enum FrameOutcome {
+    Ok,
+    Close { code: u16, reason: &'static str },
+}
+
+/// Parse and act on one client frame.
+async fn handle_client_frame(text: &str, dal: &DAL) -> FrameOutcome {
     // T-0629 diagnostic: log every inbound client frame at info so the e2e
     // contract test can prove acks are arriving (or pinpoint where they
     // aren't). Truncated to keep noisy payloads out of the log.
@@ -225,7 +232,10 @@ async fn handle_client_frame(text: &str, dal: &DAL) -> bool {
         Ok(m) => m,
         Err(e) => {
             warn!(error = %e, frame = %text, "delivery WS: invalid client frame");
-            return false;
+            return FrameOutcome::Close {
+                code: 4400,
+                reason: "invalid client frame",
+            };
         }
     };
     match msg {
@@ -239,10 +249,27 @@ async fn handle_client_frame(text: &str, dal: &DAL) -> bool {
                 Err(e) => warn!(id, error = %e, "delivery WS: mark_acked failed"),
             }
         }
-        ClientMessage::Hello { .. } => {
-            // v1 ignores Hello cursor; the connect-time reset+wake covers replay.
+        ClientMessage::Hello {
+            protocol_version, ..
+        } => {
+            // T-0644: the Hello handshake declares the client's protocol
+            // version; reject versions this server doesn't speak so an old
+            // server fails loudly against a newer SDK instead of silently
+            // misinterpreting frames. (v1 still ignores the cursor — the
+            // connect-time reset+wake covers replay.)
+            if protocol_version != DELIVERY_PROTOCOL_VERSION {
+                warn!(
+                    got = protocol_version,
+                    supported = DELIVERY_PROTOCOL_VERSION,
+                    "delivery WS: unsupported protocol_version in hello"
+                );
+                return FrameOutcome::Close {
+                    code: 4426,
+                    reason: "unsupported protocol_version",
+                };
+            }
             debug!("delivery WS hello (cursor ignored in v1)");
         }
     }
-    true
+    FrameOutcome::Ok
 }

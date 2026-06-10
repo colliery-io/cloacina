@@ -24,18 +24,15 @@ use axum::{
 use tracing::warn;
 
 use axum::extract::Query;
-use serde::Deserialize;
+
+use cloacina_api_types::{
+    ListTriggersQuery, TenantListResponse, TriggerDetailResponse, TriggerExecution,
+    TriggerScheduleInfo, TriggerScheduleSummary,
+};
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
-
-/// Query string for `list_triggers` — CLOACI-T-0596 / API-10 pagination.
-#[derive(Deserialize, Default)]
-pub struct ListTriggersQuery {
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-}
 
 const DEFAULT_TRIGGERS_LIMIT: i64 = 100;
 const MAX_TRIGGERS_LIMIT: i64 = 1000;
@@ -45,6 +42,23 @@ const MAX_TRIGGERS_LIMIT: i64 = 1000;
 /// CLOACI-T-0579: routed through the tenant-scoped `Database` from
 /// `TenantDatabaseCache` so the underlying `SELECT FROM schedules`
 /// hits the tenant's schema, not the admin schema. Closes SEC-02.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/triggers",
+    tag = "triggers",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ListTriggersQuery,
+    ),
+    responses(
+        (status = 200, description = "Schedules page (cron + trigger)", body = TenantListResponse<TriggerScheduleSummary>),
+        (status = 400, description = "Invalid pagination", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_triggers(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -91,33 +105,25 @@ pub async fn list_triggers(
 
     match dal.schedule().list(None, false, limit, offset).await {
         Ok(schedules) => {
-            let items: Vec<_> = schedules
+            let items: Vec<TriggerScheduleSummary> = schedules
                 .into_iter()
-                .map(|s| {
-                    serde_json::json!({
-                        "id": s.id.0.to_string(),
-                        "schedule_type": s.schedule_type,
-                        "workflow_name": s.workflow_name,
-                        "enabled": s.enabled.is_true(),
-                        "cron_expression": s.cron_expression,
-                        "trigger_name": s.trigger_name,
-                        "poll_interval_ms": s.poll_interval_ms,
-                        "next_run_at": s.next_run_at.map(|t| t.0.to_rfc3339()),
-                        "last_run_at": s.last_run_at.map(|t| t.0.to_rfc3339()),
-                        "created_at": s.created_at.0.to_rfc3339(),
-                    })
+                .map(|s| TriggerScheduleSummary {
+                    id: s.id.0.to_string(),
+                    schedule_type: s.schedule_type,
+                    workflow_name: s.workflow_name,
+                    enabled: s.enabled.is_true(),
+                    cron_expression: s.cron_expression,
+                    trigger_name: s.trigger_name,
+                    poll_interval_ms: s.poll_interval_ms.map(i64::from),
+                    next_run_at: s.next_run_at.map(|t| t.0.to_rfc3339()),
+                    last_run_at: s.last_run_at.map(|t| t.0.to_rfc3339()),
+                    created_at: s.created_at.0.to_rfc3339(),
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
             // tenant_id retained at the top level for backward compatibility
             // with operator dashboards that key off it.
-            let total = items.len();
-            Json(serde_json::json!({
-                "tenant_id": tenant_id,
-                "items": items,
-                "total": total,
-            }))
-            .into_response()
+            Json(TenantListResponse::new(tenant_id, items)).into_response()
         }
         Err(e) => {
             warn!("Failed to list triggers for tenant '{}': {}", tenant_id, e);
@@ -132,6 +138,23 @@ pub async fn list_triggers(
 /// for tenant B with a trigger id that belongs to tenant A naturally
 /// 404s — the row simply doesn't exist in tenant B's schema. No
 /// info-disclosure via "not in your tenant" error code. Closes SEC-02.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/triggers/{name}",
+    tag = "triggers",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Trigger or workflow name"),
+    ),
+    responses(
+        (status = 200, description = "Trigger detail + recent executions", body = TriggerDetailResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Trigger not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn get_trigger(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -177,30 +200,28 @@ pub async fn get_trigger(
                 .await
                 .unwrap_or_default();
 
-            let exec_items: Vec<_> = executions
+            let exec_items: Vec<TriggerExecution> = executions
                 .into_iter()
-                .map(|e| {
-                    serde_json::json!({
-                        "id": e.id.0.to_string(),
-                        "scheduled_time": e.scheduled_time.map(|t| t.0.to_rfc3339()),
-                        "started_at": e.started_at.0.to_rfc3339(),
-                        "completed_at": e.completed_at.map(|t| t.0.to_rfc3339()),
-                    })
+                .map(|e| TriggerExecution {
+                    id: e.id.0.to_string(),
+                    scheduled_time: e.scheduled_time.map(|t| t.0.to_rfc3339()),
+                    started_at: e.started_at.0.to_rfc3339(),
+                    completed_at: e.completed_at.map(|t| t.0.to_rfc3339()),
                 })
                 .collect();
 
-            Json(serde_json::json!({
-                "tenant_id": tenant_id,
-                "schedule": {
-                    "id": schedule.id.0.to_string(),
-                    "schedule_type": schedule.schedule_type,
-                    "workflow_name": schedule.workflow_name,
-                    "enabled": schedule.enabled.is_true(),
-                    "cron_expression": schedule.cron_expression,
-                    "trigger_name": schedule.trigger_name,
+            Json(TriggerDetailResponse {
+                tenant_id,
+                schedule: TriggerScheduleInfo {
+                    id: schedule.id.0.to_string(),
+                    schedule_type: schedule.schedule_type,
+                    workflow_name: schedule.workflow_name,
+                    enabled: schedule.enabled.is_true(),
+                    cron_expression: schedule.cron_expression,
+                    trigger_name: schedule.trigger_name,
                 },
-                "recent_executions": exec_items,
-            }))
+                recent_executions: exec_items,
+            })
             .into_response()
         }
         None => ApiError::not_found("trigger_not_found", format!("trigger '{}' not found", name))

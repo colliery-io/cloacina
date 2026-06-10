@@ -6,5 +6,5 @@ from . import auth  # noqa: F401
 from . import all  # noqa: F401
 from . import coverage  # noqa: F401
 from . import metrics_format  # noqa: F401
-from .e2e import cli, compiler, fleet as e2e_fleet, ws  # noqa: F401
+from .e2e import cli, compiler, fleet as e2e_fleet, sdk_contract, ws  # noqa: F401
 from .soak import daemon, fleet as soak_fleet, server  # noqa: F401

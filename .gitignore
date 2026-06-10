@@ -68,3 +68,6 @@ docs/content/api-reference/_nav.yml
 # Transient test output (don't commit)
 integration-test.log
 .metis/*.log
+node_modules/
+clients/python/.venv/
+clients/python/dist/

@@ -1,0 +1,2744 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "cloacina-server API",
+    "description": "REST API for the Cloacina workflow-orchestration server. WebSocket protocols (execution events, accumulator ingest, reactor commands, substrate delivery) are specified in the WebSocket Protocol reference of the documentation site.",
+    "contact": {
+      "name": "Dylan Storey",
+      "email": "dylan.storey@gmail.com"
+    },
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0"
+    },
+    "version": "0.7.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "operational"
+        ],
+        "summary": "GET /health — liveness check (no auth, no DB)",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Server process is alive — `{\"status\": \"ok\"}`"
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": [
+          "operational"
+        ],
+        "summary": "GET /ready — readiness check (verifies DB connection pool is healthy)",
+        "operationId": "ready",
+        "responses": {
+          "200": {
+            "description": "Ready — DB reachable, no crashed graphs"
+          },
+          "503": {
+            "description": "Not ready — `reason` field explains (database unreachable / crashed computation graphs)"
+          }
+        }
+      }
+    },
+    "/v1/auth/keys": {
+      "get": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "GET /auth/keys — list all API keys (no hashes or plaintext).\nRequires admin role.",
+        "operationId": "list_keys",
+        "responses": {
+          "200": {
+            "description": "All keys (no hashes or plaintext)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_KeyInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "POST /auth/keys — create a new API key.",
+        "description": "Requires admin role. Non-admin keys cannot create keys with higher\npermissions than their own (prevents privilege escalation).\nReturns the plaintext key exactly once. It cannot be retrieved again.",
+        "operationId": "create_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Key created — plaintext returned exactly once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyCreatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/keys/{key_id}": {
+      "delete": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "DELETE /auth/keys/:key_id — revoke an API key.\nRequires admin role within tenant (or god mode).",
+        "operationId": "revoke_key",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "Key UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyRevokedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid key ID format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Key not found or already revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/ws-ticket": {
+      "post": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.",
+        "description": "Returns a short-lived ticket that can be used as a query parameter for\nWebSocket upgrade requests, avoiding long-lived API keys in URLs.",
+        "operationId": "create_ws_ticket",
+        "responses": {
+          "200": {
+            "description": "Single-use WebSocket ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WsTicketResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/health/accumulators": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/accumulators — list registered accumulators with health,\nfiltered by the caller's authorization. CLOACI-T-0579 / SEC-05.",
+        "operationId": "list_accumulators",
+        "responses": {
+          "200": {
+            "description": "Registered accumulators with health, filtered by authorization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_AccumulatorStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/health/graphs": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/graphs — list loaded graphs visible to the caller.\nCLOACI-T-0579 / SEC-05.",
+        "operationId": "list_graphs",
+        "responses": {
+          "200": {
+            "description": "Loaded graphs visible to the caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_GraphStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/health/graphs/{name}": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/graphs/{name} — single graph health, gated by caller\nauthorization. Cross-tenant requests 404 rather than 403 so an\nadversary can't probe for tenant graph names. CLOACI-T-0579.",
+        "operationId": "get_graph",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Graph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Single graph health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Graph not found (or not visible to caller)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants": {
+      "get": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "GET /tenants — list tenant schemas.\nRequires admin role — only admins can enumerate tenants.",
+        "operationId": "list_tenants",
+        "responses": {
+          "200": {
+            "description": "Tenant schemas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_TenantSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin (god-mode) key required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "POST /tenants — create a new tenant (Postgres schema + user + migrations).\nAdmin-only: only is_admin keys can create tenants.",
+        "operationId": "create_tenant",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTenantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Tenant created (credentials intentionally excluded)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantCreatedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Tenant creation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin (god-mode) key required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{schema_name}": {
+      "delete": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.",
+        "description": "CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with\nthe four-step top-down order:\n  1. Revoke every still-active API key for the tenant (close the auth\n     surface so new requests fail).\n  2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,\n     awaiting its graceful shutdown (drains in-flight executions,\n     stops scheduler loop, closes per-tenant DB pool).\n  3. Evict the tenant's `Database` from `TenantDatabaseCache`.\n  4. Drop schema + user via `DatabaseAdmin::remove_tenant`.\n\nEach step emits a structured audit event with duration. Per-step\nfailures bail out — but earlier steps stay committed, so a retry\npicks up where the failure occurred. Each step is idempotent.\n\nCloses SEC-14 (stale state after delete) and SEC-17 (unbounded\ncaches surviving delete).",
+        "operationId": "remove_tenant",
+        "parameters": [
+          {
+            "name": "schema_name",
+            "in": "path",
+            "description": "Tenant schema name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tenant removed — teardown report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantRemovedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Tenant removal failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin (god-mode) key required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Teardown step failed (safe to retry)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/executions": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "GET /tenants/:tenant_id/executions — list workflow executions.",
+        "description": "**CLOACI-T-0594 / API-02:** accepts `?status=Failed` and\n`?workflow_name=foo` and `?limit=N&offset=M`. Previously these\nquery params were silently discarded.",
+        "operationId": "list_executions",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workflow",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Executions page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantListResponse_ExecutionSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/executions/{exec_id}": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "GET /tenants/:tenant_id/executions/:id — get execution details.",
+        "operationId": "get_execution",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "exec_id",
+            "in": "path",
+            "description": "Execution UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Execution detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid execution ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Execution not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/executions/{exec_id}/events": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "GET /tenants/:tenant_id/executions/:id/events — execution event log.",
+        "operationId": "get_execution_events",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "exec_id",
+            "in": "path",
+            "description": "Execution UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Execution event log",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid execution ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/keys": {
+      "post": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "POST /tenants/:tenant_id/keys — create a key scoped to a tenant.\nAdmin-only: only is_admin keys can create tenant-scoped keys.",
+        "operationId": "create_tenant_key",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Tenant-scoped key created — plaintext returned exactly once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyCreatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin (god-mode) key required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/triggers": {
+      "get": {
+        "tags": [
+          "triggers"
+        ],
+        "summary": "GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).",
+        "description": "CLOACI-T-0579: routed through the tenant-scoped `Database` from\n`TenantDatabaseCache` so the underlying `SELECT FROM schedules`\nhits the tenant's schema, not the admin schema. Closes SEC-02.",
+        "operationId": "list_triggers",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Schedules page (cron + trigger)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantListResponse_TriggerScheduleSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/triggers/{name}": {
+      "get": {
+        "tags": [
+          "triggers"
+        ],
+        "summary": "GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.",
+        "description": "CLOACI-T-0579: routed through the tenant-scoped `Database`. A request\nfor tenant B with a trigger id that belongs to tenant A naturally\n404s — the row simply doesn't exist in tenant B's schema. No\ninfo-disclosure via \"not in your tenant\" error code. Closes SEC-02.",
+        "operationId": "get_trigger",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Trigger or workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trigger detail + recent executions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Trigger not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "GET /tenants/:tenant_id/workflows — list registered workflows.",
+        "operationId": "list_workflows",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Registered workflows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantListResponse_WorkflowSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.",
+        "operationId": "upload_workflow",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The first file field is taken as the .cloacina package",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PackageUploadForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Package registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowUploadedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or empty package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant/role denied or signature verification failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "GET /tenants/:tenant_id/workflows/:name — get workflow details.",
+        "operationId": "get_workflow",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Package name, or package UUID to inspect pending/building/failed rows",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workflow detail incl. build state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workflow not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}/execute": {
+      "post": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.",
+        "description": "CLOACI-T-0580: execution is routed through `TenantRunnerCache`, which\nreturns (or constructs) a `DefaultRunner` bound to the tenant's\n`Database`. The execution row + every event lands in the tenant's\nschema, never the admin schema.",
+        "operationId": "execute_workflow",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Execution scheduled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecuteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Execution failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}/{version}": {
+      "delete": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.",
+        "operationId": "delete_workflow",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Package name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "Package version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workflow unregistered. Idempotent: also returned when no matching package existed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDeletedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Registry lookup failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccumulatorStatus": {
+        "type": "object",
+        "description": "One row in `GET /v1/health/accumulators`.",
+        "required": [
+          "name",
+          "status"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "description": "Accumulator health as reported by the endpoint registry. Free-form\nJSON for now; structured in a later contract revision."
+          }
+        }
+      },
+      "CreateKeyRequest": {
+        "type": "object",
+        "description": "Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/KeyRole"
+          }
+        }
+      },
+      "CreateTenantRequest": {
+        "type": "object",
+        "description": "Request body for `POST /tenants`.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional operator-facing description."
+          },
+          "name": {
+            "type": "string",
+            "description": "Tenant name — doubles as schema name + database username.\nMust be alphanumeric + underscore."
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional password (auto-generated if absent)."
+          }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "Standardized error response body. Every non-2xx response from\n`cloacina-server` carries this shape; the request correlation ID is in\nthe `x-request-id` response header, not the body.",
+        "required": [
+          "error",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable error code (e.g. `invalid_pagination`,\n`workflow_not_found`)."
+          },
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message."
+          }
+        }
+      },
+      "ExecuteRequest": {
+        "type": "object",
+        "description": "Request body for `POST /tenants/{tenant_id}/workflows/{name}/execute`.",
+        "properties": {
+          "context": {
+            "description": "Optional JSON context to pass to the workflow."
+          }
+        }
+      },
+      "ExecuteResponse": {
+        "type": "object",
+        "description": "`202 Accepted` body for a scheduled workflow execution.",
+        "required": [
+          "execution_id",
+          "workflow_name",
+          "tenant_id",
+          "status"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "description": "UUID of the scheduled execution."
+          },
+          "status": {
+            "type": "string",
+            "description": "Always `\"scheduled\"` at accept time."
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          }
+        }
+      },
+      "ExecutionDetail": {
+        "type": "object",
+        "description": "`GET /tenants/{tenant_id}/executions/{id}` response.",
+        "required": [
+          "tenant_id",
+          "execution_id",
+          "status"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ExecutionEvent": {
+        "type": "object",
+        "description": "One row in the execution event log.",
+        "required": [
+          "id",
+          "event_type",
+          "created_at",
+          "sequence_num"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "event_data": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "JSON-encoded additional data for the event; `null` when absent."
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Event UUID."
+          },
+          "sequence_num": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ExecutionEventsResponse": {
+        "type": "object",
+        "description": "`GET /tenants/{tenant_id}/executions/{id}/events` response.",
+        "required": [
+          "tenant_id",
+          "execution_id",
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExecutionEvent"
+            }
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ExecutionSummary": {
+        "type": "object",
+        "description": "One row in the executions list.",
+        "required": [
+          "id",
+          "workflow_name",
+          "status",
+          "started_at"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp; `null` while still running."
+          },
+          "id": {
+            "type": "string",
+            "description": "Execution UUID."
+          },
+          "started_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "status": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          }
+        }
+      },
+      "GraphStatus": {
+        "type": "object",
+        "description": "One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`\nresponse body.",
+        "required": [
+          "name",
+          "health",
+          "accumulators",
+          "paused"
+        ],
+        "properties": {
+          "accumulators": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Names of the accumulators feeding this graph."
+          },
+          "health": {
+            "description": "Graph health snapshot; `{\"state\": \"running\" | \"stopped\"}` when no\ndetailed health is available. Free-form JSON for now."
+          },
+          "name": {
+            "type": "string"
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Pause state of the graph's reactor."
+          }
+        }
+      },
+      "KeyCreatedResponse": {
+        "type": "object",
+        "description": "`201 Created` body for a new API key. The plaintext `key` is returned\nexactly once — it cannot be retrieved again.",
+        "required": [
+          "id",
+          "name",
+          "key",
+          "permissions",
+          "is_admin",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "id": {
+            "type": "string",
+            "description": "Key UUID."
+          },
+          "is_admin": {
+            "type": "boolean",
+            "description": "God-mode flag — never granted via the create endpoints."
+          },
+          "key": {
+            "type": "string",
+            "description": "One-time plaintext API key."
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "string",
+            "description": "Role string: `read` | `write` | `admin`."
+          },
+          "tenant_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tenant scope; `null` for global keys."
+          }
+        }
+      },
+      "KeyInfo": {
+        "type": "object",
+        "description": "One row in the key list (`GET /auth/keys`). No hashes or plaintext.",
+        "required": [
+          "id",
+          "name",
+          "permissions",
+          "is_admin",
+          "created_at",
+          "revoked"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "id": {
+            "type": "string",
+            "description": "Key UUID."
+          },
+          "is_admin": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "string",
+            "description": "Role string: `read` | `write` | `admin`."
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tenant scope; `null` for global keys."
+          }
+        }
+      },
+      "KeyRevokedResponse": {
+        "type": "object",
+        "description": "`DELETE /auth/keys/{key_id}` response.",
+        "required": [
+          "status",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the revoked key."
+          },
+          "status": {
+            "type": "string",
+            "description": "Always `\"revoked\"`."
+          }
+        }
+      },
+      "KeyRole": {
+        "type": "string",
+        "description": "Allowed roles for API keys.",
+        "enum": [
+          "admin",
+          "write",
+          "read"
+        ]
+      },
+      "ListResponse_AccumulatorStatus": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in `GET /v1/health/accumulators`.",
+              "required": [
+                "name",
+                "status"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "description": "Accumulator health as reported by the endpoint registry. Free-form\nJSON for now; structured in a later contract revision."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListResponse_GraphStatus": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`\nresponse body.",
+              "required": [
+                "name",
+                "health",
+                "accumulators",
+                "paused"
+              ],
+              "properties": {
+                "accumulators": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Names of the accumulators feeding this graph."
+                },
+                "health": {
+                  "description": "Graph health snapshot; `{\"state\": \"running\" | \"stopped\"}` when no\ndetailed health is available. Free-form JSON for now."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "paused": {
+                  "type": "boolean",
+                  "description": "Pause state of the graph's reactor."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListResponse_KeyInfo": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in the key list (`GET /auth/keys`). No hashes or plaintext.",
+              "required": [
+                "id",
+                "name",
+                "permissions",
+                "is_admin",
+                "created_at",
+                "revoked"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Key UUID."
+                },
+                "is_admin": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "permissions": {
+                  "type": "string",
+                  "description": "Role string: `read` | `write` | `admin`."
+                },
+                "revoked": {
+                  "type": "boolean"
+                },
+                "tenant_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Tenant scope; `null` for global keys."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListResponse_TenantSummary": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in the tenant list (`GET /tenants`).",
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "PackageUploadForm": {
+        "type": "object",
+        "description": "Multipart form for workflow package upload. Spec-only type: the handler\naccepts the first file field regardless of name; `file` is the\nconventional field name.",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "The `.cloacina` package archive.",
+            "contentMediaType": "application/octet-stream"
+          }
+        }
+      },
+      "TenantCreatedResponse": {
+        "type": "object",
+        "description": "`201 Created` body for a new tenant. Password and connection string are\nintentionally excluded to prevent credential leakage (SEC-08).",
+        "required": [
+          "name",
+          "username"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "TenantListResponse_ExecutionSummary": {
+        "type": "object",
+        "description": "List envelope variant that retains a top-level `tenant_id`, used by\ntenant-scoped list endpoints for backward compatibility with operator\ndashboards that key off it.",
+        "required": [
+          "tenant_id",
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in the executions list.",
+              "required": [
+                "id",
+                "workflow_name",
+                "status",
+                "started_at"
+              ],
+              "properties": {
+                "completed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp; `null` while still running."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Execution UUID."
+                },
+                "started_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
+                },
+                "status": {
+                  "type": "string"
+                },
+                "workflow_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "TenantListResponse_TriggerScheduleSummary": {
+        "type": "object",
+        "description": "List envelope variant that retains a top-level `tenant_id`, used by\ntenant-scoped list endpoints for backward compatibility with operator\ndashboards that key off it.",
+        "required": [
+          "tenant_id",
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in the trigger list.",
+              "required": [
+                "id",
+                "schedule_type",
+                "workflow_name",
+                "enabled",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
+                },
+                "cron_expression": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Schedule UUID."
+                },
+                "last_run_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp."
+                },
+                "next_run_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp."
+                },
+                "poll_interval_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "schedule_type": {
+                  "type": "string",
+                  "description": "`cron` or `trigger`."
+                },
+                "trigger_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "workflow_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "TenantListResponse_WorkflowSummary": {
+        "type": "object",
+        "description": "List envelope variant that retains a top-level `tenant_id`, used by\ntenant-scoped list endpoints for backward compatibility with operator\ndashboards that key off it.",
+        "required": [
+          "tenant_id",
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in the workflow list (`GET /tenants/{tenant_id}/workflows`).",
+              "required": [
+                "id",
+                "package_name",
+                "version",
+                "tasks",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Package UUID."
+                },
+                "package_name": {
+                  "type": "string"
+                },
+                "tasks": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Task IDs included in this package."
+                },
+                "version": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "TenantRemovedResponse": {
+        "type": "object",
+        "description": "`DELETE /tenants/{schema_name}` response — orchestrated teardown report.",
+        "required": [
+          "status",
+          "schema_name",
+          "revoked_keys",
+          "runner_evicted",
+          "db_cache_evicted"
+        ],
+        "properties": {
+          "db_cache_evicted": {
+            "type": "boolean"
+          },
+          "revoked_keys": {
+            "type": "integer",
+            "description": "Number of still-active API keys revoked during teardown.",
+            "minimum": 0
+          },
+          "runner_evicted": {
+            "type": "boolean"
+          },
+          "schema_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Always `\"removed\"`."
+          }
+        }
+      },
+      "TenantSummary": {
+        "type": "object",
+        "description": "One row in the tenant list (`GET /tenants`).",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "TriggerDetailResponse": {
+        "type": "object",
+        "description": "`GET /tenants/{tenant_id}/triggers/{name}` response.",
+        "required": [
+          "tenant_id",
+          "schedule",
+          "recent_executions"
+        ],
+        "properties": {
+          "recent_executions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TriggerExecution"
+            }
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/TriggerScheduleInfo"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "TriggerExecution": {
+        "type": "object",
+        "description": "One row in `recent_executions` of the trigger detail response.",
+        "required": [
+          "id",
+          "started_at"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp."
+          },
+          "id": {
+            "type": "string",
+            "description": "Schedule-execution UUID."
+          },
+          "scheduled_time": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp."
+          },
+          "started_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          }
+        }
+      },
+      "TriggerScheduleInfo": {
+        "type": "object",
+        "description": "Schedule fields in the trigger detail response.",
+        "required": [
+          "id",
+          "schedule_type",
+          "workflow_name",
+          "enabled"
+        ],
+        "properties": {
+          "cron_expression": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "description": "Schedule UUID."
+          },
+          "schedule_type": {
+            "type": "string",
+            "description": "`cron` or `trigger`."
+          },
+          "trigger_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workflow_name": {
+            "type": "string"
+          }
+        }
+      },
+      "TriggerScheduleSummary": {
+        "type": "object",
+        "description": "One row in the trigger list.",
+        "required": [
+          "id",
+          "schedule_type",
+          "workflow_name",
+          "enabled",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "cron_expression": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "description": "Schedule UUID."
+          },
+          "last_run_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp."
+          },
+          "next_run_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp."
+          },
+          "poll_interval_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "schedule_type": {
+            "type": "string",
+            "description": "`cron` or `trigger`."
+          },
+          "trigger_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workflow_name": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowDeletedResponse": {
+        "type": "object",
+        "description": "`DELETE /tenants/{tenant_id}/workflows/{name}/{version}` response.",
+        "required": [
+          "status",
+          "package_name",
+          "version"
+        ],
+        "properties": {
+          "package_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Always `\"deleted\"`."
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowDetail": {
+        "type": "object",
+        "description": "`GET /tenants/{tenant_id}/workflows/{name}` response — summary fields\nplus real build state (pending/building/failed/success).",
+        "required": [
+          "tenant_id",
+          "id",
+          "package_name",
+          "version",
+          "tasks",
+          "created_at",
+          "build_status"
+        ],
+        "properties": {
+          "build_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "build_status": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "Package UUID."
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Task IDs included in this package."
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowSummary": {
+        "type": "object",
+        "description": "One row in the workflow list (`GET /tenants/{tenant_id}/workflows`).",
+        "required": [
+          "id",
+          "package_name",
+          "version",
+          "tasks",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "Package UUID."
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Task IDs included in this package."
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowUploadedResponse": {
+        "type": "object",
+        "description": "`201 Created` body for a workflow package upload\n(`POST /tenants/{tenant_id}/workflows`, multipart).",
+        "required": [
+          "package_id",
+          "tenant_id"
+        ],
+        "properties": {
+          "package_id": {
+            "type": "string",
+            "description": "UUID of the registered package."
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WsTicketResponse": {
+        "type": "object",
+        "description": "`POST /auth/ws-ticket` response — a single-use, short-lived ticket for\nWebSocket upgrade auth (avoids long-lived API keys in URLs).",
+        "required": [
+          "ticket",
+          "expires_in_seconds"
+        ],
+        "properties": {
+          "expires_in_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ticket": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "api_key": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Cloacina API key, sent as `Authorization: Bearer <key>`. Tenant scope is carried by the key itself; tenant-scoped routes additionally name the tenant in the path."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "operational",
+      "description": "Liveness/readiness (no auth)"
+    },
+    {
+      "name": "keys",
+      "description": "API key management"
+    },
+    {
+      "name": "tenants",
+      "description": "Tenant lifecycle (admin)"
+    },
+    {
+      "name": "workflows",
+      "description": "Workflow package registry"
+    },
+    {
+      "name": "triggers",
+      "description": "Cron + trigger schedules (read-only)"
+    },
+    {
+      "name": "executions",
+      "description": "Workflow execution + event log"
+    },
+    {
+      "name": "graph-health",
+      "description": "Computation-graph health"
+    }
+  ]
+}

@@ -28,12 +28,35 @@ use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
+use cloacina_api_types::{
+    TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary,
+    WorkflowUploadedResponse,
+};
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
 
 /// POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/workflows",
+    tag = "workflows",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    request_body(
+        content = crate::openapi::PackageUploadForm,
+        content_type = "multipart/form-data",
+        description = "The first file field is taken as the .cloacina package"
+    ),
+    responses(
+        (status = 201, description = "Package registered", body = WorkflowUploadedResponse),
+        (status = 400, description = "Invalid or empty package", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant/role denied or signature verification failed", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn upload_workflow(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -171,10 +194,10 @@ pub async fn upload_workflow(
             );
             (
                 StatusCode::CREATED,
-                Json(serde_json::json!({
-                    "package_id": package_id.to_string(),
-                    "tenant_id": tenant_id,
-                })),
+                Json(WorkflowUploadedResponse {
+                    package_id: package_id.to_string(),
+                    tenant_id,
+                }),
             )
                 .into_response()
         }
@@ -189,6 +212,19 @@ pub async fn upload_workflow(
 }
 
 /// GET /tenants/:tenant_id/workflows — list registered workflows.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/workflows",
+    tag = "workflows",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    responses(
+        (status = 200, description = "Registered workflows", body = TenantListResponse<WorkflowSummary>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_workflows(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -216,27 +252,19 @@ pub async fn list_workflows(
 
     match registry.list_workflows().await {
         Ok(workflows) => {
-            let items: Vec<_> = workflows
+            let items: Vec<WorkflowSummary> = workflows
                 .into_iter()
-                .map(|w| {
-                    serde_json::json!({
-                        "id": w.id.to_string(),
-                        "package_name": w.package_name,
-                        "version": w.version,
-                        "description": w.description,
-                        "tasks": w.tasks,
-                        "created_at": w.created_at.to_rfc3339(),
-                    })
+                .map(|w| WorkflowSummary {
+                    id: w.id.to_string(),
+                    package_name: w.package_name,
+                    version: w.version,
+                    description: w.description,
+                    tasks: w.tasks,
+                    created_at: w.created_at.to_rfc3339(),
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
-            let total = items.len();
-            Json(serde_json::json!({
-                "tenant_id": tenant_id,
-                "items": items,
-                "total": total,
-            }))
-            .into_response()
+            Json(TenantListResponse::new(tenant_id, items)).into_response()
         }
         Err(e) => {
             warn!("Failed to list workflows for tenant '{}': {}", tenant_id, e);
@@ -246,6 +274,23 @@ pub async fn list_workflows(
 }
 
 /// GET /tenants/:tenant_id/workflows/:name — get workflow details.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}",
+    tag = "workflows",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Package name, or package UUID to inspect pending/building/failed rows"),
+    ),
+    responses(
+        (status = 200, description = "Workflow detail incl. build state", body = WorkflowDetail),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Workflow not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn get_workflow(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -277,17 +322,17 @@ pub async fn get_workflow(
     if let Ok(pkg_id) = uuid::Uuid::parse_str(&name) {
         match registry.inspect_package_by_id(pkg_id).await {
             Ok(Some(ins)) => {
-                return Json(serde_json::json!({
-                    "tenant_id": tenant_id,
-                    "id": ins.metadata.id.to_string(),
-                    "package_name": ins.metadata.package_name,
-                    "version": ins.metadata.version,
-                    "description": ins.metadata.description,
-                    "tasks": ins.metadata.tasks,
-                    "created_at": ins.metadata.created_at.to_rfc3339(),
-                    "build_status": ins.build_status,
-                    "build_error": ins.build_error,
-                }))
+                return Json(WorkflowDetail {
+                    tenant_id,
+                    id: ins.metadata.id.to_string(),
+                    package_name: ins.metadata.package_name,
+                    version: ins.metadata.version,
+                    description: ins.metadata.description,
+                    tasks: ins.metadata.tasks,
+                    created_at: ins.metadata.created_at.to_rfc3339(),
+                    build_status: ins.build_status,
+                    build_error: ins.build_error,
+                })
                 .into_response();
             }
             Ok(None) => {
@@ -313,17 +358,17 @@ pub async fn get_workflow(
                     // real build state (pending/building/failed in
                     // addition to success).
                     match registry.inspect_package_by_id(w.id).await {
-                        Ok(Some(ins)) => Json(serde_json::json!({
-                            "tenant_id": tenant_id,
-                            "id": ins.metadata.id.to_string(),
-                            "package_name": ins.metadata.package_name,
-                            "version": ins.metadata.version,
-                            "description": ins.metadata.description,
-                            "tasks": ins.metadata.tasks,
-                            "created_at": ins.metadata.created_at.to_rfc3339(),
-                            "build_status": ins.build_status,
-                            "build_error": ins.build_error,
-                        }))
+                        Ok(Some(ins)) => Json(WorkflowDetail {
+                            tenant_id,
+                            id: ins.metadata.id.to_string(),
+                            package_name: ins.metadata.package_name,
+                            version: ins.metadata.version,
+                            description: ins.metadata.description,
+                            tasks: ins.metadata.tasks,
+                            created_at: ins.metadata.created_at.to_rfc3339(),
+                            build_status: ins.build_status,
+                            build_error: ins.build_error,
+                        })
                         .into_response(),
                         Ok(None) => ApiError::not_found(
                             "workflow_not_found",
@@ -345,6 +390,24 @@ pub async fn get_workflow(
 }
 
 /// DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+#[utoipa::path(
+    delete,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}/{version}",
+    tag = "workflows",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Package name"),
+        ("version" = String, Path, description = "Package version"),
+    ),
+    responses(
+        (status = 200, description = "Workflow unregistered. Idempotent: also returned when no matching package existed", body = WorkflowDeletedResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Registry lookup failed", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn delete_workflow(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -382,11 +445,11 @@ pub async fn delete_workflow(
                 "Deleted workflow '{}' v{} for tenant '{}'",
                 name, version, tenant_id
             );
-            Json(serde_json::json!({
-                "status": "deleted",
-                "package_name": name,
-                "version": version,
-            }))
+            Json(WorkflowDeletedResponse {
+                status: "deleted".to_string(),
+                package_name: name,
+                version,
+            })
             .into_response()
         }
         Err(e) => {

@@ -25,43 +25,34 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use serde::Deserialize;
 use tracing::{info, warn};
 
 use cloacina::database::{DatabaseAdmin, TenantConfig};
 use cloacina::security::audit;
+use cloacina_api_types::{
+    CreateTenantRequest, ListResponse, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,
+};
 use std::time::Instant;
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
 
-/// Request body for creating a tenant.
-///
-/// **CLOACI-T-0594 / API-01:** matches the CLI's user-friendly payload
-/// shape. `name` is the canonical tenant identifier — it doubles as the
-/// Postgres schema name and database user name to keep the public API
-/// simple. `description` is operator-facing metadata. `password` is
-/// optional (auto-generated when omitted).
-///
-/// **Breaking change** (release notes): the previous shape
-/// `{schema_name, username, password}` is no longer accepted. Direct
-/// API consumers must migrate to `{name, description?, password?}`.
-#[derive(Deserialize)]
-pub struct CreateTenantRequest {
-    /// Tenant name — doubles as schema name + database username.
-    /// Must be alphanumeric + underscore (validated by DatabaseAdmin).
-    pub name: String,
-    /// Optional operator-facing description.
-    #[serde(default)]
-    pub description: Option<String>,
-    /// Optional password (auto-generated if absent).
-    #[serde(default)]
-    pub password: Option<String>,
-}
-
 /// POST /tenants — create a new tenant (Postgres schema + user + migrations).
 /// Admin-only: only is_admin keys can create tenants.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants",
+    tag = "tenants",
+    request_body = CreateTenantRequest,
+    responses(
+        (status = 201, description = "Tenant created (credentials intentionally excluded)", body = TenantCreatedResponse),
+        (status = 400, description = "Tenant creation failed", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn create_tenant(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -94,11 +85,11 @@ pub async fn create_tenant(
             // through a secure channel.
             (
                 StatusCode::CREATED,
-                Json(serde_json::json!({
-                    "name": credentials.schema_name,
-                    "username": credentials.username,
-                    "description": body.description,
-                })),
+                Json(TenantCreatedResponse {
+                    name: credentials.schema_name,
+                    username: credentials.username,
+                    description: body.description,
+                }),
             )
                 .into_response()
         }
@@ -127,6 +118,20 @@ pub async fn create_tenant(
 ///
 /// Closes SEC-14 (stale state after delete) and SEC-17 (unbounded
 /// caches surviving delete).
+#[utoipa::path(
+    delete,
+    path = "/v1/tenants/{schema_name}",
+    tag = "tenants",
+    params(("schema_name" = String, Path, description = "Tenant schema name")),
+    responses(
+        (status = 200, description = "Tenant removed — teardown report", body = TenantRemovedResponse),
+        (status = 400, description = "Tenant removal failed", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Teardown step failed (safe to retry)", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn remove_tenant(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -217,13 +222,13 @@ pub async fn remove_tenant(
                 db_cache_evicted = db_evicted,
                 "tenant teardown complete"
             );
-            Json(serde_json::json!({
-                "status": "removed",
-                "schema_name": schema_name,
-                "revoked_keys": revoked_count,
-                "runner_evicted": runner_evicted,
-                "db_cache_evicted": db_evicted,
-            }))
+            Json(TenantRemovedResponse {
+                status: "removed".to_string(),
+                schema_name,
+                revoked_keys: revoked_count,
+                runner_evicted,
+                db_cache_evicted: db_evicted,
+            })
             .into_response()
         }
         Err(e) => {
@@ -244,6 +249,18 @@ pub async fn remove_tenant(
 
 /// GET /tenants — list tenant schemas.
 /// Requires admin role — only admins can enumerate tenants.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants",
+    tag = "tenants",
+    responses(
+        (status = 200, description = "Tenant schemas", body = ListResponse<TenantSummary>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_tenants(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -255,20 +272,15 @@ pub async fn list_tenants(
 
     match admin.list_tenant_schemas().await {
         Ok(schemas) => {
-            let items: Vec<_> = schemas
+            let items: Vec<TenantSummary> = schemas
                 .into_iter()
-                .map(|s| serde_json::json!({"name": s}))
+                .map(|s| TenantSummary { name: s })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` list envelope.
             // CLI's render::list reads body.items consistently across every
             // list endpoint. Per-tenant schema name is rendered under `name`
             // to match the CLOACI-T-0594 / API-01 unification.
-            let total = items.len();
-            Json(serde_json::json!({
-                "items": items,
-                "total": total,
-            }))
-            .into_response()
+            Json(ListResponse::new(items)).into_response()
         }
         Err(e) => {
             warn!("Failed to list tenants: {}", e);

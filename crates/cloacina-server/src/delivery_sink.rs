@@ -111,7 +111,7 @@ impl DeliverySink for WsDeliverySink {
         let Some(sender) = sender else {
             return Ok(DeliveryOutcome::NoRoute);
         };
-        let frame = ServerMessage::push_from_row(row);
+        let frame = cloacina::delivery::envelope::push_from_row(row);
         match sender.try_send(frame) {
             Ok(()) => Ok(DeliveryOutcome::Delivered),
             // Closed: recipient disconnected between the lookup and the send;

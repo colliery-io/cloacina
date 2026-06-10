@@ -25,46 +25,35 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use serde::Deserialize;
 use tracing::{info, warn};
+
+use cloacina_api_types::{
+    CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, ListResponse,
+    WsTicketResponse,
+};
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
-
-/// Allowed roles for API keys.
-#[derive(Deserialize, Debug, Clone, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum KeyRole {
-    #[default]
-    Admin,
-    Write,
-    Read,
-}
-
-impl KeyRole {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            KeyRole::Admin => "admin",
-            KeyRole::Write => "write",
-            KeyRole::Read => "read",
-        }
-    }
-}
-
-/// Request body for creating a new API key.
-#[derive(Deserialize)]
-pub struct CreateKeyRequest {
-    pub name: String,
-    #[serde(default)]
-    pub role: KeyRole,
-}
 
 /// POST /auth/keys — create a new API key.
 ///
 /// Requires admin role. Non-admin keys cannot create keys with higher
 /// permissions than their own (prevents privilege escalation).
 /// Returns the plaintext key exactly once. It cannot be retrieved again.
+#[utoipa::path(
+    post,
+    path = "/v1/auth/keys",
+    tag = "keys",
+    request_body = CreateKeyRequest,
+    responses(
+        (status = 201, description = "Key created — plaintext returned exactly once", body = KeyCreatedResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn create_key(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -104,15 +93,15 @@ pub async fn create_key(
     {
         Ok(info) => (
             StatusCode::CREATED,
-            Json(serde_json::json!({
-                "id": info.id.to_string(),
-                "name": info.name,
-                "key": plaintext,
-                "permissions": info.permissions,
-                "tenant_id": info.tenant_id,
-                "is_admin": info.is_admin,
-                "created_at": info.created_at.to_rfc3339(),
-            })),
+            Json(KeyCreatedResponse {
+                id: info.id.to_string(),
+                name: info.name,
+                key: plaintext,
+                permissions: info.permissions,
+                tenant_id: info.tenant_id,
+                is_admin: info.is_admin,
+                created_at: info.created_at.to_rfc3339(),
+            }),
         )
             .into_response(),
         Err(e) => {
@@ -124,6 +113,18 @@ pub async fn create_key(
 
 /// GET /auth/keys — list all API keys (no hashes or plaintext).
 /// Requires admin role.
+#[utoipa::path(
+    get,
+    path = "/v1/auth/keys",
+    tag = "keys",
+    responses(
+        (status = 200, description = "All keys (no hashes or plaintext)", body = ListResponse<KeyInfo>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_keys(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -134,27 +135,20 @@ pub async fn list_keys(
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal.api_keys().list_keys().await {
         Ok(keys) => {
-            let items: Vec<_> = keys
+            let items: Vec<KeyInfo> = keys
                 .into_iter()
-                .map(|k| {
-                    serde_json::json!({
-                        "id": k.id.to_string(),
-                        "name": k.name,
-                        "permissions": k.permissions,
-                        "tenant_id": k.tenant_id,
-                        "is_admin": k.is_admin,
-                        "created_at": k.created_at.to_rfc3339(),
-                        "revoked": k.revoked,
-                    })
+                .map(|k| KeyInfo {
+                    id: k.id.to_string(),
+                    name: k.name,
+                    permissions: k.permissions,
+                    tenant_id: k.tenant_id,
+                    is_admin: k.is_admin,
+                    created_at: k.created_at.to_rfc3339(),
+                    revoked: k.revoked,
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
-            let total = items.len();
-            Json(serde_json::json!({
-                "items": items,
-                "total": total,
-            }))
-            .into_response()
+            Json(ListResponse::new(items)).into_response()
         }
         Err(e) => {
             warn!("Failed to list API keys: {}", e);
@@ -165,6 +159,20 @@ pub async fn list_keys(
 
 /// DELETE /auth/keys/:key_id — revoke an API key.
 /// Requires admin role within tenant (or god mode).
+#[utoipa::path(
+    delete,
+    path = "/v1/auth/keys/{key_id}",
+    tag = "keys",
+    params(("key_id" = String, Path, description = "Key UUID")),
+    responses(
+        (status = 200, description = "Key revoked", body = KeyRevokedResponse),
+        (status = 400, description = "Invalid key ID format", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Key not found or already revoked", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn revoke_key(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -185,7 +193,11 @@ pub async fn revoke_key(
         Ok(true) => {
             // Clear cache so revoked key is rejected immediately
             state.key_cache.clear().await;
-            Json(serde_json::json!({"status": "revoked", "id": key_id})).into_response()
+            Json(KeyRevokedResponse {
+                status: "revoked".to_string(),
+                id: key_id,
+            })
+            .into_response()
         }
         Ok(false) => {
             ApiError::not_found("key_not_found", "key not found or already revoked").into_response()
@@ -199,6 +211,20 @@ pub async fn revoke_key(
 
 /// POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
 /// Admin-only: only is_admin keys can create tenant-scoped keys.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/keys",
+    tag = "keys",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    request_body = CreateKeyRequest,
+    responses(
+        (status = 201, description = "Tenant-scoped key created — plaintext returned exactly once", body = KeyCreatedResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn create_tenant_key(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -230,15 +256,15 @@ pub async fn create_tenant_key(
             );
             (
                 StatusCode::CREATED,
-                Json(serde_json::json!({
-                    "id": info.id.to_string(),
-                    "name": info.name,
-                    "key": plaintext,
-                    "permissions": info.permissions,
-                    "tenant_id": info.tenant_id,
-                    "is_admin": info.is_admin,
-                    "created_at": info.created_at.to_rfc3339(),
-                })),
+                Json(KeyCreatedResponse {
+                    id: info.id.to_string(),
+                    name: info.name,
+                    key: plaintext,
+                    permissions: info.permissions,
+                    tenant_id: info.tenant_id,
+                    is_admin: info.is_admin,
+                    created_at: info.created_at.to_rfc3339(),
+                }),
             )
                 .into_response()
         }
@@ -253,14 +279,23 @@ pub async fn create_tenant_key(
 ///
 /// Returns a short-lived ticket that can be used as a query parameter for
 /// WebSocket upgrade requests, avoiding long-lived API keys in URLs.
+#[utoipa::path(
+    post,
+    path = "/v1/auth/ws-ticket",
+    tag = "keys",
+    responses(
+        (status = 200, description = "Single-use WebSocket ticket", body = WsTicketResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn create_ws_ticket(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
     let ticket = state.ws_tickets.issue(auth).await;
-    let expires_in_seconds = 60;
-    Json(serde_json::json!({
-        "ticket": ticket,
-        "expires_in_seconds": expires_in_seconds,
-    }))
+    Json(WsTicketResponse {
+        ticket,
+        expires_in_seconds: 60,
+    })
 }
