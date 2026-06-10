@@ -4,14 +4,14 @@ level: task
 title: "Cross-SDK release — angreal sdk-contract matrix, Diataxis docs, lockstep release tooling"
 short_code: "CLOACI-T-0648"
 created_at: 2026-06-10T01:30:42.525161+00:00
-updated_at: 2026-06-10T01:30:42.525161+00:00
+updated_at: 2026-06-10T10:26:19.858654+00:00
 parent: CLOACI-I-0113
-blocked_by: ["CLOACI-T-0645", "CLOACI-T-0646", "CLOACI-T-0647"]
+blocked_by: [CLOACI-T-0645, CLOACI-T-0646, CLOACI-T-0647]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -30,11 +30,11 @@ Aggregate and ship: an `angreal test sdk-contract` matrix running all three SDK 
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `angreal test sdk-contract` (plus per-language variants) boots `cloacina-server` via existing compose and runs all three SDK contract suites; wired into CI/nightly
-- [ ] Coverage rule enforced: every spec endpoint exercised per SDK; every documented WS message variant round-tripped at least once
-- [ ] Diataxis docs per language: tutorial (small consumer), how-to (auth, pagination, WS subscribe), reference generated from the spec (REQ-006)
-- [ ] Lockstep release tooling: SDK versions stamped from the workspace version in `unified_release.yml`; npm/PyPI/crates.io publish steps idempotent (REQ-008)
-- [ ] First tagged SDK release ships with the next cloacina release
+- [x] `angreal test sdk-contract` + `sdk-contract-rust`/`-python`/`-ts` boot `cloacina-server` on a **fresh DB** via the existing compose and run the suites; full matrix passed locally; `sdk-contract` job added to nightly.yml (which is also the release gate)
+- [x] Coverage rule enforced by `scripts/check_sdk_coverage.py` (every spec operation reachable from every SDK + all 4 delivery-WS variants handled per SDK — it immediately caught a missing `ready()` in the Python shim); live round-trips are the suites themselves. Reactor WS variants are schema-documented but unwrapped pending a graph fixture — noted in the script header as follow-up
+- [x] Diataxis docs: new `docs/content/sdks/` section — overview (`_index.md`: lockstep policy, auth/error/pagination/WS shared concepts, service-vs-embedded distinction) + per-language pages each with Tutorial / How-to (auth, pagination, errors, WS, browser+CORS for TS) / Reference linking `/openapi.json` and the WS protocol page (REQ-006)
+- [x] Lockstep tooling: `scripts/check_sdk_versions.py` (workspace vs package.json vs pyproject vs `__version__` vs spec `info.version`) runs in `verify-version` and in the sdk-contract matrix; `publish-cargo` gains `cloacina-api-types` (tier 1) + `cloacina-client` (before cloacinactl); new idempotent `publish-npm` (skip when version exists) and `publish-pypi-client` (skip-existing) jobs with explicit job-level permissions (REQ-008)
+- [x] First tagged SDK release rides the next cloacina release — all wiring is on the tag path (verify-version → publishes); requires the `NPM_TOKEN` secret to exist before that tag (flagged to user)
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -49,4 +49,11 @@ Release-workflow permissions: the v0.7.0 release hit two rounds of GitHub Action
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-06-10** — Implemented on `i0113-server-sdks`:
+- `.angreal/test/e2e/sdk_contract.py` (registered in `test/__init__.py`): shared `_sdk_server()` context (build via cli.py helpers, compose postgres, **DROP/CREATE the `cloacina` DB** — isolation must happen at this level until CLOACI-T-0649 is fixed, dedicated port 18084), runs version check → coverage check → suites. Per-language commands reuse the same harness.
+- `scripts/check_sdk_versions.py` + `scripts/check_sdk_coverage.py`. Coverage detection per SDK: TS = literal spec path in client.ts; Rust = wildcarded path skeleton among lib.rs string literals; Python = generated operationId module imported in _client.py; WS variants searched case-insensitively across impl + suite. Caught a real gap on first run (Python `ready()` missing — added with test).
+- nightly.yml: `sdk-contract` job (rust+node+uv+angreal, runs the matrix) — nightly is the release gate, so SDK drift is now release-blocking.
+- unified_release.yml: lockstep check in `verify-version`; `cloacina-api-types` published tier-1 (cloacina depends on it) and `cloacina-client` before `cloacinactl`; new `publish-npm` (idempotent via npm-view check, **requires NPM_TOKEN secret**) and `publish-pypi-client` (uv build + skip-existing) jobs, both with explicit job-level permissions per the v0.7.0 lesson. actionlint clean on both workflows.
+- Docs: `docs/content/sdks/` (overview + rust + python + typescript), weight 35.
+- **Local verification: full `angreal test sdk-contract` matrix passed** (lockstep + coverage + Rust 3 tests + Python 19 + TS 27 against one fresh live server).
+- **User action needed before next tagged release:** create the `NPM_TOKEN` repo secret (PYPI_TOKEN/CARGO_REGISTRY_TOKEN already exist).

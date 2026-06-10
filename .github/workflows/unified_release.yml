@@ -60,6 +60,11 @@ jobs:
             exit 1
           fi
 
+      # SDK lockstep (CLOACI-I-0113 / REQ-008): npm + PyPI client packages and
+      # the committed OpenAPI doc must carry the workspace version.
+      - name: Verify SDK versions in lockstep
+        run: python3 scripts/check_sdk_versions.py
+
   # -----------------------------------------------------------------------
   # Step 3: Publish to crates.io
   # -----------------------------------------------------------------------
@@ -103,6 +108,9 @@ jobs:
           }
 
           # Tier 1: leaf authoring + types (no internal deps).
+          # cloacina-api-types first — cloacina itself depends on it (T-0642).
+          publish cloacina-api-types
+          sleep 30
           publish cloacina-macros
           sleep 30
           publish cloacina-workflow
@@ -125,6 +133,11 @@ jobs:
           # The `cloaca` Python wheel is a separate artifact built via maturin and
           # published to PyPI in a later job; this is the Rust-side crate.
           publish cloacina-python
+          sleep 30
+
+          # Tier 3.5: service client SDK (depends on cloacina-api-types only;
+          # must precede cloacinactl, which consumes it — T-0646).
+          publish cloacina-client
           sleep 30
 
           # Tier 4: binaries (depend on cloacina + workflow-plugin + python).
@@ -257,6 +270,88 @@ jobs:
           # Tolerate idempotent re-runs of the release on the same tag: if a
           # prior run already uploaded these files, skip rather than 400. Mirrors
           # the "already published" handling in the crates.io publish job.
+          skip-existing: true
+
+  # -----------------------------------------------------------------------
+  # Step 4c: Publish the TypeScript SDK to npm (CLOACI-I-0113 / T-0648).
+  # Version-locked to the workspace release; idempotent on re-runs (skips
+  # when the version already exists on the registry — same class of guard
+  # as crates.io/PyPI above, learned the hard way on v0.7.0).
+  # -----------------------------------------------------------------------
+
+  publish-npm:
+    name: Publish @cloacina/client to npm
+    needs: [verify-version]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment:
+      name: production
+      url: https://www.npmjs.com/package/@cloacina/client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Build
+        working-directory: clients/typescript
+        run: |
+          npm ci
+          npm run check:generated
+          npm run build
+
+      - name: Publish (idempotent)
+        working-directory: clients/typescript
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "@cloacina/client@${version}" version >/dev/null 2>&1; then
+            echo "○ @cloacina/client@${version} already published (skipping)"
+          else
+            npm publish --access public
+            echo "✓ @cloacina/client@${version} published"
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # -----------------------------------------------------------------------
+  # Step 4d: Publish the Python SDK (cloacina-client) to PyPI
+  # (CLOACI-I-0113 / T-0648). Distinct from the `cloaca` embedded-runtime
+  # wheels above — this is the pure-Python service client.
+  # -----------------------------------------------------------------------
+
+  publish-pypi-client:
+    name: Publish cloacina-client to PyPI
+    needs: [verify-version]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment:
+      name: production
+      url: https://pypi.org/project/cloacina-client/
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build sdist + wheel
+        working-directory: clients/python
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: clients/python/dist/
+          verbose: true
+          password: ${{ secrets.PYPI_TOKEN }}
           skip-existing: true
 
   # -----------------------------------------------------------------------

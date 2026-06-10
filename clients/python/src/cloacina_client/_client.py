@@ -35,7 +35,7 @@ from ._generated.api.keys import (
     list_keys,
     revoke_key,
 )
-from ._generated.api.operational import health
+from ._generated.api.operational import health, ready
 from ._generated.api.tenants import create_tenant, list_tenants, remove_tenant
 from ._generated.api.triggers import get_trigger, list_triggers
 from ._generated.api.workflows import (
@@ -137,6 +137,11 @@ class Client(_Base):
 
     def health(self) -> Any:
         return _raw_json(health.sync_detailed(client=self._gen))
+
+    def ready(self) -> tuple[int, Any]:
+        """Raw readiness state — 503 is a meaningful answer, not an error."""
+        response = ready.sync_detailed(client=self._gen)
+        return int(response.status_code), json.loads(response.content)
 
     # ---- keys ----
 

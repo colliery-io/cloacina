@@ -4,14 +4,14 @@ level: task
 title: "Python SDK — cloacina-client on PyPI, sync+async shim, WS wrapper, live contract suite"
 short_code: "CLOACI-T-0647"
 created_at: 2026-06-10T01:30:35.665327+00:00
-updated_at: 2026-06-10T04:23:15.993681+00:00
+updated_at: 2026-06-10T10:25:51.300152+00:00
 parent: CLOACI-I-0113
 blocked_by: [CLOACI-T-0643, CLOACI-T-0644]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0113
 ## Objective **[REQUIRED]**
 
 Ship the Python service SDK: `cloacina-client` on PyPI (import name `cloacina_client`, no collision with embedded `cloaca`), generated from `openapi.json` via pinned `openapi-python-client`, with a hand-written ergonomics shim (sync + async clients, pagination iterators, WS wrapper via `websockets`). Python 3.10+. Includes its own live-server contract suite (REQ-007).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

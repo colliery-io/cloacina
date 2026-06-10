@@ -70,6 +70,12 @@ def test_health(client: Client) -> None:
     assert body["status"] == "ok"
 
 
+def test_ready(client: Client) -> None:
+    status, body = client.ready()
+    assert status in (200, 503)
+    assert "status" in body
+
+
 def test_openapi_served() -> None:
     with urllib.request.urlopen(f"{SERVER}/openapi.json", timeout=5) as resp:
         doc = json.load(resp)

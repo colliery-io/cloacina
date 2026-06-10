@@ -12,3 +12,6 @@
 /Users/dstorey/Desktop/cloacina/clients/python/src/cloacina_client/_client.py
 /Users/dstorey/Desktop/cloacina/clients/python/src/cloacina_client/_ws.py
 /Users/dstorey/Desktop/cloacina/clients/python/tests/test_contract.py
+/Users/dstorey/Desktop/cloacina/.angreal/test/e2e/sdk_contract.py
+/Users/dstorey/Desktop/cloacina/scripts/check_sdk_versions.py
+/Users/dstorey/Desktop/cloacina/scripts/check_sdk_coverage.py
