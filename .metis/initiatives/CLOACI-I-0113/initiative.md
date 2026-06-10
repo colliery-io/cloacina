@@ -4,14 +4,14 @@ level: initiative
 title: "Cloacina server SDKs — OpenAPI spec, Rust/Python/TS clients for service consumers"
 short_code: "CLOACI-I-0113"
 created_at: 2026-05-22T13:41:37.227777+00:00
-updated_at: 2026-06-10T01:39:11.495286+00:00
+updated_at: 2026-06-10T13:30:42.108604+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

@@ -1,11 +1,107 @@
 # Code Index
 
-> Generated: 2026-06-10T03:32:54Z | 528 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-10T11:53:49Z | 617 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
 ```
 ├── clients/
+│   ├── python/
+│   │   ├── src/
+│   │   │   └── cloacina_client/
+│   │   │       ├── __init__.py
+│   │   │       ├── _client.py
+│   │   │       ├── _generated/
+│   │   │       │   ├── __init__.py
+│   │   │       │   ├── api/
+│   │   │       │   │   ├── __init__.py
+│   │   │       │   │   ├── executions/
+│   │   │       │   │   │   ├── __init__.py
+│   │   │       │   │   │   ├── execute_workflow.py
+│   │   │       │   │   │   ├── get_execution.py
+│   │   │       │   │   │   ├── get_execution_events.py
+│   │   │       │   │   │   └── list_executions.py
+│   │   │       │   │   ├── graph_health/
+│   │   │       │   │   │   ├── __init__.py
+│   │   │       │   │   │   ├── get_graph.py
+│   │   │       │   │   │   ├── list_accumulators.py
+│   │   │       │   │   │   └── list_graphs.py
+│   │   │       │   │   ├── keys/
+│   │   │       │   │   │   ├── __init__.py
+│   │   │       │   │   │   ├── create_key.py
+│   │   │       │   │   │   ├── create_tenant_key.py
+│   │   │       │   │   │   ├── create_ws_ticket.py
+│   │   │       │   │   │   ├── list_keys.py
+│   │   │       │   │   │   └── revoke_key.py
+│   │   │       │   │   ├── operational/
+│   │   │       │   │   │   ├── __init__.py
+│   │   │       │   │   │   ├── health.py
+│   │   │       │   │   │   └── ready.py
+│   │   │       │   │   ├── tenants/
+│   │   │       │   │   │   ├── __init__.py
+│   │   │       │   │   │   ├── create_tenant.py
+│   │   │       │   │   │   ├── list_tenants.py
+│   │   │       │   │   │   └── remove_tenant.py
+│   │   │       │   │   ├── triggers/
+│   │   │       │   │   │   ├── __init__.py
+│   │   │       │   │   │   ├── get_trigger.py
+│   │   │       │   │   │   └── list_triggers.py
+│   │   │       │   │   └── workflows/
+│   │   │       │   │       ├── __init__.py
+│   │   │       │   │       ├── delete_workflow.py
+│   │   │       │   │       ├── get_workflow.py
+│   │   │       │   │       ├── list_workflows.py
+│   │   │       │   │       └── upload_workflow.py
+│   │   │       │   ├── client.py
+│   │   │       │   ├── errors.py
+│   │   │       │   ├── models/
+│   │   │       │   │   ├── __init__.py
+│   │   │       │   │   ├── accumulator_status.py
+│   │   │       │   │   ├── create_key_request.py
+│   │   │       │   │   ├── create_tenant_request.py
+│   │   │       │   │   ├── error_body.py
+│   │   │       │   │   ├── execute_request.py
+│   │   │       │   │   ├── execute_response.py
+│   │   │       │   │   ├── execution_detail.py
+│   │   │       │   │   ├── execution_event.py
+│   │   │       │   │   ├── execution_events_response.py
+│   │   │       │   │   ├── execution_summary.py
+│   │   │       │   │   ├── graph_status.py
+│   │   │       │   │   ├── key_created_response.py
+│   │   │       │   │   ├── key_info.py
+│   │   │       │   │   ├── key_revoked_response.py
+│   │   │       │   │   ├── key_role.py
+│   │   │       │   │   ├── list_response_accumulator_status.py
+│   │   │       │   │   ├── list_response_accumulator_status_items_item.py
+│   │   │       │   │   ├── list_response_graph_status.py
+│   │   │       │   │   ├── list_response_graph_status_items_item.py
+│   │   │       │   │   ├── list_response_key_info.py
+│   │   │       │   │   ├── list_response_key_info_items_item.py
+│   │   │       │   │   ├── list_response_tenant_summary.py
+│   │   │       │   │   ├── list_response_tenant_summary_items_item.py
+│   │   │       │   │   ├── package_upload_form.py
+│   │   │       │   │   ├── tenant_created_response.py
+│   │   │       │   │   ├── tenant_list_response_execution_summary.py
+│   │   │       │   │   ├── tenant_list_response_execution_summary_items_item.py
+│   │   │       │   │   ├── tenant_list_response_trigger_schedule_summary.py
+│   │   │       │   │   ├── tenant_list_response_trigger_schedule_summary_items_item.py
+│   │   │       │   │   ├── tenant_list_response_workflow_summary.py
+│   │   │       │   │   ├── tenant_list_response_workflow_summary_items_item.py
+│   │   │       │   │   ├── tenant_removed_response.py
+│   │   │       │   │   ├── tenant_summary.py
+│   │   │       │   │   ├── trigger_detail_response.py
+│   │   │       │   │   ├── trigger_execution.py
+│   │   │       │   │   ├── trigger_schedule_info.py
+│   │   │       │   │   ├── trigger_schedule_summary.py
+│   │   │       │   │   ├── workflow_deleted_response.py
+│   │   │       │   │   ├── workflow_detail.py
+│   │   │       │   │   ├── workflow_summary.py
+│   │   │       │   │   ├── workflow_uploaded_response.py
+│   │   │       │   │   └── ws_ticket_response.py
+│   │   │       │   └── types.py
+│   │   │       └── _ws.py
+│   │   └── tests/
+│   │       └── test_contract.py
 │   └── typescript/
 │       ├── generated/
 │       │   └── types.ts
@@ -296,6 +392,14 @@
 │   ├── cloacina-build/
 │   │   └── src/
 │   │       └── lib.rs
+│   ├── cloacina-client/
+│   │   ├── src/
+│   │   │   ├── error.rs
+│   │   │   ├── lib.rs
+│   │   │   ├── profile.rs
+│   │   │   └── ws.rs
+│   │   └── tests/
+│   │       └── contract.rs
 │   ├── cloacina-compiler/
 │   │   └── src/
 │   │       ├── build.rs
@@ -686,7 +790,9 @@
 │                   └── src/
 │                       └── main.rs
 ├── scripts/
-│   └── check_credential_logging.py
+│   ├── check_credential_logging.py
+│   ├── check_sdk_coverage.py
+│   └── check_sdk_versions.py
 └── tests/
     └── python/
         ├── conftest.py
@@ -723,6 +829,772 @@
 ```
 
 ## Modules
+
+### clients/python/src/cloacina_client
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_client.py
+
+- pub `CloacinaApiError` class L58-75 — `(Exception) { __init__ }` — Non-2xx response from cloacina-server.
+- pub `__init__` method L67-75 — `def __init__(self, status: int, body: Any) -> None`
+- pub `__init__` method L100-114 — `def __init__( self, server: str, *, api_key: str, tenant: str | None = None, tim...`
+- pub `tenant_segment` method L121-123 — `def tenant_segment(self, override: str | None = None) -> str` — Tenant for tenant-scoped routes — explicit, default, or `public`.
+- pub `Client` class L133-330 — `(_Base) { health, ready, create_key, list_keys, revoke_key, create_tenant_key, c...` — Synchronous cloacina-server client.
+- pub `health` method L138-139 — `def health(self) -> Any`
+- pub `ready` method L141-144 — `def ready(self) -> tuple[int, Any]` — Raw readiness state — 503 is a meaningful answer, not an error.
+- pub `create_key` method L148-150 — `def create_key(self, name: str, role: str = "read")`
+- pub `list_keys` method L152-153 — `def list_keys(self)`
+- pub `revoke_key` method L155-156 — `def revoke_key(self, key_id: str)`
+- pub `create_tenant_key` method L158-164 — `def create_tenant_key(self, name: str, role: str = "read", tenant: str | None = ...`
+- pub `create_ws_ticket` method L166-167 — `def create_ws_ticket(self)`
+- pub `create_tenant` method L171-183 — `def create_tenant( self, name: str, *, description: str | None = None, password:...`
+- pub `list_tenants` method L185-186 — `def list_tenants(self)`
+- pub `remove_tenant` method L188-189 — `def remove_tenant(self, schema_name: str)`
+- pub `upload_workflow` method L193-203 — `def upload_workflow(self, package: bytes, tenant: str | None = None)`
+- pub `list_workflows` method L205-208 — `def list_workflows(self, tenant: str | None = None)`
+- pub `get_workflow` method L210-215 — `def get_workflow(self, name: str, tenant: str | None = None)`
+- pub `delete_workflow` method L217-222 — `def delete_workflow(self, name: str, version: str, tenant: str | None = None)`
+- pub `list_triggers` method L226-240 — `def list_triggers( self, *, limit: int | None = None, offset: int | None = None,...`
+- pub `get_trigger` method L242-247 — `def get_trigger(self, name: str, tenant: str | None = None)`
+- pub `execute_workflow` method L251-262 — `def execute_workflow( self, name: str, context: dict[str, Any] | None = None, te...`
+- pub `list_executions` method L264-282 — `def list_executions( self, *, status: str | None = None, workflow: str | None = ...`
+- pub `iterate_executions` method L284-305 — `def iterate_executions( self, *, status: str | None = None, workflow: str | None...` — Yield executions page by page until a short page arrives.
+- pub `get_execution` method L307-312 — `def get_execution(self, exec_id: str, tenant: str | None = None)`
+- pub `get_execution_events` method L314-319 — `def get_execution_events(self, exec_id: str, tenant: str | None = None)`
+- pub `list_accumulators` method L323-324 — `def list_accumulators(self)`
+- pub `list_graphs` method L326-327 — `def list_graphs(self)`
+- pub `get_graph` method L329-330 — `def get_graph(self, name: str)`
+- pub `AsyncClient` class L333-448 — `(_Base) { health, create_key, list_keys, revoke_key, create_ws_ticket, list_tena...` — Asynchronous cloacina-server client (httpx + websockets).
+- pub `health` method L338-339 — `def health(self) -> Any`
+- pub `create_key` method L343-345 — `def create_key(self, name: str, role: str = "read")`
+- pub `list_keys` method L347-348 — `def list_keys(self)`
+- pub `revoke_key` method L350-351 — `def revoke_key(self, key_id: str)`
+- pub `create_ws_ticket` method L353-354 — `def create_ws_ticket(self)`
+- pub `list_tenants` method L358-359 — `def list_tenants(self)`
+- pub `execute_workflow` method L363-374 — `def execute_workflow( self, name: str, context: dict[str, Any] | None = None, te...`
+- pub `list_executions` method L376-394 — `def list_executions( self, *, status: str | None = None, workflow: str | None = ...`
+- pub `iterate_executions` method L396-418 — `def iterate_executions( self, *, status: str | None = None, workflow: str | None...` — Async pagination — yields executions until a short page arrives.
+- pub `get_execution` method L420-425 — `def get_execution(self, exec_id: str, tenant: str | None = None)`
+- pub `get_execution_events` method L427-432 — `def get_execution_events(self, exec_id: str, tenant: str | None = None)`
+- pub `subscribe_delivery` method L436-440 — `def subscribe_delivery(self, recipient: str, **options: Any)` — At-least-once delivery stream — see :mod:`cloacina_client._ws`.
+- pub `follow_execution_events` method L442-448 — `def follow_execution_events(self, execution_id: str, **options: Any)` — Stream one execution's JSON events (recipient
+-  `_unwrap` function L78-90 — `def _unwrap(response: Response[Any]) -> Any`
+-  `_context` function L93-94 — `def _context(context: dict[str, Any] | None) -> Any | Unset`
+-  `_Base` class L97-123 — `{ __init__, generated, tenant_segment }` — Shared construction for the sync/async shims.
+-  `_raw_json` function L126-130 — `def _raw_json(response: Response[Any]) -> Any` — 2xx body as JSON for endpoints the spec documents without a schema
+
+#### clients/python/src/cloacina_client/_ws.py
+
+- pub `DeliveryPush` class L41-51 — `{ payload_json }` — One decoded delivery push (already acked by the stream).
+- pub `payload_json` method L50-51 — `def payload_json(self) -> Any`
+- pub `ProtocolVersionError` class L54-56 — `(Exception)` — Server closed 4426 — it does not speak our protocol version.
+- pub `subscribe_delivery` function L67-144 — `def subscribe_delivery( client: "AsyncClient", recipient: str, *, reconnect: boo...` — Subscribe to the delivery stream for ``recipient``.
+- pub `follow_execution_events` function L147-156 — `def follow_execution_events( client: "AsyncClient", execution_id: str, **options...` — Stream the JSON events of one workflow execution.
+-  `_ws_base` function L59-64 — `def _ws_base(server: str) -> str`
+
+### clients/python/src/cloacina_client/_generated
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_generated/client.py
+
+- pub `Client` class L9-136 — `{ with_headers, with_cookies, with_timeout, set_httpx_client, get_httpx_client, ...` — A class for keeping track of data related to the API
+- pub `with_headers` method L52-58 — `def with_headers(self, headers: dict[str, str]) -> "Client"` — Get a new client matching this one with additional headers
+- pub `with_cookies` method L60-66 — `def with_cookies(self, cookies: dict[str, str]) -> "Client"` — Get a new client matching this one with additional cookies
+- pub `with_timeout` method L68-74 — `def with_timeout(self, timeout: httpx.Timeout) -> "Client"` — Get a new client matching this one with a new timeout configuration
+- pub `set_httpx_client` method L76-82 — `def set_httpx_client(self, client: httpx.Client) -> "Client"` — Manually set the underlying httpx.Client
+- pub `get_httpx_client` method L84-96 — `def get_httpx_client(self) -> httpx.Client` — Get the underlying httpx.Client, constructing a new one if not previously set
+- pub `__enter__` method L98-101 — `def __enter__(self) -> "Client"` — Enter a context manager for self.client—you cannot enter twice (see httpx docs)
+- pub `__exit__` method L103-105 — `def __exit__(self, *args: Any, **kwargs: Any) -> None` — Exit a context manager for internal httpx.Client (see httpx docs)
+- pub `set_async_httpx_client` method L107-113 — `def set_async_httpx_client(self, async_client: httpx.AsyncClient) -> "Client"` — Manually set the underlying httpx.AsyncClient
+- pub `get_async_httpx_client` method L115-127 — `def get_async_httpx_client(self) -> httpx.AsyncClient` — Get the underlying httpx.AsyncClient, constructing a new one if not previously set
+- pub `__aenter__` method L129-132 — `def __aenter__(self) -> "Client"` — Enter a context manager for underlying httpx.AsyncClient—you cannot enter twice (see httpx docs)
+- pub `__aexit__` method L134-136 — `def __aexit__(self, *args: Any, **kwargs: Any) -> None` — Exit a context manager for underlying httpx.AsyncClient (see httpx docs)
+- pub `AuthenticatedClient` class L140-282 — `{ with_headers, with_cookies, with_timeout, set_httpx_client, get_httpx_client, ...` — A Client which has been authenticated for use on secured endpoints
+- pub `with_headers` method L190-196 — `def with_headers(self, headers: dict[str, str]) -> "AuthenticatedClient"` — Get a new client matching this one with additional headers
+- pub `with_cookies` method L198-204 — `def with_cookies(self, cookies: dict[str, str]) -> "AuthenticatedClient"` — Get a new client matching this one with additional cookies
+- pub `with_timeout` method L206-212 — `def with_timeout(self, timeout: httpx.Timeout) -> "AuthenticatedClient"` — Get a new client matching this one with a new timeout configuration
+- pub `set_httpx_client` method L214-220 — `def set_httpx_client(self, client: httpx.Client) -> "AuthenticatedClient"` — Manually set the underlying httpx.Client
+- pub `get_httpx_client` method L222-237 — `def get_httpx_client(self) -> httpx.Client` — Get the underlying httpx.Client, constructing a new one if not previously set
+- pub `__enter__` method L239-242 — `def __enter__(self) -> "AuthenticatedClient"` — Enter a context manager for self.client—you cannot enter twice (see httpx docs)
+- pub `__exit__` method L244-246 — `def __exit__(self, *args: Any, **kwargs: Any) -> None` — Exit a context manager for internal httpx.Client (see httpx docs)
+- pub `set_async_httpx_client` method L248-256 — `def set_async_httpx_client( self, async_client: httpx.AsyncClient ) -> "Authenti...` — Manually set the underlying httpx.AsyncClient
+- pub `get_async_httpx_client` method L258-273 — `def get_async_httpx_client(self) -> httpx.AsyncClient` — Get the underlying httpx.AsyncClient, constructing a new one if not previously set
+- pub `__aenter__` method L275-278 — `def __aenter__(self) -> "AuthenticatedClient"` — Enter a context manager for underlying httpx.AsyncClient—you cannot enter twice (see httpx docs)
+- pub `__aexit__` method L280-282 — `def __aexit__(self, *args: Any, **kwargs: Any) -> None` — Exit a context manager for underlying httpx.AsyncClient (see httpx docs)
+
+#### clients/python/src/cloacina_client/_generated/errors.py
+
+- pub `UnexpectedStatus` class L4-13 — `(Exception) { __init__ }` — Raised by api functions when the response status an undocumented status and Client.raise_on_unexpected_status is True
+- pub `__init__` method L7-13 — `def __init__(self, status_code: int, content: bytes)`
+
+#### clients/python/src/cloacina_client/_generated/types.py
+
+- pub `Unset` class L10-12 — `-`
+- pub `__bool__` method L11-12 — `def __bool__(self) -> Literal[False]`
+- pub `File` class L29-38 — `{ to_tuple }` — Contains information for file uploads
+- pub `to_tuple` method L36-38 — `def to_tuple(self) -> FileTypes` — Return a tuple representation that httpx will accept for multipart/form-data
+- pub `Response` class L45-51 — `(Generic[T])` — A response from an endpoint
+
+### clients/python/src/cloacina_client/_generated/api/executions
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_generated/api/executions/execute_workflow.py
+
+- pub `sync_detailed` function L84-122 — `def sync_detailed( tenant_id: str, name: str, *, client: AuthenticatedClient, bo...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+- pub `sync` function L125-158 — `def sync( tenant_id: str, name: str, *, client: AuthenticatedClient, body: Execu...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+- pub `asyncio_detailed` function L161-197 — `def asyncio_detailed( tenant_id: str, name: str, *, client: AuthenticatedClient,...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+- pub `asyncio` function L200-235 — `def asyncio( tenant_id: str, name: str, *, client: AuthenticatedClient, body: Ex...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+-  `_get_kwargs` function L15-36 — `def _get_kwargs( tenant_id: str, name: str, *, body: ExecuteRequest, ) -> dict[s...`
+-  `_parse_response` function L39-70 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L73-81 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/executions/get_execution.py
+
+- pub `sync_detailed` function L75-104 — `def sync_detailed( tenant_id: str, exec_id: str, *, client: AuthenticatedClient,...` — GET /tenants/:tenant_id/executions/:id — get execution details.
+- pub `sync` function L107-131 — `def sync( tenant_id: str, exec_id: str, *, client: AuthenticatedClient, ) -> Err...` — GET /tenants/:tenant_id/executions/:id — get execution details.
+- pub `asyncio_detailed` function L134-161 — `def asyncio_detailed( tenant_id: str, exec_id: str, *, client: AuthenticatedClie...` — GET /tenants/:tenant_id/executions/:id — get execution details.
+- pub `asyncio` function L164-190 — `def asyncio( tenant_id: str, exec_id: str, *, client: AuthenticatedClient, ) -> ...` — GET /tenants/:tenant_id/executions/:id — get execution details.
+-  `_get_kwargs` function L14-27 — `def _get_kwargs( tenant_id: str, exec_id: str, ) -> dict[str, Any]`
+-  `_parse_response` function L30-61 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L64-72 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/executions/get_execution_events.py
+
+- pub `sync_detailed` function L75-104 — `def sync_detailed( tenant_id: str, exec_id: str, *, client: AuthenticatedClient,...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
+- pub `sync` function L107-131 — `def sync( tenant_id: str, exec_id: str, *, client: AuthenticatedClient, ) -> Err...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
+- pub `asyncio_detailed` function L134-161 — `def asyncio_detailed( tenant_id: str, exec_id: str, *, client: AuthenticatedClie...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
+- pub `asyncio` function L164-190 — `def asyncio( tenant_id: str, exec_id: str, *, client: AuthenticatedClient, ) -> ...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
+-  `_get_kwargs` function L14-27 — `def _get_kwargs( tenant_id: str, exec_id: str, ) -> dict[str, Any]`
+-  `_parse_response` function L30-61 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L64-72 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/executions/list_executions.py
+
+- pub `sync_detailed` function L93-135 — `def sync_detailed( tenant_id: str, *, client: AuthenticatedClient, status: str |...` — GET /tenants/:tenant_id/executions — list workflow executions.
+- pub `sync` function L138-175 — `def sync( tenant_id: str, *, client: AuthenticatedClient, status: str | Unset = ...` — GET /tenants/:tenant_id/executions — list workflow executions.
+- pub `asyncio_detailed` function L178-218 — `def asyncio_detailed( tenant_id: str, *, client: AuthenticatedClient, status: st...` — GET /tenants/:tenant_id/executions — list workflow executions.
+- pub `asyncio` function L221-260 — `def asyncio( tenant_id: str, *, client: AuthenticatedClient, status: str | Unset...` — GET /tenants/:tenant_id/executions — list workflow executions.
+-  `_get_kwargs` function L16-45 — `def _get_kwargs( tenant_id: str, *, status: str | Unset = UNSET, workflow: str |...`
+-  `_parse_response` function L48-79 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L82-90 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+### clients/python/src/cloacina_client/_generated/api/graph_health
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_generated/api/graph_health/get_graph.py
+
+- pub `sync_detailed` function L63-91 — `def sync_detailed( name: str, *, client: AuthenticatedClient, ) -> Response[Erro...` — GET /v1/health/graphs/{name} — single graph health, gated by caller
+- pub `sync` function L94-117 — `def sync( name: str, *, client: AuthenticatedClient, ) -> ErrorBody | GraphStatu...` — GET /v1/health/graphs/{name} — single graph health, gated by caller
+- pub `asyncio_detailed` function L120-146 — `def asyncio_detailed( name: str, *, client: AuthenticatedClient, ) -> Response[E...` — GET /v1/health/graphs/{name} — single graph health, gated by caller
+- pub `asyncio` function L149-174 — `def asyncio( name: str, *, client: AuthenticatedClient, ) -> ErrorBody | GraphSt...` — GET /v1/health/graphs/{name} — single graph health, gated by caller
+-  `_get_kwargs` function L14-25 — `def _get_kwargs( name: str, ) -> dict[str, Any]`
+-  `_parse_response` function L28-49 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L52-60 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/graph_health/list_accumulators.py
+
+- pub `sync_detailed` function L53-74 — `def sync_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | Lis...` — GET /v1/health/accumulators — list registered accumulators with health,
+- pub `sync` function L77-94 — `def sync( *, client: AuthenticatedClient, ) -> ErrorBody | ListResponseAccumulat...` — GET /v1/health/accumulators — list registered accumulators with health,
+- pub `asyncio_detailed` function L97-116 — `def asyncio_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | ...` — GET /v1/health/accumulators — list registered accumulators with health,
+- pub `asyncio` function L119-138 — `def asyncio( *, client: AuthenticatedClient, ) -> ErrorBody | ListResponseAccumu...` — GET /v1/health/accumulators — list registered accumulators with health,
+-  `_get_kwargs` function L13-20 — `def _get_kwargs() -> dict[str, Any]`
+-  `_parse_response` function L23-39 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L42-50 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/graph_health/list_graphs.py
+
+- pub `sync_detailed` function L53-74 — `def sync_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | Lis...` — GET /v1/health/graphs — list loaded graphs visible to the caller.
+- pub `sync` function L77-94 — `def sync( *, client: AuthenticatedClient, ) -> ErrorBody | ListResponseGraphStat...` — GET /v1/health/graphs — list loaded graphs visible to the caller.
+- pub `asyncio_detailed` function L97-116 — `def asyncio_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | ...` — GET /v1/health/graphs — list loaded graphs visible to the caller.
+- pub `asyncio` function L119-138 — `def asyncio( *, client: AuthenticatedClient, ) -> ErrorBody | ListResponseGraphS...` — GET /v1/health/graphs — list loaded graphs visible to the caller.
+-  `_get_kwargs` function L13-20 — `def _get_kwargs() -> dict[str, Any]`
+-  `_parse_response` function L23-39 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L42-50 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+### clients/python/src/cloacina_client/_generated/api/keys
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_generated/api/keys/create_key.py
+
+- pub `sync_detailed` function L73-104 — `def sync_detailed( *, client: AuthenticatedClient, body: CreateKeyRequest, ) -> ...` — POST /auth/keys — create a new API key.
+- pub `sync` function L107-133 — `def sync( *, client: AuthenticatedClient, body: CreateKeyRequest, ) -> ErrorBody...` — POST /auth/keys — create a new API key.
+- pub `asyncio_detailed` function L136-165 — `def asyncio_detailed( *, client: AuthenticatedClient, body: CreateKeyRequest, ) ...` — POST /auth/keys — create a new API key.
+- pub `asyncio` function L168-196 — `def asyncio( *, client: AuthenticatedClient, body: CreateKeyRequest, ) -> ErrorB...` — POST /auth/keys — create a new API key.
+-  `_get_kwargs` function L14-30 — `def _get_kwargs( *, body: CreateKeyRequest, ) -> dict[str, Any]`
+-  `_parse_response` function L33-59 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L62-70 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/keys/create_tenant_key.py
+
+- pub `sync_detailed` function L77-108 — `def sync_detailed( tenant_id: str, *, client: AuthenticatedClient, body: CreateK...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
+- pub `sync` function L111-137 — `def sync( tenant_id: str, *, client: AuthenticatedClient, body: CreateKeyRequest...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
+- pub `asyncio_detailed` function L140-169 — `def asyncio_detailed( tenant_id: str, *, client: AuthenticatedClient, body: Crea...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
+- pub `asyncio` function L172-200 — `def asyncio( tenant_id: str, *, client: AuthenticatedClient, body: CreateKeyRequ...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
+-  `_get_kwargs` function L15-34 — `def _get_kwargs( tenant_id: str, *, body: CreateKeyRequest, ) -> dict[str, Any]`
+-  `_parse_response` function L37-63 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L66-74 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/keys/create_ws_ticket.py
+
+- pub `sync_detailed` function L53-76 — `def sync_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | WsT...` — POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
+- pub `sync` function L79-98 — `def sync( *, client: AuthenticatedClient, ) -> ErrorBody | WsTicketResponse | No...` — POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
+- pub `asyncio_detailed` function L101-122 — `def asyncio_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | ...` — POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
+- pub `asyncio` function L125-146 — `def asyncio( *, client: AuthenticatedClient, ) -> ErrorBody | WsTicketResponse |...` — POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
+-  `_get_kwargs` function L13-20 — `def _get_kwargs() -> dict[str, Any]`
+-  `_parse_response` function L23-39 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L42-50 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/keys/list_keys.py
+
+- pub `sync_detailed` function L63-84 — `def sync_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | Lis...` — GET /auth/keys — list all API keys (no hashes or plaintext).
+- pub `sync` function L87-104 — `def sync( *, client: AuthenticatedClient, ) -> ErrorBody | ListResponseKeyInfo |...` — GET /auth/keys — list all API keys (no hashes or plaintext).
+- pub `asyncio_detailed` function L107-126 — `def asyncio_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | ...` — GET /auth/keys — list all API keys (no hashes or plaintext).
+- pub `asyncio` function L129-148 — `def asyncio( *, client: AuthenticatedClient, ) -> ErrorBody | ListResponseKeyInf...` — GET /auth/keys — list all API keys (no hashes or plaintext).
+-  `_get_kwargs` function L13-20 — `def _get_kwargs() -> dict[str, Any]`
+-  `_parse_response` function L23-49 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L52-60 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/keys/revoke_key.py
+
+- pub `sync_detailed` function L73-100 — `def sync_detailed( key_id: str, *, client: AuthenticatedClient, ) -> Response[Er...` — DELETE /auth/keys/:key_id — revoke an API key.
+- pub `sync` function L103-125 — `def sync( key_id: str, *, client: AuthenticatedClient, ) -> ErrorBody | KeyRevok...` — DELETE /auth/keys/:key_id — revoke an API key.
+- pub `asyncio_detailed` function L128-153 — `def asyncio_detailed( key_id: str, *, client: AuthenticatedClient, ) -> Response...` — DELETE /auth/keys/:key_id — revoke an API key.
+- pub `asyncio` function L156-180 — `def asyncio( key_id: str, *, client: AuthenticatedClient, ) -> ErrorBody | KeyRe...` — DELETE /auth/keys/:key_id — revoke an API key.
+-  `_get_kwargs` function L14-25 — `def _get_kwargs( key_id: str, ) -> dict[str, Any]`
+-  `_parse_response` function L28-59 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L62-70 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+### clients/python/src/cloacina_client/_generated/api/operational
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_generated/api/operational/health.py
+
+- pub `sync_detailed` function L44-64 — `def sync_detailed( *, client: AuthenticatedClient | Client, ) -> Response[Any]` — GET /health — liveness check (no auth, no DB)
+- pub `asyncio_detailed` function L67-85 — `def asyncio_detailed( *, client: AuthenticatedClient | Client, ) -> Response[Any...` — GET /health — liveness check (no auth, no DB)
+-  `_get_kwargs` function L11-18 — `def _get_kwargs() -> dict[str, Any]`
+-  `_parse_response` function L21-30 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L33-41 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/operational/ready.py
+
+- pub `sync_detailed` function L47-67 — `def sync_detailed( *, client: AuthenticatedClient | Client, ) -> Response[Any]` — GET /ready — readiness check (verifies DB connection pool is healthy)
+- pub `asyncio_detailed` function L70-88 — `def asyncio_detailed( *, client: AuthenticatedClient | Client, ) -> Response[Any...` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `_get_kwargs` function L11-18 — `def _get_kwargs() -> dict[str, Any]`
+-  `_parse_response` function L21-33 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L36-44 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+### clients/python/src/cloacina_client/_generated/api/tenants
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_generated/api/tenants/create_tenant.py
+
+- pub `sync_detailed` function L73-100 — `def sync_detailed( *, client: AuthenticatedClient, body: CreateTenantRequest, ) ...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
+- pub `sync` function L103-125 — `def sync( *, client: AuthenticatedClient, body: CreateTenantRequest, ) -> ErrorB...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
+- pub `asyncio_detailed` function L128-153 — `def asyncio_detailed( *, client: AuthenticatedClient, body: CreateTenantRequest,...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
+- pub `asyncio` function L156-180 — `def asyncio( *, client: AuthenticatedClient, body: CreateTenantRequest, ) -> Err...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
+-  `_get_kwargs` function L14-30 — `def _get_kwargs( *, body: CreateTenantRequest, ) -> dict[str, Any]`
+-  `_parse_response` function L33-59 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L62-70 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/tenants/list_tenants.py
+
+- pub `sync_detailed` function L63-84 — `def sync_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | Lis...` — GET /tenants — list tenant schemas.
+- pub `sync` function L87-104 — `def sync( *, client: AuthenticatedClient, ) -> ErrorBody | ListResponseTenantSum...` — GET /tenants — list tenant schemas.
+- pub `asyncio_detailed` function L107-126 — `def asyncio_detailed( *, client: AuthenticatedClient, ) -> Response[ErrorBody | ...` — GET /tenants — list tenant schemas.
+- pub `asyncio` function L129-148 — `def asyncio( *, client: AuthenticatedClient, ) -> ErrorBody | ListResponseTenant...` — GET /tenants — list tenant schemas.
+-  `_get_kwargs` function L13-20 — `def _get_kwargs() -> dict[str, Any]`
+-  `_parse_response` function L23-49 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L52-60 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/tenants/remove_tenant.py
+
+- pub `sync_detailed` function L73-116 — `def sync_detailed( schema_name: str, *, client: AuthenticatedClient, ) -> Respon...` — DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
+- pub `sync` function L119-157 — `def sync( schema_name: str, *, client: AuthenticatedClient, ) -> ErrorBody | Ten...` — DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
+- pub `asyncio_detailed` function L160-201 — `def asyncio_detailed( schema_name: str, *, client: AuthenticatedClient, ) -> Res...` — DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
+- pub `asyncio` function L204-244 — `def asyncio( schema_name: str, *, client: AuthenticatedClient, ) -> ErrorBody | ...` — DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
+-  `_get_kwargs` function L14-25 — `def _get_kwargs( schema_name: str, ) -> dict[str, Any]`
+-  `_parse_response` function L28-59 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L62-70 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+### clients/python/src/cloacina_client/_generated/api/triggers
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_generated/api/triggers/get_trigger.py
+
+- pub `sync_detailed` function L75-109 — `def sync_detailed( tenant_id: str, name: str, *, client: AuthenticatedClient, ) ...` — r"""GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+- pub `sync` function L112-141 — `def sync( tenant_id: str, name: str, *, client: AuthenticatedClient, ) -> ErrorB...` — r"""GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+- pub `asyncio_detailed` function L144-176 — `def asyncio_detailed( tenant_id: str, name: str, *, client: AuthenticatedClient,...` — r"""GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+- pub `asyncio` function L179-210 — `def asyncio( tenant_id: str, name: str, *, client: AuthenticatedClient, ) -> Err...` — r"""GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+-  `_get_kwargs` function L14-27 — `def _get_kwargs( tenant_id: str, name: str, ) -> dict[str, Any]`
+-  `_parse_response` function L30-61 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L64-72 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/triggers/list_triggers.py
+
+- pub `sync_detailed` function L89-125 — `def sync_detailed( tenant_id: str, *, client: AuthenticatedClient, limit: int | ...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
+- pub `sync` function L128-159 — `def sync( tenant_id: str, *, client: AuthenticatedClient, limit: int | Unset = U...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
+- pub `asyncio_detailed` function L162-196 — `def asyncio_detailed( tenant_id: str, *, client: AuthenticatedClient, limit: int...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
+- pub `asyncio` function L199-232 — `def asyncio( tenant_id: str, *, client: AuthenticatedClient, limit: int | Unset ...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
+-  `_get_kwargs` function L16-39 — `def _get_kwargs( tenant_id: str, *, limit: int | Unset = UNSET, offset: int | Un...`
+-  `_parse_response` function L42-75 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L78-86 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+### clients/python/src/cloacina_client/_generated/api/workflows
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_generated/api/workflows/delete_workflow.py
+
+- pub `sync_detailed` function L77-109 — `def sync_detailed( tenant_id: str, name: str, version: str, *, client: Authentic...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+- pub `sync` function L112-139 — `def sync( tenant_id: str, name: str, version: str, *, client: AuthenticatedClien...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+- pub `asyncio_detailed` function L142-172 — `def asyncio_detailed( tenant_id: str, name: str, version: str, *, client: Authen...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+- pub `asyncio` function L175-204 — `def asyncio( tenant_id: str, name: str, version: str, *, client: AuthenticatedCl...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+-  `_get_kwargs` function L14-29 — `def _get_kwargs( tenant_id: str, name: str, version: str, ) -> dict[str, Any]`
+-  `_parse_response` function L32-63 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L66-74 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/workflows/get_workflow.py
+
+- pub `sync_detailed` function L75-104 — `def sync_detailed( tenant_id: str, name: str, *, client: AuthenticatedClient, ) ...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
+- pub `sync` function L107-131 — `def sync( tenant_id: str, name: str, *, client: AuthenticatedClient, ) -> ErrorB...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
+- pub `asyncio_detailed` function L134-161 — `def asyncio_detailed( tenant_id: str, name: str, *, client: AuthenticatedClient,...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
+- pub `asyncio` function L164-190 — `def asyncio( tenant_id: str, name: str, *, client: AuthenticatedClient, ) -> Err...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
+-  `_get_kwargs` function L14-27 — `def _get_kwargs( tenant_id: str, name: str, ) -> dict[str, Any]`
+-  `_parse_response` function L30-61 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L64-72 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/workflows/list_workflows.py
+
+- pub `sync_detailed` function L70-96 — `def sync_detailed( tenant_id: str, *, client: AuthenticatedClient, ) -> Response...` — GET /tenants/:tenant_id/workflows — list registered workflows.
+- pub `sync` function L99-120 — `def sync( tenant_id: str, *, client: AuthenticatedClient, ) -> ErrorBody | Tenan...` — GET /tenants/:tenant_id/workflows — list registered workflows.
+- pub `asyncio_detailed` function L123-147 — `def asyncio_detailed( tenant_id: str, *, client: AuthenticatedClient, ) -> Respo...` — GET /tenants/:tenant_id/workflows — list registered workflows.
+- pub `asyncio` function L150-173 — `def asyncio( tenant_id: str, *, client: AuthenticatedClient, ) -> ErrorBody | Te...` — GET /tenants/:tenant_id/workflows — list registered workflows.
+-  `_get_kwargs` function L16-27 — `def _get_kwargs( tenant_id: str, ) -> dict[str, Any]`
+-  `_parse_response` function L30-56 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L59-67 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+#### clients/python/src/cloacina_client/_generated/api/workflows/upload_workflow.py
+
+- pub `sync_detailed` function L82-114 — `def sync_detailed( tenant_id: str, *, client: AuthenticatedClient, body: Package...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+- pub `sync` function L117-144 — `def sync( tenant_id: str, *, client: AuthenticatedClient, body: PackageUploadFor...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+- pub `asyncio_detailed` function L147-177 — `def asyncio_detailed( tenant_id: str, *, client: AuthenticatedClient, body: Pack...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+- pub `asyncio` function L180-209 — `def asyncio( tenant_id: str, *, client: AuthenticatedClient, body: PackageUpload...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+-  `_get_kwargs` function L15-34 — `def _get_kwargs( tenant_id: str, *, body: PackageUploadForm, ) -> dict[str, Any]`
+-  `_parse_response` function L37-68 — `def _parse_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+-  `_build_response` function L71-79 — `def _build_response( *, client: AuthenticatedClient | Client, response: httpx.Re...`
+
+### clients/python/src/cloacina_client/_generated/models
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/src/cloacina_client/_generated/models/accumulator_status.py
+
+- pub `AccumulatorStatus` class L13-71 — `{ to_dict, from_dict, additional_keys }` — One row in `GET /v1/health/accumulators`.
+- pub `to_dict` method L26-40 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L61-62 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L64-65 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L67-68 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L70-71 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/create_key_request.py
+
+- pub `CreateKeyRequest` class L16-81 — `{ to_dict, from_dict, additional_keys }` — Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`.
+- pub `to_dict` method L28-45 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L71-72 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L74-75 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L77-78 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L80-81 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/create_tenant_request.py
+
+- pub `CreateTenantRequest` class L15-105 — `{ to_dict, from_dict, additional_keys }` — Request body for `POST /tenants`.
+- pub `to_dict` method L30-57 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L95-96 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L98-99 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L101-102 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L104-105 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/error_body.py
+
+- pub `ErrorBody` class L13-73 — `{ to_dict, from_dict, additional_keys }` — Standardized error response body.
+- pub `to_dict` method L28-42 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L63-64 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L66-67 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L69-70 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L72-73 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/execute_request.py
+
+- pub `ExecuteRequest` class L15-62 — `{ to_dict, from_dict, additional_keys }` — Request body for `POST /tenants/{tenant_id}/workflows/{name}/execute`.
+- pub `to_dict` method L25-34 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L52-53 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L55-56 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L58-59 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L61-62 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/execute_response.py
+
+- pub `ExecuteResponse` class L13-86 — `{ to_dict, from_dict, additional_keys }` — `202 Accepted` body for a scheduled workflow execution.
+- pub `to_dict` method L29-49 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L76-77 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L79-80 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L82-83 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L85-86 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/execution_detail.py
+
+- pub `ExecutionDetail` class L13-78 — `{ to_dict, from_dict, additional_keys }` — `GET /tenants/{tenant_id}/executions/{id}` response.
+- pub `to_dict` method L27-44 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L68-69 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L71-72 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L74-75 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L77-78 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/execution_event.py
+
+- pub `ExecutionEvent` class L15-108 — `{ to_dict, from_dict, additional_keys }` — One row in the execution event log.
+- pub `to_dict` method L33-61 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L98-99 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L101-102 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L104-105 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L107-108 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/execution_events_response.py
+
+- pub `ExecutionEventsResponse` class L17-92 — `{ to_dict, from_dict, additional_keys }` — `GET /tenants/{tenant_id}/executions/{id}/events` response.
+- pub `to_dict` method L31-51 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L82-83 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L85-86 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L88-89 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L91-92 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/execution_summary.py
+
+- pub `ExecutionSummary` class L15-108 — `{ to_dict, from_dict, additional_keys }` — One row in the executions list.
+- pub `to_dict` method L33-61 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L98-99 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L101-102 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L104-105 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L107-108 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/graph_status.py
+
+- pub `GraphStatus` class L13-88 — `{ to_dict, from_dict, additional_keys }` — One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
+- pub `to_dict` method L31-51 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L78-79 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L81-82 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L84-85 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L87-88 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/key_created_response.py
+
+- pub `KeyCreatedResponse` class L15-125 — `{ to_dict, from_dict, additional_keys }` — `201 Created` body for a new API key.
+- pub `to_dict` method L38-72 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L115-116 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L118-119 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L121-122 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L124-125 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/key_info.py
+
+- pub `KeyInfo` class L15-124 — `{ to_dict, from_dict, additional_keys }` — One row in the key list (`GET /auth/keys`).
+- pub `to_dict` method L37-71 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L114-115 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L117-118 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L120-121 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L123-124 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/key_revoked_response.py
+
+- pub `KeyRevokedResponse` class L13-70 — `{ to_dict, from_dict, additional_keys }` — `DELETE /auth/keys/{key_id}` response.
+- pub `to_dict` method L25-39 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L60-61 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L63-64 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L66-67 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L69-70 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/key_role.py
+
+- pub `KeyRole` class L4-10 — `(str, Enum)`
+- pub `__str__` method L9-10 — `def __str__(self) -> str`
+
+#### clients/python/src/cloacina_client/_generated/models/list_response_accumulator_status.py
+
+- pub `ListResponseAccumulatorStatus` class L19-92 — `{ to_dict, from_dict, additional_keys }` — Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+- pub `to_dict` method L33-50 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L82-83 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L85-86 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L88-89 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L91-92 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/list_response_accumulator_status_items_item.py
+
+- pub `ListResponseAccumulatorStatusItemsItem` class L13-71 — `{ to_dict, from_dict, additional_keys }` — One row in `GET /v1/health/accumulators`.
+- pub `to_dict` method L26-40 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L61-62 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L64-65 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L67-68 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L70-71 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/list_response_graph_status.py
+
+- pub `ListResponseGraphStatus` class L19-90 — `{ to_dict, from_dict, additional_keys }` — Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+- pub `to_dict` method L33-50 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L80-81 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L83-84 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L86-87 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L89-90 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/list_response_graph_status_items_item.py
+
+- pub `ListResponseGraphStatusItemsItem` class L13-88 — `{ to_dict, from_dict, additional_keys }` — One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
+- pub `to_dict` method L31-51 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L78-79 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L81-82 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L84-85 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L87-88 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/list_response_key_info.py
+
+- pub `ListResponseKeyInfo` class L17-88 — `{ to_dict, from_dict, additional_keys }` — Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+- pub `to_dict` method L31-48 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L78-79 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L81-82 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L84-85 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L87-88 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/list_response_key_info_items_item.py
+
+- pub `ListResponseKeyInfoItemsItem` class L15-124 — `{ to_dict, from_dict, additional_keys }` — One row in the key list (`GET /auth/keys`).
+- pub `to_dict` method L37-71 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L114-115 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L117-118 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L120-121 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L123-124 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/list_response_tenant_summary.py
+
+- pub `ListResponseTenantSummary` class L19-90 — `{ to_dict, from_dict, additional_keys }` — Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+- pub `to_dict` method L33-50 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L80-81 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L83-84 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L86-87 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L89-90 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/list_response_tenant_summary_items_item.py
+
+- pub `ListResponseTenantSummaryItemsItem` class L13-62 — `{ to_dict, from_dict, additional_keys }` — One row in the tenant list (`GET /tenants`).
+- pub `to_dict` method L23-34 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L52-53 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L55-56 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L58-59 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L61-62 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/package_upload_form.py
+
+- pub `PackageUploadForm` class L17-78 — `{ to_dict, to_multipart, from_dict, additional_keys }` — Multipart form for workflow package upload.
+- pub `to_dict` method L29-40 — `def to_dict(self) -> dict[str, Any]`
+- pub `to_multipart` method L42-50 — `def to_multipart(self) -> types.RequestFiles`
+- pub `__getitem__` method L68-69 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L71-72 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L74-75 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L77-78 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/tenant_created_response.py
+
+- pub `TenantCreatedResponse` class L15-93 — `{ to_dict, from_dict, additional_keys }` — `201 Created` body for a new tenant.
+- pub `to_dict` method L30-52 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L83-84 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L86-87 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L89-90 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L92-93 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/tenant_list_response_execution_summary.py
+
+- pub `TenantListResponseExecutionSummary` class L19-100 — `{ to_dict, from_dict, additional_keys }` — List envelope variant that retains a top-level `tenant_id`, used by
+- pub `to_dict` method L35-55 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L90-91 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L93-94 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L96-97 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L99-100 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/tenant_list_response_execution_summary_items_item.py
+
+- pub `TenantListResponseExecutionSummaryItemsItem` class L15-108 — `{ to_dict, from_dict, additional_keys }` — One row in the executions list.
+- pub `to_dict` method L33-61 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L98-99 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L101-102 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L104-105 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L107-108 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/tenant_list_response_trigger_schedule_summary.py
+
+- pub `TenantListResponseTriggerScheduleSummary` class L19-100 — `{ to_dict, from_dict, additional_keys }` — List envelope variant that retains a top-level `tenant_id`, used by
+- pub `to_dict` method L35-55 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L90-91 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L93-94 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L96-97 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L99-100 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/tenant_list_response_trigger_schedule_summary_items_item.py
+
+- pub `TenantListResponseTriggerScheduleSummaryItemsItem` class L15-196 — `{ to_dict, from_dict, additional_keys }` — One row in the trigger list.
+- pub `to_dict` method L43-106 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L186-187 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L189-190 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L192-193 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L195-196 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/tenant_list_response_workflow_summary.py
+
+- pub `TenantListResponseWorkflowSummary` class L19-100 — `{ to_dict, from_dict, additional_keys }` — List envelope variant that retains a top-level `tenant_id`, used by
+- pub `to_dict` method L35-55 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L90-91 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L93-94 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L96-97 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L99-100 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/tenant_list_response_workflow_summary_items_item.py
+
+- pub `TenantListResponseWorkflowSummaryItemsItem` class L15-116 — `{ to_dict, from_dict, additional_keys }` — One row in the workflow list (`GET /tenants/{tenant_id}/workflows`).
+- pub `to_dict` method L35-66 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L106-107 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L109-110 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L112-113 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L115-116 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/tenant_removed_response.py
+
+- pub `TenantRemovedResponse` class L13-94 — `{ to_dict, from_dict, additional_keys }` — `DELETE /tenants/{schema_name}` response — orchestrated teardown report.
+- pub `to_dict` method L31-54 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L84-85 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L87-88 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L90-91 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L93-94 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/tenant_summary.py
+
+- pub `TenantSummary` class L13-62 — `{ to_dict, from_dict, additional_keys }` — One row in the tenant list (`GET /tenants`).
+- pub `to_dict` method L23-34 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L52-53 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L55-56 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L58-59 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L61-62 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/trigger_detail_response.py
+
+- pub `TriggerDetailResponse` class L18-96 — `{ to_dict, from_dict, additional_keys }` — `GET /tenants/{tenant_id}/triggers/{name}` response.
+- pub `to_dict` method L32-52 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L86-87 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L89-90 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L92-93 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L95-96 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/trigger_execution.py
+
+- pub `TriggerExecution` class L15-112 — `{ to_dict, from_dict, additional_keys }` — One row in `recent_executions` of the trigger detail response.
+- pub `to_dict` method L31-61 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L102-103 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L105-106 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L108-109 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L111-112 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/trigger_schedule_info.py
+
+- pub `TriggerScheduleInfo` class L15-128 — `{ to_dict, from_dict, additional_keys }` — Schedule fields in the trigger detail response.
+- pub `to_dict` method L35-71 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L118-119 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L121-122 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L124-125 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L127-128 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/trigger_schedule_summary.py
+
+- pub `TriggerScheduleSummary` class L15-196 — `{ to_dict, from_dict, additional_keys }` — One row in the trigger list.
+- pub `to_dict` method L43-106 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L186-187 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L189-190 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L192-193 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L195-196 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/workflow_deleted_response.py
+
+- pub `WorkflowDeletedResponse` class L13-78 — `{ to_dict, from_dict, additional_keys }` — `DELETE /tenants/{tenant_id}/workflows/{name}/{version}` response.
+- pub `to_dict` method L27-44 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L68-69 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L71-72 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L74-75 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L77-78 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/workflow_detail.py
+
+- pub `WorkflowDetail` class L15-153 — `{ to_dict, from_dict, additional_keys }` — `GET /tenants/{tenant_id}/workflows/{name}` response — summary fields
+- pub `to_dict` method L42-87 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L143-144 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L146-147 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L149-150 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L152-153 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/workflow_summary.py
+
+- pub `WorkflowSummary` class L15-116 — `{ to_dict, from_dict, additional_keys }` — One row in the workflow list (`GET /tenants/{tenant_id}/workflows`).
+- pub `to_dict` method L35-66 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L106-107 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L109-110 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L112-113 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L115-116 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/workflow_uploaded_response.py
+
+- pub `WorkflowUploadedResponse` class L13-71 — `{ to_dict, from_dict, additional_keys }` — `201 Created` body for a workflow package upload
+- pub `to_dict` method L26-40 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L61-62 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L64-65 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L67-68 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L70-71 — `def __contains__(self, key: str) -> bool`
+
+#### clients/python/src/cloacina_client/_generated/models/ws_ticket_response.py
+
+- pub `WsTicketResponse` class L13-71 — `{ to_dict, from_dict, additional_keys }` — `POST /auth/ws-ticket` response — a single-use, short-lived ticket for
+- pub `to_dict` method L26-40 — `def to_dict(self) -> dict[str, Any]`
+- pub `__getitem__` method L61-62 — `def __getitem__(self, key: str) -> Any`
+- pub `__setitem__` method L64-65 — `def __setitem__(self, key: str, value: Any) -> None`
+- pub `__delitem__` method L67-68 — `def __delitem__(self, key: str) -> None`
+- pub `__contains__` method L70-71 — `def __contains__(self, key: str) -> bool`
+
+### clients/python/tests
+
+> *Semantic summary to be generated by AI agent.*
+
+#### clients/python/tests/test_contract.py
+
+- pub `test_health` function L68-70 — `def test_health(client: Client) -> None`
+- pub `test_ready` function L73-76 — `def test_ready(client: Client) -> None`
+- pub `test_openapi_served` function L79-82 — `def test_openapi_served() -> None`
+- pub `test_key_lifecycle` function L88-99 — `def test_key_lifecycle(client: Client) -> None`
+- pub `test_tenant_scoped_key` function L102-105 — `def test_tenant_scoped_key(client: Client, tenant_name: str) -> None`
+- pub `test_ws_ticket` function L108-111 — `def test_ws_ticket(client: Client) -> None`
+- pub `test_tenant_listed` function L117-119 — `def test_tenant_listed(client: Client, tenant_name: str) -> None`
+- pub `test_upload_rejects_garbage` function L125-128 — `def test_upload_rejects_garbage(client: Client) -> None`
+- pub `test_workflow_list_envelope` function L131-134 — `def test_workflow_list_envelope(client: Client, tenant_name: str) -> None`
+- pub `test_workflow_missing_404` function L137-141 — `def test_workflow_missing_404(client: Client) -> None`
+- pub `test_workflow_delete_idempotent` function L144-147 — `def test_workflow_delete_idempotent(client: Client) -> None`
+- pub `test_trigger_list_and_pagination` function L153-160 — `def test_trigger_list_and_pagination(client: Client, tenant_name: str) -> None`
+- pub `test_trigger_missing_404` function L163-166 — `def test_trigger_missing_404(client: Client) -> None`
+- pub `test_execute_unknown_workflow` function L172-176 — `def test_execute_unknown_workflow(client: Client) -> None`
+- pub `test_execution_list_and_iteration` function L179-183 — `def test_execution_list_and_iteration(client: Client, tenant_name: str) -> None`
+- pub `test_execution_invalid_and_missing_ids` function L186-199 — `def test_execution_invalid_and_missing_ids(client: Client) -> None`
+- pub `test_graph_health_endpoints` function L205-212 — `def test_graph_health_endpoints(client: Client) -> None`
+- pub `test_async_client_basics` function L218-223 — `def test_async_client_basics() -> None`
+- pub `test_ws_subscription_lifecycle` function L226-259 — `def test_ws_subscription_lifecycle() -> None`
 
 ### clients/typescript/generated
 
@@ -2339,25 +3211,25 @@
 - pub `TenantCredentials` struct L52-61 — `{ username: String, password: String, schema_name: String, connection_string: St...` — Credentials returned after tenant creation
 - pub `AdminError` enum L65-83 — `Database | Pool | SqlExecution | InvalidConfig | InvalidSchema | InvalidUsername` — Errors that can occur during database administration
 - pub `new` function L100-102 — `(database: Database) -> Self` — Create a new database administrator
-- pub `create_tenant` function L108-236 — `( &self, tenant_config: TenantConfig, ) -> Result<TenantCredentials, AdminError>` — Create a complete tenant setup (schema + user + permissions + migrations)
-- pub `remove_tenant` function L241-304 — `( &self, schema_name: &str, username: &str, ) -> Result<(), AdminError>` — Remove a tenant (user + schema)
-- pub `list_tenant_schemas` function L319-354 — `(&self) -> Result<Vec<String>, AdminError>` — List all non-system schemas (tenant schemas).
--  `postgres_impl` module L26-472 — `-` — Note: This module is only available when using the PostgreSQL backend.
+- pub `create_tenant` function L108-254 — `( &self, tenant_config: TenantConfig, ) -> Result<TenantCredentials, AdminError>` — Create a complete tenant setup (schema + user + permissions + migrations)
+- pub `remove_tenant` function L259-322 — `( &self, schema_name: &str, username: &str, ) -> Result<(), AdminError>` — Remove a tenant (user + schema)
+- pub `list_tenant_schemas` function L337-372 — `(&self) -> Result<Vec<String>, AdminError>` — List all non-system schemas (tenant schemas).
+-  `postgres_impl` module L26-490 — `-` — Note: This module is only available when using the PostgreSQL backend.
 -  `AdminError` type L85-89 — `= AdminError` — Note: This module is only available when using the PostgreSQL backend.
 -  `from` function L86-88 — `(err: deadpool::managed::PoolError<deadpool_diesel::postgres::Manager>) -> Self` — Note: This module is only available when using the PostgreSQL backend.
 -  `AdminError` type L91-95 — `= AdminError` — Note: This module is only available when using the PostgreSQL backend.
 -  `from` function L92-94 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — Note: This module is only available when using the PostgreSQL backend.
--  `DatabaseAdmin` type L98-355 — `= DatabaseAdmin` — Note: This module is only available when using the PostgreSQL backend.
--  `build_connection_string` function L306-316 — `(&self, username: &str, password: &str) -> String` — Note: This module is only available when using the PostgreSQL backend.
--  `SchemaRow` struct L331-334 — `{ nspname: String }` — Note: This module is only available when using the PostgreSQL backend.
--  `generate_secure_password` function L358-370 — `(length: usize) -> String` — Note: This module is only available when using the PostgreSQL backend.
--  `tests` module L373-471 — `-` — Note: This module is only available when using the PostgreSQL backend.
--  `test_generate_secure_password` function L377-387 — `()` — Note: This module is only available when using the PostgreSQL backend.
--  `test_tenant_config_validation` function L390-402 — `()` — Note: This module is only available when using the PostgreSQL backend.
--  `test_username_validation_rejects_sql_injection` function L405-425 — `()` — Note: This module is only available when using the PostgreSQL backend.
--  `test_schema_validation_rejects_sql_injection` function L428-442 — `()` — Note: This module is only available when using the PostgreSQL backend.
--  `test_reserved_usernames_rejected` function L445-457 — `()` — Note: This module is only available when using the PostgreSQL backend.
--  `test_password_escaping` function L460-470 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `DatabaseAdmin` type L98-373 — `= DatabaseAdmin` — Note: This module is only available when using the PostgreSQL backend.
+-  `build_connection_string` function L324-334 — `(&self, username: &str, password: &str) -> String` — Note: This module is only available when using the PostgreSQL backend.
+-  `SchemaRow` struct L349-352 — `{ nspname: String }` — Note: This module is only available when using the PostgreSQL backend.
+-  `generate_secure_password` function L376-388 — `(length: usize) -> String` — Note: This module is only available when using the PostgreSQL backend.
+-  `tests` module L391-489 — `-` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_generate_secure_password` function L395-405 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_tenant_config_validation` function L408-420 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_username_validation_rejects_sql_injection` function L423-443 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_schema_validation_rejects_sql_injection` function L446-460 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_reserved_usernames_rejected` function L463-475 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_password_escaping` function L478-488 — `()` — Note: This module is only available when using the PostgreSQL backend.
 
 #### crates/cloacina/src/database/mod.rs
 
@@ -5656,6 +6528,108 @@
 
 - pub `configure` function L47-66 — `()` — Configures the Python rpath and PyO3 cfg flags for the current binary crate.
 
+### crates/cloacina-client/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-client/src/error.rs
+
+- pub `ClientError` enum L24-58 — `Transport | Auth | NotFound | InvalidRequest | Server | Config | Ws | ProtocolVe...` — Errors from the cloacina-server client.
+- pub `from_status` function L66-73 — `(status: u16, body: Value) -> Self` — Map an HTTP status + canonical `{error, code}` body to a variant.
+- pub `code` function L76-81 — `(&self) -> Option<&str>` — Machine-readable `code` from the canonical error body, when present.
+-  `ClientError` type L60-82 — `= ClientError` — (T-0646).
+-  `from_reqwest` function L61-63 — `(err: reqwest::Error) -> Self` — (T-0646).
+-  `extract_message` function L87-92 — `(body: &Value) -> String` — CLOACI-T-0595 / API-06: the canonical `ApiError` envelope is
+
+#### crates/cloacina-client/src/lib.rs
+
+- pub `ClientBuilder` struct L73-79 — `{ server: String, api_key: Option<String>, tenant: Option<String>, connect_timeo...` — Builder for [`Client`].
+- pub `new` function L84-89 — `(server: impl Into<String>) -> Self` — Start a builder for the given server base URL
+- pub `from_cloacinactl_profile` function L94-99 — `( home: Option<&std::path::Path>, profile: Option<&str>, ) -> Result<Self, Clien...` — Build from a `cloacinactl` profile in `~/.cloacina/config.toml`
+- pub `api_key` function L102-105 — `(mut self, key: impl Into<String>) -> Self` — API key, sent as `Authorization: Bearer <key>` on every request.
+- pub `tenant` function L109-112 — `(mut self, tenant: impl Into<String>) -> Self` — Default tenant for tenant-scoped calls (defaults to `public` —
+- pub `connect_timeout` function L115-118 — `(mut self, d: Duration) -> Self` — Connect timeout (default 5s).
+- pub `timeout` function L121-124 — `(mut self, d: Duration) -> Self` — Overall request timeout (default 30s).
+- pub `build` function L126-143 — `(self) -> Result<Client, ClientError>` — ```
+- pub `Client` struct L156-158 — `{ inner: Arc<ClientInner> }` — Typed client for the cloacina-server REST API + delivery WebSocket.
+- pub `server` function L162-164 — `(&self) -> &str` — Server base URL this client talks to.
+- pub `tenant_segment` function L168-170 — `(&self) -> &str` — Default tenant segment for tenant-scoped routes — `--tenant` value
+- pub `get_json` function L202-209 — `(&self, path: &str) -> Result<T, ClientError>` — Typed GET of an arbitrary path.
+- pub `post_json` function L212-224 — `( &self, path: &str, body: &B, ) -> Result<T, ClientError>` — Typed POST (JSON body) to an arbitrary path.
+- pub `delete_path` function L227-239 — `(&self, path: &str) -> Result<(), ClientError>` — DELETE an arbitrary path, discarding any response body.
+- pub `health` function L247-249 — `(&self) -> Result<Value, ClientError>` — ```
+- pub `ready` function L252-261 — `(&self) -> Result<(u16, Value), ClientError>` — Raw readiness response — 503 is a meaningful state, not an error.
+- pub `create_key` function L265-278 — `( &self, name: &str, role: KeyRole, ) -> Result<KeyCreatedResponse, ClientError>` — ```
+- pub `list_keys` function L280-282 — `(&self) -> Result<ListResponse<KeyInfo>, ClientError>` — ```
+- pub `revoke_key` function L284-291 — `(&self, key_id: &str) -> Result<KeyRevokedResponse, ClientError>` — ```
+- pub `create_tenant_key` function L293-308 — `( &self, name: &str, role: KeyRole, tenant: Option<&str>, ) -> Result<KeyCreated...` — ```
+- pub `create_ws_ticket` function L311-313 — `(&self) -> Result<WsTicketResponse, ClientError>` — Mint a single-use, short-lived WebSocket ticket.
+- pub `create_tenant` function L317-322 — `( &self, request: &CreateTenantRequest, ) -> Result<TenantCreatedResponse, Clien...` — ```
+- pub `list_tenants` function L324-326 — `(&self) -> Result<ListResponse<TenantSummary>, ClientError>` — ```
+- pub `remove_tenant` function L328-338 — `( &self, schema_name: &str, ) -> Result<TenantRemovedResponse, ClientError>` — ```
+- pub `upload_workflow` function L343-361 — `( &self, package: Vec<u8>, tenant: Option<&str>, ) -> Result<WorkflowUploadedRes...` — Upload a `.cloacina` package (multipart).
+- pub `list_workflows` function L363-369 — `( &self, tenant: Option<&str>, ) -> Result<TenantListResponse<WorkflowSummary>, ...` — ```
+- pub `get_workflow` function L371-379 — `( &self, name: &str, tenant: Option<&str>, ) -> Result<WorkflowDetail, ClientErr...` — ```
+- pub `delete_workflow` function L381-397 — `( &self, name: &str, version: &str, tenant: Option<&str>, ) -> Result<WorkflowDe...` — ```
+- pub `list_triggers` function L401-418 — `( &self, limit: Option<i64>, offset: Option<i64>, tenant: Option<&str>, ) -> Res...` — ```
+- pub `get_trigger` function L420-428 — `( &self, name: &str, tenant: Option<&str>, ) -> Result<TriggerDetailResponse, Cl...` — ```
+- pub `execute_workflow` function L432-445 — `( &self, name: &str, context: Value, ) -> Result<ExecuteResponse, ClientError>` — ```
+- pub `list_executions` function L447-472 — `( &self, query: &cloacina_api_types::ListExecutionsQuery, tenant: Option<&str>, ...` — ```
+- pub `get_execution` function L474-482 — `( &self, exec_id: &str, tenant: Option<&str>, ) -> Result<ExecutionDetail, Clien...` — ```
+- pub `get_execution_events` function L484-492 — `( &self, exec_id: &str, tenant: Option<&str>, ) -> Result<ExecutionEventsRespons...` — ```
+- pub `list_accumulators` function L496-498 — `(&self) -> Result<ListResponse<AccumulatorStatus>, ClientError>` — ```
+- pub `list_graphs` function L500-502 — `(&self) -> Result<ListResponse<GraphStatus>, ClientError>` — ```
+- pub `get_graph` function L504-506 — `(&self, name: &str) -> Result<GraphStatus, ClientError>` — ```
+- pub `subscribe_delivery` function L513-519 — `( &self, recipient: &str, options: SubscribeOptions, ) -> impl futures_util::Str...` — Subscribe to the substrate delivery stream for a recipient.
+- pub `follow_execution_events` function L524-529 — `( &self, execution_id: &str, ) -> impl futures_util::Stream<Item = Result<Value,...` — Stream the JSON events of one workflow execution — recipient
+- pub `follow_execution_events_with` function L533-539 — `( &self, execution_id: &str, options: SubscribeOptions, ) -> impl futures_util::...` — [`follow_execution_events`](Self::follow_execution_events) with
+-  `error` module L46 — `-` — Rust client for `cloacina-server` (CLOACI-I-0113 / T-0646).
+-  `profile` module L47 — `-` — ```
+-  `ws` module L48 — `-` — ```
+-  `ClientBuilder` type L81-144 — `= ClientBuilder` — ```
+-  `ClientInner` struct L146-151 — `{ server: String, api_key: String, tenant: Option<String>, http: reqwest::Client...` — ```
+-  `Client` type L160-540 — `= Client` — ```
+-  `url` function L172-174 — `(&self, path: &str) -> String` — ```
+-  `request` function L176-183 — `(&self, method: Method, path: &str) -> reqwest::RequestBuilder` — ```
+-  `parse` function L185-195 — `(response: Response) -> Result<T, ClientError>` — ```
+-  `tenant_of` function L241-243 — `(&'a self, tenant: Option<&'a str>) -> &'a str` — ```
+
+#### crates/cloacina-client/src/profile.rs
+
+- pub `resolve_api_key_scheme` function L83-101 — `(raw: &str) -> Result<String, ClientError>` — Resolve an api-key value that may carry a scheme prefix —
+-  `CloacinactlConfig` struct L30-35 — `{ default_profile: Option<String>, profiles: HashMap<String, Profile> }` — (moved from `cloacinactl/src/shared/client_ctx.rs` in T-0646).
+-  `Profile` struct L38-41 — `{ server: String, api_key: String }` — (moved from `cloacinactl/src/shared/client_ctx.rs` in T-0646).
+-  `builder_from_profile` function L43-78 — `( home: Option<&Path>, profile: Option<&str>, ) -> Result<ClientBuilder, ClientE...` — (moved from `cloacinactl/src/shared/client_ctx.rs` in T-0646).
+-  `read_key_file` function L103-115 — `(path: &Path) -> Result<String, ClientError>` — (moved from `cloacinactl/src/shared/client_ctx.rs` in T-0646).
+-  `tests` module L118-165 — `-` — (moved from `cloacinactl/src/shared/client_ctx.rs` in T-0646).
+-  `env_scheme` function L122-129 — `()` — (moved from `cloacinactl/src/shared/client_ctx.rs` in T-0646).
+-  `file_scheme` function L132-139 — `()` — (moved from `cloacinactl/src/shared/client_ctx.rs` in T-0646).
+-  `keyring_scheme_deferred` function L142-145 — `()` — (moved from `cloacinactl/src/shared/client_ctx.rs` in T-0646).
+-  `profile_resolution` function L148-164 — `()` — (moved from `cloacinactl/src/shared/client_ctx.rs` in T-0646).
+
+#### crates/cloacina-client/src/ws.rs
+
+- pub `DeliveryPush` struct L39-48 — `{ id: i64, kind: String, recipient: String, tenant_id: Option<String>, payload: ...` — One decoded delivery push.
+- pub `SubscribeOptions` struct L52-59 — `{ reconnect: bool, reconnect_initial: Duration, reconnect_max: Duration }` — Options for [`Client::subscribe_delivery`].
+-  `SubscribeOptions` type L61-69 — `impl Default for SubscribeOptions` — consumer crash before processing leaves the row unacked → redelivered.
+-  `default` function L62-68 — `() -> Self` — consumer crash before processing leaves the row unacked → redelivered.
+-  `ws_base` function L71-81 — `(server: &str) -> Result<String, ClientError>` — consumer crash before processing leaves the row unacked → redelivered.
+-  `subscribe_delivery` function L83-186 — `( client: Client, recipient: String, options: SubscribeOptions, ) -> impl Stream...` — consumer crash before processing leaves the row unacked → redelivered.
+-  `follow_execution_events` function L188-204 — `( client: Client, execution_id: String, options: SubscribeOptions, ) -> impl Str...` — consumer crash before processing leaves the row unacked → redelivered.
+
+### crates/cloacina-client/tests
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-client/tests/contract.rs
+
+-  `RANDOM_UUID` variable L32 — `: &str` — CLOACINA_API_KEY     a god-mode (bootstrap) key
+-  `live_client` function L34-50 — `() -> Option<(Client, String)>` — CLOACINA_API_KEY     a god-mode (bootstrap) key
+-  `require_live` macro L52-62 — `-` — CLOACINA_API_KEY     a god-mode (bootstrap) key
+-  `full_rest_surface_contract` function L65-204 — `()` — CLOACINA_API_KEY     a god-mode (bootstrap) key
+-  `ws_subscription_lifecycle` function L207-231 — `()` — CLOACINA_API_KEY     a god-mode (bootstrap) key
+-  `overhead_under_5ms_vs_raw_reqwest` function L236-273 — `()` — NFR-002: the client adds < 5ms over raw reqwest for a localhost
+
 ### crates/cloacina-compiler/src
 
 > *Semantic summary to be generated by AI agent.*
@@ -7744,17 +8718,11 @@
 
 #### crates/cloacinactl/src/nouns/execution/mod.rs
 
-- pub `ExecutionCmd` struct L31-34 — `{ verb: ExecutionVerb }` — `cloacinactl execution <verb>`.
-- pub `run` function L67-123 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl execution <verb>`.
--  `ExecutionVerb` enum L37-64 — `List | Status | Events` — `cloacinactl execution <verb>`.
--  `ExecutionCmd` type L66-124 — `= ExecutionCmd` — `cloacinactl execution <verb>`.
--  `follow_execution_events` function L135-210 — `( client: &CliClient, exec_id: &str, output: OutputFormat, ) -> Result<(), CliEr...` — Mint a single-use WebSocket ticket, connect to the substrate delivery
--  `decode_push_payload` function L213-219 — `(frame: &serde_json::Value) -> Option<serde_json::Value>` — Decode `payload_b64` from a `push` envelope into the producer-side JSON event.
--  `ws_url_for` function L223-242 — `(server: &str, exec_id: &str, ticket: &str) -> Result<String, CliError>` — Build a `ws://` or `wss://` URL for the substrate delivery endpoint of a
--  `ws_url_tests` module L245-271 — `-` — `cloacinactl execution <verb>`.
--  `https_becomes_wss` function L249-255 — `()` — `cloacinactl execution <verb>`.
--  `http_becomes_ws` function L258-264 — `()` — `cloacinactl execution <verb>`.
--  `unsupported_scheme_errors` function L267-270 — `()` — `cloacinactl execution <verb>`.
+- pub `ExecutionCmd` struct L30-33 — `{ verb: ExecutionVerb }` — `cloacinactl execution <verb>`.
+- pub `run` function L66-122 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl execution <verb>`.
+-  `ExecutionVerb` enum L36-63 — `List | Status | Events` — `cloacinactl execution <verb>`.
+-  `ExecutionCmd` type L65-123 — `= ExecutionCmd` — `cloacinactl execution <verb>`.
+-  `follow_execution_events` function L136-154 — `( client: &CliClient, exec_id: &str, output: OutputFormat, ) -> Result<(), CliEr...` — Stream the execution's events until the connection closes or Ctrl-C,
 
 ### crates/cloacinactl/src/nouns/graph
 
@@ -7920,35 +8888,31 @@
 
 #### crates/cloacinactl/src/shared/client.rs
 
-- pub `CliClient` struct L31-34 — `{ ctx: ClientContext, http: reqwest::Client }` — Shared HTTP client used by every verb handler.
-- pub `confirm_destructive` function L38-57 — `(action: &str) -> Result<(), CliError>` — Prompt the user for destructive-op confirmation unless stdin isn't a TTY
-- pub `new` function L60-67 — `(ctx: ClientContext) -> Result<Arc<Self>, CliError>` — exposes a `ClientContext` for tenant/path resolution at each call site.
-- pub `ctx` function L69-71 — `(&self) -> &ClientContext` — exposes a `ClientContext` for tenant/path resolution at each call site.
-- pub `get` function L100-103 — `(&self, path: &str) -> Result<T, CliError>` — Typed GET.
-- pub `post` function L106-115 — `( &self, path: &str, body: &B, ) -> Result<T, CliError>` — Typed POST (JSON body).
-- pub `delete` function L118-127 — `(&self, path: &str) -> Result<(), CliError>` — DELETE without a response body.
--  `CliClient` type L59-128 — `= CliClient` — exposes a `ClientContext` for tenant/path resolution at each call site.
--  `url` function L73-77 — `(&self, path: &str) -> String` — exposes a `ClientContext` for tenant/path resolution at each call site.
--  `apply_auth` function L79-83 — `(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder` — exposes a `ClientContext` for tenant/path resolution at each call site.
--  `send` function L85-88 — `(&self, req: reqwest::RequestBuilder) -> Result<Response, CliError>` — exposes a `ClientContext` for tenant/path resolution at each call site.
--  `parse_response` function L90-97 — `(response: Response) -> Result<T, CliError>` — exposes a `ClientContext` for tenant/path resolution at each call site.
+- pub `CliClient` struct L32-35 — `{ ctx: ClientContext, inner: cloacina_client::Client }` — Shared HTTP client used by every verb handler.
+- pub `confirm_destructive` function L39-58 — `(action: &str) -> Result<(), CliError>` — Prompt the user for destructive-op confirmation unless stdin isn't a TTY
+- pub `new` function L61-68 — `(ctx: ClientContext) -> Result<Arc<Self>, CliError>` — exit-code mapping — and delegates everything else.
+- pub `ctx` function L70-72 — `(&self) -> &ClientContext` — exit-code mapping — and delegates everything else.
+- pub `inner` function L75-77 — `(&self) -> &cloacina_client::Client` — The underlying published client, for typed/WS calls.
+- pub `get` function L80-82 — `(&self, path: &str) -> Result<T, CliError>` — Typed GET.
+- pub `post` function L85-94 — `( &self, path: &str, body: &B, ) -> Result<T, CliError>` — Typed POST (JSON body).
+- pub `delete` function L97-99 — `(&self, path: &str) -> Result<(), CliError>` — DELETE without a response body.
+-  `CliClient` type L60-100 — `= CliClient` — exit-code mapping — and delegates everything else.
 
 #### crates/cloacinactl/src/shared/client_ctx.rs
 
-- pub `ClientContext` struct L29-38 — `{ server: String, api_key: String, tenant: Option<String>, output: OutputFormat,...` — Resolved client context — everything a client command needs to talk to the
-- pub `resolve` function L43-81 — `(opts: &GlobalOpts, config: &CloacinaConfig) -> Result<Self>` — Resolve against the precedence rule from ADR-0003 §3:
-- pub `tenant_segment` function L87-89 — `(&self) -> &str` — Tenant segment to inject into tenant-scoped server routes
-- pub `resolve_api_key_scheme` function L93-108 — `(raw: &str) -> Result<String>` — Resolve an api-key value that may carry a scheme prefix.
--  `ClientContext` type L40-90 — `= ClientContext` — that client-side commands use to hit the server.
--  `read_key_file` function L110-119 — `(path: &Path) -> Result<String>` — that client-side commands use to hit the server.
--  `tests` module L122-218 — `-` — that client-side commands use to hit the server.
--  `opts` function L127-141 — `(overrides: impl FnOnce(&mut GlobalOpts)) -> GlobalOpts` — that client-side commands use to hit the server.
--  `explicit_flag_wins` function L144-163 — `()` — that client-side commands use to hit the server.
--  `named_profile_wins_over_default` function L166-188 — `()` — that client-side commands use to hit the server.
--  `no_config_errors` function L191-195 — `()` — that client-side commands use to hit the server.
--  `env_scheme` function L198-203 — `()` — that client-side commands use to hit the server.
--  `file_scheme` function L206-211 — `()` — that client-side commands use to hit the server.
--  `keyring_scheme_deferred` function L214-217 — `()` — that client-side commands use to hit the server.
+- pub `ClientContext` struct L28-37 — `{ server: String, api_key: String, tenant: Option<String>, output: OutputFormat,...` — Resolved client context — everything a client command needs to talk to the
+- pub `resolve` function L42-80 — `(opts: &GlobalOpts, config: &CloacinaConfig) -> Result<Self>` — Resolve against the precedence rule from ADR-0003 §3:
+- pub `tenant_segment` function L86-88 — `(&self) -> &str` — Tenant segment to inject into tenant-scoped server routes
+- pub `resolve_api_key_scheme` function L94-96 — `(raw: &str) -> Result<String>` — Resolve an api-key value that may carry a scheme prefix.
+-  `ClientContext` type L39-89 — `= ClientContext` — that client-side commands use to hit the server.
+-  `tests` module L99-195 — `-` — that client-side commands use to hit the server.
+-  `opts` function L104-118 — `(overrides: impl FnOnce(&mut GlobalOpts)) -> GlobalOpts` — that client-side commands use to hit the server.
+-  `explicit_flag_wins` function L121-140 — `()` — that client-side commands use to hit the server.
+-  `named_profile_wins_over_default` function L143-165 — `()` — that client-side commands use to hit the server.
+-  `no_config_errors` function L168-172 — `()` — that client-side commands use to hit the server.
+-  `env_scheme` function L175-180 — `()` — that client-side commands use to hit the server.
+-  `file_scheme` function L183-188 — `()` — that client-side commands use to hit the server.
+-  `keyring_scheme_deferred` function L191-194 — `()` — that client-side commands use to hit the server.
 
 #### crates/cloacinactl/src/shared/error.rs
 
@@ -7967,10 +8931,12 @@
 -  `from` function L124-126 — `(e: reqwest::Error) -> Self` — Error types and exit-code mapping per ADR-0003.
 -  `CliError` type L129-133 — `= CliError` — Error types and exit-code mapping per ADR-0003.
 -  `from` function L130-132 — `(e: anyhow::Error) -> Self` — Error types and exit-code mapping per ADR-0003.
--  `tests` module L136-188 — `-` — Error types and exit-code mapping per ADR-0003.
--  `exit_codes_match_adr` function L140-160 — `()` — Error types and exit-code mapping per ADR-0003.
--  `from_status_maps_correctly` function L163-180 — `()` — Error types and exit-code mapping per ADR-0003.
--  `message_extraction_prefers_structured_error` function L183-187 — `()` — Error types and exit-code mapping per ADR-0003.
+-  `CliError` type L137-154 — `= CliError` — T-0646: the HTTP client moved to the published `cloacina-client` crate;
+-  `from` function L138-153 — `(e: cloacina_client::ClientError) -> Self` — Error types and exit-code mapping per ADR-0003.
+-  `tests` module L157-209 — `-` — Error types and exit-code mapping per ADR-0003.
+-  `exit_codes_match_adr` function L161-181 — `()` — Error types and exit-code mapping per ADR-0003.
+-  `from_status_maps_correctly` function L184-201 — `()` — Error types and exit-code mapping per ADR-0003.
+-  `message_extraction_prefers_structured_error` function L204-208 — `()` — Error types and exit-code mapping per ADR-0003.
 
 #### crates/cloacinactl/src/shared/mod.rs
 
@@ -11040,6 +12006,17 @@
 - pub `preceding_line` function L132-140 — `def preceding_line(text: str, idx: int) -> str`
 - pub `scan_file` function L143-178 — `def scan_file(path: Path, root: Path) -> list[tuple[Path, int, str, str]]`
 - pub `main` function L181-207 — `def main() -> int`
+
+#### scripts/check_sdk_coverage.py
+
+- pub `skeleton` function L64-66 — `def skeleton(path: str) -> str` — Wildcard the parameter segments: /v1/tenants/{tenant_id}/x → /v1/tenants/*/x.
+- pub `rust_skeletons` function L69-74 — `def rust_skeletons(source: str) -> set[str]`
+- pub `main` function L77-118 — `def main() -> int`
+
+#### scripts/check_sdk_versions.py
+
+- pub `workspace_version` function L32-45 — `def workspace_version() -> str`
+- pub `main` function L48-82 — `def main() -> int`
 
 ### tests/python
 

@@ -4,14 +4,14 @@ level: task
 title: "Cross-SDK release — angreal sdk-contract matrix, Diataxis docs, lockstep release tooling"
 short_code: "CLOACI-T-0648"
 created_at: 2026-06-10T01:30:42.525161+00:00
-updated_at: 2026-06-10T10:26:19.858654+00:00
+updated_at: 2026-06-10T11:53:29.578137+00:00
 parent: CLOACI-I-0113
 blocked_by: [CLOACI-T-0645, CLOACI-T-0646, CLOACI-T-0647]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0113
 ## Objective **[REQUIRED]**
 
 Aggregate and ship: an `angreal test sdk-contract` matrix running all three SDK contract suites against a live server in CI, Diataxis docs per language (tutorial, how-to, reference), version-lockstep release tooling so SDK versions stamp from the workspace version, and the first tagged SDK release riding the next cloacina release (REQ-006/REQ-008). This phase is an aggregation — each SDK's contract suite was already green when its own task exited.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -56,4 +58,4 @@ Release-workflow permissions: the v0.7.0 release hit two rounds of GitHub Action
 - unified_release.yml: lockstep check in `verify-version`; `cloacina-api-types` published tier-1 (cloacina depends on it) and `cloacina-client` before `cloacinactl`; new `publish-npm` (idempotent via npm-view check, **requires NPM_TOKEN secret**) and `publish-pypi-client` (uv build + skip-existing) jobs, both with explicit job-level permissions per the v0.7.0 lesson. actionlint clean on both workflows.
 - Docs: `docs/content/sdks/` (overview + rust + python + typescript), weight 35.
 - **Local verification: full `angreal test sdk-contract` matrix passed** (lockstep + coverage + Rust 3 tests + Python 19 + TS 27 against one fresh live server).
-- **User action needed before next tagged release:** create the `NPM_TOKEN` repo secret (PYPI_TOKEN/CARGO_REGISTRY_TOKEN already exist).
+- **User action needed before next tagged release:** create the `NPM_TOKEN` repo secret (PYPI_TOKEN/CARGO_REGISTRY_TOKEN already exist). → **Done 2026-06-10** (user added the secret). Additionally `publish-npm` is `continue-on-error: true` until the first scoped publish succeeds — first publish of a scoped npm package often needs one-time org/2FA setup; drop the soft-fail after it lands (commit e1bf28de).
