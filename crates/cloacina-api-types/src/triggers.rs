@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 /// (CLOACI-T-0596 / API-10 pagination).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[cfg_attr(feature = "openapi", into_params(parameter_in = Query))]
 pub struct ListTriggersQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,

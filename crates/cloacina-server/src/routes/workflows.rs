@@ -400,10 +400,10 @@ pub async fn get_workflow(
         ("version" = String, Path, description = "Package version"),
     ),
     responses(
-        (status = 200, description = "Workflow unregistered", body = WorkflowDeletedResponse),
+        (status = 200, description = "Workflow unregistered. Idempotent: also returned when no matching package existed", body = WorkflowDeletedResponse),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
-        (status = 404, description = "Workflow not found", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Registry lookup failed", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))

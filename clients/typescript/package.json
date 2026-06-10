@@ -1,0 +1,47 @@
+{
+  "name": "@cloacina/client",
+  "version": "0.7.0",
+  "description": "TypeScript SDK for cloacina-server — typed REST client and WebSocket execution-event streams. Version-locked to the cloacina server release.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/colliery-io/cloacina.git",
+    "directory": "clients/typescript"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "generated"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../../docs/static/openapi.json -o generated/types.ts",
+    "check:generated": "openapi-typescript ../../docs/static/openapi.json -o /tmp/cloacina-ts-types-fresh.ts && diff generated/types.ts /tmp/cloacina-ts-types-fresh.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:contract": "vitest run test/contract.test.ts"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.13.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.20",
+    "openapi-typescript": "7.13.0",
+    "tsup": "8.5.0",
+    "typescript": "5.7.3",
+    "vitest": "3.2.4"
+  }
+}

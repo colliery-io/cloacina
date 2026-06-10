@@ -4,14 +4,14 @@ level: task
 title: "WS protocol spec — ws-protocol.md, message envelope JSON schemas, protocol_version handshake"
 short_code: "CLOACI-T-0644"
 created_at: 2026-06-10T01:30:17.866473+00:00
-updated_at: 2026-06-10T02:48:40.643911+00:00
+updated_at: 2026-06-10T02:53:48.622965+00:00
 parent: CLOACI-I-0113
 blocked_by: [CLOACI-T-0642]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0113
 ## Objective **[REQUIRED]**
 
 Document the WS computation-graph protocol as a versioned spec (REQ-002): `docs/reference/ws-protocol.md` covering message types, subscription lifecycle, reconnection/ack/resync semantics, plus a JSON Schema for every message envelope variant. Embed `protocol_version` in the connect handshake so the protocol can evolve without silently breaking SDK WS wrappers.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

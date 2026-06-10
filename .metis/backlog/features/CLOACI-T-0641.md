@@ -4,7 +4,7 @@ level: task
 title: "Cut v0.7.0 release (fleet + default-executor)"
 short_code: "CLOACI-T-0641"
 created_at: 2026-06-09T23:22:22.622107+00:00
-updated_at: 2026-06-09T23:22:56.888543+00:00
+updated_at: 2026-06-10T03:31:29.980769+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -69,12 +69,13 @@ pre-1.0 maps to a minor bump. Fleet is also a substantial new feature.
 
 ## Acceptance Criteria
 
-- [ ] Workspace version bumped `0.6.1 → 0.7.0` (workspace.package + all cloacina-internal path-dep pins)
-- [ ] `Cargo.lock` regenerated (workspace members only; `deadpool-diesel` 0.6.1 left untouched)
-- [ ] CHANGELOG `[Unreleased]` rolled to `[0.7.0] - 2026-06-09` with fleet (I-0114/I-0115) + default-executor (T-0640) entries
-- [ ] Install snippets bumped to 0.7.0 (README + docs)
-- [ ] Commit on `main`, tag `v0.7.0`, push
-- [ ] `unified_release.yml` green (nightly suite → verify-version → crates.io publish + GitHub release)
+- [x] Workspace version bumped `0.6.1 → 0.7.0` (workspace.package + all cloacina-internal path-dep pins)
+- [x] `Cargo.lock` regenerated (workspace members only; `deadpool-diesel` 0.6.1 left untouched)
+- [x] CHANGELOG `[Unreleased]` rolled to `[0.7.0] - 2026-06-09` with fleet (I-0114/I-0115) + default-executor (T-0640) entries
+- [x] Install snippets bumped to 0.7.0 (README + docs)
+- [x] Commit on `main`, tag `v0.7.0`, push
+- [x] Published: crates.io ✓, PyPI ✓, GHCR Docker ✓, Helm ✓, GitHub Release ✓ (2/4 install binaries)
+- [~] Full 4-target binary matrix — 2/4 shipped; remaining 2 (aarch64-linux, x86_64-darwin) carved out to follow-up [[fix-cloacinactl-release-binary]] (CLOACI-T-0650, lands in v0.7.1). Two CI bugs found + fixed en route (nested-workflow perms 4397eb7f; Release-upload perms + idempotent PyPI 9059c6ca).
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -166,4 +167,4 @@ pre-1.0 maps to a minor bump. Fleet is also a substantial new feature.
   - `x86_64-apple-darwin` (x86 on arm64 runner): `ld: symbol(s) not found for architecture x86_64` (`_rd_kafka_*`) — no x86_64 librdkafka on the Apple-Silicon runner.
 - **Root cause:** `crates/cloacinactl/Cargo.toml` → `[features] default = ["postgres","sqlite","kafka"]`. The release build runs `cargo build --bin cloacinactl` without `--no-default-features`, so every binary links librdkafka (kafka) + pulls pyo3. Native-arch builds tolerate it; cross/x-arch builds don't.
 
-**RELEASE OUTCOME: v0.7.0 is fully cut** — crates.io, PyPI, GHCR Docker, Helm, + published GitHub Release with install binaries for the 2 primary platforms (x86_64-linux, aarch64-darwin). Remaining: 2 of 4 convenience binaries (aarch64-linux, x86_64-darwin) need a cloacinactl build-portability fix. **DECISION PENDING with user** — fix now (trim distributed binary's features / fix build env) vs defer to follow-up task.
+**RELEASE OUTCOME: v0.7.0 is fully cut** — crates.io, PyPI, GHCR Docker, Helm, + published GitHub Release with install binaries for the 2 primary platforms (x86_64-linux, aarch64-darwin). Remaining: 2 of 4 convenience binaries (aarch64-linux, x86_64-darwin) need a cloacinactl build-portability fix. **RESOLVED — user chose to defer** to follow-up [[fix-cloacinactl-release-binary]] (CLOACI-T-0650), to land in v0.7.1. Task closed completed.

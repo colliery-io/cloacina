@@ -43,6 +43,7 @@ pub struct ExecuteResponse {
 /// (CLOACI-T-0594 / API-02).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[cfg_attr(feature = "openapi", into_params(parameter_in = Query))]
 pub struct ListExecutionsQuery {
     pub status: Option<String>,
     pub workflow: Option<String>,

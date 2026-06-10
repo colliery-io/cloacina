@@ -74,11 +74,13 @@ jobs:
               - 'Dockerfile'
               - '.dockerignore'
             # Public API contract surface (CLOACI-T-0643): anything that can
-            # change the OpenAPI document, or the committed document itself.
+            # change the OpenAPI document, the committed document itself, or
+            # the generated SDK code derived from it (T-0645).
             api:
               - 'crates/cloacina-server/**'
               - 'crates/cloacina-api-types/**'
               - 'docs/static/openapi.json'
+              - 'clients/typescript/**'
               - 'Cargo.*'
 
   # Quick gate - only runs if code, harness, or workflows changed
@@ -167,6 +169,21 @@ jobs:
 
       - name: Spec drift check
         run: angreal docs spec-check
+
+      # Generated-SDK drift (T-0645 / NFR-001): the committed TS types must
+      # match a fresh generation from the committed spec.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: TS generated-types drift check
+        working-directory: clients/typescript
+        run: |
+          npm ci
+          npm run check:generated
+          npm run typecheck
+          npm run build
 
   # Rust + Python tests (Python is now native in cloacina core)
   cloacina-tests:

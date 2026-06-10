@@ -1,13 +1,1 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacina-api-types/src/executions.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-api-types/src/triggers.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/executions.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/keys.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/tenants.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/triggers.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/workflows.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/health_graphs.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/lib.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/openapi.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/main.rs
-/Users/dstorey/Desktop/cloacina/.angreal/task_docs.py
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/delivery_ws.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/database/admin.rs

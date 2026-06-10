@@ -145,84 +145,102 @@ mod postgres_impl {
                 .map_err(|e| AdminError::Pool(e.to_string()))?;
 
             // Execute all tenant setup SQL in a transaction
-            let _ = conn
+            let txn_result = conn
                 .interact(move |conn| {
-                    conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
-                        // 1. Create schema
-                        let sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
-                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
-                            AdminError::SqlExecution {
-                                message: format!(
-                                    "Failed to create schema '{}': {}",
-                                    schema_name, e
+                    let result =
+                        conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
+                            // 1. Create schema
+                            let sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
+                            diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                                AdminError::SqlExecution {
+                                    message: format!(
+                                        "Failed to create schema '{}': {}",
+                                        schema_name, e
+                                    ),
+                                }
+                            })?;
+
+                            // 2. Create user with escaped password
+                            // Note: username and schema_name are pre-validated as safe identifiers
+                            // Password is escaped (single quotes doubled) to prevent injection
+                            let sql = format!(
+                                "CREATE USER {} WITH PASSWORD '{}'",
+                                username, escaped_password_clone
+                            );
+                            diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                                AdminError::SqlExecution {
+                                    message: format!("Failed to create user '{}': {}", username, e),
+                                }
+                            })?;
+
+                            // 3. Grant permissions
+                            let sqls = vec![
+                                format!("GRANT USAGE ON SCHEMA {} TO {}", schema_name, username),
+                                format!("GRANT CREATE ON SCHEMA {} TO {}", schema_name, username),
+                                format!(
+                                    "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} TO {}",
+                                    schema_name, username
                                 ),
-                            }
-                        })?;
-
-                        // 2. Create user with escaped password
-                        // Note: username and schema_name are pre-validated as safe identifiers
-                        // Password is escaped (single quotes doubled) to prevent injection
-                        let sql = format!(
-                            "CREATE USER {} WITH PASSWORD '{}'",
-                            username, escaped_password_clone
-                        );
-                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
-                            AdminError::SqlExecution {
-                                message: format!("Failed to create user '{}': {}", username, e),
-                            }
-                        })?;
-
-                        // 3. Grant permissions
-                        let sqls = vec![
-                            format!("GRANT USAGE ON SCHEMA {} TO {}", schema_name, username),
-                            format!("GRANT CREATE ON SCHEMA {} TO {}", schema_name, username),
-                            format!(
-                                "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} TO {}",
-                                schema_name, username
-                            ),
-                            format!(
-                                "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA {} TO {}",
-                                schema_name, username
-                            ),
-                            format!(
+                                format!(
+                                    "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA {} TO {}",
+                                    schema_name, username
+                                ),
+                                format!(
                                 "ALTER DEFAULT PRIVILEGES IN SCHEMA {} GRANT ALL ON TABLES TO {}",
                                 schema_name, username
                             ),
-                            format!(
+                                format!(
                             "ALTER DEFAULT PRIVILEGES IN SCHEMA {} GRANT ALL ON SEQUENCES TO {}",
                             schema_name, username
                         ),
-                        ];
+                            ];
 
-                        for sql in sqls {
-                            diesel::sql_query(&sql).execute(conn).map_err(|e| {
-                                AdminError::SqlExecution {
-                                    message: format!("Failed to grant permissions: {}", e),
-                                }
-                            })?;
-                        }
+                            for sql in sqls {
+                                diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                                    AdminError::SqlExecution {
+                                        message: format!("Failed to grant permissions: {}", e),
+                                    }
+                                })?;
+                            }
 
-                        // 4. Run migrations in the schema
-                        let set_path_sql = format!("SET search_path TO {}, public", schema_name);
-                        diesel::sql_query(&set_path_sql)
-                            .execute(conn)
-                            .map_err(|e| AdminError::SqlExecution {
-                                message: format!("Failed to set search_path: {}", e),
-                            })?;
+                            // 4. Run migrations in the schema.
+                            //
+                            // SET LOCAL: the search_path change must die with this
+                            // transaction. This connection belongs to the shared
+                            // admin pool — a session-level SET here poisoned every
+                            // later checkout, scattering admin writes (api_keys!)
+                            // into whatever tenant schema was created last. Found
+                            // by the T-0645 TS contract suite.
+                            let set_path_sql =
+                                format!("SET LOCAL search_path TO {}, public", schema_name);
+                            diesel::sql_query(&set_path_sql)
+                                .execute(conn)
+                                .map_err(|e| AdminError::SqlExecution {
+                                    message: format!("Failed to set search_path: {}", e),
+                                })?;
 
-                        use diesel_migrations::MigrationHarness;
-                        conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
-                            .map_err(|e| AdminError::SqlExecution {
-                                message: format!("Failed to run migrations: {}", e),
-                            })?;
+                            use diesel_migrations::MigrationHarness;
+                            conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
+                                .map_err(|e| AdminError::SqlExecution {
+                                    message: format!("Failed to run migrations: {}", e),
+                                })?;
 
-                        Ok(())
-                    })
+                            Ok(())
+                        });
+                    // Defense in depth: SET LOCAL above scopes the change to
+                    // the transaction, but never let a pooled admin connection
+                    // escape with a tenant search_path under any code path.
+                    let _ = diesel::sql_query("SET search_path TO public").execute(conn);
+                    result
                 })
                 .await
                 .map_err(|e| AdminError::SqlExecution {
                     message: format!("Transaction failed: {}", e),
                 })?;
+            // Propagate tenant-setup SQL failures. The previous shape bound
+            // this inner result to `_`, so a failed schema create / migration
+            // run still returned Ok(credentials) for a half-created tenant.
+            txn_result?;
 
             // Return credentials for admin to share with tenant
             let connection_string = self.build_connection_string(&username_result, &final_password);

@@ -136,7 +136,7 @@ cloacina-server  ──┐                                ┌── cloacinactl 
 ### Resolved decisions
 
 - **Repo layout:** monorepo. Client crates/packages live under this repo so spec/server/client drift surfaces in a single PR and CI run. Python SDK under `clients/python/`, TS under `clients/typescript/`, Rust client as `crates/cloacina-client`.
-- **Generator choice:** language-native (`openapi-python-client` for Python; `openapi-typescript-codegen` or `openapi-typescript` for TS). Avoids JVM dep. Final pick happens in phase 1 after generating against the real spec.
+- **Generator choice:** language-native (`openapi-python-client` for Python; `openapi-typescript-codegen` or `openapi-typescript` for TS). Avoids JVM dep. Final pick happens in phase 1 after generating against the real spec. **TS pick (T-0645): `openapi-typescript@7.13.0` + `openapi-fetch` runtime.** Both candidates were generated against the real spec; `openapi-typescript-codegen` is unmaintained (its README points to a successor project) while `openapi-typescript` v7 is actively maintained, handles OpenAPI 3.1 natively, and emits a single deterministic types file with a ~6 kB fetch-based runtime that works in browsers and node without per-service class codegen.
 - **API versioning:** explicit lockstep with `cloacina` release version. No independent SDK MINOR/PATCH cadence.
 - **Server DTO refactor appetite:** broad. Route handlers and DTOs may churn freely to become cleanly spec-able.
 
