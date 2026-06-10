@@ -22,6 +22,7 @@ kafka = ["cloacina/kafka"]
 
 [dependencies]
 cloacina = { version = "0.7.0", path = "../cloacina", default-features = false }
+cloacina-client = { workspace = true }
 cloacina-workflow-plugin = { version = "0.7.0", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
 clap_complete = "4"

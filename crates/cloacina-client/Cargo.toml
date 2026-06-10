@@ -1,0 +1,30 @@
+[package]
+name = "cloacina-client"
+version.workspace = true
+edition = "2021"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+description = "Rust client for cloacina-server — typed REST API over reqwest plus WebSocket execution-event streams. Version-locked to the cloacina server release."
+
+[dependencies]
+cloacina-api-types = { workspace = true }
+async-stream = "0.3"
+base64 = "0.22"
+dirs = "6"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json.workspace = true
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["macros", "rt", "time"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
+toml.workspace = true
+urlencoding = "2.1"
+
+[dev-dependencies]
+tempfile = "3.2"
+tokio = { version = "1.0", features = ["full"] }

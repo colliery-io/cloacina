@@ -4,14 +4,14 @@ level: task
 title: "TypeScript SDK — @cloacina/client codegen + ergonomics shim, browser+node WS, live contract suite"
 short_code: "CLOACI-T-0645"
 created_at: 2026-06-10T01:30:23.418860+00:00
-updated_at: 2026-06-10T02:54:02.114934+00:00
+updated_at: 2026-06-10T03:57:06.750621+00:00
 parent: CLOACI-I-0113
 blocked_by: [CLOACI-T-0643, CLOACI-T-0644]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0113
 ## Objective **[REQUIRED]**
 
 Ship `@cloacina/client` on npm: generated from `openapi.json` with a language-native generator, hand-written ergonomics shim, typed WS wrapper, dual ESM/CJS, usable from modern browsers and Node 20+. **This is the spine task** — the follow-on UI initiative consumes this package as its data layer, so it starts as soon as the spec lands and is not queued behind the Rust or Python work. Includes its own live-server contract suite (REQ-007).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

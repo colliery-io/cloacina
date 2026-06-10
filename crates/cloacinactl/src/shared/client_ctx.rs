@@ -17,8 +17,7 @@
 //! Resolves `GlobalOpts` + `CloacinaConfig` into a concrete `ClientContext`
 //! that client-side commands use to hit the server.
 
-use anyhow::{anyhow, bail, Context, Result};
-use std::path::Path;
+use anyhow::{anyhow, Result};
 
 use crate::commands::config::CloacinaConfig;
 use crate::{GlobalOpts, OutputFormat};
@@ -90,32 +89,10 @@ impl ClientContext {
 }
 
 /// Resolve an api-key value that may carry a scheme prefix.
+/// (Implementation moved to the published `cloacina-client` crate in
+/// T-0646 — same `env:`/`file:` semantics, `keyring:` still deferred.)
 pub fn resolve_api_key_scheme(raw: &str) -> Result<String> {
-    if let Some(var) = raw.strip_prefix("env:") {
-        std::env::var(var).with_context(|| {
-            format!("api key references env var {var} but it is not set in the current environment")
-        })
-    } else if let Some(path) = raw.strip_prefix("file:") {
-        read_key_file(Path::new(path))
-    } else if raw.starts_with("keyring:") {
-        bail!(
-            "keyring: scheme is deferred to v1.1 (CLOACI-I-0098 goals §non-goals). Use env: or \
-             file: for now."
-        )
-    } else {
-        Ok(raw.to_string())
-    }
-}
-
-fn read_key_file(path: &Path) -> Result<String> {
-    let contents = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read API key file {}", path.display()))?;
-    // First non-empty line, trimmed.
-    let line = contents
-        .lines()
-        .find(|l| !l.trim().is_empty())
-        .ok_or_else(|| anyhow!("API key file {} is empty", path.display()))?;
-    Ok(line.trim().to_string())
+    cloacina_client::resolve_api_key_scheme(raw).map_err(|e| anyhow!("{e}"))
 }
 
 #[cfg(test)]

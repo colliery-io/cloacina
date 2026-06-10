@@ -132,6 +132,27 @@ impl From<anyhow::Error> for CliError {
     }
 }
 
+/// T-0646: the HTTP client moved to the published `cloacina-client` crate;
+/// map its error model back onto the ADR-0003 exit codes this CLI promises.
+impl From<cloacina_client::ClientError> for CliError {
+    fn from(e: cloacina_client::ClientError) -> Self {
+        use cloacina_client::ClientError as CE;
+        match e {
+            CE::Transport(msg) => CliError::Network(msg),
+            CE::Auth(msg) => CliError::Auth(msg),
+            CE::NotFound(key) => CliError::NotFound {
+                resource: "resource".to_string(),
+                key,
+            },
+            CE::InvalidRequest(msg) => CliError::UserError(msg),
+            CE::Server { status, body } => CliError::ServerReject { status, body },
+            CE::Config(msg) => CliError::UserError(msg),
+            CE::Ws(msg) => CliError::Network(msg),
+            e @ CE::ProtocolVersion { .. } => CliError::Network(e.to_string()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
