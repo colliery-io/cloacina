@@ -4,14 +4,14 @@ level: task
 title: "OpenAPI spec emission — utoipa annotations, /openapi.json, emit-openapi, CORS, drift CI"
 short_code: "CLOACI-T-0643"
 created_at: 2026-06-10T01:30:11.563540+00:00
-updated_at: 2026-06-10T02:31:08.521537+00:00
+updated_at: 2026-06-10T02:48:26.596141+00:00
 parent: CLOACI-I-0113
 blocked_by: [CLOACI-T-0642]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0113
 ## Objective **[REQUIRED]**
 
 Annotate the full REST surface with `utoipa` and publish the API contract: OpenAPI 3.1 emitted via an `emit-openapi` subcommand, checked in at `docs/reference/openapi.json`, served at runtime `/openapi.json` (REQ-001). Ship configurable CORS so browser consumers can exist at all (REQ-009). Add the `angreal docs spec-check` drift gate to CI (NFR-001). Route handlers and DTOs may churn freely to become cleanly spec-able — encouraged, not avoided.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

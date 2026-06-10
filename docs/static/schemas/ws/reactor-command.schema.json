@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://colliery-io.github.io/cloacina/schemas/ws/reactor-command.schema.json",
+  "title": "Reactor endpoint — operator → server commands",
+  "description": "Commands sent as JSON text frames to GET /v1/ws/reactor/{name}. Each command is independently authorized; a denied command yields an `error` response and the connection stays open.",
+  "oneOf": [
+    {
+      "title": "force_fire",
+      "description": "Execute the graph immediately, ignoring firing conditions.",
+      "type": "object",
+      "properties": { "command": { "const": "force_fire" } },
+      "required": ["command"],
+      "additionalProperties": false
+    },
+    {
+      "title": "fire_with",
+      "description": "Execute with an injected input-cache snapshot. Values are serialized boundary bytes (JSON number arrays).",
+      "type": "object",
+      "properties": {
+        "command": { "const": "fire_with" },
+        "cache": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+          }
+        }
+      },
+      "required": ["command", "cache"],
+      "additionalProperties": false
+    },
+    {
+      "title": "get_state",
+      "description": "Return the current input-cache state.",
+      "type": "object",
+      "properties": { "command": { "const": "get_state" } },
+      "required": ["command"],
+      "additionalProperties": false
+    },
+    {
+      "title": "pause",
+      "description": "Stop the reactor from firing (it continues accepting boundaries).",
+      "type": "object",
+      "properties": { "command": { "const": "pause" } },
+      "required": ["command"],
+      "additionalProperties": false
+    },
+    {
+      "title": "resume",
+      "description": "Resume a paused reactor.",
+      "type": "object",
+      "properties": { "command": { "const": "resume" } },
+      "required": ["command"],
+      "additionalProperties": false
+    }
+  ]
+}

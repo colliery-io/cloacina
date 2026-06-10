@@ -6,9 +6,11 @@ weight: 36
 
 # WebSocket Protocol Reference
 
-Cloacina exposes two WebSocket endpoints for real-time interaction with computation graphs. The **accumulator** endpoint allows external producers to push events into graph accumulators. The **reactor** endpoint allows operators to send manual commands (force-fire, pause, resume) and query reactor state.
+Cloacina exposes three WebSocket endpoints. The **accumulator** endpoint allows external producers to push events into graph accumulators. The **reactor** endpoint allows operators to send manual commands (force-fire, pause, resume) and query reactor state. The **substrate delivery** endpoint streams at-least-once push deliveries from the server's transactional outbox to a named recipient — this is how execution events reach `cloacinactl execution follow` and SDK subscribers.
 
-Both endpoints authenticate on the HTTP upgrade request before promoting to a WebSocket connection.
+All endpoints authenticate on the HTTP upgrade request before promoting to a WebSocket connection.
+
+Machine-readable JSON Schemas for every message variant are published alongside this document — see [Message Schemas](#message-schemas).
 
 ## Endpoint Overview
 
@@ -16,6 +18,7 @@ Both endpoints authenticate on the HTTP upgrade request before promoting to a We
 |---|---|---|
 | `GET /v1/ws/accumulator/{name}` | Push events to a named accumulator | Binary or Text |
 | `GET /v1/ws/reactor/{name}` | Send commands to a named reactor | Text (JSON) |
+| `GET /v1/ws/delivery/{recipient}` | Subscribe to outbox deliveries addressed to `{recipient}` | Text (JSON, versioned envelope) |
 
 **Base URL:** `ws://host:port` (or `wss://` with TLS termination)
 
@@ -80,9 +83,11 @@ Either side may initiate closure by sending a WebSocket close frame (opcode `0x8
 |---|---|---|
 | `1000` | Normal closure | Client or Server |
 | `1001` | Going away (server shutdown) | Server |
+| `4400` | Invalid client frame (delivery endpoint — unparsable JSON) | Server |
 | `4404` | Accumulator/reactor name not registered | Server |
+| `4426` | Unsupported `protocol_version` in `hello` (delivery endpoint) | Server |
 
-The custom code `4404` is sent when the named endpoint exists in the URL but has no registered handler in the `EndpointRegistry` (the graph was unloaded or never loaded).
+The custom code `4404` is sent when the named endpoint exists in the URL but has no registered handler in the `EndpointRegistry` (the graph was unloaded or never loaded). `4400` and `4426` apply to the substrate delivery endpoint only.
 
 ---
 
@@ -211,6 +216,107 @@ The connection remains open -- only the individual command is rejected.
 
 ---
 
+## Substrate Delivery Endpoint
+
+**Endpoint:** `GET /v1/ws/delivery/{recipient}`
+
+The delivery endpoint is the client side of the interservice communication substrate (CLOACI-S-0012): a transactional outbox in the server database, drained by a relay, pushed over WebSocket to whichever connection has registered for `{recipient}`. It carries a **versioned envelope** — every frame in both directions includes a `protocol_version` field (currently `1`).
+
+Authentication matches the other endpoints (Bearer header or `?token=` — typically a [single-use ticket](#websocket-ticket-flow)). The tenant scope is inferred from the authenticated key and enforced against each outbox row's `tenant_id`.
+
+### Protocol Versioning
+
+- Every frame carries `protocol_version`. The current version is **1**; it is bumped on backwards-incompatible changes.
+- The server's `welcome` frame announces the version it speaks.
+- A client *should* send `hello` declaring its version after connecting. The server validates it: an unsupported version closes the connection with code **`4426`** (`unsupported protocol_version`), so a version-mismatched SDK fails loudly instead of silently misreading frames.
+- Unparsable client frames close the connection with code **`4400`**.
+
+### Server to Client: `welcome` and `push`
+
+The first frame on every connection is `welcome`:
+
+```json
+{"type": "welcome", "protocol_version": 1, "max_known_id": 0}
+```
+
+`max_known_id` is advisory (a dedup-window sizing hint); v1 servers send `0`.
+
+Each subsequent frame is a `push` — one outbox row addressed to this recipient:
+
+```json
+{
+  "type": "push",
+  "protocol_version": 1,
+  "id": 42,
+  "kind": "execution_event",
+  "recipient": "exec_events:f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "tenant_id": null,
+  "payload_b64": "eyJldmVudF90eXBlIjoi..."
+}
+```
+
+`payload_b64` is the base64-encoded raw payload bytes. The inner format is producer-defined and discriminated by `kind` — execution events are JSON.
+
+### Client to Server: `hello` and `ack`
+
+```json
+{"type": "hello", "protocol_version": 1, "since_id": null}
+```
+
+`since_id` is an advisory cursor for future cursor-based catch-up; v1 servers ignore it (resync is handled server-side, below).
+
+After processing a `push`, the client acknowledges it by row id:
+
+```json
+{"type": "ack", "protocol_version": 1, "id": 42}
+```
+
+Acks are **idempotent** — re-acking an acked or unknown row is a no-op.
+
+### Delivery Semantics: At-Least-Once + Resync
+
+Delivery is **at-least-once**. A recipient may see the same `push` more than once across disconnect/reconnect cycles and must deduplicate on `id`.
+
+On every (re)connect, the server resets all `delivered`-but-unacked rows for the authenticated `(recipient, tenant)` back to `pending` and wakes the relay, which re-pushes them through the normal path. There are no separate resync frames — after `welcome`, the client simply sees a stream of `push` frames that includes any unacked backlog. A safety-net sweeper additionally redelivers rows stuck in `delivered` past a staleness threshold.
+
+**Backpressure:** each connection has a bounded push channel. When it fills, rows simply remain `pending` in the outbox and are delivered when the client catches up — nothing is dropped (unlike the accumulator endpoint).
+
+**Single subscriber:** one connection per `(recipient, tenant)` — a new connection for the same recipient takes over and the previous connection's channel closes.
+
+### Execution-Events Subscription
+
+Workflow execution events are delivered through this endpoint using the recipient convention:
+
+```
+exec_events:<execution_id>
+```
+
+Flow (this is exactly what `cloacinactl execution follow <id>` does):
+
+1. `POST /v1/auth/ws-ticket` to mint a single-use ticket.
+2. Connect to `wss://host/v1/ws/delivery/exec_events%3A<execution_id>?token=<ticket>` (the `:` may be percent-encoded as `%3A`; both forms are accepted).
+3. Read `push` frames; base64-decode `payload_b64` into a JSON execution event.
+4. `ack` each frame by `id`.
+
+The connection stays open after the execution completes; close it client-side when a terminal event is observed.
+
+---
+
+## Message Schemas
+
+JSON Schema (draft 2020-12) for every message variant, served by this documentation site and checked into the repository under `docs/static/schemas/ws/`:
+
+| Schema | Covers |
+|---|---|
+| [`delivery-server-message.schema.json`](/schemas/ws/delivery-server-message.schema.json) | `welcome`, `push` |
+| [`delivery-client-message.schema.json`](/schemas/ws/delivery-client-message.schema.json) | `hello`, `ack` |
+| [`reactor-command.schema.json`](/schemas/ws/reactor-command.schema.json) | `force_fire`, `fire_with`, `get_state`, `pause`, `resume` |
+| [`reactor-response.schema.json`](/schemas/ws/reactor-response.schema.json) | `fired`, `state`, `paused`, `resumed`, `error` |
+
+Accumulator frames have no fixed schema — the payload is the registered boundary type's serialization (JSON in debug builds, bincode in release builds).
+
+---
+
 ## Error Handling
 
 ### Connection-Level Errors
@@ -236,6 +342,8 @@ After the WebSocket connection is established:
 | Reactor | Unknown command variant | Error response with serde parse error |
 | Reactor | Operation denied | Error response, connection stays open |
 | Reactor | No reactor handle | Error response: `{"type": "error", "message": "no reactor handle for 'X'"}` |
+| Delivery | Unparsable client frame | Close frame `4400` + connection closed |
+| Delivery | Unsupported `protocol_version` in `hello` | Close frame `4426` + connection closed |
 
 ### Reconnection Strategies
 
