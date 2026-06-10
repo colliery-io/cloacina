@@ -28,6 +28,10 @@ use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
+use cloacina_api_types::{
+    TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary,
+    WorkflowUploadedResponse,
+};
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
@@ -171,10 +175,10 @@ pub async fn upload_workflow(
             );
             (
                 StatusCode::CREATED,
-                Json(serde_json::json!({
-                    "package_id": package_id.to_string(),
-                    "tenant_id": tenant_id,
-                })),
+                Json(WorkflowUploadedResponse {
+                    package_id: package_id.to_string(),
+                    tenant_id,
+                }),
             )
                 .into_response()
         }
@@ -216,27 +220,19 @@ pub async fn list_workflows(
 
     match registry.list_workflows().await {
         Ok(workflows) => {
-            let items: Vec<_> = workflows
+            let items: Vec<WorkflowSummary> = workflows
                 .into_iter()
-                .map(|w| {
-                    serde_json::json!({
-                        "id": w.id.to_string(),
-                        "package_name": w.package_name,
-                        "version": w.version,
-                        "description": w.description,
-                        "tasks": w.tasks,
-                        "created_at": w.created_at.to_rfc3339(),
-                    })
+                .map(|w| WorkflowSummary {
+                    id: w.id.to_string(),
+                    package_name: w.package_name,
+                    version: w.version,
+                    description: w.description,
+                    tasks: w.tasks,
+                    created_at: w.created_at.to_rfc3339(),
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
-            let total = items.len();
-            Json(serde_json::json!({
-                "tenant_id": tenant_id,
-                "items": items,
-                "total": total,
-            }))
-            .into_response()
+            Json(TenantListResponse::new(tenant_id, items)).into_response()
         }
         Err(e) => {
             warn!("Failed to list workflows for tenant '{}': {}", tenant_id, e);
@@ -277,17 +273,17 @@ pub async fn get_workflow(
     if let Ok(pkg_id) = uuid::Uuid::parse_str(&name) {
         match registry.inspect_package_by_id(pkg_id).await {
             Ok(Some(ins)) => {
-                return Json(serde_json::json!({
-                    "tenant_id": tenant_id,
-                    "id": ins.metadata.id.to_string(),
-                    "package_name": ins.metadata.package_name,
-                    "version": ins.metadata.version,
-                    "description": ins.metadata.description,
-                    "tasks": ins.metadata.tasks,
-                    "created_at": ins.metadata.created_at.to_rfc3339(),
-                    "build_status": ins.build_status,
-                    "build_error": ins.build_error,
-                }))
+                return Json(WorkflowDetail {
+                    tenant_id,
+                    id: ins.metadata.id.to_string(),
+                    package_name: ins.metadata.package_name,
+                    version: ins.metadata.version,
+                    description: ins.metadata.description,
+                    tasks: ins.metadata.tasks,
+                    created_at: ins.metadata.created_at.to_rfc3339(),
+                    build_status: ins.build_status,
+                    build_error: ins.build_error,
+                })
                 .into_response();
             }
             Ok(None) => {
@@ -313,17 +309,17 @@ pub async fn get_workflow(
                     // real build state (pending/building/failed in
                     // addition to success).
                     match registry.inspect_package_by_id(w.id).await {
-                        Ok(Some(ins)) => Json(serde_json::json!({
-                            "tenant_id": tenant_id,
-                            "id": ins.metadata.id.to_string(),
-                            "package_name": ins.metadata.package_name,
-                            "version": ins.metadata.version,
-                            "description": ins.metadata.description,
-                            "tasks": ins.metadata.tasks,
-                            "created_at": ins.metadata.created_at.to_rfc3339(),
-                            "build_status": ins.build_status,
-                            "build_error": ins.build_error,
-                        }))
+                        Ok(Some(ins)) => Json(WorkflowDetail {
+                            tenant_id,
+                            id: ins.metadata.id.to_string(),
+                            package_name: ins.metadata.package_name,
+                            version: ins.metadata.version,
+                            description: ins.metadata.description,
+                            tasks: ins.metadata.tasks,
+                            created_at: ins.metadata.created_at.to_rfc3339(),
+                            build_status: ins.build_status,
+                            build_error: ins.build_error,
+                        })
                         .into_response(),
                         Ok(None) => ApiError::not_found(
                             "workflow_not_found",
@@ -382,11 +378,11 @@ pub async fn delete_workflow(
                 "Deleted workflow '{}' v{} for tenant '{}'",
                 name, version, tenant_id
             );
-            Json(serde_json::json!({
-                "status": "deleted",
-                "package_name": name,
-                "version": version,
-            }))
+            Json(WorkflowDeletedResponse {
+                status: "deleted".to_string(),
+                package_name: name,
+                version,
+            })
             .into_response()
         }
         Err(e) => {

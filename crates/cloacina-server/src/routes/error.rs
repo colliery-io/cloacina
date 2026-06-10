@@ -79,10 +79,10 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = serde_json::json!({
-            "error": self.message,
-            "code": self.code,
-        });
+        let body = cloacina_api_types::ErrorBody {
+            error: self.message,
+            code: self.code.to_string(),
+        };
         (self.status, Json(body)).into_response()
     }
 }

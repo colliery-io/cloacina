@@ -25,40 +25,16 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use serde::Deserialize;
 use tracing::{info, warn};
+
+use cloacina_api_types::{
+    CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, ListResponse,
+    WsTicketResponse,
+};
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
-
-/// Allowed roles for API keys.
-#[derive(Deserialize, Debug, Clone, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum KeyRole {
-    #[default]
-    Admin,
-    Write,
-    Read,
-}
-
-impl KeyRole {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            KeyRole::Admin => "admin",
-            KeyRole::Write => "write",
-            KeyRole::Read => "read",
-        }
-    }
-}
-
-/// Request body for creating a new API key.
-#[derive(Deserialize)]
-pub struct CreateKeyRequest {
-    pub name: String,
-    #[serde(default)]
-    pub role: KeyRole,
-}
 
 /// POST /auth/keys — create a new API key.
 ///
@@ -104,15 +80,15 @@ pub async fn create_key(
     {
         Ok(info) => (
             StatusCode::CREATED,
-            Json(serde_json::json!({
-                "id": info.id.to_string(),
-                "name": info.name,
-                "key": plaintext,
-                "permissions": info.permissions,
-                "tenant_id": info.tenant_id,
-                "is_admin": info.is_admin,
-                "created_at": info.created_at.to_rfc3339(),
-            })),
+            Json(KeyCreatedResponse {
+                id: info.id.to_string(),
+                name: info.name,
+                key: plaintext,
+                permissions: info.permissions,
+                tenant_id: info.tenant_id,
+                is_admin: info.is_admin,
+                created_at: info.created_at.to_rfc3339(),
+            }),
         )
             .into_response(),
         Err(e) => {
@@ -134,27 +110,20 @@ pub async fn list_keys(
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal.api_keys().list_keys().await {
         Ok(keys) => {
-            let items: Vec<_> = keys
+            let items: Vec<KeyInfo> = keys
                 .into_iter()
-                .map(|k| {
-                    serde_json::json!({
-                        "id": k.id.to_string(),
-                        "name": k.name,
-                        "permissions": k.permissions,
-                        "tenant_id": k.tenant_id,
-                        "is_admin": k.is_admin,
-                        "created_at": k.created_at.to_rfc3339(),
-                        "revoked": k.revoked,
-                    })
+                .map(|k| KeyInfo {
+                    id: k.id.to_string(),
+                    name: k.name,
+                    permissions: k.permissions,
+                    tenant_id: k.tenant_id,
+                    is_admin: k.is_admin,
+                    created_at: k.created_at.to_rfc3339(),
+                    revoked: k.revoked,
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
-            let total = items.len();
-            Json(serde_json::json!({
-                "items": items,
-                "total": total,
-            }))
-            .into_response()
+            Json(ListResponse::new(items)).into_response()
         }
         Err(e) => {
             warn!("Failed to list API keys: {}", e);
@@ -185,7 +154,11 @@ pub async fn revoke_key(
         Ok(true) => {
             // Clear cache so revoked key is rejected immediately
             state.key_cache.clear().await;
-            Json(serde_json::json!({"status": "revoked", "id": key_id})).into_response()
+            Json(KeyRevokedResponse {
+                status: "revoked".to_string(),
+                id: key_id,
+            })
+            .into_response()
         }
         Ok(false) => {
             ApiError::not_found("key_not_found", "key not found or already revoked").into_response()
@@ -230,15 +203,15 @@ pub async fn create_tenant_key(
             );
             (
                 StatusCode::CREATED,
-                Json(serde_json::json!({
-                    "id": info.id.to_string(),
-                    "name": info.name,
-                    "key": plaintext,
-                    "permissions": info.permissions,
-                    "tenant_id": info.tenant_id,
-                    "is_admin": info.is_admin,
-                    "created_at": info.created_at.to_rfc3339(),
-                })),
+                Json(KeyCreatedResponse {
+                    id: info.id.to_string(),
+                    name: info.name,
+                    key: plaintext,
+                    permissions: info.permissions,
+                    tenant_id: info.tenant_id,
+                    is_admin: info.is_admin,
+                    created_at: info.created_at.to_rfc3339(),
+                }),
             )
                 .into_response()
         }
@@ -258,9 +231,8 @@ pub async fn create_ws_ticket(
     Extension(auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
     let ticket = state.ws_tickets.issue(auth).await;
-    let expires_in_seconds = 60;
-    Json(serde_json::json!({
-        "ticket": ticket,
-        "expires_in_seconds": expires_in_seconds,
-    }))
+    Json(WsTicketResponse {
+        ticket,
+        expires_in_seconds: 60,
+    })
 }

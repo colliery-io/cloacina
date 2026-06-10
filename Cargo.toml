@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/cloacina", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-python"]
+members = ["crates/cloacina", "crates/cloacina-api-types", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-server", "crates/cloacina-agent", "crates/cloacina-compiler", "crates/cloacina-macros", "crates/cloacina-workflow-plugin", "crates/cloacina-testing", "crates/cloacina-workflow", "crates/cloacina-computation-graph", "crates/cloacina-python"]
 exclude = ["examples/*"]
 resolver = "2"
 
@@ -19,6 +19,7 @@ async-trait = { version = "0.1" }
 inventory = { version = "0.3" }
 once_cell = { version = "1.19.0" }
 serde_json = { version = "1.0" }
+cloacina-api-types = { version = "0.7.0", path = "crates/cloacina-api-types" }
 cloacina-macros = { version = "0.7.0", path = "crates/cloacina-macros" }
 cloacina-workflow = { version = "0.7.0", path = "crates/cloacina-workflow" }
 clap = { version = "4.0", features = ["derive", "env"] }

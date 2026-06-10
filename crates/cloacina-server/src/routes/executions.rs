@@ -22,23 +22,18 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use serde::Deserialize;
 use tracing::{info, warn};
 
 use cloacina::executor::WorkflowExecutor;
 use cloacina::Context;
+use cloacina_api_types::{
+    ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
+    ExecutionSummary, ListExecutionsQuery, TenantListResponse,
+};
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 use crate::AppState;
-
-/// Request body for executing a workflow.
-#[derive(Deserialize)]
-pub struct ExecuteRequest {
-    /// Optional JSON context to pass to the workflow.
-    #[serde(default)]
-    pub context: Option<serde_json::Value>,
-}
 
 /// POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
 ///
@@ -119,12 +114,12 @@ pub async fn execute_workflow(
             );
             (
                 StatusCode::ACCEPTED,
-                Json(serde_json::json!({
-                    "execution_id": execution.execution_id.to_string(),
-                    "workflow_name": name,
-                    "tenant_id": tenant_id,
-                    "status": "scheduled",
-                })),
+                Json(ExecuteResponse {
+                    execution_id: execution.execution_id.to_string(),
+                    workflow_name: name,
+                    tenant_id,
+                    status: "scheduled".to_string(),
+                }),
             )
                 .into_response()
         }
@@ -136,19 +131,6 @@ pub async fn execute_workflow(
             ApiError::bad_request("execution_failed", format!("{}", e)).into_response()
         }
     }
-}
-
-/// Query string for `list_executions` — CLOACI-T-0594 / API-02 surface.
-/// The route forwards these into the DAL `ExecutionListFilter` so the
-/// CLI's `--status` / `--workflow` flags actually take effect. `workflow`
-/// matches the CLI surface (short, ergonomic); on the DAL side it maps
-/// to `workflow_name`.
-#[derive(Deserialize, Default)]
-pub struct ListExecutionsQuery {
-    pub status: Option<String>,
-    pub workflow: Option<String>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
 }
 
 /// Default page size for `list_executions` when the client doesn't
@@ -209,28 +191,20 @@ pub async fn list_executions(
 
     match dal.workflow_execution().list_filtered(filter).await {
         Ok(executions) => {
-            let items: Vec<_> = executions
+            let items: Vec<ExecutionSummary> = executions
                 .into_iter()
-                .map(|e| {
-                    serde_json::json!({
-                        "id": e.id.0.to_string(),
-                        "workflow_name": e.workflow_name,
-                        "status": e.status,
-                        "started_at": e.started_at.0.to_rfc3339(),
-                        "completed_at": e.completed_at.map(|t| t.0.to_rfc3339()),
-                    })
+                .map(|e| ExecutionSummary {
+                    id: e.id.0.to_string(),
+                    workflow_name: e.workflow_name,
+                    status: e.status,
+                    started_at: e.started_at.0.to_rfc3339(),
+                    completed_at: e.completed_at.map(|t| t.0.to_rfc3339()),
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
             // `total` is best-effort — equals the returned page size when
             // we don't run a separate COUNT (high-cardinality table).
-            let total = items.len();
-            Json(serde_json::json!({
-                "tenant_id": tenant_id,
-                "items": items,
-                "total": total,
-            }))
-            .into_response()
+            Json(TenantListResponse::new(tenant_id, items)).into_response()
         }
         Err(e) => {
             warn!(
@@ -277,12 +251,11 @@ pub async fn get_execution(
             // Pass through the stored status string verbatim. Earlier code
             // had a per-variant match that returned the same value, which
             // was redundant. Trust the producer to write a valid status.
-            let status = execution.status.as_str();
-            Json(serde_json::json!({
-                "tenant_id": tenant_id,
-                "execution_id": exec_id,
-                "status": status,
-            }))
+            Json(ExecutionDetail {
+                tenant_id,
+                execution_id: exec_id,
+                status: execution.status.as_str().to_string(),
+            })
             .into_response()
         }
         Err(e) => ApiError::not_found("execution_not_found", format!("{}", e)).into_response(),
@@ -321,23 +294,21 @@ pub async fn get_execution_events(
 
     match dal.execution_event().list_by_workflow(universal_id).await {
         Ok(events) => {
-            let items: Vec<_> = events
+            let items: Vec<ExecutionEvent> = events
                 .into_iter()
-                .map(|e| {
-                    serde_json::json!({
-                        "id": e.id.0.to_string(),
-                        "event_type": e.event_type,
-                        "event_data": e.event_data,
-                        "created_at": e.created_at.0.to_rfc3339(),
-                        "sequence_num": e.sequence_num,
-                    })
+                .map(|e| ExecutionEvent {
+                    id: e.id.0.to_string(),
+                    event_type: e.event_type,
+                    event_data: e.event_data,
+                    created_at: e.created_at.0.to_rfc3339(),
+                    sequence_num: e.sequence_num,
                 })
                 .collect();
-            Json(serde_json::json!({
-                "tenant_id": tenant_id,
-                "execution_id": exec_id,
-                "events": items,
-            }))
+            Json(ExecutionEventsResponse {
+                tenant_id,
+                execution_id: exec_id,
+                events: items,
+            })
             .into_response()
         }
         Err(e) => ApiError::internal(format!("{}", e)).into_response(),

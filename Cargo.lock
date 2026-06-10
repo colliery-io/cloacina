@@ -513,6 +513,7 @@ dependencies = [
  "cel-interpreter",
  "chrono",
  "chrono-tz",
+ "cloacina-api-types",
  "cloacina-computation-graph",
  "cloacina-macros",
  "cloacina-workflow",
@@ -576,6 +577,16 @@ dependencies = [
  "tokio-tungstenite 0.24.0",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "cloacina-api-types"
+version = "0.7.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -681,6 +692,7 @@ dependencies = [
  "chrono",
  "clap",
  "cloacina",
+ "cloacina-api-types",
  "cloacina-build",
  "cloacina-python",
  "cloacina-workflow-plugin",
