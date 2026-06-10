@@ -42,6 +42,23 @@ const MAX_TRIGGERS_LIMIT: i64 = 1000;
 /// CLOACI-T-0579: routed through the tenant-scoped `Database` from
 /// `TenantDatabaseCache` so the underlying `SELECT FROM schedules`
 /// hits the tenant's schema, not the admin schema. Closes SEC-02.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/triggers",
+    tag = "triggers",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ListTriggersQuery,
+    ),
+    responses(
+        (status = 200, description = "Schedules page (cron + trigger)", body = TenantListResponse<TriggerScheduleSummary>),
+        (status = 400, description = "Invalid pagination", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_triggers(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -121,6 +138,23 @@ pub async fn list_triggers(
 /// for tenant B with a trigger id that belongs to tenant A naturally
 /// 404s — the row simply doesn't exist in tenant B's schema. No
 /// info-disclosure via "not in your tenant" error code. Closes SEC-02.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/triggers/{name}",
+    tag = "triggers",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Trigger or workflow name"),
+    ),
+    responses(
+        (status = 200, description = "Trigger detail + recent executions", body = TriggerDetailResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Trigger not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn get_trigger(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,

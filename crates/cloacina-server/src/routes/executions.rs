@@ -41,6 +41,24 @@ use crate::AppState;
 /// returns (or constructs) a `DefaultRunner` bound to the tenant's
 /// `Database`. The execution row + every event lands in the tenant's
 /// schema, never the admin schema.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}/execute",
+    tag = "executions",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Workflow name"),
+    ),
+    request_body = ExecuteRequest,
+    responses(
+        (status = 202, description = "Execution scheduled", body = ExecuteResponse),
+        (status = 400, description = "Execution failed", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn execute_workflow(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -146,6 +164,23 @@ const MAX_EXECUTIONS_LIMIT: i64 = 1000;
 /// **CLOACI-T-0594 / API-02:** accepts `?status=Failed` and
 /// `?workflow_name=foo` and `?limit=N&offset=M`. Previously these
 /// query params were silently discarded.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/executions",
+    tag = "executions",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ListExecutionsQuery,
+    ),
+    responses(
+        (status = 200, description = "Executions page", body = TenantListResponse<ExecutionSummary>),
+        (status = 400, description = "Invalid pagination", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_executions(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -217,6 +252,23 @@ pub async fn list_executions(
 }
 
 /// GET /tenants/:tenant_id/executions/:id — get execution details.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/executions/{exec_id}",
+    tag = "executions",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("exec_id" = String, Path, description = "Execution UUID"),
+    ),
+    responses(
+        (status = 200, description = "Execution detail", body = ExecutionDetail),
+        (status = 400, description = "Invalid execution ID", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Execution not found", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn get_execution(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -263,6 +315,23 @@ pub async fn get_execution(
 }
 
 /// GET /tenants/:tenant_id/executions/:id/events — execution event log.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/executions/{exec_id}/events",
+    tag = "executions",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("exec_id" = String, Path, description = "Execution UUID"),
+    ),
+    responses(
+        (status = 200, description = "Execution event log", body = ExecutionEventsResponse),
+        (status = 400, description = "Invalid execution ID", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn get_execution_events(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,

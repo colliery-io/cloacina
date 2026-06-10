@@ -24,8 +24,88 @@ pub mod agent_registry;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
+pub mod openapi;
 pub mod routes;
 pub mod tenant_runner_cache;
+
+/// CORS configuration (CLOACI-T-0643 / REQ-009). Disabled unless at least
+/// one allowed origin is configured — browser consumers (the TS SDK / UI)
+/// require an explicit operator opt-in.
+#[derive(Debug, Clone, Default)]
+pub struct CorsConfig {
+    /// Exact origins allowed (e.g. `https://ops.example.com`), or `*` for any.
+    pub allowed_origins: Vec<String>,
+    /// HTTP methods allowed in preflight. Empty = GET, POST, DELETE, OPTIONS.
+    pub allowed_methods: Vec<String>,
+    /// Request headers allowed in preflight. Empty = authorization, content-type.
+    pub allowed_headers: Vec<String>,
+}
+
+impl CorsConfig {
+    /// Build the tower-http layer, or `None` when CORS is disabled.
+    /// Invalid origin/method/header values fail fast at boot.
+    pub fn layer(&self) -> Result<Option<tower_http::cors::CorsLayer>> {
+        use tower_http::cors::{AllowOrigin, CorsLayer};
+
+        if self.allowed_origins.is_empty() {
+            return Ok(None);
+        }
+
+        let origins = if self.allowed_origins.iter().any(|o| o == "*") {
+            AllowOrigin::any()
+        } else {
+            let parsed: Vec<axum::http::HeaderValue> = self
+                .allowed_origins
+                .iter()
+                .map(|o| {
+                    o.parse()
+                        .with_context(|| format!("invalid CORS origin: {o}"))
+                })
+                .collect::<Result<_>>()?;
+            AllowOrigin::list(parsed)
+        };
+
+        let methods: Vec<axum::http::Method> = if self.allowed_methods.is_empty() {
+            vec![
+                axum::http::Method::GET,
+                axum::http::Method::POST,
+                axum::http::Method::DELETE,
+                axum::http::Method::OPTIONS,
+            ]
+        } else {
+            self.allowed_methods
+                .iter()
+                .map(|m| {
+                    m.to_uppercase()
+                        .parse()
+                        .with_context(|| format!("invalid CORS method: {m}"))
+                })
+                .collect::<Result<_>>()?
+        };
+
+        let headers: Vec<axum::http::HeaderName> = if self.allowed_headers.is_empty() {
+            vec![
+                axum::http::header::AUTHORIZATION,
+                axum::http::header::CONTENT_TYPE,
+            ]
+        } else {
+            self.allowed_headers
+                .iter()
+                .map(|h| {
+                    h.parse()
+                        .with_context(|| format!("invalid CORS header: {h}"))
+                })
+                .collect::<Result<_>>()?
+        };
+
+        Ok(Some(
+            CorsLayer::new()
+                .allow_origin(origins)
+                .allow_methods(methods)
+                .allow_headers(headers),
+        ))
+    }
+}
 
 use anyhow::{Context, Result};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
@@ -226,7 +306,12 @@ pub async fn run(
     // the prior hardcoded 15s/45s.
     agent_heartbeat_interval_s: u32,
     agent_liveness_misses: u32,
+    // CORS opt-in (CLOACI-T-0643 / REQ-009). Disabled unless at least one
+    // allowed origin is configured.
+    cors: CorsConfig,
 ) -> Result<()> {
+    // Validate CORS config before any heavy startup work.
+    let cors_layer = cors.layer()?;
     // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
     validate_security_args(require_signatures, verification_org_id.as_ref())?;
 
@@ -868,8 +953,16 @@ pub async fn run(
     let runner_for_shutdown = state.runner.clone();
     let tenant_runners_for_shutdown = state.tenant_runners.clone();
 
-    // Build router
+    // Build router; CORS (when enabled) wraps everything, including
+    // preflight OPTIONS for the /v1 nest.
     let app = build_router(state);
+    let app = match cors_layer {
+        Some(layer) => {
+            info!("CORS enabled for origins: {:?}", cors.allowed_origins);
+            app.layer(layer)
+        }
+        None => app,
+    };
 
     // Start server with graceful shutdown
     let listener = tokio::net::TcpListener::bind(bind)
@@ -1149,6 +1242,17 @@ fn build_router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
+        // Machine-readable API contract (CLOACI-T-0643 / REQ-001). Same
+        // document the `emit-openapi` subcommand writes to disk.
+        .route(
+            "/openapi.json",
+            get(|| async {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    crate::openapi::openapi_json(),
+                )
+            }),
+        )
         // All v1 routes (auth + graph health + ws) under one nest.
         .nest("/v1", v1)
         .fallback(fallback_404)
@@ -1188,11 +1292,26 @@ async fn api_request_metrics(
 }
 
 /// GET /health — liveness check (no auth, no DB)
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "operational",
+    responses((status = 200, description = "Server process is alive — `{\"status\": \"ok\"}`"))
+)]
 async fn health() -> impl IntoResponse {
     Json(serde_json::json!({"status": "ok"}))
 }
 
 /// GET /ready — readiness check (verifies DB connection pool is healthy)
+#[utoipa::path(
+    get,
+    path = "/ready",
+    tag = "operational",
+    responses(
+        (status = 200, description = "Ready — DB reachable, no crashed graphs"),
+        (status = 503, description = "Not ready — `reason` field explains (database unreachable / crashed computation graphs)"),
+    )
+)]
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // Verify we can acquire a connection from the pool
     let db_ready = state.database.get_postgres_connection().await.is_ok();

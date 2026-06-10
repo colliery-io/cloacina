@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 /// One row in `GET /v1/health/accumulators`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AccumulatorStatus {
     pub name: String,
     /// Accumulator health as reported by the endpoint registry. Free-form
@@ -30,6 +31,7 @@ pub struct AccumulatorStatus {
 /// One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
 /// response body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GraphStatus {
     pub name: String,
     /// Graph health snapshot; `{"state": "running" | "stopped"}` when no

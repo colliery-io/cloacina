@@ -143,4 +143,27 @@ pre-1.0 maps to a minor bump. Fleet is also a substantial new feature.
 - Bumped 20 cloacina-internal Cargo.toml pins `0.6.1 → 0.7.0`; `cargo update --workspace --offline` synced the 12 workspace members in `Cargo.lock` (deadpool-diesel 0.6.1 left untouched). `cargo metadata` confirms cloacina @ 0.7.0.
 - CHANGELOG `[Unreleased]` rolled to `[0.7.0] - 2026-06-09`; added fleet (I-0114/I-0115) + default-executor (T-0640) entries, plus the breaking glob-routing-removal note.
 - Bumped 46 install-snippet refs across README + docs to 0.7.0 (prior 0.6.1 bump was non-exhaustive; cleared the drift).
-- Next: commit to main → tag `v0.7.0` → push → `unified_release.yml` (nightly suite → verify-version → crates.io + GitHub release). Watching the run to green.
+- Committed `Release 0.7.0` (c5225734) on main; tagged `v0.7.0`; pushed.
+
+**2026-06-09 (release-pipeline startup_failure → fixed):**
+- First two `unified_release.yml` runs (incl. a re-run) died at `startup_failure` in ~3s — zero jobs. No logs persisted; GitHub's API exposes no annotation for startup failures. actionlint clean, valid `needs` graph, depth 3 (≤4), 54-job nightly (well under the 256 cap) — all ruled out.
+- Pulled the real message from the run's web page: `The nested job 'nightly-docker' is requesting 'packages: write', but is only allowed 'packages: none'. ...'prune-caches' is requesting 'actions: write', but is only allowed 'actions: none'.`
+- **Root cause:** the caller's `permissions:` block is the ceiling for a called reusable workflow. `unified_release.yml`'s workflow-level block is minimal (contents:read, issues:write, id-token:write). Since v0.6.1, `nightly.yml` grew `nightly-docker` (packages:write) + `prune-caches` (actions:write), which exceed that ceiling. Nightly runs fine standalone (no caller cap); v0.7.0 is the first tag since those jobs landed, so it had never surfaced.
+- **Fix (commit 4397eb7f):** job-level `permissions:` on the `nightly-suite` call granting the nested superset (contents:read, packages:write, actions:write, issues:write) — keeps the release default token minimal.
+- Nothing was ever published (crates.io `updated_at` still 2026-05-09), so safe to move the tag. Force-moved `v0.7.0` → 4397eb7f, force-pushed.
+- New run `27242885790` cleared startup; nightly gate fully green.
+
+**2026-06-09 (first full run: published, but binaries 403'd):**
+- Run `27242885790` published **crates.io ✓, PyPI ✓, Docker (multi-arch) ✓, Helm ✓** — `cloacina 0.7.0` is live and immutable (crates.io `updated_at` now 2026-06-10).
+- The 4 `Build Binary` jobs FAILED — only at `Upload to GitHub Release`: `403 Resource not accessible by integration`. Binaries *built* fine. Cause: `build-release-binaries` has no job-level `permissions`, so inherited the workflow default `contents:read`; creating a Release + uploading assets needs `contents:write`. (Same class as the nested-perms bug; also a never-run f8afd92a job.) So the GitHub Release object + `cloacinactl` install tarballs never got created.
+- **Fix (commit 9059c6ca):** (1) `permissions: contents:write` on `build-release-binaries`; (2) `skip-existing:true` on PyPI publish so a same-tag re-run skips instead of 400ing (crates/Docker/Helm already idempotent).
+- User OK'd re-running + re-pushing as 0.7.0. Force-moved `v0.7.0` → 9059c6ca, force-pushed.
+
+**2026-06-10 (re-run 27246082223: Release created, 2/4 binaries):**
+- Idempotent publishes all skipped/succeeded; `contents:write` fix worked — **GitHub Release v0.7.0 created (published, not draft)** with 2 of 4 tarballs: `x86_64-unknown-linux-gnu` ✓, `aarch64-apple-darwin` ✓.
+- **2 binary targets failed with real build errors (not perms):**
+  - `aarch64-unknown-linux-gnu` (cross): `pyo3-build-config` → "no Python 3.x interpreter found" — the `cross` container has no Python; cloacinactl pulls pyo3 transitively.
+  - `x86_64-apple-darwin` (x86 on arm64 runner): `ld: symbol(s) not found for architecture x86_64` (`_rd_kafka_*`) — no x86_64 librdkafka on the Apple-Silicon runner.
+- **Root cause:** `crates/cloacinactl/Cargo.toml` → `[features] default = ["postgres","sqlite","kafka"]`. The release build runs `cargo build --bin cloacinactl` without `--no-default-features`, so every binary links librdkafka (kafka) + pulls pyo3. Native-arch builds tolerate it; cross/x-arch builds don't.
+
+**RELEASE OUTCOME: v0.7.0 is fully cut** — crates.io, PyPI, GHCR Docker, Helm, + published GitHub Release with install binaries for the 2 primary platforms (x86_64-linux, aarch64-darwin). Remaining: 2 of 4 convenience binaries (aarch64-linux, x86_64-darwin) need a cloacinactl build-portability fix. **DECISION PENDING with user** — fix now (trim distributed binary's features / fix build env) vs defer to follow-up task.

@@ -16,6 +16,7 @@
 Documentation tasks for Cloacina.
 """
 
+import difflib
 import subprocess
 import sys
 import shutil
@@ -147,6 +148,65 @@ def serve(prod: bool = False):
     except subprocess.CalledProcessError as e:
         print(f"Hugo server failed: {e}", file=sys.stderr)
         return e.returncode
+
+
+@docs()
+@angreal.command(
+    name="spec-check",
+    about="verify the committed OpenAPI spec matches a fresh emit-openapi (CI drift gate)",
+    when_to_use=["CI", "after changing server routes or DTOs", "before tagging a release"],
+    when_not_to_use=["regenerating the spec — run emit-openapi and commit instead"]
+)
+def spec_check():
+    """Diff docs/static/openapi.json against a freshly emitted spec.
+
+    The committed spec is the public API contract (CLOACI-T-0643 / NFR-001).
+    Any change to server routes or cloacina-api-types DTOs must be
+    accompanied by a regenerated spec:
+
+        cargo run -p cloacina-server --bin cloacina-server -- emit-openapi \\
+            > docs/static/openapi.json
+    """
+    committed_path = PROJECT_ROOT / "docs" / "static" / "openapi.json"
+    if not committed_path.exists():
+        print(f"Committed spec missing: {committed_path}", file=sys.stderr)
+        return 1
+
+    print("Emitting OpenAPI spec from cloacina-server...")
+    try:
+        result = subprocess.run(
+            ["cargo", "run", "-q", "-p", "cloacina-server",
+             "--bin", "cloacina-server", "--", "emit-openapi"],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=str(PROJECT_ROOT),
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"emit-openapi failed: {e}", file=sys.stderr)
+        print(e.stderr, file=sys.stderr)
+        return e.returncode
+
+    fresh = result.stdout
+    committed = committed_path.read_text()
+
+    if fresh.rstrip("\n") == committed.rstrip("\n"):
+        print("OpenAPI spec is in sync.")
+        return 0
+
+    print("OpenAPI SPEC DRIFT — committed docs/static/openapi.json does not "
+          "match emit-openapi output:\n", file=sys.stderr)
+    diff = difflib.unified_diff(
+        committed.splitlines(keepends=True),
+        fresh.splitlines(keepends=True),
+        fromfile="docs/static/openapi.json (committed)",
+        tofile="emit-openapi (fresh)",
+    )
+    sys.stderr.writelines(diff)
+    print("\nRegenerate with:\n  cargo run -p cloacina-server --bin "
+          "cloacina-server -- emit-openapi > docs/static/openapi.json",
+          file=sys.stderr)
+    return 1
 
 
 @docs()

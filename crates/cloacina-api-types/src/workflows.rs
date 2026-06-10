@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 /// `201 Created` body for a workflow package upload
 /// (`POST /tenants/{tenant_id}/workflows`, multipart).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WorkflowUploadedResponse {
     /// UUID of the registered package.
     pub package_id: String,
@@ -29,6 +30,7 @@ pub struct WorkflowUploadedResponse {
 
 /// One row in the workflow list (`GET /tenants/{tenant_id}/workflows`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WorkflowSummary {
     /// Package UUID.
     pub id: String,
@@ -43,6 +45,7 @@ pub struct WorkflowSummary {
 
 /// `DELETE /tenants/{tenant_id}/workflows/{name}/{version}` response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WorkflowDeletedResponse {
     /// Always `"deleted"`.
     pub status: String,
@@ -53,6 +56,7 @@ pub struct WorkflowDeletedResponse {
 /// `GET /tenants/{tenant_id}/workflows/{name}` response — summary fields
 /// plus real build state (pending/building/failed/success).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WorkflowDetail {
     pub tenant_id: String,
     /// Package UUID.

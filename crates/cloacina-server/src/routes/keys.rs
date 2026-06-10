@@ -41,6 +41,19 @@ use crate::AppState;
 /// Requires admin role. Non-admin keys cannot create keys with higher
 /// permissions than their own (prevents privilege escalation).
 /// Returns the plaintext key exactly once. It cannot be retrieved again.
+#[utoipa::path(
+    post,
+    path = "/v1/auth/keys",
+    tag = "keys",
+    request_body = CreateKeyRequest,
+    responses(
+        (status = 201, description = "Key created — plaintext returned exactly once", body = KeyCreatedResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn create_key(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -100,6 +113,18 @@ pub async fn create_key(
 
 /// GET /auth/keys — list all API keys (no hashes or plaintext).
 /// Requires admin role.
+#[utoipa::path(
+    get,
+    path = "/v1/auth/keys",
+    tag = "keys",
+    responses(
+        (status = 200, description = "All keys (no hashes or plaintext)", body = ListResponse<KeyInfo>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_keys(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -134,6 +159,20 @@ pub async fn list_keys(
 
 /// DELETE /auth/keys/:key_id — revoke an API key.
 /// Requires admin role within tenant (or god mode).
+#[utoipa::path(
+    delete,
+    path = "/v1/auth/keys/{key_id}",
+    tag = "keys",
+    params(("key_id" = String, Path, description = "Key UUID")),
+    responses(
+        (status = 200, description = "Key revoked", body = KeyRevokedResponse),
+        (status = 400, description = "Invalid key ID format", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Key not found or already revoked", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn revoke_key(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -172,6 +211,20 @@ pub async fn revoke_key(
 
 /// POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
 /// Admin-only: only is_admin keys can create tenant-scoped keys.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/keys",
+    tag = "keys",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    request_body = CreateKeyRequest,
+    responses(
+        (status = 201, description = "Tenant-scoped key created — plaintext returned exactly once", body = KeyCreatedResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn create_tenant_key(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -226,6 +279,16 @@ pub async fn create_tenant_key(
 ///
 /// Returns a short-lived ticket that can be used as a query parameter for
 /// WebSocket upgrade requests, avoiding long-lived API keys in URLs.
+#[utoipa::path(
+    post,
+    path = "/v1/auth/ws-ticket",
+    tag = "keys",
+    responses(
+        (status = 200, description = "Single-use WebSocket ticket", body = WsTicketResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn create_ws_ticket(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,

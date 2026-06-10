@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 /// Allowed roles for API keys.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum KeyRole {
     #[default]
@@ -40,6 +41,7 @@ impl KeyRole {
 
 /// Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateKeyRequest {
     pub name: String,
     #[serde(default)]
@@ -49,6 +51,7 @@ pub struct CreateKeyRequest {
 /// `201 Created` body for a new API key. The plaintext `key` is returned
 /// exactly once — it cannot be retrieved again.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct KeyCreatedResponse {
     /// Key UUID.
     pub id: String,
@@ -67,6 +70,7 @@ pub struct KeyCreatedResponse {
 
 /// One row in the key list (`GET /auth/keys`). No hashes or plaintext.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct KeyInfo {
     /// Key UUID.
     pub id: String,
@@ -83,6 +87,7 @@ pub struct KeyInfo {
 
 /// `DELETE /auth/keys/{key_id}` response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct KeyRevokedResponse {
     /// Always `"revoked"`.
     pub status: String,
@@ -93,6 +98,7 @@ pub struct KeyRevokedResponse {
 /// `POST /auth/ws-ticket` response — a single-use, short-lived ticket for
 /// WebSocket upgrade auth (avoids long-lived API keys in URLs).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct WsTicketResponse {
     pub ticket: String,
     pub expires_in_seconds: u64,

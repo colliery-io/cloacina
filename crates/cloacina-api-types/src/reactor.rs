@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 
 /// Commands sent by WebSocket operators to a reactor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum ReactorCommand {
     ForceFire,
@@ -36,6 +37,7 @@ pub enum ReactorCommand {
 
 /// Responses sent back to WebSocket operators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ReactorResponse {
     Fired,

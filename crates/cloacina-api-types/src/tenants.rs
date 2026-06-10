@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 /// Request body for `POST /tenants`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateTenantRequest {
     /// Tenant name — doubles as schema name + database username.
     /// Must be alphanumeric + underscore.
@@ -35,6 +36,7 @@ pub struct CreateTenantRequest {
 /// `201 Created` body for a new tenant. Password and connection string are
 /// intentionally excluded to prevent credential leakage (SEC-08).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TenantCreatedResponse {
     pub name: String,
     pub username: String,
@@ -43,6 +45,7 @@ pub struct TenantCreatedResponse {
 
 /// `DELETE /tenants/{schema_name}` response — orchestrated teardown report.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TenantRemovedResponse {
     /// Always `"removed"`.
     pub status: String,
@@ -55,6 +58,7 @@ pub struct TenantRemovedResponse {
 
 /// One row in the tenant list (`GET /tenants`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TenantSummary {
     pub name: String,
 }

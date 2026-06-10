@@ -4,14 +4,14 @@ level: task
 title: "API types extract — cloacina-api-types crate, server DTOs decoupled from internals"
 short_code: "CLOACI-T-0642"
 created_at: 2026-06-10T01:30:06.085022+00:00
-updated_at: 2026-06-10T01:39:12.387098+00:00
+updated_at: 2026-06-10T02:30:32.856067+00:00
 parent: CLOACI-I-0113
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0113
 ## Objective **[REQUIRED]**
 
 Create `crates/cloacina-api-types` — a dependency-light crate holding every request/response DTO the server exposes, so server and Rust client share one source of truth and no server-internal types (diesel models, internal enums) leak into the public contract (NFR-003). Phase 1 foundation: everything downstream (utoipa annotation, Rust client, codegen) builds on this crate.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -67,3 +69,5 @@ Hidden coupling between today's response shapes and diesel models — mitigated 
 - Noted for T-0643: server's tower-http already has the `cors` feature enabled — just needs the layer wired to config.
 - Compile-checked green: cloacina-api-types, cloacina, cloacina-server, cloacina-agent, cloacinactl.
 - Remaining: run `angreal test integration` (postgres lane covers server lib tests per T-0636) + CLI e2e to verify wire compatibility.
+
+**2026-06-09 (verification)** — Integration suite run externally by the user (passed); committed as `ae4f0b02` on `i0113-server-sdks`. All acceptance criteria met — task complete.

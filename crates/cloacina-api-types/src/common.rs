@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 /// returns `{items, total}`. `total` is best-effort — it equals the
 /// returned page size when the server doesn't run a separate COUNT.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ListResponse<T> {
     pub items: Vec<T>,
     pub total: usize,
@@ -39,6 +40,7 @@ impl<T> ListResponse<T> {
 /// tenant-scoped list endpoints for backward compatibility with operator
 /// dashboards that key off it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TenantListResponse<T> {
     pub tenant_id: String,
     pub items: Vec<T>,

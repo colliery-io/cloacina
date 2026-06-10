@@ -40,6 +40,19 @@ use crate::AppState;
 
 /// POST /tenants — create a new tenant (Postgres schema + user + migrations).
 /// Admin-only: only is_admin keys can create tenants.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants",
+    tag = "tenants",
+    request_body = CreateTenantRequest,
+    responses(
+        (status = 201, description = "Tenant created (credentials intentionally excluded)", body = TenantCreatedResponse),
+        (status = 400, description = "Tenant creation failed", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn create_tenant(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -105,6 +118,20 @@ pub async fn create_tenant(
 ///
 /// Closes SEC-14 (stale state after delete) and SEC-17 (unbounded
 /// caches surviving delete).
+#[utoipa::path(
+    delete,
+    path = "/v1/tenants/{schema_name}",
+    tag = "tenants",
+    params(("schema_name" = String, Path, description = "Tenant schema name")),
+    responses(
+        (status = 200, description = "Tenant removed — teardown report", body = TenantRemovedResponse),
+        (status = 400, description = "Tenant removal failed", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Teardown step failed (safe to retry)", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn remove_tenant(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -222,6 +249,18 @@ pub async fn remove_tenant(
 
 /// GET /tenants — list tenant schemas.
 /// Requires admin role — only admins can enumerate tenants.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants",
+    tag = "tenants",
+    responses(
+        (status = 200, description = "Tenant schemas", body = ListResponse<TenantSummary>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_tenants(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,

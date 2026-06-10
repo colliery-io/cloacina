@@ -38,6 +38,25 @@ use crate::routes::error::ApiError;
 use crate::AppState;
 
 /// POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/workflows",
+    tag = "workflows",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    request_body(
+        content = crate::openapi::PackageUploadForm,
+        content_type = "multipart/form-data",
+        description = "The first file field is taken as the .cloacina package"
+    ),
+    responses(
+        (status = 201, description = "Package registered", body = WorkflowUploadedResponse),
+        (status = 400, description = "Invalid or empty package", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant/role denied or signature verification failed", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn upload_workflow(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -193,6 +212,19 @@ pub async fn upload_workflow(
 }
 
 /// GET /tenants/:tenant_id/workflows — list registered workflows.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/workflows",
+    tag = "workflows",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    responses(
+        (status = 200, description = "Registered workflows", body = TenantListResponse<WorkflowSummary>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_workflows(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -242,6 +274,23 @@ pub async fn list_workflows(
 }
 
 /// GET /tenants/:tenant_id/workflows/:name — get workflow details.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}",
+    tag = "workflows",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Package name, or package UUID to inspect pending/building/failed rows"),
+    ),
+    responses(
+        (status = 200, description = "Workflow detail incl. build state", body = WorkflowDetail),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Workflow not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn get_workflow(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -341,6 +390,24 @@ pub async fn get_workflow(
 }
 
 /// DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+#[utoipa::path(
+    delete,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}/{version}",
+    tag = "workflows",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Package name"),
+        ("version" = String, Path, description = "Package version"),
+    ),
+    responses(
+        (status = 200, description = "Workflow unregistered", body = WorkflowDeletedResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Workflow not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn delete_workflow(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-09T09:44:34Z | 518 files | JavaScript, Python, Rust
+> Generated: 2026-06-10T02:13:21Z | 521 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -269,6 +269,19 @@
 │   ├── cloacina-agent/
 │   │   └── src/
 │   │       └── main.rs
+│   ├── cloacina-api-types/
+│   │   └── src/
+│   │       ├── common.rs
+│   │       ├── delivery.rs
+│   │       ├── error.rs
+│   │       ├── executions.rs
+│   │       ├── health.rs
+│   │       ├── keys.rs
+│   │       ├── lib.rs
+│   │       ├── reactor.rs
+│   │       ├── tenants.rs
+│   │       ├── triggers.rs
+│   │       └── workflows.rs
 │   ├── cloacina-build/
 │   │   └── src/
 │   │       └── lib.rs
@@ -436,17 +449,6 @@
 │               ├── mod.rs
 │               ├── pid.rs
 │               └── render.rs
-├── diataxis/
-│   ├── hooks/
-│   │   ├── gate.py
-│   │   ├── report_guard.py
-│   │   └── scope_write.py
-│   └── scripts/
-│       ├── build_allowlist.py
-│       ├── detect.py
-│       ├── docmeta.py
-│       ├── lib_findings.py
-│       └── rustdoc_hash.py
 ├── docs/
 │   └── themes/
 │       └── hugo-geekdoc/
@@ -864,24 +866,22 @@
 - pub `clear_all` function L154-158 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
 - pub `StrategySignal` enum L169-174 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
 - pub `ManualCommand` enum L178-183 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
-- pub `ReactorCommand` enum L188-194 — `ForceFire | FireWith | GetState | Pause | Resume` — Commands sent by WebSocket operators to a reactor.
-- pub `ReactorResponse` enum L199-205 — `Fired | State | Paused | Resumed | Error` — Responses sent back to WebSocket operators.
-- pub `ReactorHandle` struct L211-216 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
-- pub `get_state` function L220-223 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
-- pub `is_paused` function L226-228 — `(&self) -> bool` — Check if the reactor is paused.
-- pub `pause` function L231-233 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
-- pub `resume` function L236-238 — `(&self)` — Resume the reactor.
-- pub `Reactor` struct L246-282 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
-- pub `new` function L285-310 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
-- pub `with_batch_flush_senders` function L313-316 — `(mut self, senders: Vec<mpsc::Sender<()>>) -> Self` — Add batch flush senders — reactor will signal these after each graph execution.
-- pub `with_graph_name` function L319-322 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
-- pub `with_dal` function L325-328 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
-- pub `with_tenant_id` function L331-334 — `(mut self, tenant_id: Option<String>) -> Self` — Set the tenant scope for reactor firings (CLOACI-I-0100 / T-0599).
-- pub `with_health` function L337-340 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
-- pub `with_expected_sources` function L346-349 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
-- pub `with_accumulator_health` function L352-361 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
-- pub `handle` function L367-372 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
-- pub `run` function L375-772 — `(mut self)` — Run the reactor.
+- pub `ReactorHandle` struct L193-198 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
+- pub `get_state` function L202-205 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
+- pub `is_paused` function L208-210 — `(&self) -> bool` — Check if the reactor is paused.
+- pub `pause` function L213-215 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
+- pub `resume` function L218-220 — `(&self)` — Resume the reactor.
+- pub `Reactor` struct L228-264 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
+- pub `new` function L267-292 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
+- pub `with_batch_flush_senders` function L295-298 — `(mut self, senders: Vec<mpsc::Sender<()>>) -> Self` — Add batch flush senders — reactor will signal these after each graph execution.
+- pub `with_graph_name` function L301-304 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
+- pub `with_dal` function L307-310 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
+- pub `with_tenant_id` function L313-316 — `(mut self, tenant_id: Option<String>) -> Self` — Set the tenant scope for reactor firings (CLOACI-I-0100 / T-0599).
+- pub `with_health` function L319-322 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
+- pub `with_expected_sources` function L328-331 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
+- pub `with_accumulator_health` function L334-343 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
+- pub `handle` function L349-354 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
+- pub `run` function L357-754 — `(mut self)` — Run the reactor.
 -  `SeqQueue` type L38 — `= Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>>` — Sequential-strategy queue: shared boundary buffer that the strategy
 -  `ReactorHealth` type L61-70 — `= ReactorHealth` — See CLOACI-S-0005 for the full specification.
 -  `fmt` function L62-69 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0005 for the full specification.
@@ -891,20 +891,20 @@
 -  `DirtyFlags` type L123-159 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `DirtyFlags` type L161-165 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `default` function L162-164 — `() -> Self` — See CLOACI-S-0005 for the full specification.
--  `ReactorHandle` type L218-239 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
--  `Reactor` type L284-773 — `= Reactor` — See CLOACI-S-0005 for the full specification.
--  `write_reactor_firing` function L783-835 — `( dal: &Option<crate::dal::unified::DAL>, tenant_id: &Option<String>, reactor_na...` — Write one `reactor_firings` row to the DAL on each fire.
--  `PERSIST_FAILURE_DEGRADE_THRESHOLD` variable L840 — `: u32` — Threshold for the persist-failure watchdog: a reactor whose persist
--  `persist_reactor_state` function L850-928 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
--  `record_reactor_persist_failure` function L936-962 — `( graph_name: &str, kind: &'static str, persist_streak: &Arc<std::sync::atomic::...` — Increment the bounded persist-failures counter for a reactor, bump the
--  `tests` module L965-1143 — `-` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_any` function L969-978 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_all` function L981-989 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_clear_all` function L992-1000 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_empty_all_set` function L1003-1007 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_fires_on_boundary` function L1010-1052 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_manual_force_fire` function L1055-1091 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_cache_snapshot_isolation` function L1094-1142 — `()` — See CLOACI-S-0005 for the full specification.
+-  `ReactorHandle` type L200-221 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
+-  `Reactor` type L266-755 — `= Reactor` — See CLOACI-S-0005 for the full specification.
+-  `write_reactor_firing` function L765-817 — `( dal: &Option<crate::dal::unified::DAL>, tenant_id: &Option<String>, reactor_na...` — Write one `reactor_firings` row to the DAL on each fire.
+-  `PERSIST_FAILURE_DEGRADE_THRESHOLD` variable L822 — `: u32` — Threshold for the persist-failure watchdog: a reactor whose persist
+-  `persist_reactor_state` function L832-910 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
+-  `record_reactor_persist_failure` function L918-944 — `( graph_name: &str, kind: &'static str, persist_streak: &Arc<std::sync::atomic::...` — Increment the bounded persist-failures counter for a reactor, bump the
+-  `tests` module L947-1125 — `-` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_any` function L951-960 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_all` function L963-971 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_clear_all` function L974-982 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_empty_all_set` function L985-989 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_fires_on_boundary` function L992-1034 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_manual_force_fire` function L1037-1073 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_cache_snapshot_isolation` function L1076-1124 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/computation_graph/registry.rs
 
@@ -2508,18 +2508,9 @@
 
 #### crates/cloacina/src/delivery/envelope.rs
 
-- pub `DELIVERY_PROTOCOL_VERSION` variable L54 — `: u32` — Wire-protocol version for the substrate envelope.
-- pub `ServerMessage` enum L59-77 — `Welcome | Push` — Server → recipient frames.
-- pub `push_from_row` function L81-90 — `(row: &crate::models::delivery_outbox::DeliveryOutbox) -> Self` — Helper: build a `push` from an outbox row, base64-encoding the payload.
-- pub `decode_push_payload` function L94-101 — `(&self) -> Result<Vec<u8>, EnvelopeError>` — Decode the `payload_b64` of a [`ServerMessage::Push`].
-- pub `ClientMessage` enum L107-118 — `Hello | Ack` — Recipient → server frames.
-- pub `EnvelopeError` enum L122-131 — `WrongVariant | Base64 | Json | UnsupportedVersion` — Errors decoding/encoding substrate envelope frames.
--  `ServerMessage` type L79-102 — `= ServerMessage` — hint for future cursor-based catch-up; v1 ignores it).
--  `tests` module L134-213 — `-` — hint for future cursor-based catch-up; v1 ignores it).
--  `welcome_round_trips_as_json` function L140-149 — `()` — hint for future cursor-based catch-up; v1 ignores it).
--  `push_round_trips_with_base64_payload` function L152-170 — `()` — hint for future cursor-based catch-up; v1 ignores it).
--  `ack_and_hello_round_trip` function L173-200 — `()` — hint for future cursor-based catch-up; v1 ignores it).
--  `decode_push_payload_rejects_wrong_variant` function L203-212 — `()` — hint for future cursor-based catch-up; v1 ignores it).
+- pub `push_from_row` function L34-42 — `(row: &DeliveryOutbox) -> ServerMessage` — Build a `push` frame from an outbox row, base64-encoding the payload.
+-  `tests` module L45-69 — `-` — the one helper that needs the diesel-backed outbox model.
+-  `push_from_row_round_trips_payload` function L50-68 — `()` — the one helper that needs the diesel-backed outbox model.
 
 #### crates/cloacina/src/delivery/mod.rs
 
@@ -5480,6 +5471,102 @@
 -  `ws_url_for_handles_https_and_http` function L996-1007 — `()` — execute, classify the outcome, return `Success`/`Failure`.
 -  `ws_url_for_rejects_unsupported_scheme` function L1010-1012 — `()` — execute, classify the outcome, return `Success`/`Failure`.
 
+### crates/cloacina-api-types/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-api-types/src/common.rs
+
+- pub `ListResponse` struct L25-28 — `{ items: Vec<T>, total: usize }` — Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+- pub `new` function L32-35 — `(items: Vec<T>) -> Self` — Build the envelope with `total` set to the page size.
+- pub `TenantListResponse` struct L42-46 — `{ tenant_id: String, items: Vec<T>, total: usize }` — List envelope variant that retains a top-level `tenant_id`, used by
+- pub `new` function L50-57 — `(tenant_id: impl Into<String>, items: Vec<T>) -> Self` — Build the envelope with `total` set to the page size.
+
+#### crates/cloacina-api-types/src/delivery.rs
+
+- pub `DELIVERY_PROTOCOL_VERSION` variable L54 — `: u32` — Wire-protocol version for the substrate envelope.
+- pub `ServerMessage` enum L59-77 — `Welcome | Push` — Server → recipient frames.
+- pub `push` function L81-96 — `( id: i64, kind: impl Into<String>, recipient: impl Into<String>, tenant_id: Opt...` — Build a `push` frame, base64-encoding the raw payload bytes.
+- pub `decode_push_payload` function L100-107 — `(&self) -> Result<Vec<u8>, EnvelopeError>` — Decode the `payload_b64` of a [`ServerMessage::Push`].
+- pub `ClientMessage` enum L113-124 — `Hello | Ack` — Recipient → server frames.
+- pub `EnvelopeError` enum L128-137 — `WrongVariant | Base64 | Json | UnsupportedVersion` — Errors decoding/encoding substrate envelope frames.
+-  `ServerMessage` type L79-108 — `= ServerMessage` — hint for future cursor-based catch-up; v1 ignores it).
+-  `tests` module L140-206 — `-` — hint for future cursor-based catch-up; v1 ignores it).
+-  `welcome_round_trips_as_json` function L144-153 — `()` — hint for future cursor-based catch-up; v1 ignores it).
+-  `push_round_trips_with_base64_payload` function L156-163 — `()` — hint for future cursor-based catch-up; v1 ignores it).
+-  `ack_and_hello_round_trip` function L166-193 — `()` — hint for future cursor-based catch-up; v1 ignores it).
+-  `decode_push_payload_rejects_wrong_variant` function L196-205 — `()` — hint for future cursor-based catch-up; v1 ignores it).
+
+#### crates/cloacina-api-types/src/error.rs
+
+- pub `ErrorBody` struct L25-31 — `{ error: String, code: String }` — Standardized error response body.
+
+#### crates/cloacina-api-types/src/executions.rs
+
+- pub `ExecuteRequest` struct L23-27 — `{ context: Option<serde_json::Value> }` — Request body for `POST /tenants/{tenant_id}/workflows/{name}/execute`.
+- pub `ExecuteResponse` struct L31-38 — `{ execution_id: String, workflow_name: String, tenant_id: String, status: String...` — `202 Accepted` body for a scheduled workflow execution.
+- pub `ListExecutionsQuery` struct L43-48 — `{ status: Option<String>, workflow: Option<String>, limit: Option<i64>, offset: ...` — Query string for `GET /tenants/{tenant_id}/executions`
+- pub `ExecutionSummary` struct L52-61 — `{ id: String, workflow_name: String, status: String, started_at: String, complet...` — One row in the executions list.
+- pub `ExecutionDetail` struct L65-69 — `{ tenant_id: String, execution_id: String, status: String }` — `GET /tenants/{tenant_id}/executions/{id}` response.
+- pub `ExecutionEvent` struct L73-82 — `{ id: String, event_type: String, event_data: Option<String>, created_at: String...` — One row in the execution event log.
+- pub `ExecutionEventsResponse` struct L86-90 — `{ tenant_id: String, execution_id: String, events: Vec<ExecutionEvent> }` — `GET /tenants/{tenant_id}/executions/{id}/events` response.
+
+#### crates/cloacina-api-types/src/health.rs
+
+- pub `AccumulatorStatus` struct L23-28 — `{ name: String, status: serde_json::Value }` — One row in `GET /v1/health/accumulators`.
+- pub `GraphStatus` struct L33-42 — `{ name: String, health: serde_json::Value, accumulators: Vec<String>, paused: bo...` — One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
+
+#### crates/cloacina-api-types/src/keys.rs
+
+- pub `KeyRole` enum L24-29 — `Admin | Write | Read` — Allowed roles for API keys.
+- pub `as_str` function L32-38 — `(&self) -> &'static str` — API key management types.
+- pub `CreateKeyRequest` struct L43-47 — `{ name: String, role: KeyRole }` — Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`.
+- pub `KeyCreatedResponse` struct L52-66 — `{ id: String, name: String, key: String, permissions: String, tenant_id: Option<...` — `201 Created` body for a new API key.
+- pub `KeyInfo` struct L70-82 — `{ id: String, name: String, permissions: String, tenant_id: Option<String>, is_a...` — One row in the key list (`GET /auth/keys`).
+- pub `KeyRevokedResponse` struct L86-91 — `{ status: String, id: String }` — `DELETE /auth/keys/{key_id}` response.
+- pub `WsTicketResponse` struct L96-99 — `{ ticket: String, expires_in_seconds: u64 }` — `POST /auth/ws-ticket` response — a single-use, short-lived ticket for
+-  `KeyRole` type L31-39 — `= KeyRole` — API key management types.
+
+#### crates/cloacina-api-types/src/lib.rs
+
+- pub `common` module L34 — `-` — Public API contract types for `cloacina-server` (CLOACI-I-0113 / T-0642).
+- pub `delivery` module L35 — `-` — replaced.
+- pub `error` module L36 — `-` — replaced.
+- pub `executions` module L37 — `-` — replaced.
+- pub `health` module L38 — `-` — replaced.
+- pub `keys` module L39 — `-` — replaced.
+- pub `reactor` module L40 — `-` — replaced.
+- pub `tenants` module L41 — `-` — replaced.
+- pub `triggers` module L42 — `-` — replaced.
+- pub `workflows` module L43 — `-` — replaced.
+
+#### crates/cloacina-api-types/src/reactor.rs
+
+- pub `ReactorCommand` enum L29-35 — `ForceFire | FireWith | GetState | Pause | Resume` — Commands sent by WebSocket operators to a reactor.
+- pub `ReactorResponse` enum L40-46 — `Fired | State | Paused | Resumed | Error` — Responses sent back to WebSocket operators.
+
+#### crates/cloacina-api-types/src/tenants.rs
+
+- pub `CreateTenantRequest` struct L23-33 — `{ name: String, description: Option<String>, password: Option<String> }` — Request body for `POST /tenants`.
+- pub `TenantCreatedResponse` struct L38-42 — `{ name: String, username: String, description: Option<String> }` — `201 Created` body for a new tenant.
+- pub `TenantRemovedResponse` struct L46-54 — `{ status: String, schema_name: String, revoked_keys: usize, runner_evicted: bool...` — `DELETE /tenants/{schema_name}` response — orchestrated teardown report.
+- pub `TenantSummary` struct L58-60 — `{ name: String }` — One row in the tenant list (`GET /tenants`).
+
+#### crates/cloacina-api-types/src/triggers.rs
+
+- pub `ListTriggersQuery` struct L24-27 — `{ limit: Option<i64>, offset: Option<i64> }` — Query string for `GET /tenants/{tenant_id}/triggers`
+- pub `TriggerScheduleSummary` struct L31-47 — `{ id: String, schedule_type: String, workflow_name: String, enabled: bool, cron_...` — One row in the trigger list.
+- pub `TriggerScheduleInfo` struct L51-60 — `{ id: String, schedule_type: String, workflow_name: String, enabled: bool, cron_...` — Schedule fields in the trigger detail response.
+- pub `TriggerExecution` struct L64-73 — `{ id: String, scheduled_time: Option<String>, started_at: String, completed_at: ...` — One row in `recent_executions` of the trigger detail response.
+- pub `TriggerDetailResponse` struct L77-81 — `{ tenant_id: String, schedule: TriggerScheduleInfo, recent_executions: Vec<Trigg...` — `GET /tenants/{tenant_id}/triggers/{name}` response.
+
+#### crates/cloacina-api-types/src/workflows.rs
+
+- pub `WorkflowUploadedResponse` struct L24-28 — `{ package_id: String, tenant_id: String }` — `201 Created` body for a workflow package upload
+- pub `WorkflowSummary` struct L32-42 — `{ id: String, package_name: String, version: String, description: Option<String>...` — One row in the workflow list (`GET /tenants/{tenant_id}/workflows`).
+- pub `WorkflowDeletedResponse` struct L46-51 — `{ status: String, package_name: String, version: String }` — `DELETE /tenants/{tenant_id}/workflows/{name}/{version}` response.
+- pub `WorkflowDetail` struct L56-69 — `{ tenant_id: String, id: String, package_name: String, version: String, descript...` — `GET /tenants/{tenant_id}/workflows/{name}` response — summary fields
+
 ### crates/cloacina-build/src
 
 > *Semantic summary to be generated by AI agent.*
@@ -6869,39 +6956,33 @@
 
 #### crates/cloacina-server/src/routes/executions.rs
 
-- pub `ExecuteRequest` struct L37-41 — `{ context: Option<serde_json::Value> }` — Request body for executing a workflow.
-- pub `execute_workflow` function L49-139 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
-- pub `ListExecutionsQuery` struct L147-152 — `{ status: Option<String>, workflow: Option<String>, limit: Option<i64>, offset: ...` — Query string for `list_executions` — CLOACI-T-0594 / API-02 surface.
-- pub `list_executions` function L167-243 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list workflow executions.
-- pub `get_execution` function L246-290 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id — get execution details.
-- pub `get_execution_events` function L293-345 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
--  `DEFAULT_EXECUTIONS_LIMIT` variable L157 — `: i64` — Default page size for `list_executions` when the client doesn't
--  `MAX_EXECUTIONS_LIMIT` variable L160 — `: i64` — Hard ceiling on `?limit=` to keep a single response from pulling
+- pub `execute_workflow` function L44-134 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+- pub `list_executions` function L149-217 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list workflow executions.
+- pub `get_execution` function L220-263 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id — get execution details.
+- pub `get_execution_events` function L266-316 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
+-  `DEFAULT_EXECUTIONS_LIMIT` variable L139 — `: i64` — Default page size for `list_executions` when the client doesn't
+-  `MAX_EXECUTIONS_LIMIT` variable L142 — `: i64` — Hard ceiling on `?limit=` to keep a single response from pulling
 
 #### crates/cloacina-server/src/routes/health_graphs.rs
 
-- pub `list_accumulators` function L69-95 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /v1/health/accumulators — list registered accumulators with health,
-- pub `list_graphs` function L99-132 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /v1/health/graphs — list loaded graphs visible to the caller.
-- pub `get_graph` function L137-175 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /v1/health/graphs/{name} — single graph health, gated by caller
--  `key_context` function L41-47 — `(auth: &'a AuthenticatedKey) -> KeyContext<'a>` — Build a `KeyContext` from the `AuthenticatedKey` for policy
--  `graph_visible` function L53-65 — `(auth: &AuthenticatedKey, graph_tenant: Option<&str>) -> bool` — Decide whether the caller may see a graph based on its tenant scope.
--  `tests` module L178-214 — `-` — registered-but-not-running graphs.
--  `auth` function L181-189 — `(tenant: Option<&str>, is_admin: bool) -> AuthenticatedKey` — registered-but-not-running graphs.
--  `graph_visible_admin_sees_all` function L192-197 — `()` — registered-but-not-running graphs.
--  `graph_visible_tenant_scoped` function L200-206 — `()` — registered-but-not-running graphs.
--  `graph_visible_global_key_cannot_see_tenant_graphs` function L209-213 — `()` — registered-but-not-running graphs.
+- pub `list_accumulators` function L70-90 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /v1/health/accumulators — list registered accumulators with health,
+- pub `list_graphs` function L94-123 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /v1/health/graphs — list loaded graphs visible to the caller.
+- pub `get_graph` function L128-162 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /v1/health/graphs/{name} — single graph health, gated by caller
+-  `key_context` function L42-48 — `(auth: &'a AuthenticatedKey) -> KeyContext<'a>` — Build a `KeyContext` from the `AuthenticatedKey` for policy
+-  `graph_visible` function L54-66 — `(auth: &AuthenticatedKey, graph_tenant: Option<&str>) -> bool` — Decide whether the caller may see a graph based on its tenant scope.
+-  `tests` module L165-201 — `-` — registered-but-not-running graphs.
+-  `auth` function L168-176 — `(tenant: Option<&str>, is_admin: bool) -> AuthenticatedKey` — registered-but-not-running graphs.
+-  `graph_visible_admin_sees_all` function L179-184 — `()` — registered-but-not-running graphs.
+-  `graph_visible_tenant_scoped` function L187-193 — `()` — registered-but-not-running graphs.
+-  `graph_visible_global_key_cannot_see_tenant_graphs` function L196-200 — `()` — registered-but-not-running graphs.
 
 #### crates/cloacina-server/src/routes/keys.rs
 
-- pub `KeyRole` enum L38-43 — `Admin | Write | Read` — Allowed roles for API keys.
-- pub `as_str` function L46-52 — `(&self) -> &'static str` — The bootstrap key is created automatically on first server startup.
-- pub `CreateKeyRequest` struct L57-61 — `{ name: String, role: KeyRole }` — Request body for creating a new API key.
-- pub `create_key` function L68-123 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /auth/keys — create a new API key.
-- pub `list_keys` function L127-164 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /auth/keys — list all API keys (no hashes or plaintext).
-- pub `revoke_key` function L168-198 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /auth/keys/:key_id — revoke an API key.
-- pub `create_tenant_key` function L202-250 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
-- pub `create_ws_ticket` function L256-266 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
--  `KeyRole` type L45-53 — `= KeyRole` — The bootstrap key is created automatically on first server startup.
+- pub `create_key` function L44-99 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /auth/keys — create a new API key.
+- pub `list_keys` function L103-133 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /auth/keys — list all API keys (no hashes or plaintext).
+- pub `revoke_key` function L137-171 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /auth/keys/:key_id — revoke an API key.
+- pub `create_tenant_key` function L175-223 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
+- pub `create_ws_ticket` function L229-238 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
 
 #### crates/cloacina-server/src/routes/mod.rs
 
@@ -6919,26 +7000,24 @@
 
 #### crates/cloacina-server/src/routes/tenants.rs
 
-- pub `CreateTenantRequest` struct L51-61 — `{ name: String, description: Option<String>, password: Option<String> }` — Request body for creating a tenant.
-- pub `create_tenant` function L65-110 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
-- pub `remove_tenant` function L130-243 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
-- pub `list_tenants` function L247-278 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /tenants — list tenant schemas.
+- pub `create_tenant` function L43-88 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
+- pub `remove_tenant` function L108-221 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
+- pub `list_tenants` function L225-251 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /tenants — list tenant schemas.
 
 #### crates/cloacina-server/src/routes/triggers.rs
 
-- pub `ListTriggersQuery` struct L35-38 — `{ limit: Option<i64>, offset: Option<i64> }` — Query string for `list_triggers` — CLOACI-T-0596 / API-10 pagination.
-- pub `list_triggers` function L48-127 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
-- pub `get_trigger` function L135-209 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
--  `DEFAULT_TRIGGERS_LIMIT` variable L40 — `: i64` — Trigger schedule API — read-only listing of cron and trigger schedules.
--  `MAX_TRIGGERS_LIMIT` variable L41 — `: i64` — Trigger schedule API — read-only listing of cron and trigger schedules.
+- pub `list_triggers` function L45-116 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
+- pub `get_trigger` function L124-196 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+-  `DEFAULT_TRIGGERS_LIMIT` variable L37 — `: i64` — Trigger schedule API — read-only listing of cron and trigger schedules.
+-  `MAX_TRIGGERS_LIMIT` variable L38 — `: i64` — Trigger schedule API — read-only listing of cron and trigger schedules.
 
 #### crates/cloacina-server/src/routes/workflows.rs
 
-- pub `upload_workflow` function L37-189 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
-- pub `list_workflows` function L192-246 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows — list registered workflows.
-- pub `get_workflow` function L249-345 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
-- pub `delete_workflow` function L348-400 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
--  `extract_file_field` function L403-414 — `(multipart: &mut Multipart) -> Result<Vec<u8>, String>` — Extract the first file field from a multipart request.
+- pub `upload_workflow` function L41-193 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+- pub `list_workflows` function L196-242 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows — list registered workflows.
+- pub `get_workflow` function L245-341 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
+- pub `delete_workflow` function L344-396 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+-  `extract_file_field` function L399-410 — `(multipart: &mut Multipart) -> Result<Vec<u8>, String>` — Extract the first file field from a multipart request.
 
 #### crates/cloacina-server/src/routes/ws.rs
 
@@ -7817,49 +7896,6 @@
 - pub `object` function L73-113 — `(body: &Value, format: OutputFormat) -> Result<(), CliError>` — catalog-style listings; can be replaced with per-type renderers later.
 -  `table` function L115-145 — `(items: &[Value]) -> Result<(), CliError>` — catalog-style listings; can be replaced with per-type renderers later.
 -  `truncate` function L147-153 — `(s: &str, max: usize) -> String` — catalog-style listings; can be replaced with per-type renderers later.
-
-### diataxis/scripts
-
-> *Semantic summary to be generated by AI agent.*
-
-#### diataxis/scripts/build_allowlist.py
-
-- pub `main` function L15-35 — `def main()`
-
-#### diataxis/scripts/detect.py
-
-- pub `tm_hash` function L35-36 — `def tm_hash(tm)`
-- pub `node_obj` function L39-40 — `def node_obj(n)`
-- pub `gap_finding` function L43-58 — `def gap_finding(n)`
-- pub `drift_finding` function L61-83 — `def drift_finding(n, old_hash, new_hash, per, missing)`
-- pub `orphan_findings` function L86-120 — `def orphan_findings(nodes)`
-- pub `main` function L123-157 — `def main()`
-
-#### diataxis/scripts/docmeta.py
-
-- pub `read_frontmatter` function L17-22 — `def read_frontmatter(path)`
-- pub `parse` function L25-44 — `def parse(block)`
-- pub `dump` function L47-56 — `def dump(meta)`
-- pub `write_frontmatter` function L59-60 — `def write_frontmatter(path, meta, body)`
-
-#### diataxis/scripts/lib_findings.py
-
-- pub `load_findings` function L15-19 — `def load_findings(path)`
-- pub `save_findings` function L22-25 — `def save_findings(path, data)`
-- pub `merge_findings` function L28-51 — `def merge_findings(existing, new, base_sha, tm_hash)`
-
-#### diataxis/scripts/rustdoc_hash.py
-
-- pub `git_sha` function L38-44 — `def git_sha()`
-- pub `ensure_json` function L47-66 — `def ensure_json(crate, manifest_path, cache_dir, rebuild=False)` — Return a path to rustdoc JSON for `crate`, building and caching if needed.
-- pub `canon` function L86-100 — `def canon(doc, node)` — Recursively normalize a JSON node into a stable, hashable projection.
-- pub `hash_refs` function L122-138 — `def hash_refs(json_path, refs)` — Return (combined_hash, {ref: hash|None}, [missing_refs], format_version).
-- pub `stamp` function L141-154 — `def stamp(docfile, manifest_path, cache_dir, rebuild)`
-- pub `main` function L157-180 — `def main()`
--  `_path_index` function L69-73 — `def _path_index(doc)`
--  `_resolve` function L76-83 — `def _resolve(doc, id_)`
--  `_item_for` function L103-107 — `def _item_for(doc, ref, pidx)`
--  `_hash_item` function L110-119 — `def _hash_item(doc, item)`
 
 ### docs/themes/hugo-geekdoc/static/js
 

@@ -67,6 +67,16 @@ fn graph_visible(auth: &AuthenticatedKey, graph_tenant: Option<&str>) -> bool {
 
 /// GET /v1/health/accumulators — list registered accumulators with health,
 /// filtered by the caller's authorization. CLOACI-T-0579 / SEC-05.
+#[utoipa::path(
+    get,
+    path = "/v1/health/accumulators",
+    tag = "graph-health",
+    responses(
+        (status = 200, description = "Registered accumulators with health, filtered by authorization", body = ListResponse<AccumulatorStatus>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_accumulators(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -91,6 +101,16 @@ pub async fn list_accumulators(
 
 /// GET /v1/health/graphs — list loaded graphs visible to the caller.
 /// CLOACI-T-0579 / SEC-05.
+#[utoipa::path(
+    get,
+    path = "/v1/health/graphs",
+    tag = "graph-health",
+    responses(
+        (status = 200, description = "Loaded graphs visible to the caller", body = ListResponse<GraphStatus>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_graphs(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -125,6 +145,18 @@ pub async fn list_graphs(
 /// GET /v1/health/graphs/{name} — single graph health, gated by caller
 /// authorization. Cross-tenant requests 404 rather than 403 so an
 /// adversary can't probe for tenant graph names. CLOACI-T-0579.
+#[utoipa::path(
+    get,
+    path = "/v1/health/graphs/{name}",
+    tag = "graph-health",
+    params(("name" = String, Path, description = "Graph name")),
+    responses(
+        (status = 200, description = "Single graph health", body = GraphStatus),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Graph not found (or not visible to caller)", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
 pub async fn get_graph(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,

@@ -40,9 +40,10 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1:8080")]
     bind: SocketAddr,
 
-    /// Database URL (overrides DATABASE_URL env var)
+    /// Database URL (overrides DATABASE_URL env var). Required to run the
+    /// server; not needed for `emit-openapi`.
     #[arg(long, env = "DATABASE_URL")]
-    database_url: String,
+    database_url: Option<String>,
 
     /// Bootstrap API key (used instead of auto-generating on first startup).
     #[arg(long, env = "CLOACINA_BOOTSTRAP_KEY")]
@@ -115,6 +116,49 @@ struct Cli {
     /// chance of evicting a briefly-slow agent. Default 3. CLOACI-T-0639.
     #[arg(long, env = "CLOACINA_AGENT_LIVENESS_MISSES", default_value_t = 3)]
     agent_liveness_misses: u32,
+
+    /// CORS allowed origins, comma-separated (e.g.
+    /// `https://ops.example.com,https://ui.example.com`, or `*` for any).
+    /// CORS is DISABLED unless this is set — browser consumers require an
+    /// explicit opt-in. CLOACI-T-0643 / REQ-009.
+    #[arg(
+        long,
+        env = "CLOACINA_CORS_ALLOWED_ORIGINS",
+        value_delimiter = ',',
+        num_args = 0..
+    )]
+    cors_allowed_origins: Vec<String>,
+
+    /// CORS allowed methods, comma-separated. Defaults to
+    /// GET,POST,DELETE,OPTIONS when CORS is enabled.
+    #[arg(
+        long,
+        env = "CLOACINA_CORS_ALLOWED_METHODS",
+        value_delimiter = ',',
+        num_args = 0..
+    )]
+    cors_allowed_methods: Vec<String>,
+
+    /// CORS allowed request headers, comma-separated. Defaults to
+    /// authorization,content-type when CORS is enabled.
+    #[arg(
+        long,
+        env = "CLOACINA_CORS_ALLOWED_HEADERS",
+        value_delimiter = ',',
+        num_args = 0..
+    )]
+    cors_allowed_headers: Vec<String>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Print the OpenAPI 3.1 document for the REST API to stdout and exit.
+    /// No database or network access. The committed copy lives at
+    /// `docs/static/openapi.json`; `angreal docs spec-check` diffs the two.
+    EmitOpenapi,
 }
 
 fn default_home() -> PathBuf {
@@ -126,10 +170,24 @@ fn default_home() -> PathBuf {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if let Some(Command::EmitOpenapi) = cli.command {
+        // Spec emission needs no DB, no logging setup, no runtime.
+        println!("{}", cloacina_server::openapi::openapi_json());
+        return Ok(());
+    }
+
+    let database_url = cli.database_url.ok_or_else(|| {
+        anyhow::anyhow!(
+            "a database URL is required to run the server: \
+             pass --database-url or set DATABASE_URL"
+        )
+    })?;
+
     cloacina_server::run(
         cli.home,
         cli.bind,
-        cli.database_url,
+        database_url,
         cli.verbose,
         cli.bootstrap_key,
         cli.require_signatures,
@@ -141,6 +199,11 @@ async fn main() -> Result<()> {
         cli.default_executor,
         cli.agent_heartbeat_interval_s,
         cli.agent_liveness_misses,
+        cloacina_server::CorsConfig {
+            allowed_origins: cli.cors_allowed_origins,
+            allowed_methods: cli.cors_allowed_methods,
+            allowed_headers: cli.cors_allowed_headers,
+        },
     )
     .await
 }

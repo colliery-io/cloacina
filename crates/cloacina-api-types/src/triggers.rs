@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 /// Query string for `GET /tenants/{tenant_id}/triggers`
 /// (CLOACI-T-0596 / API-10 pagination).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema, utoipa::IntoParams))]
 pub struct ListTriggersQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
@@ -28,6 +29,7 @@ pub struct ListTriggersQuery {
 
 /// One row in the trigger list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TriggerScheduleSummary {
     /// Schedule UUID.
     pub id: String,
@@ -48,6 +50,7 @@ pub struct TriggerScheduleSummary {
 
 /// Schedule fields in the trigger detail response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TriggerScheduleInfo {
     /// Schedule UUID.
     pub id: String,
@@ -61,6 +64,7 @@ pub struct TriggerScheduleInfo {
 
 /// One row in `recent_executions` of the trigger detail response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TriggerExecution {
     /// Schedule-execution UUID.
     pub id: String,
@@ -74,6 +78,7 @@ pub struct TriggerExecution {
 
 /// `GET /tenants/{tenant_id}/triggers/{name}` response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TriggerDetailResponse {
     pub tenant_id: String,
     pub schedule: TriggerScheduleInfo,

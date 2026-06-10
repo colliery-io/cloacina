@@ -10,8 +10,14 @@ documentation.workspace = true
 readme.workspace = true
 description = "Public API contract types for cloacina-server — request/response DTOs and WebSocket envelopes shared by the server and its clients"
 
+[features]
+# OpenAPI schema derives (utoipa) — enabled by cloacina-server to emit the
+# spec; client consumers stay serde-only by default.
+openapi = ["dep:utoipa"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json.workspace = true
 base64 = { version = "0.22" }
 thiserror = { version = "1.0" }
+utoipa = { version = "5", optional = true }

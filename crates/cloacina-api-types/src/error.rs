@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 /// `cloacina-server` carries this shape; the request correlation ID is in
 /// the `x-request-id` response header, not the body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ErrorBody {
     /// Human-readable error message.
     pub error: String,
