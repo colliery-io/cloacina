@@ -69,3 +69,5 @@ docs/content/api-reference/_nav.yml
 integration-test.log
 .metis/*.log
 node_modules/
+clients/python/.venv/
+clients/python/dist/

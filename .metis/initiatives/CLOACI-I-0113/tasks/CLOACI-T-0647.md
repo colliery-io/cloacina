@@ -4,14 +4,14 @@ level: task
 title: "Python SDK — cloacina-client on PyPI, sync+async shim, WS wrapper, live contract suite"
 short_code: "CLOACI-T-0647"
 created_at: 2026-06-10T01:30:35.665327+00:00
-updated_at: 2026-06-10T01:30:35.665327+00:00
+updated_at: 2026-06-10T04:23:15.993681+00:00
 parent: CLOACI-I-0113
-blocked_by: ["CLOACI-T-0643", "CLOACI-T-0644"]
+blocked_by: [CLOACI-T-0643, CLOACI-T-0644]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -30,11 +30,11 @@ Ship the Python service SDK: `cloacina-client` on PyPI (import name `cloacina_cl
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] Generated client under `clients/python/` from pinned `openapi-python-client`; deterministic regen with drift CI (NFR-001)
-- [ ] `cloacina_client.Client(server, api_key, tenant=...)` in sync + async variants, pagination iterators (REQ-005)
-- [ ] WS wrapper via `websockets` with reconnect (REQ-004)
-- [ ] Packaging via uv/hatchling; `pip install cloacina-client` works against a local server; import name `cloacina_client` — no `cloaca` collision
-- [ ] Live-server contract suite: every documented endpoint + ≥1 WS subscription lifecycle; Python 3.10+ tested (REQ-007)
+- [x] Generated client vendored at `clients/python/src/cloacina_client/_generated/` from **pinned `openapi-python-client@0.29.0`** (regen command in pyproject + README; CI drift wiring in T-0648's matrix — note: 0.21.x is broken with current typer/click, hence the newer pin)
+- [x] `cloacina_client.Client(server, api_key=..., tenant=...)` + `AsyncClient` with the full endpoint surface, `iterate_executions` pagination (sync generator + async iterator), `CloacinaApiError` with status+code (REQ-005)
+- [x] `_ws.py` via `websockets`: fresh ticket per connect, hello v1, dedup-on-id, ack-after-yield, exponential-backoff reconnect, 4426 → `ProtocolVersionError` (REQ-004)
+- [x] Packaging via uv/hatchling: `uv build` produces sdist+wheel; wheel installed into an isolated env and verified against a live server; import name `cloacina_client`, README explicitly distinguishes the service client from embedded `cloaca`
+- [x] Live-server contract suite: 18 pytest tests, every documented endpoint + WS lifecycle (idle-connect + hello-v99 → close 4426), 18/18 twice on a fresh server; local venv is Python 3.12, `requires-python = ">=3.10"` with 3.10-compatible code (full version matrix rides T-0648 CI)
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -49,4 +49,9 @@ Generator handling of custom auth headers and pagination params needs verificati
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-06-10** — Implemented on `i0113-server-sdks`:
+- Generator: `openapi-python-client@0.29.0` via uvx (0.21.x fails with a typer/click incompatibility — pinned the working version instead). Output vendored *inside* the package at `src/cloacina_client/_generated` (`--meta none`, `package_name_override: _generated`) so one wheel ships everything.
+- Shim: `_client.py` — `_Base` holds the generated `AuthenticatedClient`; `Client` (sync) covers the full surface; `AsyncClient` covers the async-relevant surface + WS entry points; `_unwrap` raises `CloacinaApiError` from `*_detailed` responses; `/health` (schema-less in spec) parsed from raw content. `_ws.py` mirrors the TS/Rust delivery consumers.
+- Suite findings: generated `ExecuteRequest.context` is `Any | Unset` (no wrapper model — adjusted shim); everything else round-tripped cleanly on the first live run except `/health` parsing. 18/18 twice against a fresh server.
+- Packaging: `uv build` → sdist + wheel; wheel verified in an isolated `uv run --no-project` env against the live server. `[dependency-groups] dev` for pytest/pytest-asyncio.
+- PyPI publish wiring deliberately deferred to T-0648 (release task), as scoped.

@@ -4,14 +4,14 @@ level: task
 title: "Rust client crate — cloacina-client extract from cloacinactl, WS stream, live contract suite"
 short_code: "CLOACI-T-0646"
 created_at: 2026-06-10T01:30:29.910601+00:00
-updated_at: 2026-06-10T03:57:19.554213+00:00
+updated_at: 2026-06-10T04:22:57.532640+00:00
 parent: CLOACI-I-0113
 blocked_by: [CLOACI-T-0642, CLOACI-T-0644]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0113
 ## Objective **[REQUIRED]**
 
 Extract `cloacinactl`'s crate-private client (`src/shared/{client,client_ctx,error}.rs`) into a published `crates/cloacina-client` crate built on `cloacina-api-types` + `reqwest` + `tokio-tungstenite`. `cloacinactl` becomes a consumer with zero behavior change, so the CLI exercises the same client surface third parties see. Includes a live-server contract suite — DTO sharing prevents schema drift but does not prove handler semantics (REQ-007).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
