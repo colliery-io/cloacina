@@ -254,6 +254,10 @@ jobs:
           packages-dir: dist/
           verbose: true
           password: ${{ secrets.PYPI_TOKEN }}
+          # Tolerate idempotent re-runs of the release on the same tag: if a
+          # prior run already uploaded these files, skip rather than 400. Mirrors
+          # the "already published" handling in the crates.io publish job.
+          skip-existing: true
 
   # -----------------------------------------------------------------------
   # Step 5b: Build + upload cloacinactl release binaries (CLOACI-I-0111 / T-0603)
@@ -267,6 +271,12 @@ jobs:
     name: Build Binary (${{ matrix.target }})
     needs: [verify-version]
     if: startsWith(github.ref, 'refs/tags/')
+    # Creating the GitHub Release and uploading the cloacinactl tarballs needs
+    # contents:write. The workflow-level default is contents:read, so grant it
+    # here — without it the upload step 403s ("Resource not accessible by
+    # integration") and the binaries / Release never appear.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
