@@ -117,3 +117,10 @@ export function useClient(): CloacinaClient {
   if (!client) throw new Error("useClient used while disconnected");
   return client;
 }
+
+/** The active tenant — used to scope query keys (only valid while connected). */
+export function useTenant(): string {
+  const { connection } = useAuth();
+  if (!connection) throw new Error("useTenant used while disconnected");
+  return connection.tenant;
+}

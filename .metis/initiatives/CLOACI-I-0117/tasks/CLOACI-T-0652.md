@@ -4,14 +4,14 @@ level: task
 title: "UI workflows views — list (paged) + detail (build status, tasks, version)"
 short_code: "CLOACI-T-0652"
 created_at: 2026-06-11T02:18:52.768018+00:00
-updated_at: 2026-06-11T02:18:52.768018+00:00
+updated_at: 2026-06-11T10:37:18.566723+00:00
 parent: CLOACI-I-0117
-blocked_by: ["CLOACI-T-0651"]
+blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -30,11 +30,11 @@ Read-only workflows surface (REQ-003 read half): `/workflows` list and `/workflo
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `/workflows` — paged list (package name, version, created); loading/empty/error states; row → detail.
-- [ ] `/workflows/:name` — detail: `build_status` (pending/building/failed/success, visually distinct), `build_error` when present, tasks, version, created_at.
-- [ ] 404 (unknown workflow) renders the not-found state, not a crash (REQ-007).
-- [ ] Tenant-scoped via the auth context's default tenant; data flows only through `@cloacina/client`.
-- [ ] Detail view leaves obvious anchor points for the write actions added in T-0657 (Execute / Delete buttons can be stubbed/hidden until then).
+- [x] `/workflows` — list (package name, description, version, task count, created); loading/empty/error states; row → detail. (Note: the workflows endpoint is **not** server-paginated — unlike executions/triggers it returns the full list — so there's no pager here.)
+- [x] `/workflows/:name` — detail: `build_status` via `BuildStatusBadge` (colored by status, gray fallback for unknown), `build_error` in an alert when present, tasks list, version, created_at.
+- [x] 404 (unknown workflow) renders the typed not-found state via `ErrorState`/`classifyError` (REQ-007), not a crash.
+- [x] Tenant-scoped through `useTenant()`; all data via `@cloacina/client` (`useWorkflows`/`useWorkflow` hooks).
+- [x] Detail view has the Execute / Delete actions stubbed (disabled, tooltipped "Coming in T-0657") — wired anchor points for T-0657.
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -49,4 +49,9 @@ Blocked by CLOACI-T-0651 (skeleton). Sequences before CLOACI-T-0657 (write ops h
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-06-11** — Implemented on `i0117-web-ui`:
+- `api/workflows.ts` — `useWorkflows()` / `useWorkflow(name)` TanStack Query hooks over the SDK, tenant-scoped via new `useTenant()` (added to AuthContext).
+- `components/BuildStatusBadge.tsx` — status→color map with a gray fallback for unknown values (defensive per REQ-007; reused by overview T-0655). `util/format.ts` — locale timestamp formatter.
+- `routes/Workflows.tsx` (Mantine Table, row→detail, loading/empty/error states) + `routes/WorkflowDetail.tsx` (build badge, build_error alert, tasks list, metadata; Execute/Delete stubbed disabled for T-0657). Wired into `App.tsx`, replacing the placeholders.
+- Establishes the **list/detail pattern** T-0653/0654 follow: hook → states → table/card; errors flow through `classifyError`.
+- **Verified:** `npm run typecheck` clean (exit 0); Vite hot-reloaded the routes into the running `angreal ui up` stack. Full visual/interaction verification is deferred to the T-0661 Playwright UAT (the initiative's automated-acceptance gate); the dev stack currently has an empty tenant so the list shows the empty state.

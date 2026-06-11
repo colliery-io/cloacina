@@ -21,6 +21,8 @@ import { Shell } from "./components/Shell";
 import { Connect } from "./routes/Connect";
 import { Overview } from "./routes/Overview";
 import { NotFound, Placeholder } from "./routes/Placeholder";
+import { Workflows } from "./routes/Workflows";
+import { WorkflowDetail } from "./routes/WorkflowDetail";
 
 /**
  * Route map (CLOACI-I-0117 IA). Feature views replace the placeholders as
@@ -37,12 +39,12 @@ export function App() {
       <Route element={<RequireAuth />}>
         <Route element={<Shell />}>
           <Route index element={<Overview />} />
-          <Route path="workflows" element={<Placeholder title="Workflows" task="T-0652" />} />
+          <Route path="workflows" element={<Workflows />} />
           <Route
             path="workflows/upload"
             element={<Placeholder title="Upload workflow" task="T-0657" />}
           />
-          <Route path="workflows/:name" element={<Placeholder title="Workflow" task="T-0652" />} />
+          <Route path="workflows/:name" element={<WorkflowDetail />} />
           <Route path="executions" element={<Placeholder title="Executions" task="T-0653" />} />
           <Route path="executions/:id" element={<Placeholder title="Execution" task="T-0653" />} />
           <Route path="triggers" element={<Placeholder title="Triggers" task="T-0654" />} />
