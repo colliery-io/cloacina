@@ -14,28 +14,45 @@
  *  limitations under the License.
  */
 
-import { Anchor, Card, Group, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Badge, Card, Group, Stack, Text, Title } from "@mantine/core";
+import { useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { useExecution, useExecutionEvents } from "../api/executions";
+import { useExecution, useExecutionEvents, useLiveExecutionEvents } from "../api/executions";
 import { EventLog } from "../components/EventLog";
 import { StatusBadge } from "../components/StatusBadge";
 import { ErrorState, Loading } from "../components/states/States";
+import { mergeEvents } from "../util/events";
 import { isTerminalStatus } from "../util/status";
 
 /**
- * Execution detail (T-0653 / REQ-004 non-live half): status header + the
- * event log from the REST endpoint. **Built streaming-ready** — T-0656
- * adds a live tail that merges WS events into the same `EventLog`, and the
- * `isTerminalStatus` check here is what it uses to decide whether to open
- * a stream at all.
+ * Execution detail (T-0653 + T-0656). Non-live half shows the REST event
+ * log; the live half tails the delivery WS while the run is in progress
+ * and merges into the same log.
+ *
+ * OQ-6 merge: REST history (`useExecutionEvents`) is the backfill; the live
+ * tail (`useLiveExecutionEvents`) is layered on top, deduped on
+ * `sequence_num` by `mergeEvents`. The status is polled (`livePoll`) so the
+ * badge transitions to terminal, at which point the stream tears down and
+ * the REST log is refetched for the authoritative final history.
  */
 export function ExecutionDetail() {
   const { id = "" } = useParams();
-  const detail = useExecution(id);
+  const detail = useExecution(id, { livePoll: true });
   const events = useExecutionEvents(id);
 
   const terminal = detail.data ? isTerminalStatus(detail.data.status) : true;
+  const liveEvents = useLiveExecutionEvents(id, !terminal);
+
+  // On the in-progress → terminal transition, refetch the REST log so the
+  // final view is the server's authoritative history (not just what the
+  // live tail happened to catch).
+  useEffect(() => {
+    if (terminal) events.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminal]);
+
+  const merged = mergeEvents(events.data?.events ?? [], liveEvents);
 
   return (
     <Stack>
@@ -58,24 +75,29 @@ export function ExecutionDetail() {
           <Group>
             <StatusBadge status={detail.data.status} />
             {!terminal && (
-              <Text c="blue" size="sm">
-                in progress — live follow lands in T-0656
-              </Text>
+              <Badge color="blue" variant="dot">
+                live
+              </Badge>
             )}
           </Group>
         </Card>
       )}
 
       <Card withBorder padding="lg">
-        <Title order={4} mb="sm">
-          Event log
-        </Title>
+        <Group justify="space-between" mb="sm">
+          <Title order={4}>Event log</Title>
+          {!terminal && (
+            <Text size="xs" c="blue">
+              streaming…
+            </Text>
+          )}
+        </Group>
         {events.isPending ? (
           <Loading label="Loading events…" />
         ) : events.isError ? (
           <ErrorState error={events.error} onRetry={events.refetch} />
         ) : (
-          <EventLog events={events.data.events} />
+          <EventLog events={merged} />
         )}
       </Card>
     </Stack>

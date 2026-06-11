@@ -14,9 +14,13 @@
  *  limitations under the License.
  */
 
+import { followExecutionEvents } from "@cloacina/client";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
+import type { ExecutionEvent } from "../components/EventLog";
 import { useClient, useTenant } from "../auth/AuthContext";
+import { isTerminalStatus } from "../util/status";
 import { queryKeys } from "./hooks";
 
 export type ExecutionsQuery = {
@@ -37,17 +41,25 @@ export function useExecutions(query: ExecutionsQuery) {
   });
 }
 
-/** Single execution detail (T-0653). */
-export function useExecution(id: string) {
+/**
+ * Single execution detail (T-0653). With `livePoll`, the status is re-polled
+ * every 2s while the run is non-terminal (T-0656) so the badge transitions
+ * to its terminal state and the live stream can be torn down; polling stops
+ * once terminal.
+ */
+export function useExecution(id: string, opts: { livePoll?: boolean } = {}) {
   const client = useClient();
   const tenant = useTenant();
   return useQuery({
     queryKey: queryKeys.execution(tenant, id),
     queryFn: () => client.getExecution(id),
+    refetchInterval: opts.livePoll
+      ? (query) => (query.state.data && !isTerminalStatus(query.state.data.status) ? 2000 : false)
+      : false,
   });
 }
 
-/** Execution event log from the REST endpoint (T-0653; T-0656 adds the live tail). */
+/** Execution event log from the REST endpoint (T-0653; the live tail is `useLiveExecutionEvents`). */
 export function useExecutionEvents(id: string) {
   const client = useClient();
   const tenant = useTenant();
@@ -55,4 +67,48 @@ export function useExecutionEvents(id: string) {
     queryKey: queryKeys.executionEvents(tenant, id),
     queryFn: () => client.getExecutionEvents(id),
   });
+}
+
+/**
+ * Live tail over the delivery WS (T-0656 / REQ-004 live half). Bridges the
+ * SDK's `followExecutionEvents` async iterator into component state while
+ * `enabled` (i.e. the run is in progress), aborting the WS cleanly on
+ * unmount or when the execution goes terminal — no leaked sockets (NFR-002).
+ *
+ * Returns the live events only; the caller merges them with the REST
+ * history via `mergeEvents` (the OQ-6 seam — dedup on sequence_num). Dedup
+ * here within the live stream is also by sequence_num; reconnect + the
+ * at-least-once redelivery are the SDK's responsibility.
+ */
+export function useLiveExecutionEvents(id: string, enabled: boolean): ExecutionEvent[] {
+  const client = useClient();
+  const [events, setEvents] = useState<ExecutionEvent[]>([]);
+
+  useEffect(() => {
+    setEvents([]); // reset when the execution or enabled-state changes
+    if (!enabled) return;
+
+    const controller = new AbortController();
+    (async () => {
+      try {
+        for await (const ev of followExecutionEvents(client, id, {
+          signal: controller.signal,
+        })) {
+          const e = ev as ExecutionEvent;
+          if (e && typeof e.sequence_num === "number") {
+            setEvents((prev) =>
+              prev.some((p) => p.sequence_num === e.sequence_num) ? prev : [...prev, e],
+            );
+          }
+        }
+      } catch {
+        // Aborted on unmount, or a terminal stream error — the REST history
+        // (shown alongside) remains the source of truth.
+      }
+    })();
+
+    return () => controller.abort();
+  }, [client, id, enabled]);
+
+  return events;
 }
