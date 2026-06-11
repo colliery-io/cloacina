@@ -4,14 +4,14 @@ level: task
 title: "UI API key management — create (one-time plaintext), list, revoke"
 short_code: "CLOACI-T-0658"
 created_at: 2026-06-11T02:19:00.689036+00:00
-updated_at: 2026-06-11T02:19:00.689036+00:00
+updated_at: 2026-06-11T12:14:42.627556+00:00
 parent: CLOACI-I-0117
-blocked_by: ["CLOACI-T-0651"]
+blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -30,10 +30,10 @@ Tenant-scoped API-key management (REQ-006, drives UC-4): `/keys` list + create +
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `/keys` — list keys (name, role, created, revoked) with no plaintext ever shown.
-- [ ] **Create**: name + role → `createTenantKey()` → the plaintext key is shown **exactly once** in a copy-to-clipboard panel with a clear "you won't see this again" warning; dismissing it removes it from memory/DOM. Never re-displayed, never persisted by the UI.
-- [ ] **Revoke**: confirm dialog → `revokeKey()`; list reflects revoked state.
-- [ ] Typed error surfacing (REQ-007); cache invalidation on create/revoke.
+- [x] `/keys` — table of keys (name, role badge, created, active/revoked) over `useKeys`; no plaintext ever rendered (the list schema `KeyInfo` carries none).
+- [x] **Create**: name + role (`Select`) → `useCreateKey` → `createTenantKey`; the plaintext `key` is held only in transient component state and shown **once** in a `closeOnClickOutside={false}` modal with a `CopyButton` and a "you won't see it again" warning. Dismissing nulls the state — never written to cache or sessionStorage, never re-displayed.
+- [x] **Revoke**: confirm Modal → `useRevokeKey` → `revokeKey(id)`; list invalidates so the row flips to `revoked`.
+- [x] Mutation errors classified via `classifyError` (REQ-007 — a 403 from a non-admin key surfaces as "Not authorized"); create/revoke invalidate the keys-list cache.
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -48,4 +48,9 @@ Don't let the one-time plaintext leak into TanStack Query cache, logs, or error 
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-06-11 — Implemented, typechecks clean.**
+- `ui/src/api/keys.ts` (new): `useKeys` (`client.listKeys`), `useCreateKey` (`client.createTenantKey({name, role})`), `useRevokeKey` (`client.revokeKey(id)`); create/revoke invalidate `queryKeys.keys(tenant)`. Re-exports `KeyInfo`/`KeyRole`/`KeyCreatedResponse` types from the SDK schemas.
+- `ui/src/routes/Keys.tsx` (new): list table (role + active/revoked badges), create modal (name + role Select), one-time plaintext reveal modal (`CopyButton`, `closeOnClickOutside={false}`, dismiss nulls state), revoke confirm modal. Errors via `classifyError`.
+- `ui/src/App.tsx`: replaced the `/keys` placeholder with `<Keys />`. Shell nav already had the API Keys link.
+- **Security:** the plaintext `key` from `KeyCreatedResponse` lives only in transient `useState` for the one-time display — never written to the query cache (mutation results aren't cached), sessionStorage, or logs. The list endpoint's `KeyInfo` schema carries no plaintext/hash.
+- **Note (carried from task):** minting a tenant key needs an admin-role key server-side; a non-admin key gets a 403, surfaced cleanly as "Not authorized".

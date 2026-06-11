@@ -30,6 +30,7 @@ import { Triggers } from "./routes/Triggers";
 import { TriggerDetail } from "./routes/TriggerDetail";
 import { Graphs } from "./routes/Graphs";
 import { GraphDetail } from "./routes/GraphDetail";
+import { Keys } from "./routes/Keys";
 
 /**
  * Route map (CLOACI-I-0117 IA). Feature views replace the placeholders as
@@ -55,7 +56,7 @@ export function App() {
           <Route path="triggers/:name" element={<TriggerDetail />} />
           <Route path="graphs" element={<Graphs />} />
           <Route path="graphs/:name" element={<GraphDetail />} />
-          <Route path="keys" element={<Placeholder title="API Keys" task="T-0658" />} />
+          <Route path="keys" element={<Keys />} />
           <Route path="settings" element={<Placeholder title="Settings" task="T-0651" />} />
           <Route path="*" element={<NotFound />} />
         </Route>
