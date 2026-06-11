@@ -4,14 +4,14 @@ level: task
 title: "UI containerize + deploy — multi-stage image, runtime server-URL config, compose + optional Helm"
 short_code: "CLOACI-T-0659"
 created_at: 2026-06-11T02:19:02.091675+00:00
-updated_at: 2026-06-11T02:19:02.091675+00:00
+updated_at: 2026-06-11T12:18:05.281695+00:00
 parent: CLOACI-I-0117
-blocked_by: ["CLOACI-T-0651"]
+blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -30,11 +30,11 @@ Package the SPA as a deployable container (initiative deploy decision): a multi-
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] Multi-stage `Dockerfile`: Vite build → static assets served by nginx. Built in CI, version-locked to the server release (NFR-004).
-- [ ] **Runtime server-URL config (OQ-5)**: target server URL injected at container start (env → generated `config.js` or nginx-templated) — the bundle is server-agnostic; record the chosen mechanism.
-- [ ] Base compose: a `ui` service alongside `server`, with the server configured `CLOACINA_CORS_ALLOWED_ORIGINS` for the UI origin (exercises the I-0113 CORS opt-in). `compose up` → reach the UI and connect to the server.
-- [ ] Optional Helm: a `ui` deployment + service (+ ingress), gated like cloacina's other optional components.
-- [ ] Image published by CI in lockstep with the server image.
+- [x] Multi-stage `ui/Dockerfile`: stage 1 (node) builds `@cloacina/client` then the Vite bundle; stage 2 (`nginx:alpine`) serves the static assets with SPA fallback (`ui/deploy/nginx.conf`). **Built + verified locally** (`docker build -f ui/Dockerfile .` → image runs, serves `/` 200, deep-link falls back to index). CI builds it in lockstep with the server (below).
+- [x] **Runtime server-URL config (OQ-5) — mechanism recorded:** the entrypoint (`ui/deploy/docker-entrypoint.sh`, dropped in nginx's `/docker-entrypoint.d/`) renders `index.html` **from a committed template each start**, substituting `$CLOACINA_SERVER_URL` into `window.__CLOACINA_CONFIG__.defaultServerUrl`. Render-from-template = idempotent across restarts; empty/unset → the `/connect` form asks. One image, any server. Verified: `-e CLOACINA_SERVER_URL=…` shows up in the served HTML; `index.html` is `Cache-Control: no-store`.
+- [x] Base compose `docker/docker-compose.ui.yml`: `postgres` + `server` + `ui`. The server gets `CLOACINA_CORS_ALLOWED_ORIGINS=http://localhost:8081` (the UI origin — the I-0113 / REQ-009 opt-in); the UI gets `CLOACINA_SERVER_URL=http://localhost:8080`. `compose up --build` → UI on :8081 connecting to the server on :8080. `compose config` validates.
+- [x] Optional Helm chart `charts/cloacina-ui/` (deployment + service + ingress + NOTES), mirroring the `cloacina-server` chart conventions; ingress gated `enabled: false` by default. `helm lint` + `helm template` pass.
+- [x] CI lockstep: new `publish-docker-ui` job in `unified_release.yml` (multi-arch buildx → `ghcr.io/<owner>/cloacina-ui`, same `<semver>`/`<major>.<minor>`/`latest` tags as the server, with a runtime-config smoke test); `publish-helm` extended to package+push the `cloacina-ui` chart and sync its version/appVersion to the tag. Both wired into the cache-prune `needs`.
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -49,4 +49,11 @@ CORS correctness across container origins — the compose wiring must set the se
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-06-11 — Implemented + verified by building/running the image.**
+- `ui/Dockerfile` (multi-stage, build context = repo root): builds the sibling SDK (`clients/typescript`) then the Vite bundle, serves via `nginx:alpine`. `ui/deploy/nginx.conf` (SPA fallback, immutable `/assets`, `no-store` index), `ui/deploy/docker-entrypoint.sh` (runtime config render).
+- **OQ-5 resolved:** runtime server-URL via template-render-on-start (idempotent), not a build-time bake. The read side (`ui/src/config.ts` / `index.html`) was already in place from T-0651; this task supplied the injection mechanism.
+- `docker/docker-compose.ui.yml`: postgres + server + ui, CORS wired (server allows the UI origin). `.dockerignore` updated to exclude `**/node_modules/` and host `dist/` so the build context is clean.
+- `charts/cloacina-ui/`: Chart.yaml, values.yaml, templates (deployment/service/ingress/_helpers/NOTES). `helm lint` + `helm template` pass.
+- `.github/workflows/unified_release.yml`: `publish-docker-ui` (lockstep multi-arch image + smoke test) + extended `publish-helm` for the ui chart; both added to `prune-tag-caches.needs`. YAML validated.
+- **Local verification:** `docker build -t cloacina-ui:dev -f ui/Dockerfile .` succeeded; container with `CLOACINA_SERVER_URL=http://example.test:8080` rendered that URL into the served `index.html`, `/` → 200, `/executions/abc` → SPA fallback, `index.html` `no-store`. Test container/image removed after.
+- **Note:** built two new ghcr image/chart names (`cloacina-ui`, `charts/cloacina-ui`) — first publish on the next tagged release; mirrors the server's publish flow so no new failure modes expected.
