@@ -4,14 +4,14 @@ level: task
 title: "UI triggers views — list (paged) + detail with recent executions"
 short_code: "CLOACI-T-0654"
 created_at: 2026-06-11T02:18:55.136747+00:00
-updated_at: 2026-06-11T02:18:55.136747+00:00
+updated_at: 2026-06-11T10:54:44.490676+00:00
 parent: CLOACI-I-0117
-blocked_by: ["CLOACI-T-0651"]
+blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -30,10 +30,10 @@ Read-only triggers/schedules surface (REQ-005): `/triggers` list (cron + trigger
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `/triggers` — paged list: schedule type (cron/trigger), workflow, enabled, cron expression / trigger name, next/last run.
-- [ ] `/triggers/:name` — detail: the schedule fields + the recent-executions list (link each to its execution detail in T-0653).
-- [ ] Invalid pagination surfaces the server's `invalid_pagination` inline; unknown trigger → 404 state.
-- [ ] Loading/empty/error states throughout; data only via `@cloacina/client`.
+- [x] `/triggers` — server-paginated list (offset pager, URL-reflected): workflow, type badge (cron/trigger), schedule (cron expr / trigger name), enabled badge, next/last run.
+- [x] `/triggers/:name` — detail: schedule fields + recent-executions table. **Deep-link NOT wired** — `TriggerExecution` exposes only a schedule-execution id, not the workflow-execution id `/executions/:id` needs (gap noted below); rows are informational.
+- [x] Bad pagination → server's `invalid_pagination` via `ErrorState`/`classifyError`; unknown trigger → typed 404 state.
+- [x] Loading/empty/error states throughout; data only via `@cloacina/client` (`useTriggers`/`useTrigger`).
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -48,4 +48,7 @@ Low. Mostly a straightforward read view.
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-06-11** — Implemented on `i0117-web-ui`:
+- `api/triggers.ts` (`useTriggers`/`useTrigger`), `routes/Triggers.tsx` (table + offset pager, type/enabled badges, cron-vs-trigger schedule column), `routes/TriggerDetail.tsx` (schedule card + recent-executions table). Wired into `App.tsx`. Reuses the list/detail pattern from T-0652/0653.
+- **Gap found:** the recent-executions deep-link in the acceptance criteria isn't possible — `TriggerExecution` carries only a *schedule-execution* id (`id`, `scheduled_time`, `started_at`, `completed_at`), not the workflow-execution id `/executions/:id` resolves. Rendered informationally instead. Wiring the link would need the server's trigger-detail to include `workflow_execution_id` — a server/SDK enhancement to file if the link is wanted (not blocking).
+- **Verified:** `npm run typecheck` clean (exit 0); Vite hot-reloaded into the running stack. Live data verified later via T-0660/T-0661.

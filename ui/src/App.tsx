@@ -25,6 +25,8 @@ import { Workflows } from "./routes/Workflows";
 import { WorkflowDetail } from "./routes/WorkflowDetail";
 import { Executions } from "./routes/Executions";
 import { ExecutionDetail } from "./routes/ExecutionDetail";
+import { Triggers } from "./routes/Triggers";
+import { TriggerDetail } from "./routes/TriggerDetail";
 
 /**
  * Route map (CLOACI-I-0117 IA). Feature views replace the placeholders as
@@ -49,8 +51,8 @@ export function App() {
           <Route path="workflows/:name" element={<WorkflowDetail />} />
           <Route path="executions" element={<Executions />} />
           <Route path="executions/:id" element={<ExecutionDetail />} />
-          <Route path="triggers" element={<Placeholder title="Triggers" task="T-0654" />} />
-          <Route path="triggers/:name" element={<Placeholder title="Trigger" task="T-0654" />} />
+          <Route path="triggers" element={<Triggers />} />
+          <Route path="triggers/:name" element={<TriggerDetail />} />
           <Route path="keys" element={<Placeholder title="API Keys" task="T-0658" />} />
           <Route path="settings" element={<Placeholder title="Settings" task="T-0651" />} />
           <Route path="*" element={<NotFound />} />
