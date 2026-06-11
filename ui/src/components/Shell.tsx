@@ -22,6 +22,7 @@ import {
   IconClock,
   IconPackage,
   IconSettings,
+  IconTopologyStar3,
 } from "@tabler/icons-react";
 import { NavLink as RouterNavLink, Outlet, useNavigate } from "react-router-dom";
 
@@ -32,6 +33,7 @@ const NAV = [
   { to: "/workflows", label: "Workflows", icon: IconPackage },
   { to: "/executions", label: "Executions", icon: IconActivity },
   { to: "/triggers", label: "Triggers", icon: IconClock },
+  { to: "/graphs", label: "Graphs", icon: IconTopologyStar3 },
   { to: "/keys", label: "API Keys", icon: IconKey },
   { to: "/settings", label: "Settings", icon: IconSettings },
 ];
