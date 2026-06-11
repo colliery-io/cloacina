@@ -33,7 +33,7 @@
 //     (`demo-slow-rust`) — a known platform naming-drift gap. The harness
 //     therefore executes by the workflow names below.
 
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { CloacinaClient } from "@cloacina/client";
@@ -202,6 +202,18 @@ async function seed(client) {
   log(`  completed = ${doneId} (${doneStatus})`);
   log(`  failed    = ${failId} (${failStatus})`);
   log(`  in-flight = ${liveId} (running)`);
+
+  // Hand the execution IDs to whatever orchestrated us (the ui-e2e lane reads
+  // these to point Playwright at the in-flight + failed runs).
+  if (env.HARNESS_SUMMARY_FILE) {
+    const summary = {
+      completed: { execution_id: doneId, status: doneStatus },
+      failed: { execution_id: failId, status: failStatus },
+      inflight: { execution_id: liveId },
+    };
+    await writeFile(env.HARNESS_SUMMARY_FILE, JSON.stringify(summary, null, 2));
+    log(`wrote summary → ${env.HARNESS_SUMMARY_FILE}`);
+  }
 }
 
 async function loop(client) {

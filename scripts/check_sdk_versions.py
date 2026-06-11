@@ -53,6 +53,13 @@ def main() -> int:
     if ts["version"] != expected:
         failures.append(f"clients/typescript/package.json: {ts['version']}")
 
+    # UI + seed harness ship in lockstep with the server too (CLOACI-I-0117 /
+    # NFR-004): the SPA is version-matched to the server it talks to.
+    for rel in ("ui/package.json", "ui/harness/package.json"):
+        pkg = json.loads((ROOT / rel).read_text())
+        if pkg.get("version") != expected:
+            failures.append(f"{rel}: {pkg.get('version', 'missing')}")
+
     py = (ROOT / "clients/python/pyproject.toml").read_text()
     m = re.search(r'^version\s*=\s*"([^"]+)"', py, re.MULTILINE)
     if not m or m.group(1) != expected:

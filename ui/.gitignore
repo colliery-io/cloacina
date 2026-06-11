@@ -3,3 +3,5 @@ dist/
 *.local
 .vite/
 coverage/
+test-results/
+playwright-report/

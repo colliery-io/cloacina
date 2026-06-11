@@ -73,7 +73,9 @@ export function ExecutionDetail() {
       ) : (
         <Card withBorder padding="lg">
           <Group>
-            <StatusBadge status={detail.data.status} />
+            <span data-testid="execution-status">
+              <StatusBadge status={detail.data.status} />
+            </span>
             {!terminal && (
               <Badge color="blue" variant="dot">
                 live

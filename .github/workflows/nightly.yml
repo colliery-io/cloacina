@@ -211,6 +211,47 @@ jobs:
         run: angreal test sdk-contract
 
   # -----------------------------------------------------------------------
+  # UI acceptance e2e (CLOACI-I-0117 / T-0661)
+  #
+  # Full Playwright suite against the orchestrated stack (server + compiler +
+  # seeded workload + served SPA). The PR gate runs only the cheap UI checks;
+  # the browser-driven acceptance scenarios run here, mirroring the
+  # SDK-contract fast-PR / full-nightly cadence.
+  # -----------------------------------------------------------------------
+
+  ui-e2e:
+    name: UI Acceptance E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-nightly-ui-e2e"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Run UI acceptance e2e
+        run: angreal test ui-e2e
+
+  # -----------------------------------------------------------------------
   # Nightly Docker image (CLOACI-I-0111 / T-0604)
   #
   # Pushes ghcr.io/<owner>/cloacina-server:nightly so users tracking the

@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@cloacina/client": "file:../clients/typescript",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.17.0",
+    "@playwright/test": "1.49.1",
     "@testing-library/react": "16.1.0",
     "@testing-library/jest-dom": "6.6.3",
     "globals": "15.14.0",
