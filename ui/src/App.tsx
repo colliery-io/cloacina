@@ -23,6 +23,7 @@ import { Overview } from "./routes/Overview";
 import { NotFound, Placeholder } from "./routes/Placeholder";
 import { Workflows } from "./routes/Workflows";
 import { WorkflowDetail } from "./routes/WorkflowDetail";
+import { WorkflowUpload } from "./routes/WorkflowUpload";
 import { Executions } from "./routes/Executions";
 import { ExecutionDetail } from "./routes/ExecutionDetail";
 import { Triggers } from "./routes/Triggers";
@@ -46,10 +47,7 @@ export function App() {
         <Route element={<Shell />}>
           <Route index element={<Overview />} />
           <Route path="workflows" element={<Workflows />} />
-          <Route
-            path="workflows/upload"
-            element={<Placeholder title="Upload workflow" task="T-0657" />}
-          />
+          <Route path="workflows/upload" element={<WorkflowUpload />} />
           <Route path="workflows/:name" element={<WorkflowDetail />} />
           <Route path="executions" element={<Executions />} />
           <Route path="executions/:id" element={<ExecutionDetail />} />

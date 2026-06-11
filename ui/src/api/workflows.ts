@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useClient, useTenant } from "../auth/AuthContext";
 import { queryKeys } from "./hooks";
@@ -36,5 +36,39 @@ export function useWorkflow(name: string) {
   return useQuery({
     queryKey: queryKeys.workflow(tenant, name),
     queryFn: () => client.getWorkflow(name),
+  });
+}
+
+// ---- write ops (T-0657) ----
+
+/** Upload a `.cloacina` package (multipart). Invalidates the workflows list. */
+export function useUploadWorkflow() {
+  const client = useClient();
+  const tenant = useTenant();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => client.uploadWorkflow(file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.workflows(tenant) }),
+  });
+}
+
+/** Execute a workflow with optional JSON context. Returns the accepted execution. */
+export function useExecuteWorkflow() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: ({ name, context }: { name: string; context?: unknown }) =>
+      client.executeWorkflow(name, context === undefined ? {} : { context }),
+  });
+}
+
+/** Unregister a workflow (idempotent server-side). Invalidates the list. */
+export function useDeleteWorkflow() {
+  const client = useClient();
+  const tenant = useTenant();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, version }: { name: string; version: string }) =>
+      client.deleteWorkflow(name, version),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.workflows(tenant) }),
   });
 }

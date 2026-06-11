@@ -14,8 +14,8 @@
  *  limitations under the License.
  */
 
-import { Stack, Table, Text, Title } from "@mantine/core";
-import { useNavigate } from "react-router-dom";
+import { Button, Group, Stack, Table, Text, Title } from "@mantine/core";
+import { Link, useNavigate } from "react-router-dom";
 
 import { useWorkflows } from "../api/workflows";
 import { Empty, ErrorState, Loading } from "../components/states/States";
@@ -31,7 +31,12 @@ export function Workflows() {
 
   return (
     <Stack>
-      <Title order={2}>Workflows</Title>
+      <Group justify="space-between">
+        <Title order={2}>Workflows</Title>
+        <Button component={Link} to="/workflows/upload">
+          Upload
+        </Button>
+      </Group>
       {isPending ? (
         <Loading label="Loading workflows…" />
       ) : isError ? (
