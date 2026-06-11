@@ -1,0 +1,15 @@
+# Demo failing fixture (CLOACI-I-0117 / T-0660). A workflow whose first task
+# runs briefly and then deterministically returns a TaskError, producing a
+# failed execution. Exercises the UI's failed-state / debug surface in both
+# seed mode (the guaranteed failed run) and loop mode (the periodic failure).
+[package]
+name = "demo-fail-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "demo_fail_workflow"
+language = "rust"
+description = "demo failing workflow — a task that deterministically errors"
