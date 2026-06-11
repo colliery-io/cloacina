@@ -4,14 +4,14 @@ level: task
 title: "UI executions views — list (status/workflow filters, pagination) + detail with event log"
 short_code: "CLOACI-T-0653"
 created_at: 2026-06-11T02:18:54.351019+00:00
-updated_at: 2026-06-11T02:18:54.351019+00:00
+updated_at: 2026-06-11T10:41:28.008304+00:00
 parent: CLOACI-I-0117
-blocked_by: ["CLOACI-T-0651"]
+blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -30,11 +30,11 @@ The executions surface (REQ-004 non-live half): `/executions` list with filters 
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `/executions` — list over `client.listExecutions()` with `status` + `workflow` filters and pagination (the SDK's `iterateExecutions` or explicit limit/offset); each row shows id, workflow, status, started/completed; status visually distinct (esp. Failed).
-- [ ] Filters are URL-reflected (e.g. `/executions?status=Failed`) so they're linkable/back-button-safe — supports the debug flow (UC-2).
-- [ ] `/executions/:id` — detail via `client.getExecution()` + `client.getExecutionEvents()`: status header + ordered event log (event type, data, timestamp, sequence).
-- [ ] Invalid id → typed 400 state; unknown id → 404 (per the server contract: detail 404s, events endpoint returns an empty envelope — handle both).
-- [ ] Event-log component is structured so T-0656 can append live events to the same list without a rewrite.
+- [x] `/executions` — list over `client.listExecutions()` with `status`/`workflow` filters + explicit limit/offset pagination (PAGE_SIZE=50, prev/next); rows show workflow, id, status (`StatusBadge`, Failed visually distinct), started/completed.
+- [x] Filters + paging URL-reflected via `useSearchParams` (`?status=Failed&workflow=…&offset=…`), back-button-safe; changing a filter resets paging — the UC-2 debug entry point.
+- [x] `/executions/:id` — detail via `useExecution` (status header) + `useExecutionEvents` (the `EventLog`); event type, pretty-printed `event_data`, timestamp, sequence.
+- [x] Errors typed via `ErrorState`/`classifyError` (invalid id → 400, unknown id → 404); the events endpoint's empty-envelope case renders "No events yet."
+- [x] `EventLog` is pure presentation over a `sequence_num`-sorted array — **the data model T-0656 appends live events into**; `isTerminalStatus` (in `util/status.ts`) computed here drives whether T-0656 opens a stream.
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -49,4 +49,10 @@ The history-vs-live merge (initiative OQ-6) is decided in T-0656, but the event-
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-06-11** — Implemented on `i0117-web-ui`:
+- `util/status.ts` — `executionStatusColor` (case-insensitive map, gray fallback) + `isTerminalStatus` (the T-0656 stream-open gate). `components/StatusBadge.tsx` over it (reused by overview T-0655).
+- `components/EventLog.tsx` — **the streaming-ready data model**: pure presentation over an `ExecutionEvent[]` sorted by `sequence_num`, JSON-pretty-printing `event_data`. T-0656 appends WS events into the same array (dedup by sequence) and re-renders this unchanged.
+- `api/executions.ts` — `useExecutions(query)` (with `placeholderData` to keep the page during filter/paging), `useExecution(id)`, `useExecutionEvents(id)`.
+- `routes/Executions.tsx` — table + URL-reflected `status`/`workflow` filters + offset pager. `routes/ExecutionDetail.tsx` — status header (+ "in progress" hint when non-terminal) + EventLog. Wired into `App.tsx`.
+- **Spec fidelity fix:** `ExecutionDetail` schema has no `workflow_name` (only execution_id/status/tenant_id) — dropped that field from the header (caught by typecheck). Also: `ListExecutionsQuery` is a top-level SDK export, not under `schemas` — passed the query object directly (structurally assignable).
+- **Verified:** `npm run typecheck` clean (exit 0), `npm test` 2/2 pass; Vite hot-reloaded into the running stack. Live interaction verified later by T-0661 UAT (the seeder T-0660 provides the executions to list/stream).
