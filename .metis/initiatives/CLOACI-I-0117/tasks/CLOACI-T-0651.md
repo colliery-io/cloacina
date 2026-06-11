@@ -4,14 +4,14 @@ level: task
 title: "UI app skeleton — Vite/React/TS under ui/, component library, routing, auth gate, SDK + TanStack Query wiring"
 short_code: "CLOACI-T-0651"
 created_at: 2026-06-11T02:18:51.335029+00:00
-updated_at: 2026-06-11T02:28:57.705268+00:00
+updated_at: 2026-06-11T10:29:59.793786+00:00
 parent: CLOACI-I-0117
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: CLOACI-I-0117
 
 The walking skeleton that makes every later task cheap. A Vite + React + TypeScript app under `ui/`, an off-the-shelf accessible component library, routing, the authenticated shell (left nav + connection indicator), TanStack Query wrapping `@cloacina/client`, the API-key `/connect` gate (credential in `sessionStorage`), and the shared loading/empty/error primitives every view reuses. Phase-1 foundation — nothing else in I-0117 starts until this lands.
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] `ui/` project: Vite + React + TS, ESLint (flat config) + Prettier, scripts (`dev`/`build`/`test`/`typecheck`/`lint`); depends on `@cloacina/client` via `file:../clients/typescript` (published-npm dep once the SDK ships; see status note).
@@ -37,7 +39,7 @@ The walking skeleton that makes every later task cheap. A Vite + React + TypeScr
 - [x] `/connect` manual path: validates via `client.health()` + `client.listWorkflows()` (scoped read); success enters the app, failure renders the typed error. (OIDC button = T-0662.)
 - [x] TanStack Query provider + hook convention (`api/hooks.ts` query-key factory + `useClient()`); `CloacinaApiError` → typed via `classifyError` with a retry policy in `queryClient.ts`.
 - [x] `Loading` / `Empty` / `ErrorState` primitives (NFR-001) + typed error-to-UI mapper (401/403 → auth, 404 → not-found, 400/422 → validation+code, 5xx/network → retry) per REQ-007.
-- [ ] `npm run build` + `typecheck` green; empty overview renders against a live server — **pending the user's local `npm install` + verify** (not run in-tool).
+- [x] `npm run build` + `typecheck` green; empty overview renders against a live server — **verified via `angreal ui up`** (Vite ready, server healthy, the `/connect` scoped read returns the list envelope, CORS preflight from the UI origin passes). Neither flagged risk spot (Mantine polymorphic NavLink, CSS side-effect import) tripped the build.
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
