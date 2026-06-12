@@ -31,8 +31,18 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY . /workspace
+# Build all three binaries, copy them out, then DELETE target/ in the same
+# layer. The multi-GB release target never reaches the runtime images (it was
+# bloating Docker.raw). Runtime package builds start with a cold
+# CARGO_TARGET_DIR — cheap to drop because the binaries' dep set ≠ the
+# `packaged`-feature dep set uploaded workflows compile against, so the warm
+# cache mostly missed anyway.
 RUN cargo build --release --locked \
-        --bin cloacina-server --bin cloacina-compiler --bin cloacinactl
+        --bin cloacina-server --bin cloacina-compiler --bin cloacinactl \
+ && cp target/release/cloacina-server \
+       target/release/cloacina-compiler \
+       target/release/cloacinactl /usr/local/bin/ \
+ && rm -rf target
 
 # ---------------------------------------------------------------------------
 # server runtime — slim image, server binary only.
@@ -44,7 +54,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 cloacina \
  && useradd --system --uid 10001 --gid cloacina --create-home --home-dir /home/cloacina cloacina
-COPY --from=builder /workspace/target/release/cloacina-server /usr/local/bin/cloacina-server
+COPY --from=builder /usr/local/bin/cloacina-server /usr/local/bin/cloacina-server
 USER cloacina
 WORKDIR /home/cloacina
 ENV CLOACINA_HOME=/home/cloacina/.cloacina
@@ -53,9 +63,11 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 ENTRYPOINT ["/usr/local/bin/cloacina-server"]
 
 # ---------------------------------------------------------------------------
-# workspace runtime — compiler + cloacinactl + the fixtures packer. Baked
-# /workspace (with the warm release target) so runtime package builds reuse the
-# compiled deps. Shared by the `compiler` and `fixtures` services.
+# workspace runtime — compiler + cloacinactl + the fixtures packer. Carries the
+# workspace SOURCE (crates/ for uploaded packages' path-deps, examples/ for the
+# packer) + the binaries, but NOT the build target — that's deleted in the
+# builder. CARGO_TARGET_DIR is created cold at runtime. Shared by the `compiler`
+# and `fixtures` services.
 # ---------------------------------------------------------------------------
 FROM rust:${RUST_VERSION}-slim-bookworm AS workspace
 RUN apt-get update \
@@ -64,8 +76,8 @@ RUN apt-get update \
         git ca-certificates bzip2 python3 python3-dev \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /workspace /workspace
-COPY --from=builder /workspace/target/release/cloacina-compiler /usr/local/bin/cloacina-compiler
-COPY --from=builder /workspace/target/release/cloacinactl /usr/local/bin/cloacinactl
+COPY --from=builder /usr/local/bin/cloacina-compiler /usr/local/bin/cloacina-compiler
+COPY --from=builder /usr/local/bin/cloacinactl /usr/local/bin/cloacinactl
 COPY docker/pack-demo-fixtures.sh /usr/local/bin/pack-demo-fixtures.sh
 RUN chmod +x /usr/local/bin/pack-demo-fixtures.sh
 ENV CARGO_TARGET_DIR=/workspace/target
