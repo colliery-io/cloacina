@@ -1,0 +1,78 @@
+# syntax=docker/dockerfile:1.7
+#
+# Single-builder demo image (CLOACI-I-0117 / T-0664). Compiles
+# cloacina-server + cloacina-compiler + cloacinactl ONCE in a shared `builder`
+# stage, then fans out to two runtime targets:
+#
+#   target=server     — slim Debian + the server binary.
+#   target=workspace  — baked /workspace + toolchain + the compiler & cloacinactl
+#                       binaries; used by BOTH the `compiler` and `fixtures`
+#                       services (same image, different command).
+#
+# Why: the previous demo built three images (root Dockerfile, Dockerfile.compiler,
+# Dockerfile.fixtures) that EACH compiled the workspace — 3× the compile, 3× the
+# build artifacts, which filled disk and OOM-crashed Docker Desktop mid-build.
+# BuildKit builds the `builder` stage once and shares it across both targets, so
+# the workspace is compiled a single time.
+#
+#   docker build -t cloacina-demo-server   --target server    -f docker/Dockerfile.demo .
+#   docker build -t cloacina-demo-workspace --target workspace -f docker/Dockerfile.demo .
+
+ARG RUST_VERSION=1.93
+
+# ---------------------------------------------------------------------------
+# Shared builder — ONE workspace compile produces all three binaries.
+# ---------------------------------------------------------------------------
+FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential cmake libpq-dev libsasl2-dev libssl-dev pkg-config \
+        git ca-certificates python3 python3-dev \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+COPY . /workspace
+RUN cargo build --release --locked \
+        --bin cloacina-server --bin cloacina-compiler --bin cloacinactl
+
+# ---------------------------------------------------------------------------
+# server runtime — slim image, server binary only.
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS server
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        libpq5 ca-certificates libpython3.11 libsasl2-2 libssl3 \
+ && rm -rf /var/lib/apt/lists/*
+RUN groupadd --system --gid 10001 cloacina \
+ && useradd --system --uid 10001 --gid cloacina --create-home --home-dir /home/cloacina cloacina
+COPY --from=builder /workspace/target/release/cloacina-server /usr/local/bin/cloacina-server
+USER cloacina
+WORKDIR /home/cloacina
+ENV CLOACINA_HOME=/home/cloacina/.cloacina
+EXPOSE 8080
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+ENTRYPOINT ["/usr/local/bin/cloacina-server"]
+
+# ---------------------------------------------------------------------------
+# workspace runtime — compiler + cloacinactl + the fixtures packer. Baked
+# /workspace (with the warm release target) so runtime package builds reuse the
+# compiled deps. Shared by the `compiler` and `fixtures` services.
+# ---------------------------------------------------------------------------
+FROM rust:${RUST_VERSION}-slim-bookworm AS workspace
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential cmake libpq-dev libsasl2-dev libssl-dev pkg-config \
+        git ca-certificates bzip2 python3 python3-dev \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /workspace /workspace
+COPY --from=builder /workspace/target/release/cloacina-compiler /usr/local/bin/cloacina-compiler
+COPY --from=builder /workspace/target/release/cloacinactl /usr/local/bin/cloacinactl
+COPY docker/pack-demo-fixtures.sh /usr/local/bin/pack-demo-fixtures.sh
+RUN chmod +x /usr/local/bin/pack-demo-fixtures.sh
+ENV CARGO_TARGET_DIR=/workspace/target
+ENV CLOACINA_HOME=/workspace/.cloacina
+WORKDIR /workspace
+EXPOSE 9000
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+# Default entrypoint is the compiler; the fixtures service overrides it with the
+# pack script.
+ENTRYPOINT ["/usr/local/bin/cloacina-compiler"]
