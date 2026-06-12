@@ -4,14 +4,14 @@ level: task
 title: "UI overview + computation-graph health (accumulators, graphs)"
 short_code: "CLOACI-T-0655"
 created_at: 2026-06-11T02:18:56.442518+00:00
-updated_at: 2026-06-11T10:57:46.980141+00:00
+updated_at: 2026-06-11T11:04:02.031570+00:00
 parent: CLOACI-I-0117
 blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 The landing dashboard (REQ-002) and the computation-graph health surface: `/` overview with an at-a-glance tenant rollup, plus accumulator/graph health via `client.listAccumulators()` / `client.listGraphs()` / `client.getGraph()`. Resolves initiative OQ-4 (graph health: overview-only vs its own top-level view).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

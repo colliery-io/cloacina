@@ -4,14 +4,14 @@ level: task
 title: "UI seed + demo harness — workload generator (seed + loop modes) + demo compose profile"
 short_code: "CLOACI-T-0660"
 created_at: 2026-06-11T02:19:03.526145+00:00
-updated_at: 2026-06-11T13:28:04.784988+00:00
+updated_at: 2026-06-11T15:51:58.562525+00:00
 parent: CLOACI-I-0117
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 The environment generator that makes the UI's live-streaming centerpiece testable *and* demoable. A small harness that, against a target `cloacina-server`, ensures a tenant, uploads fixture `.cloacina` packages, and drives executions — in a deterministic **seed mode** (for automated UAT) and a continuous **loop mode** (for "stand it up and watch it run"). Plus the fixtures it needs and a `docker compose` demo profile. Server-side tooling — independent of the UI build, so it can land early and in parallel.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

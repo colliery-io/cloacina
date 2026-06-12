@@ -4,14 +4,14 @@ level: task
 title: "UI containerize + deploy — multi-stage image, runtime server-URL config, compose + optional Helm"
 short_code: "CLOACI-T-0659"
 created_at: 2026-06-11T02:19:02.091675+00:00
-updated_at: 2026-06-11T12:18:05.281695+00:00
+updated_at: 2026-06-11T13:10:34.843784+00:00
 parent: CLOACI-I-0117
 blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 Package the SPA as a deployable container (initiative deploy decision): a multi-stage image (Vite build → nginx static serving), **runtime** server-URL injection so one image works against any server, plus a base compose service and an optional Helm deployment. Resolves initiative OQ-5 (runtime config mechanism).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

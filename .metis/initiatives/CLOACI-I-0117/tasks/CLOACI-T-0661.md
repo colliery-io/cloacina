@@ -4,14 +4,14 @@ level: task
 title: "UI automated UAT + ship-readiness — Playwright e2e, type-drift gate, version lockstep, Diataxis docs"
 short_code: "CLOACI-T-0661"
 created_at: 2026-06-11T02:19:04.924145+00:00
-updated_at: 2026-06-11T16:11:19.991700+00:00
+updated_at: 2026-06-11T18:36:15.384264+00:00
 parent: CLOACI-I-0117
 blocked_by: [CLOACI-T-0656, CLOACI-T-0657, CLOACI-T-0658, CLOACI-T-0659, CLOACI-T-0660]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 Make the UI releasable: an automated UAT pass (Playwright driving the SPA against the seeded environment from T-0660), the generated-types drift gate, version lockstep with the server, and Diataxis docs. The acceptance-scenario gate the whole initiative is measured by.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

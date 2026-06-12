@@ -4,14 +4,14 @@ level: task
 title: "UI live execution stream — WS-backed live-follow on execution detail"
 short_code: "CLOACI-T-0656"
 created_at: 2026-06-11T02:18:57.886708+00:00
-updated_at: 2026-06-11T11:04:06.842877+00:00
+updated_at: 2026-06-11T11:17:39.403621+00:00
 parent: CLOACI-I-0117
 blocked_by: [CLOACI-T-0653]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 The real-time centerpiece (REQ-004 live half, NFR-002): on execution detail, stream events live over the delivery WS via `followExecutionEvents(execId)` as a run progresses, appending to the event log until terminal. This is the feature the whole UAT harness (T-0660) exists to exercise.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

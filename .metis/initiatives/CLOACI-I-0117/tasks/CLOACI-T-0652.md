@@ -4,14 +4,14 @@ level: task
 title: "UI workflows views — list (paged) + detail (build status, tasks, version)"
 short_code: "CLOACI-T-0652"
 created_at: 2026-06-11T02:18:52.768018+00:00
-updated_at: 2026-06-11T10:37:18.566723+00:00
+updated_at: 2026-06-11T10:41:22.359124+00:00
 parent: CLOACI-I-0117
 blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 Read-only workflows surface (REQ-003 read half): `/workflows` list and `/workflows/:name` detail, over `client.listWorkflows()` / `client.getWorkflow()`. Establishes the list+detail pattern the other read tasks follow.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

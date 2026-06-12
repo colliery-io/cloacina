@@ -4,14 +4,14 @@ level: task
 title: "UI executions views — list (status/workflow filters, pagination) + detail with event log"
 short_code: "CLOACI-T-0653"
 created_at: 2026-06-11T02:18:54.351019+00:00
-updated_at: 2026-06-11T10:41:28.008304+00:00
+updated_at: 2026-06-11T10:50:46.870903+00:00
 parent: CLOACI-I-0117
 blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 The executions surface (REQ-004 non-live half): `/executions` list with filters + pagination, and `/executions/:id` detail rendering the full event log from the REST events endpoint. This is the host view that T-0656 will add live-streaming to — build it streaming-ready.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

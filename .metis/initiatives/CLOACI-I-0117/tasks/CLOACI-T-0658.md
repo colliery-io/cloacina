@@ -4,14 +4,14 @@ level: task
 title: "UI API key management — create (one-time plaintext), list, revoke"
 short_code: "CLOACI-T-0658"
 created_at: 2026-06-11T02:19:00.689036+00:00
-updated_at: 2026-06-11T12:14:42.627556+00:00
+updated_at: 2026-06-11T12:17:58.867075+00:00
 parent: CLOACI-I-0117
 blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 Tenant-scoped API-key management (REQ-006, drives UC-4): `/keys` list + create + revoke over `client.createTenantKey()` / `client.listKeys()` / `client.revokeKey()`. The one-time-plaintext flow is the security-sensitive bit.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

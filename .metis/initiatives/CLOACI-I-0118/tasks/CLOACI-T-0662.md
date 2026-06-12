@@ -4,8 +4,8 @@ level: task
 title: "UI OIDC login integration — \"Login with provider\" browser flow (gated on I-0118)"
 short_code: "CLOACI-T-0662"
 created_at: 2026-06-11T02:19:06.404306+00:00
-updated_at: 2026-06-11T02:19:06.404306+00:00
-parent: CLOACI-I-0117
+updated_at: 2026-06-11T18:00:00.000000+00:00
+parent: CLOACI-I-0118
 blocked_by: ["CLOACI-T-0651"]
 archived: false
 
@@ -15,14 +15,14 @@ tags:
 
 
 exit_criteria_met: false
-initiative_id: CLOACI-I-0117
+initiative_id: CLOACI-I-0118
 ---
 
 # UI OIDC login integration — "Login with provider" browser flow (gated on I-0118)
 
 ## Parent Initiative **[CONDITIONAL: Assigned Task]**
 
-[[CLOACI-I-0117]]
+[[CLOACI-I-0118]]
 
 ## Objective **[REQUIRED]**
 

@@ -4,14 +4,14 @@ level: task
 title: "UI workflow write ops — package upload (progress), execute-with-context, delete"
 short_code: "CLOACI-T-0657"
 created_at: 2026-06-11T02:18:59.299878+00:00
-updated_at: 2026-06-11T11:19:57.155501+00:00
+updated_at: 2026-06-11T12:14:36.498570+00:00
 parent: CLOACI-I-0117
 blocked_by: [CLOACI-T-0652]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 The workflow write surface (REQ-003 write half) + execute (drives UC-1/UC-3): multipart `.cloacina` package upload with progress, execute-with-context, and delete — all with confirms and typed error surfacing, hung off the workflows views from T-0652.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

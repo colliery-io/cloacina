@@ -4,14 +4,14 @@ level: task
 title: "UI triggers views — list (paged) + detail with recent executions"
 short_code: "CLOACI-T-0654"
 created_at: 2026-06-11T02:18:55.136747+00:00
-updated_at: 2026-06-11T10:54:44.490676+00:00
+updated_at: 2026-06-11T10:57:41.847132+00:00
 parent: CLOACI-I-0117
 blocked_by: [CLOACI-T-0651]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0117
 ## Objective **[REQUIRED]**
 
 Read-only triggers/schedules surface (REQ-005): `/triggers` list (cron + trigger schedules) and `/triggers/:name` detail with recent executions, over `client.listTriggers()` / `client.getTrigger()`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
