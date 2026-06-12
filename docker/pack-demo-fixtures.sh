@@ -59,9 +59,12 @@ pack_rust_ws demo-cron-rust
 pack_rust_rel mixed-rust
 
 # --- Python: a task workflow + a reactor-bound computation graph ---
+# Both carry their module tree under workflow/ — the reconciler's Python
+# extraction requires it ("Missing workflow source directory" otherwise). The
+# python-packaged-graph *example* puts its module at the top level, so it can't
+# be packed as-is; demo-py-graph is the same CG re-laid-out under workflow/.
 pack_python demo-py-workflow "$WS/examples/fixtures/demo-py-workflow" 0.1.0
-pack_python python-packaged-graph-example \
-    "$WS/examples/features/computation-graphs/python-packaged-graph" 0.1.0
+pack_python demo-py-graph "$WS/examples/fixtures/demo-py-graph" 0.1.0
 
 echo "demo fixtures packed to ${OUT}:"
 ls -la "$OUT"

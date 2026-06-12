@@ -37,7 +37,34 @@ can `cloacinactl package pack` a Python workflow/graph like a Rust one.
 - [x] Feature - New functionality or enhancement
 
 ### Priority
-- [x] P2 - Medium (nice to have)
+- [x] P1 - High (important for user experience)
+
+Re-prioritised P1: there is **no** working tool *or* consistent format for
+packaging Python — see "Format inconsistency" below. Authors and the demo
+harness hand-roll bzip2 tars, and the one documented procedure produces an
+archive the server **rejects**.
+
+### Format inconsistency (the deeper problem)
+
+Three different Python `.cloacina` layouts exist in-tree, and they disagree:
+
+| Source | Manifest | Module location |
+| --- | --- | --- |
+| **Docs** — `docs/.../how-to-guides/packaging-python-workflows.md` (Step 5) | `manifest.json` (`format_version: "2"`) | **top level** (`data_pipeline/`) |
+| **Server reconciler** (what actually loads) | `package.toml` (`[metadata] language="python"`) | under **`workflow/`** |
+| **Soak tests** — `.angreal/test/soak/server.py` | `package.toml` | under **`workflow/`** |
+| **Example** — `examples/features/computation-graphs/python-packaged-graph` | `package.toml` | **top level** (`market_maker/`) |
+
+Consequences observed (2026-06-12, demo harness against a live server):
+- The committed **example** `python-packaged-graph` is **unpackageable as-is** —
+  packing it and uploading fails to load: `Registration failed: Failed to
+  extract Python CG package: Missing workflow source directory in Python
+  package` (reconciler wants `workflow/`, the example is top-level).
+- The **documented** how-to (`manifest.json` + top-level module) does **not**
+  match what the reconciler accepts (`package.toml` + `workflow/`). Following
+  the docs produces a package the server won't load.
+- A re-laid-out fixture (`examples/fixtures/demo-py-graph`, module under
+  `workflow/`) is what the server accepts.
 
 ### Business Justification **[CONDITIONAL: Feature]**
 - **User Value**: Python authors get a first-class `pack` command instead of
@@ -47,14 +74,22 @@ can `cloacinactl package pack` a Python workflow/graph like a Rust one.
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `cloacinactl package pack` reads `package.toml` `[metadata].language`.
-- [ ] For `language = "python"`: skip the `Cargo.toml`/`cargo build` requirement;
-      archive `package.toml` + the Python source tree (the entry module + its
-      package dir) into the `.cloacina` bzip2 tar. Server-side build stays the
-      compiler's job (it already handles `language = "python"`).
-- [ ] For `language = "rust"` (default): unchanged behavior.
-- [ ] Validates the Python layout minimally (entry_module resolves to a file in
-      the archive) so a mis-packaged module fails at pack time, not upload time.
+- [ ] **Pick ONE canonical Python `.cloacina` format and make everything agree**
+      (docs, the example, the soak builders, the server reconciler). Today the
+      reconciler is the source of truth: `package.toml` + module under
+      `workflow/<entry_module_root>/`.
+- [ ] `cloacinactl package pack` reads `package.toml` `[metadata].language`; for
+      `language = "python"` it skips the `Cargo.toml`/`cargo build` requirement
+      and emits the canonical layout (no hand-rolled tar). For `rust` (default):
+      unchanged.
+- [ ] Validate the Python layout at pack time (entry_module resolves under
+      `workflow/`) so a mis-laid-out module fails at pack, not at server upload.
+- [ ] **Fix the docs** `how-to-guides/packaging-python-workflows.md` (Step 5):
+      it currently documents a `manifest.json` + top-level-module layout the
+      server rejects.
+- [ ] **Fix or repackage the example**
+      `examples/features/computation-graphs/python-packaged-graph` so it is
+      packageable as-is (module under `workflow/`).
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 

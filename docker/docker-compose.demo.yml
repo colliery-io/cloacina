@@ -79,6 +79,11 @@ services:
       - *db_url
       - "--poll-interval-ms"
       - "1000"
+      # Tell the compiler the target dir explicitly (not just via the image's
+      # CARGO_TARGET_DIR env) so it looks for the built cdylib where cargo wrote
+      # it — otherwise it checks the package's local target/debug and fails.
+      - "--cargo-target-dir"
+      - "/workspace/target"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
     depends_on:
