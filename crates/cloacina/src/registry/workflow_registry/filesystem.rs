@@ -131,6 +131,12 @@ impl FilesystemWorkflowRegistry {
                         let metadata = WorkflowMetadata {
                             id,
                             registry_id: id, // Same as id for filesystem registry
+                            workflow_name: manifest
+                                .metadata
+                                .workflow_name
+                                .clone()
+                                .filter(|w| !w.is_empty())
+                                .unwrap_or_else(|| package_name.clone()),
                             package_name: package_name.clone(),
                             version: version.clone(),
                             description: manifest.metadata.description.clone(),

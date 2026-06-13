@@ -815,6 +815,13 @@ export interface components {
             tasks: string[];
             tenant_id: string;
             version: string;
+            /**
+             * @description Executable workflow name (the identifier to execute by). Differs from
+             *     `package_name` under the standard convention (package `demo-slow-rust`
+             *     → workflow `demo_slow_workflow`). Falls back to `package_name` for
+             *     packages predating workflow-name persistence. (CLOACI-T-0671)
+             */
+            workflow_name: string;
         };
         /** @description One row in the workflow list (`GET /tenants/{tenant_id}/workflows`). */
         WorkflowSummary: {
@@ -827,6 +834,13 @@ export interface components {
             /** @description Task IDs included in this package. */
             tasks: string[];
             version: string;
+            /**
+             * @description Executable workflow name (the identifier to execute by). Differs from
+             *     `package_name` under the standard convention (package `demo-slow-rust`
+             *     → workflow `demo_slow_workflow`). Falls back to `package_name` for
+             *     packages predating workflow-name persistence. (CLOACI-T-0671)
+             */
+            workflow_name: string;
         };
         /**
          * @description `201 Created` body for a workflow package upload

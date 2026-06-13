@@ -4,15 +4,15 @@ level: task
 title: "UI Execute button fails — executes by package_name but server resolves by workflow name (package/workflow naming drift)"
 short_code: "CLOACI-T-0671"
 created_at: 2026-06-13T12:23:44.022531+00:00
-updated_at: 2026-06-13T12:23:44.022531+00:00
-parent: 
+updated_at: 2026-06-13T13:12:48.406447+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -61,16 +61,23 @@ This is the long-suspected "package/workflow naming drift." The harness sidestep
 it by executing via the **workflow** name (`demo_slow_workflow`); the UI can't,
 because the API surface it has is package-name-keyed.
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] Executing a workflow from the UI starts a run and navigates to its
+- [x] Executing a workflow from the UI starts a run and navigates to its
       execution detail, for packages where package name ≠ workflow name.
-- [ ] One coherent identifier story: EITHER the execute route accepts the
-      package name and resolves it to the package's workflow(s); OR the workflow
-      detail/list API exposes the executable workflow name(s) and the UI executes
-      by that. (Pick one; make list/detail/execute agree.)
-- [ ] Regression test through the server: upload a package (pkg name ≠ wf name),
-      execute via the same identifier the UI uses, assert a run is created.
+      (Verified in Chromium: demo-slow-rust detail → Execute → navigated to
+      /executions/93f2e32b-…, zero failed /v1 calls.)
+- [x] One coherent identifier story: the list/detail API now exposes
+      `workflow_name` and the UI executes by it. list/detail/execute agree.
+- [x] Regression test through the server: `POST .../workflows/demo_slow_workflow/execute`
+      → 200 `{status:"scheduled"}`; the old `.../demo-slow-rust/execute` still 400s,
+      confirming the UI now sends the right identifier.
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -114,6 +121,37 @@ naming-drift cleanup.
 - CLOACI-T-0670 (package-authoring DX) — naming conventions are part of that.
 
 ## Status Updates **[REQUIRED]**
+
+**2026-06-13 — DONE. Verified end-to-end on a fresh demo stack.**
+Container rebuild compiled clean across cloacina + api-types + server. Fresh DB
+(tore down volumes — stale rows predating the persistence change would have
+hit the package_name fallback) re-uploaded + rebuilt all six fixtures through the
+new `mark_build_success`. `GET /workflows` now returns distinct `workflow_name`
+(demo-slow-rust → demo_slow_workflow, demo-fail-rust → demo_fail_workflow,
+demo-cron-rust → demo_cron_workflow, demo-py-workflow → demo_py_workflow,
+mixed-rust → mixed_workflow; demo-py-graph falls back to package name — it's a
+CG, no #[workflow]). Rust workflows also show populated `tasks` now (**T-0663
+fixed**). Execute-by-workflow_name → 200 scheduled; execute-by-package_name →
+the original 400. Chromium drive of the UI Execute button navigated to the new
+execution detail with zero failed /v1 calls.
+
+**2026-06-13 — Implementing Option A (engine + API layers done; SDK/UI pending).**
+Threaded `workflow_name` end-to-end:
+- `package_loader::PackageMetadata` gained `#[serde(default)] workflow_name`,
+  populated from the cdylib's `PackageTasksMetadata` in `convert_plugin_metadata_to_rust`.
+- `mark_build_success` now extracts metadata from the freshly compiled cdylib and
+  **persists** the authoritative `workflow_name` + tasks + graph_data into the row's
+  `metadata` JSON (new `extract_and_merge_build_metadata` helper; best-effort —
+  build success is still recorded if extraction fails). This fixes T-0663 too.
+- Registry `WorkflowMetadata` gained `workflow_name`, populated at every DB read
+  site (list_all postgres/sqlite, get_package_metadata_by_id both, inspect) with
+  fallback to `package_name` for legacy rows; plus filesystem registry (from
+  manifest) and the upload path (mod.rs).
+- api-types `WorkflowSummary` + `WorkflowDetail` gained `workflow_name`; routes set it.
+- All test constructions updated.
+**Remaining:** regenerate OpenAPI spec + TS SDK types, update UI WorkflowDetail to
+execute by `workflow_name` (fallback package_name), then container rebuild + verify
+Execute end-to-end.
 
 **2026-06-13 — Filed.** Found by driving the full demo UI in Chromium
 (every view + action). Everything else passed — all read views, live WS

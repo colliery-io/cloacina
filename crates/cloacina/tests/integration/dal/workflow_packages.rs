@@ -35,6 +35,7 @@ async fn test_store_and_get_package_metadata() {
     // Create test package metadata
     let test_metadata = PackageMetadata {
         package_name: "test_package".to_string(),
+        workflow_name: "test_package".to_string(),
         version: "1.0.0".to_string(),
         description: Some("Test package description".to_string()),
         author: Some("Test Author".to_string()),
@@ -93,6 +94,7 @@ async fn test_store_duplicate_package_metadata() {
     // Create test package metadata
     let test_metadata = PackageMetadata {
         package_name: "duplicate_test".to_string(),
+        workflow_name: "duplicate_test".to_string(),
         version: "1.0.0".to_string(),
         description: Some("Duplicate test package".to_string()),
         author: Some("Test Author".to_string()),
@@ -170,6 +172,7 @@ async fn test_list_all_packages() {
             .expect("Failed to store binary in registry");
         let test_metadata = PackageMetadata {
             package_name: format!("list_test_package_{}", i),
+            workflow_name: format!("list_test_package_{}", i),
             version: "1.0.0".to_string(),
             description: Some(format!("List test package {}", i)),
             author: Some("Test Author".to_string()),
@@ -219,6 +222,7 @@ async fn test_delete_package_metadata() {
     // Create and store test package
     let test_metadata = PackageMetadata {
         package_name: "delete_test".to_string(),
+        workflow_name: "delete_test".to_string(),
         version: "1.0.0".to_string(),
         description: Some("Package to be deleted".to_string()),
         author: Some("Test Author".to_string()),
@@ -325,6 +329,7 @@ async fn test_store_package_with_complex_metadata() {
     // Create package metadata with complex data
     let test_metadata = PackageMetadata {
         package_name: "complex_package".to_string(),
+        workflow_name: "complex_package".to_string(),
         version: "2.1.0".to_string(),
         description: Some("A complex package with detailed metadata".to_string()),
         author: Some("Complex Author <author@example.com>".to_string()),
@@ -421,6 +426,7 @@ async fn test_store_package_with_invalid_uuid() {
 
     let test_metadata = PackageMetadata {
         package_name: "invalid_uuid_test".to_string(),
+        workflow_name: "invalid_uuid_test".to_string(),
         version: "1.0.0".to_string(),
         description: None,
         author: None,
@@ -481,6 +487,7 @@ async fn test_package_versioning() {
 
     let meta_v1 = PackageMetadata {
         package_name: package_name.clone(),
+        workflow_name: package_name.clone(),
         version: "1.0.0".to_string(),
         description: Some("Version 1.0.0 of the package".to_string()),
         author: Some("Versioning Author".to_string()),

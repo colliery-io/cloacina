@@ -757,6 +757,7 @@ mod tests {
     fn sample_metadata(name: &str, version: &str) -> PackageMetadata {
         PackageMetadata {
             package_name: name.to_string(),
+            workflow_name: name.to_string(),
             version: version.to_string(),
             description: Some("A test package".to_string()),
             author: Some("test-author".to_string()),

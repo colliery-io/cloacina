@@ -257,6 +257,7 @@ pub async fn list_workflows(
                 .map(|w| WorkflowSummary {
                     id: w.id.to_string(),
                     package_name: w.package_name,
+                    workflow_name: w.workflow_name,
                     version: w.version,
                     description: w.description,
                     tasks: w.tasks,
@@ -326,6 +327,7 @@ pub async fn get_workflow(
                     tenant_id,
                     id: ins.metadata.id.to_string(),
                     package_name: ins.metadata.package_name,
+                    workflow_name: ins.metadata.workflow_name,
                     version: ins.metadata.version,
                     description: ins.metadata.description,
                     tasks: ins.metadata.tasks,
@@ -362,6 +364,7 @@ pub async fn get_workflow(
                             tenant_id,
                             id: ins.metadata.id.to_string(),
                             package_name: ins.metadata.package_name,
+                            workflow_name: ins.metadata.workflow_name,
                             version: ins.metadata.version,
                             description: ins.metadata.description,
                             tasks: ins.metadata.tasks,

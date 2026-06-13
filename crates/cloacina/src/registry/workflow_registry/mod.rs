@@ -307,6 +307,10 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
 
         let package_metadata = crate::registry::loader::package_loader::PackageMetadata {
             package_name: pkg_name,
+            // Workflow name from the package.toml manifest — available at upload
+            // (pre-build); the build-success extraction later overwrites the full
+            // metadata (incl. tasks) with the authoritative cdylib values.
+            workflow_name: manifest.metadata.workflow_name.clone().unwrap_or_default(),
             version: pkg_version,
             description: manifest.metadata.description.clone(),
             author: manifest.metadata.author.clone(),
@@ -366,6 +370,11 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         let workflow_metadata = WorkflowMetadata {
             id: Uuid::new_v4(), // This should be the actual package ID from the database
             registry_id: Uuid::parse_str(&registry_id).map_err(RegistryError::InvalidUuid)?,
+            workflow_name: if package_metadata.workflow_name.is_empty() {
+                package_metadata.package_name.clone()
+            } else {
+                package_metadata.workflow_name.clone()
+            },
             package_name: package_metadata.package_name.clone(),
             version: package_metadata.version.clone(),
             description: package_metadata.description.clone(),

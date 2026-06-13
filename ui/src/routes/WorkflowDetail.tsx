@@ -67,8 +67,14 @@ export function WorkflowDetail() {
       }
     }
     setContextErr(null);
+    // Execute by the registered workflow name, not the package name: the runner
+    // registry is keyed by workflow name and the two differ under the standard
+    // convention (package `demo-slow-rust` → workflow `demo_slow_workflow`).
+    // Fall back to the package name for packages predating workflow-name
+    // persistence. (CLOACI-T-0671)
+    const execName = data?.workflow_name || name;
     execute.mutate(
-      { name, context },
+      { name: execName, context },
       {
         onSuccess: (res) => {
           execModal.close();

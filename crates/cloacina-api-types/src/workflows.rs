@@ -35,6 +35,11 @@ pub struct WorkflowSummary {
     /// Package UUID.
     pub id: String,
     pub package_name: String,
+    /// Executable workflow name (the identifier to execute by). Differs from
+    /// `package_name` under the standard convention (package `demo-slow-rust`
+    /// → workflow `demo_slow_workflow`). Falls back to `package_name` for
+    /// packages predating workflow-name persistence. (CLOACI-T-0671)
+    pub workflow_name: String,
     pub version: String,
     pub description: Option<String>,
     /// Task IDs included in this package.
@@ -62,6 +67,11 @@ pub struct WorkflowDetail {
     /// Package UUID.
     pub id: String,
     pub package_name: String,
+    /// Executable workflow name (the identifier to execute by). Differs from
+    /// `package_name` under the standard convention (package `demo-slow-rust`
+    /// → workflow `demo_slow_workflow`). Falls back to `package_name` for
+    /// packages predating workflow-name persistence. (CLOACI-T-0671)
+    pub workflow_name: String,
     pub version: String,
     pub description: Option<String>,
     /// Task IDs included in this package.

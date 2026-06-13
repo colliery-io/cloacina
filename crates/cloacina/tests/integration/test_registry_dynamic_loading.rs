@@ -199,6 +199,7 @@ async fn test_loader_error_handling() {
 
     let package_metadata = PackageMetadata {
         package_name: "test_package".to_string(),
+        workflow_name: "test_package".to_string(),
         version: "1.0.0".to_string(),
         description: Some("Test package".to_string()),
         author: Some("Test Author".to_string()),

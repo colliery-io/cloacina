@@ -984,50 +984,53 @@ impl RegistryReconciler {
                 package_metadata.tasks.len()
             );
 
-            // Extract the workflow name from the package metadata
-            // The workflow name comes from the #[packaged_workflow(name = "...")] macro
-            // Since package_loader::PackageMetadata doesn't have workflow_name field directly,
-            // we need to extract it from the task metadata namespaced templates
-            let workflow_name = {
-                // Extract workflow name from namespaced_id_template
-                if let Some(first_task) = package_metadata.tasks.first() {
-                    let template = &first_task.namespaced_id_template;
-                    debug!("Parsing workflow_name from template: '{}'", template);
+            // Extract the workflow name from the package metadata.
+            // The workflow name comes from the #[workflow(name = "...")] macro and
+            // is now carried directly on PackageMetadata.workflow_name (sourced
+            // from the cdylib's PackageTasksMetadata). Prefer it so the name we
+            // register the workflow under in the runner matches exactly what the
+            // API exposes and the UI executes by (CLOACI-T-0671). Fall back to
+            // the legacy template-parsing path for metadata predating the field.
+            let workflow_name = if !package_metadata.workflow_name.is_empty() {
+                package_metadata.workflow_name.clone()
+            } else if let Some(first_task) = package_metadata.tasks.first() {
+                // Legacy fallback: extract workflow name from namespaced_id_template
+                let template = &first_task.namespaced_id_template;
+                debug!("Parsing workflow_name from template: '{}'", template);
 
-                    // Split by "::" and extract the workflow_id part (3rd component)
-                    let parts: Vec<&str> = template.split("::").collect();
-                    if parts.len() >= 3 {
-                        let workflow_part = parts[2];
-                        // Handle both {workflow} placeholder and actual workflow_id
-                        if workflow_part == "{workflow}" {
-                            // This is a template, need to look up actual workflow_id from registered tasks
-                            let mut found_id = None;
-                            for namespace in runtime.task_namespaces() {
-                                if namespace.package_name == metadata.package_name
-                                    && namespace.tenant_id == self.config.default_tenant_id
-                                {
-                                    debug!(
-                                        "Found registered task with workflow_id: '{}'",
-                                        namespace.workflow_id
-                                    );
-                                    found_id = Some(namespace.workflow_id.clone());
-                                    break;
-                                }
+                // Split by "::" and extract the workflow_id part (3rd component)
+                let parts: Vec<&str> = template.split("::").collect();
+                if parts.len() >= 3 {
+                    let workflow_part = parts[2];
+                    // Handle both {workflow} placeholder and actual workflow_id
+                    if workflow_part == "{workflow}" {
+                        // This is a template, need to look up actual workflow_id from registered tasks
+                        let mut found_id = None;
+                        for namespace in runtime.task_namespaces() {
+                            if namespace.package_name == metadata.package_name
+                                && namespace.tenant_id == self.config.default_tenant_id
+                            {
+                                debug!(
+                                    "Found registered task with workflow_id: '{}'",
+                                    namespace.workflow_id
+                                );
+                                found_id = Some(namespace.workflow_id.clone());
+                                break;
                             }
-                            // Use found ID or fallback
-                            found_id.unwrap_or_else(|| metadata.package_name.clone())
-                        } else {
-                            // This is the actual workflow_id
-                            workflow_part.to_string()
                         }
+                        // Use found ID or fallback
+                        found_id.unwrap_or_else(|| metadata.package_name.clone())
                     } else {
-                        debug!("Template format unexpected, using package name as fallback");
-                        metadata.package_name.clone()
+                        // This is the actual workflow_id
+                        workflow_part.to_string()
                     }
                 } else {
-                    debug!("No tasks in package metadata, using package name as fallback");
+                    debug!("Template format unexpected, using package name as fallback");
                     metadata.package_name.clone()
                 }
+            } else {
+                debug!("No tasks in package metadata, using package name as fallback");
+                metadata.package_name.clone()
             };
 
             debug!(
@@ -1963,6 +1966,7 @@ mod tests {
         WorkflowMetadata {
             id: Uuid::new_v4(),
             registry_id: Uuid::new_v4(),
+            workflow_name: "test-workflow".to_string(),
             package_name: "test-pkg".to_string(),
             version: "1.0.0".to_string(),
             description: Some("Test package".to_string()),
