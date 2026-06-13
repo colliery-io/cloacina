@@ -127,3 +127,37 @@ CLEAN build (all 6 packages load successfully):**
   demo_cron_trigger`). Add a 4th acceptance criterion: the schedule's
   `workflow_name` is the `on` target, and a cron fire produces an execution of
   that workflow.
+
+**2026-06-13 — CORRECTION after fixing the fixture. Two separate things; the
+"clean build" claim above was wrong (that run still had the broken fixture).**
+- The duplication was **entirely** caused by a malformed demo fixture: the
+  workflow wrongly declared `#[workflow(triggers = ["demo_cron_trigger"])]`
+  (a cron trigger is bound via `on`, not subscribed like a poll trigger). That
+  made the workflow fail to load **every reconcile tick**; cron Step 1 runs
+  before that failing step with no rollback + a non-idempotent `create()`, so
+  each retry inserted another schedule. **With the fixture fixed
+  (`triggers=[]` removed), the package loads once and there is exactly ONE
+  stable cron schedule — duplication gone.** So core/normal cron is fine
+  (matches the heavy direct-API test coverage, e.g.
+  `tests/python/test_scenario_27_cron_scheduling.py`,
+  `crates/cloacina/tests/integration/scheduler/cron_basic.rs`).
+  - Residual (lower-priority) robustness gap worth keeping: a **partial package
+    load should roll back** the cron schedules it already inserted (and/or
+    `register_cron_workflow` should be idempotent), so a future bad/failing
+    package can't accumulate orphan schedules.
+- **The real standalone platform bug** is target propagation for **packaged**
+  cron triggers, confirmed with the *fixed* fixture (clean load, 1 schedule,
+  `last_run_at` advancing, yet **zero `demo_cron_workflow` executions**):
+  - `register_cron_workflow(workflow_name, …)` is correct and tested — the
+    tested callers pass a real **workflow** name.
+  - But the reconciler `step_load_cron_triggers` (loading.rs:1490) calls it with
+    **`t.name`** (the trigger fn name), and `TriggerPackageMetadata`
+    (workflow-plugin `types.rs`) has **no `on`/target field** — the macro's `on`
+    is dropped. So the schedule targets the trigger name → fires a non-existent
+    workflow → no executions.
+  - **Fix:** carry the trigger's `on` target into `TriggerPackageMetadata`
+    (macro `trigger_attr.rs` → the metadata type), and have
+    `step_load_cron_triggers` register the cron against that target workflow, not
+    `t.name`. (Engine change across cloacina-workflow-plugin + cloacina-macros +
+    cloacina reconciler.) This is what the direct-API tests don't cover — the
+    packaged-cron-through-reconciler path is the untested gap.
