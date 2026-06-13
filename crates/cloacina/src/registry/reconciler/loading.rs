@@ -442,6 +442,30 @@ impl RegistryReconciler {
                 loaded.workflow_name,
             );
 
+            // Persist the Python task graph (CLOACI-T-0672). Python packages
+            // produce no cdylib, so `mark_build_success` couldn't populate the
+            // row's task list — write it here from the scoped Runtime's view so
+            // `GET /workflows/{name}` (and the UI DAG) show the tasks the same
+            // way Rust packages do. Best-effort: a failure must not abort load.
+            let py_task_graph: Vec<(String, Vec<String>)> = loaded
+                .tasks
+                .iter()
+                .map(|n| (n.id.clone(), n.dependencies.clone()))
+                .collect();
+            if !py_task_graph.is_empty() {
+                if let Err(e) = self
+                    .registry
+                    .persist_task_graph(metadata.id, py_task_graph)
+                    .await
+                {
+                    warn!(
+                        package = %metadata.package_name,
+                        error = %e,
+                        "failed to persist Python task graph metadata"
+                    );
+                }
+            }
+
             (
                 loaded.task_namespaces,
                 Some(loaded.workflow_name),

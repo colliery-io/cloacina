@@ -401,6 +401,14 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         self.list_all_packages().await
     }
 
+    async fn persist_task_graph(
+        &self,
+        package_id: crate::registry::types::WorkflowPackageId,
+        tasks: Vec<(String, Vec<String>)>,
+    ) -> Result<(), RegistryError> {
+        self.persist_task_graph_db(package_id, tasks).await
+    }
+
     async fn unregister_workflow(
         &mut self,
         package_name: &str,

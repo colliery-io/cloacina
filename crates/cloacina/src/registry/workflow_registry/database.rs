@@ -1412,6 +1412,136 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(Some(json))
     }
 
+    /// Persist a task list (local ids + dependency edges) into the row's stored
+    /// `PackageMetadata`. Used by the Python load path, which has no cdylib to
+    /// extract from — the reconciler supplies the task graph captured from the
+    /// scoped Runtime. (CLOACI-T-0672)
+    pub(super) async fn persist_task_graph_db(
+        &self,
+        package_id: Uuid,
+        tasks: Vec<(String, Vec<String>)>,
+    ) -> Result<(), RegistryError> {
+        use crate::dal::unified::models::UnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+        use crate::registry::loader::package_loader::TaskMetadata;
+
+        let pid = UniversalUuid(package_id);
+
+        // Read the existing metadata so we preserve identity + workflow_name.
+        let record: Option<UnifiedWorkflowPackage> = crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    workflow_packages::table
+                        .filter(workflow_packages::id.eq(pid))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    workflow_packages::table
+                        .filter(workflow_packages::id.eq(pid))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+
+        let record = match record {
+            Some(r) => r,
+            None => return Ok(()),
+        };
+
+        let mut merged: crate::registry::loader::package_loader::PackageMetadata =
+            serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
+
+        let workflow = if merged.workflow_name.is_empty() {
+            merged.package_name.clone()
+        } else {
+            merged.workflow_name.clone()
+        };
+        merged.tasks = tasks
+            .iter()
+            .enumerate()
+            .map(|(i, (id, deps))| TaskMetadata {
+                index: i as u32,
+                local_id: id.clone(),
+                namespaced_id_template: format!(
+                    "{{tenant}}::{}::{}::{}",
+                    merged.package_name, workflow, id
+                ),
+                dependencies: deps.clone(),
+                description: String::new(),
+                source_location: String::new(),
+            })
+            .collect();
+
+        let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
+
+        let updated: usize = crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let json = json.clone();
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set(workflow_packages::metadata.eq(json))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let json = json.clone();
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set(workflow_packages::metadata.eq(json))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+
+        if updated == 0 {
+            tracing::warn!(%package_id, "persist_task_graph_db updated no rows");
+        }
+        Ok(())
+    }
+
     /// Record a failed build. Returns `Err(StaleClaim)` if the row is no
     /// longer in `building` state — same race-defence as
     /// [`Self::mark_build_success`] (COR-16).
