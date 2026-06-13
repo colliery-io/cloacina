@@ -906,9 +906,31 @@ class PersistentWebSocket:
         "daemon testing (use soak instead)",
     ],
 )
-def server():
-    """Run server soak test."""
+@angreal.argument(
+    name="minutes",
+    long="minutes",
+    required=False,
+    help="operational-soak (Step 9) duration in minutes; accepts fractions "
+         "(e.g. 0.5). Default 1. Use 30+ for a real soak.",
+)
+def server(minutes=None):
+    """Run server soak test.
+
+    The setup/verification steps (1–8e) run once; Step 9 then drives sustained
+    concurrent load — workflow + Python + CG executions, Kafka producers, WS
+    market data, and API polling — for `--minutes` minutes (default 1).
+    """
+    # Parse the operational-soak duration. Kept in seconds internally.
+    try:
+        soak_duration = int(float(minutes) * 60) if minutes else 60
+    except (TypeError, ValueError):
+        raise SystemExit(f"--minutes must be a number, got {minutes!r}")
+    if soak_duration < 1:
+        raise SystemExit("--minutes must be > 0")
+
     print_section_header("Server Soak Test")
+    print(f"  Operational-soak duration: {soak_duration}s "
+          f"({soak_duration / 60:.1f} min)")
 
     # Step 1: Build
     print_section_header("Step 1: Build server")
@@ -1300,8 +1322,9 @@ def server():
                 print("  WARNING: Python Kafka batch graph not loaded")
 
         # Step 9: Operational soak — execute workflows while querying API
-        soak_duration = 60
-        print_section_header(f"Step 9: Operational soak ({soak_duration}s)")
+        print_section_header(
+            f"Step 9: Operational soak ({soak_duration}s / {soak_duration / 60:.1f} min)"
+        )
         print("  Executing workflows + querying API concurrently...")
 
         # Step 8c: Verify computation graph health endpoints exist
