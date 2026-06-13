@@ -1,0 +1,26 @@
+# Demo Kafka-stream computation-graph fixture (CLOACI-T-0676). A reactor-bound
+# CG whose entry accumulator `kafka_alpha` is sourced from a Kafka topic. The
+# `[[metadata.accumulators]]` block upgrades the macro's plain `kafka_alpha`
+# accumulator to a `stream` source; `broker` resolves via
+# `CLOACINA_VAR_KAFKA_BROKER` (set on the demo server to `kafka:9092`).
+[package]
+name = "demo-kafka-stream-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "demo_kafka_graph"
+language = "rust"
+description = "demo kafka-stream computation graph — Kafka-sourced accumulator"
+author = "Cloacina Test Fixtures"
+
+[[metadata.accumulators]]
+name = "kafka_alpha"
+accumulator_type = "stream"
+
+[metadata.accumulators.config]
+broker = "{{ KAFKA_BROKER }}"
+topic = "demo.kafka.stream"
+group = "demo-kafka-stream-rust-group"

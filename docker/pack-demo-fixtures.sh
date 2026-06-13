@@ -58,6 +58,9 @@ pack_rust_ws demo-cron-rust
 # --- Reactor + accumulator + reactor-bound CG + trigger + workflow (Rust) ---
 pack_rust_rel mixed-rust
 
+# --- Kafka-sourced stream accumulator → reactor-bound CG (Rust) — CLOACI-T-0676 ---
+pack_rust_ws demo-kafka-stream-rust
+
 # --- Python: a task workflow + a reactor-bound computation graph ---
 # Both carry their module tree under workflow/ — the reconciler's Python
 # extraction requires it ("Missing workflow source directory" otherwise). The

@@ -39,6 +39,35 @@ services:
       timeout: 5s
       retries: 5
 
+  # Kafka broker (KRaft, single node) for Kafka-sourced stream/batch
+  # accumulators. The in-network server reaches it as `kafka:9092` — the
+  # advertised listener MUST be `kafka:9092` (not localhost) so in-cluster
+  # clients connect. The soak's producer execs inside this container
+  # (`docker compose exec kafka …`), so no host port is required. (CLOACI-T-0676)
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      CLUSTER_ID: cloacina-demo-cluster-001
+    volumes:
+      - kafkadata:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
   server:
     build:
       context: ..
@@ -53,8 +82,15 @@ services:
       - *bootstrap_key
     environment:
       CLOACINA_CORS_ALLOWED_ORIGINS: "http://localhost:8082"
+      # Resolves the `{{ KAFKA_BROKER }}` token in Kafka-stream accumulator
+      # configs (e.g. demo-kafka-stream-rust) to the in-network broker.
+      CLOACINA_VAR_KAFKA_BROKER: "kafka:9092"
     depends_on:
       postgres:
+        condition: service_healthy
+      # Kafka-sourced stream accumulators connect at CG-load time, so the broker
+      # must be ready before the reconciler loads those packages. (CLOACI-T-0676)
+      kafka:
         condition: service_healthy
     # Server + compiler both run DB migrations on boot; on a fresh DB they can
     # race (duplicate type creation). restart:on-failure lets the loser retry
@@ -143,3 +179,4 @@ services:
 volumes:
   pgdata:
   fixtures-pkgs:
+  kafkadata:

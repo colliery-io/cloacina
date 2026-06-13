@@ -45,8 +45,14 @@ PYTHON_WORKFLOW = "demo_py_workflow"      # pkg demo-py-workflow
 # Computation graphs + the accumulator each is fed via WebSocket.
 RUST_CG = ("mixed_graph", "alpha")        # pkg mixed-rust
 PYTHON_CG = ("demo_py_graph", "py_alpha")  # pkg demo-py-graph
+# Kafka-sourced CG (pkg demo-kafka-stream-rust): the accumulator `kafka_alpha`
+# is fed from a Kafka topic; the soak produces to that topic. (CLOACI-T-0676)
+KAFKA_CG = ("demo_kafka_graph", "kafka_alpha")
+KAFKA_TOPIC = "demo.kafka.stream"
 # Packages we require to reach build_status=success before the soak starts.
-REQUIRED_PACKAGES = ["demo-slow-rust", "demo-py-workflow", "mixed-rust"]
+REQUIRED_PACKAGES = [
+    "demo-slow-rust", "demo-py-workflow", "mixed-rust", "demo-kafka-stream-rust",
+]
 
 
 def api_request(method, url, token=None, data=None, files=None):
@@ -165,6 +171,47 @@ def _compose(*args, check=True, capture=False):
     return subprocess.run(cmd, cwd=REPO_ROOT, check=check, capture_output=capture, text=True)
 
 
+def _kafka_create_topic(topic):
+    """Create a Kafka topic via the CLI inside the broker container."""
+    try:
+        _compose("exec", "-T", "kafka",
+                 "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092",
+                 "--create", "--topic", topic, "--partitions", "1",
+                 "--replication-factor", "1", "--if-not-exists", capture=True)
+        return True
+    except Exception as e:
+        print(f"  WARNING: failed to create topic '{topic}': {e}")
+        return False
+
+
+class KafkaProducer:
+    """Persistent producer: a long-running console-producer inside the broker
+    container (fed via stdin), so no host Kafka port is needed."""
+
+    def __init__(self, topic):
+        self.proc = subprocess.Popen(
+            ["docker", "compose", "-f", str(COMPOSE_FILE), "exec", "-T", "kafka",
+             "/opt/kafka/bin/kafka-console-producer.sh",
+             "--bootstrap-server", "localhost:9092", "--topic", topic],
+            cwd=REPO_ROOT, stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def send(self, messages):
+        try:
+            self.proc.stdin.write(("\n".join(messages) + "\n").encode())
+            self.proc.stdin.flush()
+            return True
+        except Exception:
+            return False
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+            self.proc.wait(timeout=5)
+        except Exception:
+            self.proc.kill()
+
+
 def _wait_health(timeout_s=180):
     deadline = time.time() + timeout_s
     while time.time() < deadline:
@@ -280,7 +327,7 @@ def server(minutes=None):
     print_section_header("Step 2: Wait for fixtures to load")
     loaded = _wait_for_fixtures()
     print(f"  Loaded packages ✓: {loaded}")
-    graphs = _wait_for_graphs([RUST_CG[0], PYTHON_CG[0]])
+    graphs = _wait_for_graphs([RUST_CG[0], PYTHON_CG[0], KAFKA_CG[0]])
     print(f"  Registered graphs ✓: {graphs}")
 
     # Step 3: regression assertions (CLOACI-T-0674) against the shared artifacts.
@@ -294,7 +341,7 @@ def server(minutes=None):
     assert tg and {n["id"] for n in tg} == set(detail["tasks"]), detail
     print(f"  Python tasks/task_graph persisted ✓ ({len(detail['tasks'])} tasks, T-0672)")
 
-    for graph_name, _acc in (RUST_CG, PYTHON_CG):
+    for graph_name, _acc in (RUST_CG, PYTHON_CG, KAFKA_CG):
         s, gd = api_request("GET", f"{BASE_URL}/v1/health/graphs/{graph_name}", token=token)
         assert s == 200, f"CG {graph_name} GET failed: {s} {gd}"
         topo = gd.get("topology") or {}
@@ -315,7 +362,8 @@ def server(minutes=None):
     stats = {
         "health_ok": 0, "rust_triggered": 0, "rust_accepted": 0,
         "py_triggered": 0, "py_accepted": 0, "ws_alpha": 0, "ws_py_alpha": 0,
-        "cg_health_ok": 0, "list_queries": 0, "api_errors": 0, "conn_errors": 0,
+        "kafka_produced": 0, "cg_health_ok": 0, "list_queries": 0,
+        "api_errors": 0, "conn_errors": 0,
     }
 
     def ws_ticket():
@@ -344,9 +392,28 @@ def server(minutes=None):
         except Exception as e:
             print(f"  WS worker {accumulator} error: {e}")
 
+    def kafka_worker():
+        """Produce EventData to the Kafka topic feeding demo_kafka_graph's
+        `kafka_alpha` stream accumulator at ~50 msg/sec."""
+        producer = KafkaProducer(KAFKA_TOPIC)
+        seq = 0
+        try:
+            while not stop_event.is_set():
+                if producer.send([json.dumps({"value": float(seq)})]):
+                    stats["kafka_produced"] += 1
+                seq += 1
+                time.sleep(0.02)
+        finally:
+            producer.close()
+
+    # Topic must exist before the producer (and the server's stream accumulator
+    # consumes from it). (CLOACI-T-0676)
+    _kafka_create_topic(KAFKA_TOPIC)
+
     workers = [
         threading.Thread(target=ws_worker, args=(RUST_CG[1], "ws_alpha", 0.005), daemon=True),
         threading.Thread(target=ws_worker, args=(PYTHON_CG[1], "ws_py_alpha", 0.01), daemon=True),
+        threading.Thread(target=kafka_worker, daemon=True),
     ]
     for w in workers:
         w.start()
@@ -423,6 +490,7 @@ def server(minutes=None):
                 f"rust={stats['rust_accepted']}/{stats['rust_triggered']} "
                 f"python={stats['py_accepted']}/{stats['py_triggered']} "
                 f"ws(alpha={stats['ws_alpha']},py_alpha={stats['ws_py_alpha']}) "
+                f"kafka={stats['kafka_produced']} "
                 f"cg_health={stats['cg_health_ok']} queries={stats['list_queries']} "
                 f"errors={stats['api_errors']} conn_err={stats['conn_errors']}")
 
