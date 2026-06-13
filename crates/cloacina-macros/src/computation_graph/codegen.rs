@@ -819,3 +819,102 @@ pub(super) fn graph_topology_json(ir: &GraphIR) -> String {
 
     serde_json::to_string(&json!({ "nodes": nodes, "edges": edges })).unwrap_or_default()
 }
+
+#[cfg(test)]
+mod topology_tests {
+    //! Guards the CG topology emission (CLOACI-T-0673): the macro must serialize
+    //! the GraphIR's nodes + edges into the JSON the API/UI render as a DAG.
+    use super::super::graph_ir::GraphRoutingVariant;
+    use super::{graph_topology_json, GraphEdge, GraphIR, GraphNode, TriggerSpec};
+    use std::collections::HashMap;
+
+    fn node(name: &str, inputs: &[&str], edges: Vec<GraphEdge>, terminal: bool) -> GraphNode {
+        GraphNode {
+            name: name.to_string(),
+            cache_inputs: inputs.iter().map(|s| s.to_string()).collect(),
+            edges_out: edges,
+            edges_in: vec![],
+            is_terminal: terminal,
+        }
+    }
+
+    #[test]
+    fn emits_linear_nodes_and_edges() {
+        // compute(alpha) -> output
+        let mut nodes = HashMap::new();
+        nodes.insert(
+            "compute".to_string(),
+            node(
+                "compute",
+                &["alpha"],
+                vec![GraphEdge::Linear {
+                    target: "output".to_string(),
+                }],
+                false,
+            ),
+        );
+        nodes.insert("output".to_string(), node("output", &[], vec![], true));
+        let ir = GraphIR {
+            trigger: TriggerSpec::ByReactor("rx".to_string()),
+            sorted_nodes: vec!["compute".to_string(), "output".to_string()],
+            nodes,
+        };
+
+        let v: serde_json::Value = serde_json::from_str(&graph_topology_json(&ir)).unwrap();
+        let ns = v["nodes"].as_array().unwrap();
+        assert_eq!(ns.len(), 2);
+        assert_eq!(ns[0]["id"], "compute");
+        assert_eq!(ns[0]["inputs"][0], "alpha");
+        let es = v["edges"].as_array().unwrap();
+        assert_eq!(es.len(), 1);
+        assert_eq!(es[0]["from"], "compute");
+        assert_eq!(es[0]["to"], "output");
+        assert!(es[0]["label"].is_null(), "linear edges have a null label");
+    }
+
+    #[test]
+    fn emits_routing_variant_labels() {
+        // decision(alpha) => { Trade -> handler, NoAction -> audit }
+        let mut nodes = HashMap::new();
+        nodes.insert(
+            "decision".to_string(),
+            node(
+                "decision",
+                &["alpha"],
+                vec![GraphEdge::Routing {
+                    variants: vec![
+                        GraphRoutingVariant {
+                            variant_name: "Trade".to_string(),
+                            target: "handler".to_string(),
+                        },
+                        GraphRoutingVariant {
+                            variant_name: "NoAction".to_string(),
+                            target: "audit".to_string(),
+                        },
+                    ],
+                }],
+                false,
+            ),
+        );
+        nodes.insert("handler".to_string(), node("handler", &[], vec![], true));
+        nodes.insert("audit".to_string(), node("audit", &[], vec![], true));
+        let ir = GraphIR {
+            trigger: TriggerSpec::ByReactor("rx".to_string()),
+            sorted_nodes: vec![
+                "decision".to_string(),
+                "handler".to_string(),
+                "audit".to_string(),
+            ],
+            nodes,
+        };
+
+        let v: serde_json::Value = serde_json::from_str(&graph_topology_json(&ir)).unwrap();
+        let es = v["edges"].as_array().unwrap();
+        assert_eq!(es.len(), 2, "one edge per routing variant");
+        let labels: Vec<&str> = es.iter().map(|e| e["label"].as_str().unwrap()).collect();
+        assert!(
+            labels.contains(&"Trade") && labels.contains(&"NoAction"),
+            "{es:?}"
+        );
+    }
+}
