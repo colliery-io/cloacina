@@ -16,9 +16,13 @@
 
 // Demo cron-trigger fixture (CLOACI-I-0117 / T-0664). A cron trigger fires
 // `demo_cron_workflow` on a schedule, so the UI's Triggers view shows the
-// schedule and executions appear automatically. The cron trigger fn returns
-// `()` (fires unconditionally on tick), mirroring trigger-only-rust; the
-// workflow subscribes to it via `triggers = [...]`, mirroring mixed-rust.
+// schedule and executions appear automatically.
+//
+// A cron trigger binds to its target workflow via the `on` attribute and is
+// driven directly by the cron scheduler — the workflow does NOT list it in
+// `#[workflow(triggers = [...])]` (that list is for custom/poll-trigger
+// *subscriptions*, e.g. mixed-rust). Mirrors trigger-only-rust's standalone
+// cron trigger.
 
 use cloacina_macros::{task, trigger, workflow};
 use cloacina_workflow::{Context, TaskError};
@@ -32,8 +36,7 @@ pub async fn demo_cron_trigger() {}
 #[workflow(
     name = "demo_cron_workflow",
     description = "demo cron workflow — fires on a schedule",
-    author = "cloacina-ui-demo",
-    triggers = ["demo_cron_trigger"]
+    author = "cloacina-ui-demo"
 )]
 pub mod demo_cron_wf {
     use super::*;
