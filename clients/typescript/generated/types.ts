@@ -529,6 +529,27 @@ export interface components {
             name: string;
             /** @description Pause state of the graph's reactor. */
             paused: boolean;
+            /** @description Node/edge topology of the computation graph, for rendering its DAG. `None` for graphs predating topology emission. (CLOACI-T-0673) */
+            topology?: components["schemas"]["GraphTopology"] | null;
+        };
+        /** @description Node/edge topology of a computation graph (CLOACI-T-0673). */
+        GraphTopology: {
+            edges: components["schemas"]["GraphTopologyEdge"][];
+            nodes: components["schemas"]["GraphTopologyNode"][];
+        };
+        /** @description One directed edge in a computation graph (CLOACI-T-0673). */
+        GraphTopologyEdge: {
+            from: string;
+            /** @description Routing-variant label for conditional edges; `None` for linear edges. */
+            label?: string | null;
+            to: string;
+        };
+        /** @description One compute node in a computation graph (CLOACI-T-0673). */
+        GraphTopologyNode: {
+            /** @description Node id (the compute function name). */
+            id: string;
+            /** @description Accumulator names this node reads from the input cache (entry nodes). */
+            inputs?: string[];
         };
         /**
          * @description `201 Created` body for a new API key. The plaintext `key` is returned

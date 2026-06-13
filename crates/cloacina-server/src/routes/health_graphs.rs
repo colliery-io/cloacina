@@ -134,6 +134,10 @@ pub async fn list_graphs(
                 accumulators: g.accumulators,
                 // `paused` reflects the pause state of the graph's reactor.
                 paused: g.paused,
+                topology: g
+                    .topology
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str(s).ok()),
             }
         })
         .collect();
@@ -183,6 +187,10 @@ pub async fn get_graph(
             accumulators: g.accumulators,
             // `paused` reflects the pause state of the graph's reactor.
             paused: g.paused,
+            topology: g
+                .topology
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok()),
         })
         .into_response()
     } else {

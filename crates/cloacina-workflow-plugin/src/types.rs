@@ -112,6 +112,13 @@ pub struct GraphPackageMetadata {
     /// keeps this backward compatible with packages built before T-0544 M5.
     #[serde(default)]
     pub trigger_reactor: Option<String>,
+    /// Serialized node/edge topology of the graph, as JSON
+    /// `{"nodes":[{"id","inputs":[..]}],"edges":[{"from","to","label":null|"Variant"}]}`.
+    /// Emitted by the `#[computation_graph]` macro (Rust) or the Python graph
+    /// builder, so the API/UI can render the CG DAG. `None`/empty for packages
+    /// predating topology emission. (CLOACI-T-0673)
+    #[serde(default)]
+    pub graph_data_json: Option<String>,
 }
 
 fn default_input_strategy() -> String {
@@ -609,6 +616,7 @@ mod tests {
                 },
             ],
             trigger_reactor: None,
+            graph_data_json: None,
         };
 
         let json = serde_json::to_string(&metadata).unwrap();

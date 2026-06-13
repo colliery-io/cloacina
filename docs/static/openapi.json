@@ -1832,6 +1832,15 @@
           "paused": {
             "type": "boolean",
             "description": "Pause state of the graph's reactor."
+          },
+          "topology": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GraphTopology"
+              }
+            ],
+            "nullable": true,
+            "description": "Node/edge topology of the computation graph, for rendering its DAG. `None` for graphs predating topology emission. (CLOACI-T-0673)"
           }
         }
       },
@@ -2745,6 +2754,71 @@
           "id": {
             "type": "string",
             "description": "Local task id (the node id), e.g. `\"validate\"`."
+          }
+        }
+      },
+      "GraphTopologyNode": {
+        "type": "object",
+        "description": "One compute node in a computation graph (CLOACI-T-0673).",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Node id (the compute function name)."
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Accumulator names this node reads from the input cache (entry nodes)."
+          }
+        }
+      },
+      "GraphTopologyEdge": {
+        "type": "object",
+        "description": "One directed edge in a computation graph (CLOACI-T-0673).",
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Routing-variant label for conditional edges; `None` for linear edges."
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      },
+      "GraphTopology": {
+        "type": "object",
+        "description": "Node/edge topology of a computation graph (CLOACI-T-0673).",
+        "required": [
+          "nodes",
+          "edges"
+        ],
+        "properties": {
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphTopologyEdge"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphTopologyNode"
+            }
           }
         }
       }

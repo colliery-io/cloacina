@@ -233,6 +233,7 @@ pub fn build_declaration_from_ffi(
         // default and pre-M5 packages via `#[serde(default)]`) keeps the
         // synthesized per-graph reactor name and 1:1 lifecycle.
         reactor_name: graph_meta.trigger_reactor.clone(),
+        topology: graph_meta.graph_data_json.clone(),
     }
 }
 
@@ -706,6 +707,7 @@ mod tests {
                 },
             ],
             trigger_reactor: None,
+            graph_data_json: None,
         };
 
         let decl = build_declaration_from_ffi(&meta, vec![0u8; 100]);
@@ -725,6 +727,7 @@ mod tests {
             input_strategy: "latest".to_string(),
             accumulators: vec![],
             trigger_reactor: None,
+            graph_data_json: None,
         };
         let decl_any = build_declaration_from_ffi(&meta_any, vec![]);
         assert!(matches!(
@@ -739,6 +742,7 @@ mod tests {
             input_strategy: "sequential".to_string(),
             accumulators: vec![],
             trigger_reactor: None,
+            graph_data_json: None,
         };
         let decl_all = build_declaration_from_ffi(&meta_all, vec![]);
         assert!(matches!(

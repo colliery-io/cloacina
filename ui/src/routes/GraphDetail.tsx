@@ -18,6 +18,7 @@ import { Anchor, Badge, Card, Group, List, Stack, Text, Title } from "@mantine/c
 import { Link, useParams } from "react-router-dom";
 
 import { useGraph } from "../api/health";
+import { Dag, type DagEdge, type DagNode } from "../components/Dag";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 
@@ -72,6 +73,20 @@ export function GraphDetail() {
                 </List>
               )}
             </div>
+            {data.topology && data.topology.nodes.length > 0 && (
+              <div>
+                <Text fw={600} mb="xs">
+                  Graph ({data.topology.nodes.length} nodes)
+                </Text>
+                <Dag
+                  nodes={data.topology.nodes.map((n): DagNode => ({ id: n.id }))}
+                  edges={data.topology.edges.map(
+                    (e): DagEdge => ({ from: e.from, to: e.to, label: e.label }),
+                  )}
+                  testId="graph-dag"
+                />
+              </div>
+            )}
           </Stack>
         </Card>
       )}

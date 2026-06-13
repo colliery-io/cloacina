@@ -313,6 +313,11 @@ macro_rules! package {
                             config: ::std::collections::HashMap::new(),
                         })
                         .collect();
+                    let graph_data_json = if entries[0].graph_data_json.is_empty() {
+                        None
+                    } else {
+                        Some(entries[0].graph_data_json.to_string())
+                    };
                     Ok($crate::GraphPackageMetadata {
                         graph_name: entries[0].name.to_string(),
                         package_name: env!("CARGO_PKG_NAME").to_string(),
@@ -320,6 +325,7 @@ macro_rules! package {
                         input_strategy: "latest".to_string(),
                         accumulators,
                         trigger_reactor: reg.trigger_reactor.clone(),
+                        graph_data_json,
                     })
                 }
 

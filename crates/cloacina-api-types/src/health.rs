@@ -41,4 +41,38 @@ pub struct GraphStatus {
     pub accumulators: Vec<String>,
     /// Pause state of the graph's reactor.
     pub paused: bool,
+    /// Node/edge topology of the computation graph, for rendering its DAG.
+    /// `None` for graphs predating topology emission. (CLOACI-T-0673)
+    #[serde(default)]
+    pub topology: Option<GraphTopology>,
+}
+
+/// Node/edge topology of a computation graph (CLOACI-T-0673).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GraphTopology {
+    pub nodes: Vec<GraphTopologyNode>,
+    pub edges: Vec<GraphTopologyEdge>,
+}
+
+/// One compute node in a computation graph (CLOACI-T-0673).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GraphTopologyNode {
+    /// Node id (the compute function name).
+    pub id: String,
+    /// Accumulator names this node reads from the input cache (entry nodes).
+    #[serde(default)]
+    pub inputs: Vec<String>,
+}
+
+/// One directed edge in a computation graph (CLOACI-T-0673).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GraphTopologyEdge {
+    pub from: String,
+    pub to: String,
+    /// Routing-variant label for conditional edges; `None` for linear edges.
+    #[serde(default)]
+    pub label: Option<String>,
 }

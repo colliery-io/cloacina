@@ -211,6 +211,11 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         .map(|n| n.name.clone())
         .collect();
 
+    // Serialized node/edge topology for the FFI metadata, so the API/UI can
+    // render this graph's DAG. Emitted as a string literal in every
+    // ComputationGraphEntry submission below. (CLOACI-T-0673)
+    let graph_data_json_lit = proc_macro2::Literal::string(&graph_topology_json(ir));
+
     let (compiled_fn_body, ctor_body) = if is_triggerless {
         // Trigger-less form: the compiled fn takes a workflow `Context<Value>`
         // and the runtime registration goes into `TriggerlessGraphEntry`.
@@ -291,6 +296,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                         accumulator_names: #legacy_acc_names_expr,
                         reaction_mode: #legacy_reaction_mode_expr,
                     },
+                    graph_data_json: #graph_data_json_lit,
                 }
             }
         };
@@ -326,6 +332,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                         accumulator_names: #legacy_acc_names_expr,
                         reaction_mode: #legacy_reaction_mode_expr,
                     },
+                    graph_data_json: #graph_data_json_lit,
                 }
             }
             #[cfg(feature = "packaged")]
@@ -342,6 +349,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                         accumulator_names: #legacy_acc_names_expr,
                         reaction_mode: #legacy_reaction_mode_expr,
                     },
+                    graph_data_json: #graph_data_json_lit,
                 }
             }
         };
@@ -768,4 +776,46 @@ fn generate_routing_use_stmts(
     }
 
     stmts
+}
+
+/// Serialize the graph IR's node/edge topology to a compact JSON string for
+/// `ComputationGraphEntry.graph_data_json`, so the API/UI can render the CG DAG.
+/// Shape: `{"nodes":[{"id","inputs":[..]}],"edges":[{"from","to","label":null|"Variant"}]}`.
+/// Linear edges have `label: null`; routing edges carry the variant name. The
+/// node order follows the IR's topological sort. (CLOACI-T-0673)
+pub(super) fn graph_topology_json(ir: &GraphIR) -> String {
+    use serde_json::{json, Value};
+
+    let nodes: Vec<Value> = ir
+        .sorted_nodes
+        .iter()
+        .filter_map(|n| ir.nodes.get(n))
+        .map(|node| json!({ "id": node.name, "inputs": node.cache_inputs }))
+        .collect();
+
+    let mut edges: Vec<Value> = Vec::new();
+    for name in &ir.sorted_nodes {
+        if let Some(node) = ir.nodes.get(name) {
+            for edge in &node.edges_out {
+                match edge {
+                    GraphEdge::Linear { target } => edges.push(json!({
+                        "from": node.name,
+                        "to": target,
+                        "label": Value::Null,
+                    })),
+                    GraphEdge::Routing { variants } => {
+                        for v in variants {
+                            edges.push(json!({
+                                "from": node.name,
+                                "to": v.target,
+                                "label": v.variant_name,
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    serde_json::to_string(&json!({ "nodes": nodes, "edges": edges })).unwrap_or_default()
 }

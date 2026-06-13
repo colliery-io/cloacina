@@ -1427,6 +1427,9 @@ impl RegistryReconciler {
                     input_strategy: "latest".to_string(),
                     accumulators,
                     trigger_reactor: reg.trigger_reactor.clone(),
+                    // Python CG topology threading is a follow-up — the runtime
+                    // registration carries no node/edge graph yet. (CLOACI-T-0673)
+                    graph_data_json: None,
                 })
             });
 
@@ -2160,6 +2163,7 @@ mod tests {
                 input_strategy: "latest".to_string(),
                 accumulators,
                 trigger_reactor: Some(upstream_reactor.to_string()),
+                graph_data_json: None,
             }),
         }
     }
@@ -2324,6 +2328,7 @@ mod tests {
                     config: Default::default(),
                 }],
                 trigger_reactor: Some("self_rx".to_string()),
+                graph_data_json: None,
             }),
         };
         let manifest = make_cloacina_metadata();

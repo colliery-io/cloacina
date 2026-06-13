@@ -54,6 +54,10 @@ pub struct ComputationGraphDeclaration {
     /// per-graph reactor name (`__Reactor_<graph_name>`) to preserve the
     /// 1:1 reactor-per-graph behavior callers expect.
     pub reactor_name: Option<String>,
+    /// Serialized node/edge topology JSON for this graph (from the package's
+    /// FFI metadata), retained so the health API can surface the CG DAG.
+    /// `None` for packages predating topology emission. (CLOACI-T-0673)
+    pub topology: Option<String>,
 }
 
 /// Declaration for a single accumulator.
@@ -117,6 +121,9 @@ pub struct GraphStatus {
     /// admin-owned graphs. CLOACI-T-0579: surfaced so per-tenant health
     /// endpoints can filter by caller authorization.
     pub tenant_id: Option<String>,
+    /// Serialized node/edge topology JSON for this graph, so the health API can
+    /// render the CG DAG. `None` for graphs predating topology emission. (CLOACI-T-0673)
+    pub topology: Option<String>,
 }
 
 /// Validate that two declarations targeting the same reactor name agree on
@@ -317,6 +324,11 @@ pub struct ComputationGraphScheduler {
     /// graph_name (`unload_graph`, `list_graphs`) can find the reactor that
     /// hosts it.
     graph_to_reactor: Arc<RwLock<HashMap<String, String>>>,
+    /// Maps graph_name → serialized node/edge topology JSON, captured from the
+    /// declaration at load so the health API can surface the CG DAG without
+    /// digging through the synthetic per-reactor anchor declaration.
+    /// (CLOACI-T-0673)
+    graph_topologies: Arc<RwLock<HashMap<String, String>>>,
     /// DAL handle for persistence. None in embedded/test mode.
     dal: Option<crate::dal::unified::DAL>,
 }
@@ -327,6 +339,7 @@ impl ComputationGraphScheduler {
             registry,
             reactors: Arc::new(RwLock::new(HashMap::new())),
             graph_to_reactor: Arc::new(RwLock::new(HashMap::new())),
+            graph_topologies: Arc::new(RwLock::new(HashMap::new())),
             dal: None,
         }
     }
@@ -337,6 +350,7 @@ impl ComputationGraphScheduler {
             registry,
             reactors: Arc::new(RwLock::new(HashMap::new())),
             graph_to_reactor: Arc::new(RwLock::new(HashMap::new())),
+            graph_topologies: Arc::new(RwLock::new(HashMap::new())),
             dal: Some(dal),
         }
     }
@@ -379,6 +393,7 @@ impl ComputationGraphScheduler {
                     },
                     tenant_id: tenant_id.clone(),
                     reactor_name: Some(reactor_name.clone()),
+                    topology: None,
                 };
                 if let Err(e) = check_reactor_contract_matches(&existing.declaration, &probe) {
                     return Err(format!(
@@ -524,6 +539,7 @@ impl ComputationGraphScheduler {
             },
             tenant_id,
             reactor_name: Some(reactor_name.clone()),
+            topology: None,
         };
 
         let running = RunningGraph {
@@ -619,6 +635,18 @@ impl ComputationGraphScheduler {
             }
         }
 
+        // Capture this graph's node/edge topology so the health API can render
+        // its DAG. Keyed by graph name; cleaned up in `unload_graph`. Safe to
+        // record here — `list_graphs`/`get_graph` only read it for graphs that
+        // are also in `graph_to_reactor`, so a failed load below never leaks a
+        // visible entry. (CLOACI-T-0673)
+        if let Some(topology) = decl.topology.clone() {
+            self.graph_topologies
+                .write()
+                .await
+                .insert(name.clone(), topology);
+        }
+
         // Cross-package subscriber path: when the named reactor is
         // already loaded by an earlier package and this declaration's
         // accumulators is empty, the package is binding to an upstream
@@ -708,6 +736,7 @@ impl ComputationGraphScheduler {
             // graphs naming the same reactor here share one reactor instance
             // (T-0544 fan-out).
             reactor_name: Some(reactor.name.clone()),
+            topology: None,
         };
 
         self.load_graph(decl).await
@@ -725,6 +754,8 @@ impl ComputationGraphScheduler {
             g2r.remove(name)
                 .ok_or_else(|| format!("graph '{}' not loaded", name))?
         };
+        // Drop the cached topology for this graph. (CLOACI-T-0673)
+        self.graph_topologies.write().await.remove(name);
 
         let remaining = {
             let reactors = self.reactors.read().await;
@@ -860,6 +891,7 @@ impl ComputationGraphScheduler {
     pub async fn list_graphs(&self) -> Vec<GraphStatus> {
         let g2r = self.graph_to_reactor.read().await;
         let reactors = self.reactors.read().await;
+        let topologies = self.graph_topologies.read().await;
         g2r.iter()
             .filter_map(|(graph_name, reactor_name)| {
                 reactors.get(reactor_name).map(|running| GraphStatus {
@@ -876,6 +908,7 @@ impl ComputationGraphScheduler {
                         .as_ref()
                         .map(|rx| rx.borrow().clone()),
                     tenant_id: running.declaration.tenant_id.clone(),
+                    topology: topologies.get(graph_name).cloned(),
                 })
             })
             .collect()
@@ -1390,6 +1423,7 @@ mod tests {
             },
             tenant_id: None,
             reactor_name: None,
+            topology: None,
         };
 
         scheduler.load_graph(decl).await.unwrap();
@@ -1433,6 +1467,7 @@ mod tests {
             },
             tenant_id: None,
             reactor_name: None,
+            topology: None,
         };
 
         scheduler.load_graph(decl).await.unwrap();
@@ -1470,6 +1505,7 @@ mod tests {
             },
             tenant_id: None,
             reactor_name: None,
+            topology: None,
         };
 
         scheduler.load_graph(decl.clone()).await.unwrap();

@@ -49,7 +49,9 @@ pub use executions::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
     ExecutionSummary, ListExecutionsQuery,
 };
-pub use health::{AccumulatorStatus, GraphStatus};
+pub use health::{
+    AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
+};
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
 };
