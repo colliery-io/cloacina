@@ -38,6 +38,17 @@ re-inserts the schedule each retry.
 ### Priority
 - [x] P1 - High (important for user experience)
 
+> **2026-06-13 — Primary bug FIXED + verified end-to-end.** The target-propagation
+> fix landed (Trigger `workflow_name()` accessor → macro → `TriggerPackageMetadata`
+> → reconciler `register_cron_workflow(target_workflow,…)`). Live demo confirms:
+> **exactly 1** cron schedule, `workflow_name = demo_cron_workflow` (the target),
+> and real `demo_cron_workflow` executions firing on the 15s cadence. The
+> duplication was the malformed demo fixture (fixed separately).
+> **Residual (kept open, lower priority):** make cron registration idempotent +
+> roll back schedules inserted by a *partially-failed* package load, so a future
+> failing/retried package can't accumulate orphan schedules. The AC items for
+> that robustness work remain unchecked below.
+
 P1: unbounded schedule growth → an execution storm (N copies of every cron fire)
 → runaway DB/disk growth. Observed contributing to a host-disk exhaustion that
 crash-looped Docker.
