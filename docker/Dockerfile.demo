@@ -31,18 +31,21 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY . /workspace
-# Build all three binaries, copy them out, then DELETE target/ in the same
-# layer. The multi-GB release target never reaches the runtime images (it was
-# bloating Docker.raw). Runtime package builds start with a cold
-# CARGO_TARGET_DIR — cheap to drop because the binaries' dep set ≠ the
-# `packaged`-feature dep set uploaded workflows compile against, so the warm
-# cache mostly missed anyway.
-RUN cargo build --release --locked \
+# Build all three binaries with BuildKit cache mounts for the cargo registry +
+# the build target. The target lives in the (reused, prunable) build cache —
+# NOT in the image layer and NOT re-written into the VM on every build — so
+# rebuilds are fast and Docker.raw stops ballooning per `--build`. Only the
+# extracted binaries land in the layer; runtime package builds start with a
+# cold CARGO_TARGET_DIR (cheap: the binaries' dep set ≠ the `packaged`-feature
+# set uploaded workflows compile against).
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/workspace/target \
+    cargo build --release --locked \
         --bin cloacina-server --bin cloacina-compiler --bin cloacinactl \
  && cp target/release/cloacina-server \
        target/release/cloacina-compiler \
-       target/release/cloacinactl /usr/local/bin/ \
- && rm -rf target
+       target/release/cloacinactl /usr/local/bin/
 
 # ---------------------------------------------------------------------------
 # server runtime — slim image, server binary only.
