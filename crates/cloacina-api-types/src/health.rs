@@ -45,6 +45,15 @@ pub struct GraphStatus {
     /// `None` for graphs predating topology emission. (CLOACI-T-0673)
     #[serde(default)]
     pub topology: Option<GraphTopology>,
+    /// Name of the reactor this graph is bound to (the trigger that fires it).
+    #[serde(default)]
+    pub reactor: Option<String>,
+    /// Reaction mode of the bound reactor: `"when_any"` | `"when_all"`.
+    #[serde(default)]
+    pub reaction_mode: Option<String>,
+    /// Input strategy of the bound reactor: `"latest"` | `"sequential"`.
+    #[serde(default)]
+    pub input_strategy: Option<String>,
 }
 
 /// Node/edge topology of a computation graph (CLOACI-T-0673).

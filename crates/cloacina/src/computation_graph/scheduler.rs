@@ -124,6 +124,13 @@ pub struct GraphStatus {
     /// Serialized node/edge topology JSON for this graph, so the health API can
     /// render the CG DAG. `None` for graphs predating topology emission. (CLOACI-T-0673)
     pub topology: Option<String>,
+    /// Name of the reactor this graph is bound to (the trigger that fires it).
+    /// `None` only if no reactor identity was recorded. (CLOACI-T-0673 follow-up)
+    pub reactor: Option<String>,
+    /// Reaction mode of the bound reactor: `"when_any"` | `"when_all"`.
+    pub reaction_mode: String,
+    /// Input strategy of the bound reactor: `"latest"` | `"sequential"`.
+    pub input_strategy: String,
 }
 
 /// Validate that two declarations targeting the same reactor name agree on
@@ -909,6 +916,15 @@ impl ComputationGraphScheduler {
                         .map(|rx| rx.borrow().clone()),
                     tenant_id: running.declaration.tenant_id.clone(),
                     topology: topologies.get(graph_name).cloned(),
+                    reactor: running.declaration.reactor_name.clone(),
+                    reaction_mode: match running.declaration.reactor.criteria {
+                        ReactionCriteria::WhenAny => "when_any".to_string(),
+                        ReactionCriteria::WhenAll => "when_all".to_string(),
+                    },
+                    input_strategy: match running.declaration.reactor.strategy {
+                        InputStrategy::Latest => "latest".to_string(),
+                        InputStrategy::Sequential => "sequential".to_string(),
+                    },
                 })
             })
             .collect()

@@ -526,9 +526,15 @@ export interface components {
              *     detailed health is available. Free-form JSON for now.
              */
             health: unknown;
+            /** @description Input strategy of the bound reactor: `latest` | `sequential`. */
+            input_strategy?: string | null;
             name: string;
             /** @description Pause state of the graph's reactor. */
             paused: boolean;
+            /** @description Reaction mode of the bound reactor: `when_any` | `when_all`. */
+            reaction_mode?: string | null;
+            /** @description Name of the reactor this graph is bound to (the trigger that fires it). */
+            reactor?: string | null;
             /** @description Node/edge topology of the computation graph, for rendering its DAG. `None` for graphs predating topology emission. (CLOACI-T-0673) */
             topology?: components["schemas"]["GraphTopology"] | null;
         };

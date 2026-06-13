@@ -1826,12 +1826,33 @@
           "health": {
             "description": "Graph health snapshot; `{\"state\": \"running\" | \"stopped\"}` when no\ndetailed health is available. Free-form JSON for now."
           },
+          "input_strategy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Input strategy of the bound reactor: `latest` | `sequential`."
+          },
           "name": {
             "type": "string"
           },
           "paused": {
             "type": "boolean",
             "description": "Pause state of the graph's reactor."
+          },
+          "reaction_mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reaction mode of the bound reactor: `when_any` | `when_all`."
+          },
+          "reactor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the reactor this graph is bound to (the trigger that fires it)."
           },
           "topology": {
             "allOf": [

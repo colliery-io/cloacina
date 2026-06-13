@@ -56,7 +56,25 @@ export function GraphDetail() {
                   paused
                 </Badge>
               )}
+              {data.reaction_mode && (
+                <Badge variant="light" color="grape">
+                  {data.reaction_mode}
+                </Badge>
+              )}
+              {data.input_strategy && (
+                <Badge variant="light" color="cyan">
+                  {data.input_strategy}
+                </Badge>
+              )}
             </Group>
+            {data.reactor && (
+              <div>
+                <Text fw={600} mb="xs">
+                  Reactor
+                </Text>
+                <Text size="sm">{data.reactor}</Text>
+              </div>
+            )}
             <div>
               <Text fw={600} mb="xs">
                 Accumulators ({data.accumulators.length})

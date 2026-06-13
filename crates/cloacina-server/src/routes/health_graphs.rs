@@ -138,6 +138,9 @@ pub async fn list_graphs(
                     .topology
                     .as_deref()
                     .and_then(|s| serde_json::from_str(s).ok()),
+                reactor: g.reactor,
+                reaction_mode: Some(g.reaction_mode),
+                input_strategy: Some(g.input_strategy),
             }
         })
         .collect();
@@ -191,6 +194,9 @@ pub async fn get_graph(
                 .topology
                 .as_deref()
                 .and_then(|s| serde_json::from_str(s).ok()),
+            reactor: g.reactor,
+            reaction_mode: Some(g.reaction_mode),
+            input_strategy: Some(g.input_strategy),
         })
         .into_response()
     } else {
