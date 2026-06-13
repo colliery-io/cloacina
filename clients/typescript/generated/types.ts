@@ -811,6 +811,12 @@ export interface components {
             /** @description Package UUID. */
             id: string;
             package_name: string;
+            /**
+             * @description The task dependency graph (nodes + their upstream dependencies) for
+             *     rendering the full workflow DAG. Empty for packages predating
+             *     task-graph persistence. (CLOACI-T-0663)
+             */
+            task_graph: components["schemas"]["WorkflowTaskNode"][];
             /** @description Task IDs included in this package. */
             tasks: string[];
             tenant_id: string;
@@ -841,6 +847,18 @@ export interface components {
              *     packages predating workflow-name persistence. (CLOACI-T-0671)
              */
             workflow_name: string;
+        };
+        /**
+         * @description One node in a workflow's task dependency graph — a task plus the ids of the
+         *     tasks it depends on. The UI renders these as a DAG. (CLOACI-T-0663)
+         */
+        WorkflowTaskNode: {
+            /** @description Local ids of the tasks this task depends on (its incoming edges). */
+            dependencies: string[];
+            /** @description Optional human-readable task description. */
+            description?: string | null;
+            /** @description Local task id (the node id), e.g. `"validate"`. */
+            id: string;
         };
         /**
          * @description `201 Created` body for a workflow package upload

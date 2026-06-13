@@ -1972,6 +1972,7 @@ mod tests {
             description: Some("Test package".to_string()),
             author: None,
             tasks: vec![],
+            task_graph: vec![],
             schedules: vec![],
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

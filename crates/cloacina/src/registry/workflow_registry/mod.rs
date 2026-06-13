@@ -384,6 +384,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
                 .iter()
                 .map(|t| t.local_id.clone())
                 .collect(),
+            task_graph: database::build_task_graph(&package_metadata),
             schedules: Vec::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

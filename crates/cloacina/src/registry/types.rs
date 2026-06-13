@@ -86,6 +86,13 @@ pub struct WorkflowMetadata {
     /// List of task IDs included in this package
     pub tasks: Vec<String>,
 
+    /// The task dependency graph: one node per task with its upstream
+    /// dependencies, so consumers (the UI) can render the full DAG. Derived
+    /// from the persisted package metadata's task list. Empty for packages
+    /// predating task-graph persistence. (CLOACI-T-0663)
+    #[serde(default)]
+    pub task_graph: Vec<WorkflowTaskNode>,
+
     /// List of schedule names defined in this package
     pub schedules: Vec<String>,
 
@@ -94,6 +101,19 @@ pub struct WorkflowMetadata {
 
     /// When this package metadata was last updated
     pub updated_at: DateTime<Utc>,
+}
+
+/// One node in a workflow's task dependency graph (CLOACI-T-0663).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowTaskNode {
+    /// Local task id (the node id), e.g. `"validate"`.
+    pub id: String,
+
+    /// Local ids of the tasks this task depends on (its incoming edges).
+    pub dependencies: Vec<String>,
+
+    /// Optional human-readable task description.
+    pub description: Option<String>,
 }
 
 /// Package metadata extracted from a .cloacina file.

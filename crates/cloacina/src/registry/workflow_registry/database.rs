@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::WorkflowRegistryImpl;
 use crate::registry::error::RegistryError;
 use crate::registry::traits::RegistryStorage;
-use crate::registry::types::WorkflowMetadata;
+use crate::registry::types::{WorkflowMetadata, WorkflowTaskNode};
 
 /// Result of inspecting a package — full metadata plus the raw build state.
 #[derive(Debug, Clone)]
@@ -30,6 +30,27 @@ pub struct InspectedPackage {
     pub metadata: WorkflowMetadata,
     pub build_status: String,
     pub build_error: Option<String>,
+}
+
+/// Build the task dependency graph (one node per task, with its upstream
+/// dependencies) from the persisted package metadata's task list, so the API
+/// and UI can render the full DAG. (CLOACI-T-0663)
+pub(super) fn build_task_graph(
+    package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
+) -> Vec<WorkflowTaskNode> {
+    package_metadata
+        .tasks
+        .iter()
+        .map(|t| WorkflowTaskNode {
+            id: t.local_id.clone(),
+            dependencies: t.dependencies.clone(),
+            description: if t.description.trim().is_empty() {
+                None
+            } else {
+                Some(t.description.clone())
+            },
+        })
+        .collect()
 }
 
 impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
@@ -381,6 +402,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
@@ -437,6 +459,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
@@ -595,6 +618,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
@@ -665,6 +689,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
@@ -976,6 +1001,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,

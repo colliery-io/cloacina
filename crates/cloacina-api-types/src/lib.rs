@@ -62,5 +62,6 @@ pub use triggers::{
     TriggerScheduleSummary,
 };
 pub use workflows::{
-    WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowUploadedResponse,
+    WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowTaskNode,
+    WorkflowUploadedResponse,
 };

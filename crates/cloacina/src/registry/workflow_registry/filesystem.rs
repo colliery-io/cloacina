@@ -142,6 +142,7 @@ impl FilesystemWorkflowRegistry {
                             description: manifest.metadata.description.clone(),
                             author: manifest.metadata.author.clone(),
                             tasks: vec![],
+                            task_graph: vec![],
                             schedules: Vec::new(),
                             created_at: now,
                             updated_at: now,

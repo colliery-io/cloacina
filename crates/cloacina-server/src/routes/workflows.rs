@@ -29,7 +29,7 @@ use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
 use cloacina_api_types::{
-    TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary,
+    TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowTaskNode,
     WorkflowUploadedResponse,
 };
 
@@ -331,6 +331,16 @@ pub async fn get_workflow(
                     version: ins.metadata.version,
                     description: ins.metadata.description,
                     tasks: ins.metadata.tasks,
+                    task_graph: ins
+                        .metadata
+                        .task_graph
+                        .into_iter()
+                        .map(|n| WorkflowTaskNode {
+                            id: n.id,
+                            dependencies: n.dependencies,
+                            description: n.description,
+                        })
+                        .collect(),
                     created_at: ins.metadata.created_at.to_rfc3339(),
                     build_status: ins.build_status,
                     build_error: ins.build_error,
@@ -368,6 +378,16 @@ pub async fn get_workflow(
                             version: ins.metadata.version,
                             description: ins.metadata.description,
                             tasks: ins.metadata.tasks,
+                            task_graph: ins
+                                .metadata
+                                .task_graph
+                                .into_iter()
+                                .map(|n| WorkflowTaskNode {
+                                    id: n.id,
+                                    dependencies: n.dependencies,
+                                    description: n.description,
+                                })
+                                .collect(),
                             created_at: ins.metadata.created_at.to_rfc3339(),
                             build_status: ins.build_status,
                             build_error: ins.build_error,

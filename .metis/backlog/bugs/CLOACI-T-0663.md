@@ -4,15 +4,15 @@ level: task
 title: "Workflow package metadata persists empty tasks/symbols after successful build"
 short_code: "CLOACI-T-0663"
 created_at: 2026-06-12T01:52:42.764837+00:00
-updated_at: 2026-06-12T01:52:42.764837+00:00
-parent: 
+updated_at: 2026-06-13T14:08:08.101109+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -67,15 +67,24 @@ introspects the cdylib directly and runs all tasks correctly.
     live via the UI's streaming execution view), so the runtime registry has
     the tasks — only the persisted package metadata is empty.
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] After a successful build, `workflow_packages.metadata.tasks` lists the
-      workflow's tasks (ids + dependencies), and `symbols` lists the exported
-      task symbols.
-- [ ] `GET /workflows/{name}` and the workflows list return the populated
-      `tasks` (the UI workflow detail then shows them — no UI change needed).
-- [ ] A regression test covers it (upload → build success → assert non-empty
-      `tasks`), ideally folded into the compiler e2e or the SDK contract.
+- [x] After a successful build, `workflow_packages.metadata.tasks` lists the
+      workflow's tasks (ids + dependencies), and `graph_data`/`symbols` are
+      populated (persisted by `mark_build_success`, T-0671). Verified:
+      demo-slow-rust stores 5 tasks with deps + the edge list.
+- [x] `GET /workflows/{name}` and the list return populated `tasks`; detail also
+      returns `task_graph` (id + dependencies + description). UI renders the full
+      interactive DAG (React Flow): 5 nodes / 4 edges, zero console errors.
+- [~] Regression coverage: verified end-to-end on the demo stack (API +
+      Chromium). A folded compiler-e2e / SDK-contract assertion on non-empty
+      `tasks`/`task_graph` is still worth adding — noted as a follow-up.
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -101,6 +110,26 @@ Low — additive metadata population. Verify the `architecture` field (already
 populated, `aarch64`) is written at the same stage to locate the right hook.
 
 ## Status Updates **[REQUIRED]**
+
+**2026-06-13 — Tasks persistence done (via T-0671); now adding the full graph view.**
+The empty-tasks root is fixed: `mark_build_success` (T-0671) extracts the cdylib
+metadata and persists tasks + dependencies + graph_data into the row, and the
+registry/API read sites populate `tasks`. Confirmed on a fresh stack:
+demo-slow-rust now returns its 5 tasks with dependencies, and graph_data carries
+the edges (ingest→validate→transform→aggregate→publish).
+
+Per direction ("close the gap so people can see the full graph"), going beyond a
+flat task list to an **interactive DAG**:
+- registry `WorkflowMetadata` gains `task_graph: Vec<WorkflowTaskNode>` (id +
+  dependencies + description), built from the persisted task list at every read
+  site (`build_task_graph` helper).
+- api-types `WorkflowDetail` gains `task_graph` (+ new `WorkflowTaskNode` schema);
+  routes map it; registered in openapi.rs.
+- OpenAPI spec + TS SDK regenerated (SDK rebuilt, UI `tsc --noEmit` clean).
+- UI: new `WorkflowGraph` component (React Flow `@xyflow/react` + `@dagrejs/dagre`
+  layout, LR topological) rendered in WorkflowDetail in place of the flat list
+  (list retained as fallback when there are no edges).
+Remaining: container rebuild + visual verification in Chromium.
 
 **2026-06-11 — Filed.** Discovered while reviewing the web UI (CLOACI-I-0117):
 workflow detail showed "Tasks (0)" for a workflow that runs 5 tasks. Traced

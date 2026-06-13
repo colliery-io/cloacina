@@ -2583,6 +2583,7 @@
           "workflow_name",
           "version",
           "tasks",
+          "task_graph",
           "created_at",
           "build_status"
         ],
@@ -2612,6 +2613,13 @@
           },
           "package_name": {
             "type": "string"
+          },
+          "task_graph": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowTaskNode"
+            },
+            "description": "The task dependency graph (nodes + their upstream dependencies) for\nrendering the full workflow DAG. Empty for packages predating\ntask-graph persistence. (CLOACI-T-0663)"
           },
           "tasks": {
             "type": "array",
@@ -2709,6 +2717,34 @@
           },
           "ticket": {
             "type": "string"
+          }
+        }
+      },
+      "WorkflowTaskNode": {
+        "type": "object",
+        "description": "One node in a workflow's task dependency graph — a task plus the ids of the\ntasks it depends on. The UI renders these as a DAG. (CLOACI-T-0663)",
+        "required": [
+          "id",
+          "dependencies"
+        ],
+        "properties": {
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Local ids of the tasks this task depends on (its incoming edges)."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional human-readable task description."
+          },
+          "id": {
+            "type": "string",
+            "description": "Local task id (the node id), e.g. `\"validate\"`."
           }
         }
       }

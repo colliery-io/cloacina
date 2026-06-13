@@ -34,8 +34,8 @@ use cloacina_api_types::{
     GraphStatus, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse,
     TenantCreatedResponse, TenantListResponse, TenantRemovedResponse, TenantSummary,
     TriggerDetailResponse, TriggerExecution, TriggerScheduleInfo, TriggerScheduleSummary,
-    WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowUploadedResponse,
-    WsTicketResponse,
+    WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowTaskNode,
+    WorkflowUploadedResponse, WsTicketResponse,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -127,6 +127,7 @@ impl Modify for SecurityAddon {
         WorkflowUploadedResponse,
         WorkflowSummary,
         WorkflowDetail,
+        WorkflowTaskNode,
         WorkflowDeletedResponse,
         TenantListResponse<WorkflowSummary>,
         TriggerScheduleSummary,

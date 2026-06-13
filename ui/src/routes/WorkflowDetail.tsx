@@ -33,6 +33,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useDeleteWorkflow, useExecuteWorkflow, useWorkflow } from "../api/workflows";
 import { BuildStatusBadge } from "../components/BuildStatusBadge";
+import { WorkflowGraph } from "../components/WorkflowGraph";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { classifyError } from "../api/errors";
 import { formatTimestamp } from "../util/format";
@@ -142,6 +143,8 @@ export function WorkflowDetail() {
                 <Text c="dimmed" size="sm">
                   No tasks.
                 </Text>
+              ) : data.task_graph && data.task_graph.length > 0 ? (
+                <WorkflowGraph tasks={data.task_graph} />
               ) : (
                 <List size="sm">
                   {data.tasks.map((t) => (
