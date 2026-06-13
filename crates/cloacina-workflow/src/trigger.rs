@@ -116,4 +116,13 @@ pub trait Trigger: Send + Sync + fmt::Debug {
     fn cron_expression(&self) -> Option<String> {
         None
     }
+
+    /// The target workflow this trigger fires — the `#[trigger(on = "...")]`
+    /// binding. For cron triggers the reconciler registers the schedule against
+    /// this workflow (not the trigger's own `name`). Default empty for manual
+    /// impls that don't bind a workflow; macro-generated triggers always
+    /// override it (CLOACI-T-0669).
+    fn workflow_name(&self) -> &str {
+        ""
+    }
 }

@@ -1359,6 +1359,7 @@ impl RegistryReconciler {
             };
             triggers.push(TriggerPackageMetadata {
                 name: impl_.name().to_string(),
+                workflow_name: impl_.workflow_name().to_string(),
                 package_name: package_name.to_string(),
                 poll_interval: format!("{}s", impl_.poll_interval().as_secs()),
                 cron_expression: impl_.cron_expression(),
@@ -1483,22 +1484,37 @@ impl RegistryReconciler {
                 .cron_expression
                 .as_deref()
                 .expect("cron_expression presence already filtered");
+            // Register the schedule against the trigger's TARGET workflow (its
+            // `#[trigger(on = "...")]` binding), NOT the trigger's own name —
+            // the cron scheduler executes `workflow_name` directly. Falls back
+            // to `t.name` for older package metadata that predates the
+            // `workflow_name` field. (CLOACI-T-0669)
+            let target_workflow = if t.workflow_name.is_empty() {
+                t.name.as_str()
+            } else {
+                t.workflow_name.as_str()
+            };
             // Default to UTC so behavior is deterministic across hosts.
             // The trigger metadata doesn't carry a timezone today; if we
             // need per-trigger timezones in future, plumb a field on
             // TriggerPackageMetadata.
-            match registrar.register_cron_workflow(&t.name, expr, "UTC").await {
+            match registrar
+                .register_cron_workflow(target_workflow, expr, "UTC")
+                .await
+            {
                 Ok(id) => {
                     info!(
-                        "Package {} v{}: registered cron schedule '{}' (cron='{}', id={})",
-                        metadata.package_name, metadata.version, t.name, expr, id
+                        "Package {} v{}: registered cron schedule for workflow '{}' \
+                         (trigger '{}', cron='{}', id={})",
+                        metadata.package_name, metadata.version, target_workflow, t.name, expr, id
                     );
                     schedule_ids.push(id);
                 }
                 Err(e) => {
                     warn!(
-                        "Package {} v{}: failed to register cron schedule '{}' (cron='{}'): {}",
-                        metadata.package_name, metadata.version, t.name, expr, e
+                        "Package {} v{}: failed to register cron schedule for workflow '{}' \
+                         (trigger '{}', cron='{}'): {}",
+                        metadata.package_name, metadata.version, target_workflow, t.name, expr, e
                     );
                 }
             }

@@ -458,6 +458,7 @@ macro_rules! package {
                         );
                         out.push($crate::TriggerPackageMetadata {
                             name: entry.name.to_string(),
+                            workflow_name: cloacina_workflow::Trigger::workflow_name(&*trigger).to_string(),
                             package_name: env!("CARGO_PKG_NAME").to_string(),
                             poll_interval,
                             cron_expression: cloacina_workflow::Trigger::cron_expression(&*trigger),

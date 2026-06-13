@@ -249,6 +249,13 @@ pub struct TriggerInvokeResult {
 pub struct TriggerPackageMetadata {
     /// Trigger name.
     pub name: String,
+    /// Target workflow this trigger fires — the `#[trigger(on = "...")]`
+    /// binding. For cron triggers the reconciler registers the schedule against
+    /// THIS workflow, not `name` (which is just the trigger's identity).
+    /// `#[serde(default)]` keeps older package metadata (pre-CLOACI-T-0669,
+    /// without this field) deserializable. Empty falls back to `name`.
+    #[serde(default)]
+    pub workflow_name: String,
     /// Cargo package name (sourcing context for diagnostics).
     pub package_name: String,
     /// Polling interval as a humantime-parseable string (e.g., "5s", "1m").

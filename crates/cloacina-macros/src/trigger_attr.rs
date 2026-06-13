@@ -200,7 +200,7 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
     let fn_block = &input_fn.block;
 
     let trigger_name = attrs.name.unwrap_or_else(|| fn_name.to_string());
-    let _workflow_name = &attrs.on;
+    let workflow_name = attrs.on.as_str();
     let allow_concurrent = attrs.allow_concurrent;
 
     let poll_interval_str = attrs.poll_interval.as_deref().unwrap_or("30s");
@@ -236,6 +236,10 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
 
             fn allow_concurrent(&self) -> bool {
                 #allow_concurrent
+            }
+
+            fn workflow_name(&self) -> &str {
+                #workflow_name
             }
 
             async fn poll(&self) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
@@ -289,7 +293,7 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
     let fn_name = &input_fn.sig.ident;
 
     let trigger_name = attrs.name.unwrap_or_else(|| fn_name.to_string());
-    let _workflow_name = &attrs.on;
+    let workflow_name = attrs.on.as_str();
     let cron_expression = attrs.cron.as_deref().unwrap();
     let timezone = attrs.timezone.as_deref().unwrap_or("UTC");
     let allow_concurrent = attrs.allow_concurrent;
@@ -345,6 +349,10 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
 
             fn cron_expression(&self) -> Option<String> {
                 Some(#cron_expression.to_string())
+            }
+
+            fn workflow_name(&self) -> &str {
+                #workflow_name
             }
 
             async fn poll(&self) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
