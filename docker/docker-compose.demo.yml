@@ -123,8 +123,10 @@ services:
       HARNESS_SERVER_URL: "http://server:8080"
       HARNESS_API_KEY: *bootstrap_key
       HARNESS_TENANT: "public"
-      HARNESS_MODE: "loop"
-      HARNESS_INTERVAL_MS: "6000"
+      # seed = one-shot: upload + register all packages, fire one
+      # completed/failed/in-flight run, then exit. The cron trigger keeps the
+      # Triggers view live on its own schedule — no continuous harness loop.
+      HARNESS_MODE: "seed"
       HARNESS_STEP_SECONDS: "4"
       HARNESS_PACKAGE_DIR: "/packages"
     depends_on:

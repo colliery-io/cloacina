@@ -104,3 +104,26 @@ demo. `/v1/tenants/public/triggers` showed 20 duplicate `demo_cron_trigger`
 schedules; traced to `register_cron_workflow`'s unconditional `create()` +
 non-atomic load + the reconciler retrying the (then-failing) Python CG package
 every tick. Each retry re-ran cron Step 1 and inserted another schedule.
+
+**2026-06-13 — Broader than first thought + a second bug, both confirmed on a
+CLEAN build (all 6 packages load successfully):**
+- **Duplication is per-reconcile-tick, not just per-failed-retry.** With every
+  package loading cleanly, `/triggers` still climbed 11 → 26 → 30 over a couple
+  minutes (~1 new schedule every few seconds — reconcile cadence, far faster
+  than the 15s cron). So the reconciler re-registers the cron for an
+  already-loaded package on repeated passes; `loaded_packages` is not gating cron
+  re-registration. Unbounded growth even in the happy path → DB/disk leak.
+- **Wrong `workflow_name` recorded (separate bug, likely same code path).** The
+  schedules carry `workflow_name = "demo_cron_trigger"` — the **trigger fn name**
+  — not the `on` target `"demo_cron_workflow"`. `step_load_cron_triggers` passes
+  `t.name` to `register_cron_workflow`; it should pass the trigger's target
+  workflow (`on`). Consequence: the schedule fires (`last_run_at` advances on all
+  26) but resolves a non-existent workflow `demo_cron_trigger` → **zero
+  executions produced** (only the 3 seed runs exist; no `demo_cron_workflow`
+  runs). So packaged cron triggers currently register, duplicate, and fire into
+  the void.
+- Repro fixture: `examples/fixtures/demo-cron-rust`
+  (`#[trigger(on = "demo_cron_workflow", cron = "*/15 * * * * *")] fn
+  demo_cron_trigger`). Add a 4th acceptance criterion: the schedule's
+  `workflow_name` is the `on` target, and a cron fire produces an execution of
+  that workflow.
