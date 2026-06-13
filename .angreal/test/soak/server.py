@@ -1061,6 +1061,27 @@ def server():
         if not py_workflow_ready:
             print("  WARNING: Python package may not have loaded — Python executions may fail")
 
+        # Regression (CLOACI-T-0672): a Python package builds with no cdylib, so
+        # its task list is persisted from the scoped Runtime at reconciler load.
+        # The workflow-detail API must surface workflow_name (≠ package name) +
+        # non-empty tasks + a task_graph whose node ids match tasks.
+        if py_workflow_ready:
+            s, detail = api_request(
+                "GET",
+                f"{base_url}/v1/tenants/public/workflows/soak-server-python",
+                token=token,
+            )
+            assert s == 200, f"Python workflow detail GET failed: {s} {detail}"
+            assert detail.get("workflow_name") == "soak_server_python", detail
+            assert detail.get("tasks"), f"expected non-empty Python tasks: {detail}"
+            tg = detail.get("task_graph") or []
+            assert tg, f"expected non-empty Python task_graph: {detail}"
+            assert {n["id"] for n in tg} == set(detail["tasks"]), detail
+            print(
+                f"  Python tasks/task_graph persisted ✓ "
+                f"({len(detail['tasks'])} tasks, T-0672)"
+            )
+
         # Execute the Python workflow once to verify it works
         if py_workflow_ready:
             print("  Executing Python workflow...")
@@ -1151,6 +1172,21 @@ def server():
                     break
             if not py_cg_loaded:
                 print("  WARNING: Python CG package may not have loaded — Python CG soak will be skipped")
+            else:
+                # Regression (CLOACI-T-0673): the Python CG must surface its
+                # node/edge topology (routing edges from the @cloaca.node graph)
+                # via the health API so the UI can render its DAG.
+                s, gd = api_request(
+                    "GET", f"{base_url}/v1/health/graphs/py_soak_graph", token=token
+                )
+                assert s == 200, f"Python CG detail GET failed: {s} {gd}"
+                topo = gd.get("topology") or {}
+                assert topo.get("nodes"), f"expected Python CG topology nodes: {gd}"
+                assert topo.get("edges"), f"expected Python CG topology edges: {gd}"
+                print(
+                    f"  Python CG topology surfaced ✓ "
+                    f"({len(topo['nodes'])} nodes, {len(topo['edges'])} edges, T-0673)"
+                )
         else:
             print(f"  Python CG upload returned {status}: {json.dumps(body)[:200]}")
 

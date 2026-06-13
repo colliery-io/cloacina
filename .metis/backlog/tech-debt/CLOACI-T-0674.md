@@ -4,15 +4,15 @@ level: task
 title: "Regression coverage: workflow tasks/task_graph (e2e) + CG topology emission (unit)"
 short_code: "CLOACI-T-0674"
 created_at: 2026-06-13T15:42:39.011897+00:00
-updated_at: 2026-06-13T15:42:39.011897+00:00
+updated_at: 2026-06-13T15:56:43.873808+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -69,8 +69,13 @@ macro level (unit).
       `task_graph` whose node ids match `tasks`.
 - [x] A macro unit test asserts `graph_topology_json` emits nodes (+inputs) and
       edges, including routing-variant labels.
-- [ ] (Deferred) Python tasks + CG topology through the API are covered by manual
-      demo verification; a Python e2e assertion is a future add.
+- [x] Python tasks + CG topology through the API are asserted in the server soak
+      (`.angreal/test/soak/server.py`): after the Python workflow loads, the detail
+      API must return `workflow_name` (≠ package) + tasks + task_graph (matching
+      ids); after the Python CG loads, `/v1/health/graphs/py_soak_graph` must
+      report a topology with nodes + edges. (Soak is the proven Python live-server
+      lane — it builds/installs `cloaca` so the server can import the package,
+      which the Rust compiler e2e does not.)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
