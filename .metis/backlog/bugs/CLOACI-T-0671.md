@@ -74,12 +74,39 @@ because the API surface it has is package-name-keyed.
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
-### Technical Approach
-Server-side is the cleaner fix: in `crates/cloacina-server/src/routes/executions.rs`
-`execute_workflow`, resolve `name` as a package name → the package's registered
-workflow(s) before `execute_async`, or accept both. Alternatively expose the
-workflow name in `WorkflowDetail`/`WorkflowSummary` and have the UI execute by
-that (also helps T-0663's empty-tasks display). Coordinate with the
+### 2026-06-13 — Decision: Option A (persist + expose). Implementation map (deeper than first estimated)
+
+`workflow_name` is **not modeled or persisted anywhere reachable**:
+- The registry `WorkflowMetadata` struct (`registry/workflow_registry/database.rs`,
+  built at `get_package_metadata_by_id` etc.) has **no `workflow_name` field** —
+  only id/registry_id/package_name/version/description/author/tasks/schedules/dates.
+- The stored `PackageMetadata` (`registry/loader/package_loader.rs`) the row
+  deserializes from has **empty `tasks`** and no workflow_name (the T-0663 root).
+- The authoritative source is the cdylib's `PackageTasksMetadata`
+  (`workflow_name` + tasks), which the reconciler reads at load (and `PackageState`
+  caches) but never writes back to the row.
+
+So Option A is the same persistence work as T-0663, threaded through layers:
+1. **Capture + persist** the cdylib's `workflow_name` (+ `tasks`) into the stored
+   `PackageMetadata` — at compiler `mark_build_success` (it has the cdylib) or at
+   reconciler load (it extracts them). Needs a metadata-update path (none today).
+2. **Registry `WorkflowMetadata`**: add `workflow_name`, populate from the stored
+   `PackageMetadata` at all read sites (database.rs ~367/418/571/636/942).
+3. **api-types `WorkflowDetail`** (+ `WorkflowSummary`): add `workflow_name`;
+   `routes/workflows.rs` sets it from `ins.metadata.workflow_name`.
+4. **OpenAPI emit + SDK regen** (TS `generated/types.ts`).
+5. **UI**: `WorkflowDetail.tsx` executes via `data.workflow_name` (fallback to the
+   package name); `useExecuteWorkflow` keyed by workflow name.
+This fixes T-0671 **and** T-0663. It is a multi-crate change + SDK regen + UI +
+full rebuild — track as a focused task (or fold into T-0663/T-0670), not a quick
+roll-in.
+
+### Alternative (smaller, server-only — Option B, deferred per decision)
+In `routes/executions.rs::execute_workflow`, on "not found in registry", resolve
+`name` as a package via the reconciler's in-memory `loaded_packages`
+(`PackageState` has both `package_name` and `workflow_name`) and retry. Needs a
+`DefaultRunner`→reconciler resolver accessor. No UI/SDK/persistence; doesn't fix
+T-0663. Coordinate with the
 naming-drift cleanup.
 
 ### Dependencies / related
