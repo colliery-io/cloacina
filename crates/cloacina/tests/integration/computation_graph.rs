@@ -421,6 +421,7 @@ async fn test_computation_graph_scheduler_end_to_end() {
         },
         tenant_id: None,
         reactor_name: None,
+        topology: None,
     };
 
     scheduler.load_graph(decl).await.unwrap();
@@ -1885,6 +1886,7 @@ mod resilience_tests {
             },
             tenant_id: None,
             reactor_name: None,
+            topology: None,
         };
 
         scheduler.load_graph(decl).await.unwrap();

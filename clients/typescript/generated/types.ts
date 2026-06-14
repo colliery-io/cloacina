@@ -526,17 +526,16 @@ export interface components {
              *     detailed health is available. Free-form JSON for now.
              */
             health: unknown;
-            /** @description Input strategy of the bound reactor: `latest` | `sequential`. */
+            /** @description Input strategy of the bound reactor: `"latest"` | `"sequential"`. */
             input_strategy?: string | null;
             name: string;
             /** @description Pause state of the graph's reactor. */
             paused: boolean;
-            /** @description Reaction mode of the bound reactor: `when_any` | `when_all`. */
+            /** @description Reaction mode of the bound reactor: `"when_any"` | `"when_all"`. */
             reaction_mode?: string | null;
             /** @description Name of the reactor this graph is bound to (the trigger that fires it). */
             reactor?: string | null;
-            /** @description Node/edge topology of the computation graph, for rendering its DAG. `None` for graphs predating topology emission. (CLOACI-T-0673) */
-            topology?: components["schemas"]["GraphTopology"] | null;
+            topology?: null | components["schemas"]["GraphTopology"];
         };
         /** @description Node/edge topology of a computation graph (CLOACI-T-0673). */
         GraphTopology: {
@@ -632,9 +631,16 @@ export interface components {
                  *     detailed health is available. Free-form JSON for now.
                  */
                 health: unknown;
+                /** @description Input strategy of the bound reactor: `"latest"` | `"sequential"`. */
+                input_strategy?: string | null;
                 name: string;
                 /** @description Pause state of the graph's reactor. */
                 paused: boolean;
+                /** @description Reaction mode of the bound reactor: `"when_any"` | `"when_all"`. */
+                reaction_mode?: string | null;
+                /** @description Name of the reactor this graph is bound to (the trigger that fires it). */
+                reactor?: string | null;
+                topology?: null | components["schemas"]["GraphTopology"];
             }[];
             total: number;
         };
@@ -753,6 +759,13 @@ export interface components {
                 /** @description Task IDs included in this package. */
                 tasks: string[];
                 version: string;
+                /**
+                 * @description Executable workflow name (the identifier to execute by). Differs from
+                 *     `package_name` under the standard convention (package `demo-slow-rust`
+                 *     → workflow `demo_slow_workflow`). Falls back to `package_name` for
+                 *     packages predating workflow-name persistence. (CLOACI-T-0671)
+                 */
+                workflow_name: string;
             }[];
             tenant_id: string;
             total: number;
@@ -843,7 +856,7 @@ export interface components {
              *     rendering the full workflow DAG. Empty for packages predating
              *     task-graph persistence. (CLOACI-T-0663)
              */
-            task_graph: components["schemas"]["WorkflowTaskNode"][];
+            task_graph?: components["schemas"]["WorkflowTaskNode"][];
             /** @description Task IDs included in this package. */
             tasks: string[];
             tenant_id: string;

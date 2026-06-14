@@ -1831,7 +1831,7 @@
               "string",
               "null"
             ],
-            "description": "Input strategy of the bound reactor: `latest` | `sequential`."
+            "description": "Input strategy of the bound reactor: `\"latest\"` | `\"sequential\"`."
           },
           "name": {
             "type": "string"
@@ -1845,7 +1845,7 @@
               "string",
               "null"
             ],
-            "description": "Reaction mode of the bound reactor: `when_any` | `when_all`."
+            "description": "Reaction mode of the bound reactor: `\"when_any\"` | `\"when_all\"`."
           },
           "reactor": {
             "type": [
@@ -1855,13 +1855,80 @@
             "description": "Name of the reactor this graph is bound to (the trigger that fires it)."
           },
           "topology": {
-            "allOf": [
+            "oneOf": [
               {
-                "$ref": "#/components/schemas/GraphTopology"
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GraphTopology",
+                "description": "Node/edge topology of the computation graph, for rendering its DAG.\n`None` for graphs predating topology emission. (CLOACI-T-0673)"
               }
+            ]
+          }
+        }
+      },
+      "GraphTopology": {
+        "type": "object",
+        "description": "Node/edge topology of a computation graph (CLOACI-T-0673).",
+        "required": [
+          "nodes",
+          "edges"
+        ],
+        "properties": {
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphTopologyEdge"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphTopologyNode"
+            }
+          }
+        }
+      },
+      "GraphTopologyEdge": {
+        "type": "object",
+        "description": "One directed edge in a computation graph (CLOACI-T-0673).",
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
             ],
-            "nullable": true,
-            "description": "Node/edge topology of the computation graph, for rendering its DAG. `None` for graphs predating topology emission. (CLOACI-T-0673)"
+            "description": "Routing-variant label for conditional edges; `None` for linear edges."
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      },
+      "GraphTopologyNode": {
+        "type": "object",
+        "description": "One compute node in a computation graph (CLOACI-T-0673).",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Node id (the compute function name)."
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Accumulator names this node reads from the input cache (entry nodes)."
           }
         }
       },
@@ -2041,12 +2108,44 @@
                 "health": {
                   "description": "Graph health snapshot; `{\"state\": \"running\" | \"stopped\"}` when no\ndetailed health is available. Free-form JSON for now."
                 },
+                "input_strategy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Input strategy of the bound reactor: `\"latest\"` | `\"sequential\"`."
+                },
                 "name": {
                   "type": "string"
                 },
                 "paused": {
                   "type": "boolean",
                   "description": "Pause state of the graph's reactor."
+                },
+                "reaction_mode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Reaction mode of the bound reactor: `\"when_any\"` | `\"when_all\"`."
+                },
+                "reactor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Name of the reactor this graph is bound to (the trigger that fires it)."
+                },
+                "topology": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GraphTopology",
+                      "description": "Node/edge topology of the computation graph, for rendering its DAG.\n`None` for graphs predating topology emission. (CLOACI-T-0673)"
+                    }
+                  ]
                 }
               }
             }
@@ -2338,6 +2437,7 @@
               "required": [
                 "id",
                 "package_name",
+                "workflow_name",
                 "version",
                 "tasks",
                 "created_at"
@@ -2369,6 +2469,10 @@
                 },
                 "version": {
                   "type": "string"
+                },
+                "workflow_name": {
+                  "type": "string",
+                  "description": "Executable workflow name (the identifier to execute by). Differs from\n`package_name` under the standard convention (package `demo-slow-rust`\n→ workflow `demo_slow_workflow`). Falls back to `package_name` for\npackages predating workflow-name persistence. (CLOACI-T-0671)"
                 }
               }
             }
@@ -2613,7 +2717,6 @@
           "workflow_name",
           "version",
           "tasks",
-          "task_graph",
           "created_at",
           "build_status"
         ],
@@ -2715,6 +2818,34 @@
           }
         }
       },
+      "WorkflowTaskNode": {
+        "type": "object",
+        "description": "One node in a workflow's task dependency graph — a task plus the ids of the\ntasks it depends on. The UI renders these as a DAG. (CLOACI-T-0663)",
+        "required": [
+          "id",
+          "dependencies"
+        ],
+        "properties": {
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Local ids of the tasks this task depends on (its incoming edges)."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional human-readable task description."
+          },
+          "id": {
+            "type": "string",
+            "description": "Local task id (the node id), e.g. `\"validate\"`."
+          }
+        }
+      },
       "WorkflowUploadedResponse": {
         "type": "object",
         "description": "`201 Created` body for a workflow package upload\n(`POST /tenants/{tenant_id}/workflows`, multipart).",
@@ -2747,99 +2878,6 @@
           },
           "ticket": {
             "type": "string"
-          }
-        }
-      },
-      "WorkflowTaskNode": {
-        "type": "object",
-        "description": "One node in a workflow's task dependency graph — a task plus the ids of the\ntasks it depends on. The UI renders these as a DAG. (CLOACI-T-0663)",
-        "required": [
-          "id",
-          "dependencies"
-        ],
-        "properties": {
-          "dependencies": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Local ids of the tasks this task depends on (its incoming edges)."
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional human-readable task description."
-          },
-          "id": {
-            "type": "string",
-            "description": "Local task id (the node id), e.g. `\"validate\"`."
-          }
-        }
-      },
-      "GraphTopologyNode": {
-        "type": "object",
-        "description": "One compute node in a computation graph (CLOACI-T-0673).",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Node id (the compute function name)."
-          },
-          "inputs": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Accumulator names this node reads from the input cache (entry nodes)."
-          }
-        }
-      },
-      "GraphTopologyEdge": {
-        "type": "object",
-        "description": "One directed edge in a computation graph (CLOACI-T-0673).",
-        "required": [
-          "from",
-          "to"
-        ],
-        "properties": {
-          "from": {
-            "type": "string"
-          },
-          "label": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Routing-variant label for conditional edges; `None` for linear edges."
-          },
-          "to": {
-            "type": "string"
-          }
-        }
-      },
-      "GraphTopology": {
-        "type": "object",
-        "description": "Node/edge topology of a computation graph (CLOACI-T-0673).",
-        "required": [
-          "nodes",
-          "edges"
-        ],
-        "properties": {
-          "edges": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/GraphTopologyEdge"
-            }
-          },
-          "nodes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/GraphTopologyNode"
-            }
           }
         }
       }
