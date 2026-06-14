@@ -4,14 +4,14 @@ level: task
 title: "package new — scaffold a canonical .cloacina package (Rust + Python)"
 short_code: "CLOACI-T-0678"
 created_at: 2026-06-14T16:14:49.207637+00:00
-updated_at: 2026-06-14T16:24:52.247195+00:00
+updated_at: 2026-06-14T16:33:26.559900+00:00
 parent: CLOACI-I-0119
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -70,6 +70,8 @@ the workflow from `workflow_name`); Rust scaffolds `Cargo.toml` + `build.rs` +
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

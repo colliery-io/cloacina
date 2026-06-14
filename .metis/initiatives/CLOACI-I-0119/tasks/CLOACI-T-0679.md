@@ -4,14 +4,14 @@ level: task
 title: "package validate — check a package (dir or archive) against the canonical format"
 short_code: "CLOACI-T-0679"
 created_at: 2026-06-14T16:29:25.209502+00:00
-updated_at: 2026-06-14T16:31:06.089021+00:00
+updated_at: 2026-06-14T16:33:27.382410+00:00
 parent: CLOACI-I-0119
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -70,6 +70,8 @@ T-0665.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

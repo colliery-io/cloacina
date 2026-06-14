@@ -4,14 +4,14 @@ level: initiative
 title: "Packaged-workflow authoring DX — scaffold, one-command pack (Rust+Python), author-time validation, canonical format"
 short_code: "CLOACI-I-0119"
 created_at: 2026-06-14T15:06:03.467892+00:00
-updated_at: 2026-06-14T15:06:03.467892+00:00
+updated_at: 2026-06-14T16:38:20.837290+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -154,3 +154,34 @@ closed under T4.
 - `package validate` rejects each known footgun with an actionable message.
 - Docs ↔ examples ↔ server agree on one format; the "first package" how-to uses
   `package new`.
+
+## Closeout (2026-06-14)
+
+**Delivered + verified** — the core authoring loop ships and is
+regression-locked by the `angreal test e2e cli` scenario
+(`new → edit → validate → pack → upload`, Python end-to-end against a live
+server):
+- **T4 / CLOACI-T-0677** — one canonical format; Python how-to + 08 tutorial +
+  `package-format.md` rewritten; broken `python-packaged-graph` example fixed
+  (verified loading); `package-manifest.md` collapsed to a redirect; the
+  `WorkflowBuilder`-in-packaged-module bug corrected to the bare-decorator form.
+- **T2 / CLOACI-T-0665** — `package pack`/`build`/`publish` work for Python
+  (no hand-tar); pack-time layout validation; `package_type`/`triggers` rejected.
+- **T1 / CLOACI-T-0678** — `package new --lang python|rust` scaffold (workflow
+  kind), published-crate deps for Rust.
+- **T3 / CLOACI-T-0679** — `package validate` (dir or archive): closed-schema +
+  layout checks.
+
+**Deferred to follow-up (CLOACI-T-0680)** — descoped from the original exit
+criteria; the core DX stands without them:
+- `package new --kind graph|cron` templates (only `workflow` shipped).
+- Deeper `validate` footgun lint: cron-trigger listed in
+  `#[workflow(triggers=[])]`, unrewritten `__WORKSPACE__`, missing `graph_name`
+  for a CG.
+- A dedicated "create your first package" how-to built around `package new`.
+- e2e `new → publish` coverage for Rust / computation-graph / cron (the e2e
+  proves the Python workflow path; Rust depends on the `cloacina-*` crates being
+  published to crates.io).
+
+Closing as **completed** for the delivered scope; the residue is tracked in
+[[CLOACI-T-0680]].
