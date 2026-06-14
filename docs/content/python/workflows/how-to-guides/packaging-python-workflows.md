@@ -184,9 +184,16 @@ finally:
 
 ## Step 5: Build the Package
 
-Use `cloacinactl package pack` — it reads `package.toml`, validates the Python
-layout (that `workflow/` exists and `entry_module` resolves under it), and emits
-the `.cloacina` archive:
+Optionally check the layout first — `cloacinactl package validate` runs the same
+schema + `workflow/`/`entry_module` checks as the server, against a source
+directory or a packed archive, without uploading:
+
+```bash
+cloacinactl package validate .
+```
+
+Then pack. `cloacinactl package pack` reads `package.toml`, runs the same
+validation, and emits the `.cloacina` archive:
 
 ```bash
 cloacinactl package pack . -o data-pipeline-1.0.0.cloacina

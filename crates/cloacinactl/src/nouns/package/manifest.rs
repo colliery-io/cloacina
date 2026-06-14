@@ -36,20 +36,26 @@ pub enum PackageLanguage {
     Python,
 }
 
-/// Read and validate `[metadata]` from `<dir>/package.toml` against the closed
-/// `CloacinaMetadata` schema. Surfaces schema errors (unknown keys such as
-/// `package_type`, a `[[metadata.triggers]]` table, missing `language`) as a
-/// user-facing CLI error.
-pub fn read_metadata(dir: &Path) -> Result<CloacinaMetadata, CliError> {
+/// Read and validate `<dir>/package.toml` against the closed `CloacinaMetadata`
+/// schema. Surfaces schema errors (unknown keys such as `package_type`, a
+/// `[[metadata.triggers]]` table, missing `language`) as a user-facing CLI
+/// error. Returns the full manifest (`[package]` header + `[metadata]`).
+pub fn read_manifest(
+    dir: &Path,
+) -> Result<fidius_core::package::PackageManifest<CloacinaMetadata>, CliError> {
     if !dir.join("package.toml").exists() {
         return Err(CliError::UserError(format!(
             "{} has no package.toml — not a cloacina package source",
             dir.display()
         )));
     }
-    let manifest = fidius_core::package::load_manifest::<CloacinaMetadata>(dir)
-        .map_err(|e| CliError::UserError(format!("invalid package.toml: {e}")))?;
-    Ok(manifest.metadata)
+    fidius_core::package::load_manifest::<CloacinaMetadata>(dir)
+        .map_err(|e| CliError::UserError(format!("invalid package.toml: {e}")))
+}
+
+/// Read just the `[metadata]` table. See [`read_manifest`].
+pub fn read_metadata(dir: &Path) -> Result<CloacinaMetadata, CliError> {
+    Ok(read_manifest(dir)?.metadata)
 }
 
 /// Resolve the package language from `[metadata].language`.
@@ -110,6 +116,34 @@ pub fn validate_python_layout(dir: &Path, meta: &CloacinaMetadata) -> Result<(),
         as_module.display(),
         as_package.display()
     )))
+}
+
+/// Validate that a Rust package's source is present: a `Cargo.toml` and a
+/// `src/lib.rs` (the server compiles `src/` into a cdylib at load). A missing
+/// `build.rs` (which calls `cloacina_build::configure()`) is surfaced as a
+/// warning rather than a hard error.
+pub fn validate_rust_layout(dir: &Path) -> Result<(), CliError> {
+    if !dir.join("Cargo.toml").exists() {
+        return Err(CliError::UserError(format!(
+            "rust package is missing Cargo.toml ({} not found)",
+            dir.join("Cargo.toml").display()
+        )));
+    }
+    if !dir.join("src/lib.rs").exists() {
+        return Err(CliError::UserError(format!(
+            "rust package is missing src/lib.rs ({} not found) — packaged workflows \
+             are compiled as a cdylib from src/lib.rs",
+            dir.join("src/lib.rs").display()
+        )));
+    }
+    if !dir.join("build.rs").exists() {
+        eprintln!(
+            "warning: {} has no build.rs — packaged Rust workflows normally call \
+             cloacina_build::configure() from build.rs",
+            dir.display()
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -32,6 +32,7 @@ pub mod new;
 pub mod pack;
 pub mod publish;
 pub mod upload;
+pub mod validate;
 
 #[derive(Args)]
 pub struct PackageCmd {
@@ -58,6 +59,12 @@ enum PackageVerb {
         /// Build in release profile (default is debug).
         #[arg(long)]
         release: bool,
+    },
+    /// Validate a package (source dir or .cloacina archive) against the
+    /// canonical format without uploading.
+    Validate {
+        /// Package source directory or .cloacina archive.
+        path: PathBuf,
     },
     /// fidius-pack the source directory into a .cloacina archive.
     Pack {
@@ -98,6 +105,7 @@ impl PackageCmd {
     pub async fn run(self, globals: &GlobalOpts) -> Result<(), CliError> {
         match self.verb {
             PackageVerb::New { name, lang, path } => new::run(&name, lang, path.as_deref()),
+            PackageVerb::Validate { path } => validate::run(&path),
             PackageVerb::Build { dir, release } => build::run(&dir, release),
             PackageVerb::Pack { dir, out, sign } => {
                 pack::run(&dir, out.as_deref(), sign.as_deref())
