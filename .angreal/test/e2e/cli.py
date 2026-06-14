@@ -477,8 +477,44 @@ def cli():
                 assert package_id, (
                     f"upload returned no package id (stdout empty); stderr={stderr!r}"
                 )
-            print("  ok: I-0119 authoring loop new→edit→validate→pack→upload accepted "
-                  f"(package_id={package_id})")
+                print("  ok: authored python/workflow new→edit→validate→pack→upload "
+                      f"accepted (package_id={package_id})")
+
+                # T-0680: the graph and cron kinds round-trip the same way
+                # (scaffold → validate → pack → upload-accept). cron is Rust-only.
+                for lang, kind in [("python", "graph"), ("rust", "cron")]:
+                    kname = f"e2e-{kind}-{token}"
+                    kdir = Path(authored_s) / kname
+                    _cloacinactl(
+                        home, "package", "new", kname,
+                        "--lang", lang, "--kind", kind, "--path", str(kdir),
+                    )
+                    code, out, _ = _cloacinactl(home, "package", "validate", str(kdir))
+                    assert code == 0 and "valid" in out, (
+                        f"validate({lang}/{kind}) failed: {out!r}"
+                    )
+                    karchive = Path(authored_s) / f"{kname}.cloacina"
+                    _cloacinactl(home, "package", "pack", str(kdir), "--out", str(karchive))
+                    code, out, stderr = _cloacinactl(
+                        home, "--tenant", tenant_name, "package", "upload",
+                        str(karchive), check=False,
+                    )
+                    assert code == 0 and out.strip(), (
+                        f"upload({lang}/{kind}) failed: code={code} out={out!r} stderr={stderr!r}"
+                    )
+                    print(f"  ok: authored {lang}/{kind} new→validate→pack→upload accepted")
+
+                # T-0680: --kind cron --lang python is rejected with guidance.
+                code, _, stderr = _cloacinactl(
+                    home, "package", "new", f"e2e-pycron-{token}",
+                    "--lang", "python", "--kind", "cron",
+                    "--path", str(Path(authored_s) / "pycron"),
+                    check=False,
+                )
+                assert code != 0 and "Rust-only" in stderr, (
+                    f"python+cron should be rejected; code={code} stderr={stderr!r}"
+                )
+                print("  ok: python --kind cron rejected with guidance")
 
             # ─────────────────────────────────────────────────────────
             # CLOACI-T-0629: substrate contract — end-to-end JIT

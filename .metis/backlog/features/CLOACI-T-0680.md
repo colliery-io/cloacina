@@ -4,15 +4,15 @@ level: task
 title: "Authoring DX follow-ups — package new --kind graph|cron, deeper validate lint, first-package how-to"
 short_code: "CLOACI-T-0680"
 created_at: 2026-06-14T16:37:35.268775+00:00
-updated_at: 2026-06-14T16:37:35.268775+00:00
+updated_at: 2026-06-14T18:51:02.911845+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -73,11 +73,25 @@ Core authoring DX (I-0119) is done; these are polish/coverage, not blocking.
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+- [x] `package new --kind workflow|graph|cron` (default `workflow`). Python+graph
+      and Rust+{workflow,graph,cron} scaffold canonical sources; `--kind cron
+      --lang python` is rejected with guidance (Python has no cron trigger).
+- [x] Deeper `package validate` lints (also run by `pack`): unrewritten
+      `__WORKSPACE__`, a `#[computation_graph]`/`ComputationGraphBuilder` package
+      missing `graph_name`, and a cron trigger listed in `#[workflow(triggers=[…])]`.
+- [x] "Create your first package" how-to built around `package new`, linked from
+      the Python packaging how-to + the package-format reference.
+- [x] e2e coverage: the `angreal test e2e cli` authoring loop scaffolds + validates
+      + packs + upload-accepts the graph and cron kinds, and asserts the
+      python+cron rejection. (Full build→register still needs the compiler/demo
+      stack; Rust crates.io publication remains a separate prerequisite.)
+- [x] Unit tests for the new scaffold kinds + the three footgun lints.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -142,4 +156,20 @@ Core authoring DX (I-0119) is done; these are polish/coverage, not blocking.
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-06-14 — Implemented; unit-verified, e2e pending.**
+- `new.rs`: `ScaffoldKind {Workflow, Graph, Cron}` + `--kind`. Templates for
+  Python graph (`@cloaca.reactor`/`ComputationGraphBuilder`/`@cloaca.node`,
+  `graph_name`) and Rust graph (`#[reactor]`/`#[computation_graph]`) and Rust cron
+  (`#[trigger(on,cron)]`+`#[workflow]`). Python+cron rejected with guidance.
+- `manifest.rs`: `lint_footguns` (+ a small attribute parser) — `__WORKSPACE__`,
+  CG-missing-`graph_name` (Rust `computation_graph(` / Python
+  `ComputationGraphBuilder`/`@cloaca.reactor`), cron-name-in-`#[workflow(triggers)]`.
+  Wired into both `validate::run` and `pack::pack_to` (pack now also validates the
+  Rust layout).
+- Docs: new `platform/how-to-guides/creating-your-first-package.md`, linked from
+  the Python packaging how-to + package-format reference.
+- e2e: authoring loop extended to round-trip python/graph + rust/cron
+  (new→validate→pack→upload-accept) and assert the python+cron rejection.
+- Verified: `angreal check crate crates/cloacinactl` green; `cargo test -p
+  cloacinactl --bins` → 68 passed (incl. all new lint/scaffold/validate tests).
+- Pending: `angreal test e2e cli` for the new kinds end-to-end.

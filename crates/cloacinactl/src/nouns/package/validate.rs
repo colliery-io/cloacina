@@ -58,6 +58,7 @@ pub fn run(path: &Path) -> Result<(), CliError> {
         PackageLanguage::Python => manifest::validate_python_layout(&dir, &manifest.metadata)?,
         PackageLanguage::Rust => manifest::validate_rust_layout(&dir)?,
     }
+    manifest::lint_footguns(&dir, lang, &manifest.metadata)?;
 
     let lang_str = match lang {
         PackageLanguage::Python => "python",

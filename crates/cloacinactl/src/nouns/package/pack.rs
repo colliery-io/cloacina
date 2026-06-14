@@ -48,9 +48,12 @@ pub fn run(dir: &Path, out: Option<&Path>, sign: Option<&Path>) -> Result<(), Cl
 /// through `CloacinaMetadata` also rejects `package_type` / `[[metadata.triggers]]`.)
 pub fn pack_to(dir: &Path, out: Option<&Path>) -> Result<PathBuf, CliError> {
     let meta = manifest::read_metadata(dir)?;
-    if manifest::language(&meta)? == PackageLanguage::Python {
-        manifest::validate_python_layout(dir, &meta)?;
+    let lang = manifest::language(&meta)?;
+    match lang {
+        PackageLanguage::Python => manifest::validate_python_layout(dir, &meta)?,
+        PackageLanguage::Rust => manifest::validate_rust_layout(dir)?,
     }
+    manifest::lint_footguns(dir, lang, &meta)?;
 
     let produced = fidius_core::package::pack_package(dir, out)
         .map_err(|e| CliError::UserError(format!("pack_package failed: {e}")))?;

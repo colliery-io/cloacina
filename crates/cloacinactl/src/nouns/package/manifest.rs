@@ -23,6 +23,8 @@
 //! `CloacinaMetadata` also rejects `package_type` / `[[metadata.triggers]]` at
 //! pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
 
+use std::collections::HashSet;
+use std::fs;
 use std::path::Path;
 
 use cloacina_workflow_plugin::CloacinaMetadata;
@@ -146,6 +148,216 @@ pub fn validate_rust_layout(dir: &Path) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Author-time footgun lints (CLOACI-T-0680). Run by `validate` and `pack` to
+/// catch the mistakes that otherwise surface only at upload/load:
+/// - an unrewritten `__WORKSPACE__` placeholder in `Cargo.toml`;
+/// - a computation-graph package that doesn't declare `graph_name`;
+/// - a cron trigger also listed in `#[workflow(triggers = [...])]` (cron triggers
+///   bind via `on`, not via the workflow's poll-trigger subscription list).
+pub fn lint_footguns(
+    dir: &Path,
+    lang: PackageLanguage,
+    meta: &CloacinaMetadata,
+) -> Result<(), CliError> {
+    match lang {
+        PackageLanguage::Rust => lint_rust_source(dir, meta),
+        PackageLanguage::Python => lint_python_source(dir, meta),
+    }
+}
+
+fn lint_rust_source(dir: &Path, meta: &CloacinaMetadata) -> Result<(), CliError> {
+    if let Ok(cargo) = fs::read_to_string(dir.join("Cargo.toml")) {
+        if cargo.contains("__WORKSPACE__") {
+            return Err(CliError::UserError(
+                "Cargo.toml contains an unrewritten `__WORKSPACE__` path placeholder — \
+                 replace it with a published crate version (or a real path) before packing."
+                    .to_string(),
+            ));
+        }
+    }
+
+    let lib = match fs::read_to_string(dir.join("src/lib.rs")) {
+        Ok(s) => s,
+        // A missing src/lib.rs is reported by validate_rust_layout, not here.
+        Err(_) => return Ok(()),
+    };
+
+    if lib.contains("computation_graph(") && meta.graph_name.is_none() {
+        return Err(CliError::UserError(
+            "src/lib.rs defines a #[computation_graph] but [metadata].graph_name is unset — \
+             a computation-graph package must declare graph_name."
+                .to_string(),
+        ));
+    }
+
+    let subscribed = workflow_trigger_names(&lib);
+    for name in cron_trigger_names(&lib) {
+        if subscribed.contains(&name) {
+            return Err(CliError::UserError(format!(
+                "cron trigger `{name}` is also listed in a #[workflow(triggers = [...])] — \
+                 cron triggers bind to their workflow via `on` and must not be subscribed there. \
+                 Remove `{name}` from the workflow's triggers list."
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn lint_python_source(dir: &Path, meta: &CloacinaMetadata) -> Result<(), CliError> {
+    let entry = match meta.entry_module.as_deref() {
+        Some(e) => e,
+        None => return Ok(()),
+    };
+    let mut base = dir.join("workflow");
+    for part in entry.split('.') {
+        base = base.join(part);
+    }
+    let src = [base.with_extension("py"), base.join("__init__.py")]
+        .iter()
+        .find_map(|p| fs::read_to_string(p).ok());
+    let src = match src {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+
+    let is_cg = src.contains("ComputationGraphBuilder")
+        || src.contains("cloaca.reactor")
+        || src.contains("@cloaca.reactor");
+    if is_cg && meta.graph_name.is_none() {
+        return Err(CliError::UserError(
+            "the entry module uses ComputationGraphBuilder/@cloaca.reactor but \
+             [metadata].graph_name is unset — a computation-graph package must declare graph_name."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Names of triggers declared with a `cron = "..."` argument. The name is the
+/// explicit `name = "..."` attribute argument if present, else the decorated
+/// function's identifier.
+fn cron_trigger_names(src: &str) -> Vec<String> {
+    attr_invocations(src, "trigger")
+        .into_iter()
+        .filter(|(args, _)| kv_value(args, "cron").is_some())
+        .filter_map(|(args, fn_name)| kv_value(&args, "name").or(fn_name))
+        .collect()
+}
+
+/// Trigger names listed in any `#[workflow(triggers = [...])]` attribute.
+fn workflow_trigger_names(src: &str) -> HashSet<String> {
+    let mut set = HashSet::new();
+    for (args, _) in attr_invocations(src, "workflow") {
+        if let Some(list) = array_value(&args, "triggers") {
+            for s in quoted_strings(&list) {
+                set.insert(s);
+            }
+        }
+    }
+    set
+}
+
+/// Find `#[<attr>(...)]` / `#[cloacina_macros::<attr>(...)]` invocations, returning
+/// each one's argument text and the identifier of the `fn` that follows it.
+fn attr_invocations(src: &str, attr: &str) -> Vec<(String, Option<String>)> {
+    let bytes = src.as_bytes();
+    let mut out = Vec::new();
+    for pat in [format!("#[{attr}("), format!("#[cloacina_macros::{attr}(")] {
+        let mut from = 0;
+        while let Some(rel) = src[from..].find(pat.as_str()) {
+            let open = from + rel + pat.len() - 1; // index of the '('
+            let mut depth = 0usize;
+            let mut close = None;
+            let mut i = open;
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'(' => depth += 1,
+                    b')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            close = Some(i);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            let close = match close {
+                Some(c) => c,
+                None => break,
+            };
+            let args = src[open + 1..close].to_string();
+            let after = src[close..].find(']').map(|d| close + d + 1).unwrap_or(close);
+            let fn_name = src[after..].find("fn ").and_then(|p| {
+                let start = after + p + 3;
+                let ident: String = src[start..]
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                (!ident.is_empty()).then_some(ident)
+            });
+            out.push((args, fn_name));
+            from = close + 1;
+        }
+    }
+    out
+}
+
+/// Value of a `key = "..."` argument within an attribute's args, word-bounded so
+/// `name` doesn't match `filename`.
+fn kv_value(args: &str, key: &str) -> Option<String> {
+    let mut from = 0;
+    while let Some(rel) = args[from..].find(key) {
+        let idx = from + rel;
+        let prev_ok = idx == 0
+            || !args[..idx]
+                .chars()
+                .next_back()
+                .map(|c| c.is_alphanumeric() || c == '_')
+                .unwrap_or(false);
+        let after = &args[idx + key.len()..];
+        if prev_ok {
+            if let Some(eq) = after.find('=') {
+                let tail = &after[eq + 1..];
+                if let Some(q1) = tail.find('"') {
+                    if let Some(q2) = tail[q1 + 1..].find('"') {
+                        return Some(tail[q1 + 1..q1 + 1 + q2].to_string());
+                    }
+                }
+            }
+        }
+        from = idx + key.len();
+    }
+    None
+}
+
+/// The `[...]` text of a `key = [...]` argument.
+fn array_value(args: &str, key: &str) -> Option<String> {
+    let idx = args.find(key)?;
+    let after = &args[idx + key.len()..];
+    let eq = after.find('=')?;
+    let lb = after[eq..].find('[')? + eq;
+    let rb = after[lb..].find(']')? + lb;
+    Some(after[lb + 1..rb].to_string())
+}
+
+/// All double-quoted string literals in `s`.
+fn quoted_strings(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = s;
+    while let Some(q1) = rest.find('"') {
+        let tail = &rest[q1 + 1..];
+        if let Some(q2) = tail.find('"') {
+            out.push(tail[..q2].to_string());
+            rest = &tail[q2 + 1..];
+        } else {
+            break;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +442,98 @@ mod tests {
         let meta = py_meta(Some("data_pipeline.missing"));
         let err = validate_python_layout(tmp.path(), &meta).unwrap_err();
         assert!(format!("{err:?}").contains("does not resolve"));
+    }
+
+    // ---- footgun lints (CLOACI-T-0680) ----
+
+    fn meta(lang: &str, graph_name: Option<&str>, entry: Option<&str>) -> CloacinaMetadata {
+        CloacinaMetadata {
+            workflow_name: Some("demo".to_string()),
+            graph_name: graph_name.map(str::to_string),
+            language: lang.to_string(),
+            description: None,
+            author: None,
+            requires_python: None,
+            entry_module: entry.map(str::to_string),
+            reaction_mode: None,
+            input_strategy: None,
+            accumulators: Vec::new(),
+        }
+    }
+
+    fn write_rust(dir: &Path, cargo: &str, lib: &str) {
+        fs::write(dir.join("Cargo.toml"), cargo).unwrap();
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/lib.rs"), lib).unwrap();
+    }
+
+    #[test]
+    fn lint_rejects_unrewritten_workspace_placeholder() {
+        let tmp = TempDir::new().unwrap();
+        write_rust(
+            tmp.path(),
+            "cloacina-macros = { path = \"__WORKSPACE__/crates/cloacina-macros\" }",
+            "// nothing",
+        );
+        let err = lint_footguns(tmp.path(), PackageLanguage::Rust, &meta("rust", None, None))
+            .unwrap_err();
+        assert!(format!("{err:?}").contains("__WORKSPACE__"));
+    }
+
+    #[test]
+    fn lint_rust_cg_requires_graph_name() {
+        let tmp = TempDir::new().unwrap();
+        write_rust(
+            tmp.path(),
+            "[package]",
+            "#[cloacina_macros::computation_graph(trigger = reactor(\"r\"))]\npub mod g {}",
+        );
+        let err = lint_footguns(tmp.path(), PackageLanguage::Rust, &meta("rust", None, None))
+            .unwrap_err();
+        assert!(format!("{err:?}").contains("graph_name"));
+        // declaring graph_name clears it
+        lint_footguns(tmp.path(), PackageLanguage::Rust, &meta("rust", Some("g"), None)).unwrap();
+    }
+
+    #[test]
+    fn lint_rejects_cron_trigger_in_workflow_triggers_list() {
+        let tmp = TempDir::new().unwrap();
+        write_rust(
+            tmp.path(),
+            "[package]",
+            "#[trigger(on = \"wf\", cron = \"0 0 * * * *\")]\npub async fn nightly() {}\n\n\
+             #[workflow(name = \"wf\", triggers = [\"nightly\"])]\npub mod wf {}",
+        );
+        let err = lint_footguns(tmp.path(), PackageLanguage::Rust, &meta("rust", None, None))
+            .unwrap_err();
+        assert!(format!("{err:?}").contains("nightly"));
+    }
+
+    #[test]
+    fn lint_allows_cron_trigger_bound_via_on() {
+        let tmp = TempDir::new().unwrap();
+        write_rust(
+            tmp.path(),
+            "[package]",
+            "#[trigger(on = \"wf\", cron = \"0 0 * * * *\")]\npub async fn nightly() {}\n\n\
+             #[workflow(name = \"wf\")]\npub mod wf {}",
+        );
+        lint_footguns(tmp.path(), PackageLanguage::Rust, &meta("rust", None, None)).unwrap();
+    }
+
+    #[test]
+    fn lint_python_cg_requires_graph_name() {
+        let tmp = TempDir::new().unwrap();
+        let mod_dir = tmp.path().join("workflow/g");
+        fs::create_dir_all(&mod_dir).unwrap();
+        fs::write(
+            mod_dir.join("graph.py"),
+            "import cloaca\nwith cloaca.ComputationGraphBuilder(\"g\"):\n    pass\n",
+        )
+        .unwrap();
+        let err =
+            lint_footguns(tmp.path(), PackageLanguage::Python, &meta("python", None, Some("g.graph")))
+                .unwrap_err();
+        assert!(format!("{err:?}").contains("graph_name"));
     }
 }

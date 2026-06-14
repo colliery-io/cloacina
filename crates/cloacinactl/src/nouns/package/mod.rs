@@ -49,6 +49,9 @@ enum PackageVerb {
         /// Source language to scaffold.
         #[arg(long, value_enum, default_value_t = new::ScaffoldLang::Python)]
         lang: new::ScaffoldLang,
+        /// Package shape: workflow (default), graph, or cron (cron is Rust-only).
+        #[arg(long, value_enum, default_value_t = new::ScaffoldKind::Workflow)]
+        kind: new::ScaffoldKind,
         /// Directory to create (default: ./<name>).
         #[arg(long)]
         path: Option<PathBuf>,
@@ -104,7 +107,9 @@ enum PackageVerb {
 impl PackageCmd {
     pub async fn run(self, globals: &GlobalOpts) -> Result<(), CliError> {
         match self.verb {
-            PackageVerb::New { name, lang, path } => new::run(&name, lang, path.as_deref()),
+            PackageVerb::New { name, lang, kind, path } => {
+                new::run(&name, lang, kind, path.as_deref())
+            }
             PackageVerb::Validate { path } => validate::run(&path),
             PackageVerb::Build { dir, release } => build::run(&dir, release),
             PackageVerb::Pack { dir, out, sign } => {
