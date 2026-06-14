@@ -4,15 +4,15 @@ level: task
 title: "Compiler reads [package].language not [metadata].language — all packaged Python fails to build; no gating test catches it"
 short_code: "CLOACI-T-0666"
 created_at: 2026-06-12T11:52:37.862326+00:00
-updated_at: 2026-06-12T11:52:37.862326+00:00
+updated_at: 2026-06-14T15:45:41.803385+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -91,6 +91,12 @@ examples confirm it:
   on timeout merely prints `WARNING: Python package may not have loaded` and
   continues (no assertion failure). The execute step is then silently skipped.
 - **Soak is not in any CI workflow** (`grep soak .github/workflows` -> none).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

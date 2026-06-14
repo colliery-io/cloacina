@@ -1,428 +1,204 @@
 ---
 title: "Package Format"
-description: ".cloacina archive structure and creation process"
+description: ".cloacina archive structure, package.toml schema, and how packages are loaded"
 weight: 20
 reviewer: "dstorey"
-review_date: "2025-01-17"
+review_date: "2026-06-14"
 ---
 
-{{< hint type="warning" title="Outdated — pending rewrite (CLOACI-I-0119)" >}}
-This page describes a superseded archive format (a JSON `manifest.json` + a
-compiled library). The current format is a top-level **`package.toml`** plus the
-package source — Rust (`Cargo.toml` + `src/lib.rs`, compiled by the
-cloacina-compiler) or Python (a module tree under `workflow/<mod>/`). The server
-reads `package.toml`, not `manifest.json` (the `manifest.json` machinery has been
-removed). For the authoritative current format see the
-[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}})
-how-to and the Rust packaging tutorial. This page is slated for rewrite.
-{{< /hint >}}
+# Package Format
 
-This article explains the structure and format of `.cloacina` packages, which are the distributable units for Cloacina workflows. Understanding the package format is essential for creating custom tooling, debugging package issues, and working with the packaging system.
+This page is the canonical reference for the `.cloacina` package format: the
+archive layout, the `package.toml` manifest schema, and how the server/daemon
+load a package. It applies to **both** Rust and Python packages.
 
 ## Overview
 
-A `.cloacina` package is a **compressed tar.gz archive** containing exactly two components:
-1. A JSON manifest with package metadata (`manifest.json`)
-2. A platform-specific dynamic library containing the compiled workflow
+A `.cloacina` package is a **bzip2-compressed tar archive of source**, not a
+compiled binary. Inside, everything lives under a single top-level directory
+named `<name>-<version>/`. That directory always contains a **`package.toml`**
+manifest plus the workflow source:
 
-This simple but standardized format enables cross-platform distribution while maintaining compatibility with standard archiving tools.
+- **Rust** — `Cargo.toml`, `build.rs`, and `src/` (the cdylib is compiled by the
+  server's compiler *at load time*, not shipped in the archive).
+- **Python** — a `workflow/` directory holding your module tree (imported at load
+  time; nothing is compiled), plus an optional `vendor/` directory for
+  third-party dependencies.
+
+The server reads `package.toml` to learn the package's identity and language,
+then compiles (Rust) or imports (Python) the source to discover tasks.
+
+{{< hint type="info" title="package.toml is the manifest" >}}
+There is no `manifest.json`. `package.toml` is the only manifest the server
+reads. It is parsed by `fidius_core::package::load_manifest` into the
+`CloacinaMetadata` schema described below.
+{{< /hint >}}
 
 ## Archive Structure
 
-### Basic Package Layout
+### Rust package
 
 ```
-example-workflow.cloacina (tar.gz archive)
-├── manifest.json          # Package metadata and library information
-└── libexample_workflow.so  # Platform-specific dynamic library
+analytics-workflow-1.0.0.cloacina   (bzip2 tar)
+└── analytics-workflow-1.0.0/
+    ├── package.toml
+    ├── Cargo.toml
+    ├── build.rs                     # calls cloacina_build::configure()
+    └── src/
+        └── lib.rs                   # #[task] / cloacina::package!()
 ```
 
-### Platform-Specific Library Names
+### Python package
 
-The dynamic library name varies by target platform following standard conventions:
-
-| Platform | Extension | Example Filename | Format |
-|----------|-----------|------------------|---------|
-| **Linux** | `.so` | `libworkflow.so` | Shared Object |
-| **macOS** | `.dylib` | `libworkflow.dylib` | Dynamic Library |
-| **Windows** | `.dll` | `workflow.dll` | Dynamic Link Library |
-
-{{< hint type=info title="Naming Consistency" >}}
-The library filename in the archive must exactly match the `filename` field in the manifest. This consistency check ensures package integrity during validation.
-{{< /hint >}}
-
-## Manifest Specification
-
-The `manifest.json` file contains all metadata required for package validation, loading, and execution. It follows a structured JSON schema defined in `cloacinactl/src/manifest/types.rs`.
-
-### Complete Manifest Example
-
-```json
-{
-  "package": {
-    "name": "data_processing_workflow",
-    "version": "1.2.0",
-    "description": "Advanced data processing and validation workflow",
-    "cloacina_version": "0.3.0"
-  },
-  "library": {
-    "filename": "libdata_processing_workflow.so",
-    "symbols": [
-      "fidius_get_registry"
-    ],
-    "architecture": "x86_64-unknown-linux-gnu"
-  },
-  "tasks": [
-    {
-      "index": 0,
-      "id": "fetch_data",
-      "dependencies": [],
-      "description": "Fetch raw data from external APIs",
-      "source_location": "src/lib.rs:45:1"
-    },
-    {
-      "index": 1,
-      "id": "validate_data",
-      "dependencies": ["fetch_data"],
-      "description": "Validate and clean fetched data",
-      "source_location": "src/lib.rs:67:1"
-    },
-    {
-      "index": 2,
-      "id": "process_data",
-      "dependencies": ["validate_data"],
-      "description": "Transform data for downstream systems",
-      "source_location": "src/lib.rs:89:1"
-    }
-  ],
-  "execution_order": ["fetch_data", "validate_data", "process_data"],
-  "graph": {
-    "tasks": {
-      "fetch_data": {
-        "id": "fetch_data",
-        "dependencies": []
-      },
-      "validate_data": {
-        "id": "validate_data",
-        "dependencies": ["fetch_data"]
-      },
-      "process_data": {
-        "id": "process_data",
-        "dependencies": ["validate_data"]
-      }
-    },
-    "execution_order": ["fetch_data", "validate_data", "process_data"]
-  }
-}
+```
+data-pipeline-1.0.0.cloacina        (bzip2 tar)
+└── data-pipeline-1.0.0/
+    ├── package.toml
+    ├── workflow/                    # REQUIRED — module tree lives here
+    │   └── data_pipeline/
+    │       ├── __init__.py
+    │       └── tasks.py             # @cloaca.task / @cloaca.trigger
+    └── vendor/                      # optional — vendored dependencies
 ```
 
-### Manifest Field Reference
+For Python, the module tree **must** live under `workflow/`; a top-level module
+is rejected at load with `Missing workflow source directory`. The `vendor/`
+directory (if present) and `workflow/` are both added to `sys.path` before
+import. See [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}})
+for the full Python procedure.
 
-#### Package Section
+## The `package.toml` Manifest
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | ✅ | Package identifier (must match Cargo.toml name) |
-| `version` | string | ✅ | Package version (semantic versioning) |
-| `description` | string | ✅ | Human-readable package description |
-| `cloacina_version` | string | ✅ | Minimum compatible Cloacina runtime version |
+Every package has a top-level `package.toml` with two tables: `[package]`
+(identity) and `[metadata]` (workflow descriptor).
 
-#### Library Section
+### `[package]` — identity
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `filename` | string | ✅ | Exact filename of library in archive |
-| `symbols` | array | ✅ | Required FFI symbols present in library |
-| `architecture` | string | ✅ | Target triple (e.g., `x86_64-unknown-linux-gnu`) |
-
-#### Tasks Array
-
-Each task object contains:
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `index` | number | ✅ | Unique task index within package |
-| `id` | string | ✅ | Task identifier for execution and dependencies |
-| `dependencies` | array | ✅ | Array of task IDs this task depends on |
-| `description` | string | ✅ | Human-readable task description |
-| `source_location` | string | ✅ | Source file and line number for debugging |
-
-#### Optional Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `execution_order` | array | ❌ | Pre-computed topological sort of tasks |
-| `graph` | object | ❌ | Complete workflow graph data for visualization |
-
-## Package Creation Process
-
-### 1. Source Code Requirements
-
-For a Rust project to be packaged, it must meet specific requirements:
-
-**Cargo.toml Configuration:**
 ```toml
 [package]
-name = "my_workflow"
+name = "data-pipeline"
 version = "1.0.0"
-edition = "2021"
-
-# Required: Generate shared library
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
-cloacina-workflow = "0.7.0"  # Includes macros by default
-serde_json = "1.0"
-async-trait = "0.1"
-# Other dependencies...
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
 ```
 
-{{< hint type=info title="cloacina-workflow" >}}
-Workflow packages use `cloacina-workflow`, which contains only the types needed for workflow compilation (`Context`, `Task`, `TaskError`, `RetryPolicy`). This enables fast compilation without database drivers or runtime dependencies.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Package name |
+| `version` | string | yes | Semantic version |
+| `interface` | string | yes | Plugin interface — `"cloacina-workflow-plugin"` |
+| `interface_version` | integer | yes | Interface version — currently `1` |
+| `extension` | string | yes | Archive extension — `"cloacina"` |
+
+### `[metadata]` — workflow descriptor
+
+`[metadata]` deserializes into `CloacinaMetadata`
+(`crates/cloacina-workflow-plugin/src/types.rs`), which is a **closed schema**
+(`#[serde(deny_unknown_fields)]`). Unknown keys are rejected at upload/load.
+
+```toml
+# Rust
+[metadata]
+language = "rust"
+workflow_name = "analytics_workflow"
+description = "ETL pipeline for analytics data"
+author = "you@example.com"
+```
+
+```toml
+# Python
+[metadata]
+language = "python"
+workflow_name = "data_pipeline"
+entry_module = "data_pipeline.tasks"
+description = "ETL pipeline for analytics data"
+author = "you@example.com"
+requires_python = ">=3.10"
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `language` | string | **yes** | `"rust"` or `"python"` |
+| `workflow_name` | string | for workflows | The workflow name (Rust may source this from `#[workflow(name = …)]`) |
+| `graph_name` | string | for computation graphs | Graph name — set instead of `workflow_name` for CG packages |
+| `entry_module` | string | Python only | Dotted module path **relative to `workflow/`** the loader imports |
+| `requires_python` | string | no | PEP 440 specifier, e.g. `">=3.10"` (Python only) |
+| `description` | string | no | Human-readable description |
+| `author` | string | no | Author/owner |
+| `reaction_mode` | string | computation graphs | `"when_any"` or `"when_all"` |
+| `input_strategy` | string | computation graphs | `"latest"` or `"sequential"` |
+| `accumulators` | array | computation graphs | `[[metadata.accumulators]]` source configs |
+
+{{< hint type="warning" title="Rejected keys" >}}
+`package_type` and `[[metadata.triggers]]` are **hard-rejected** by the closed
+schema. Package classification (workflow vs. computation graph vs. reactor) flows
+through FFI metadata for Rust and the presence of `graph_name` for Python.
+**Triggers are declared in code** (`#[trigger]` in Rust, `@cloaca.trigger` in
+Python), never in the manifest.
 {{< /hint >}}
 
-**Source Structure:**
-```
-my_workflow/
-├── Cargo.toml
-├── src/
-│   └── lib.rs        # Note: lib.rs, not main.rs
-└── target/
-    └── release/
-        └── libmy_workflow.so  # Generated by cargo build
-```
+## How a Package Is Loaded
 
-### 2. Package Creation with cloacinactl
+1. The server/daemon receives the archive (upload, or the daemon's watch
+   directory) and extracts it.
+2. It reads `package.toml` and dispatches on `[metadata].language`.
+3. **Rust** — the compiler runs `cargo build` on the unpacked source, then loads
+   the resulting cdylib and calls its FFI entry points to enumerate tasks.
+   **Python** — the loader adds `workflow/` (and `vendor/`) to `sys.path` and
+   imports `entry_module`; the `@cloaca.task` / `@cloaca.trigger` decorators
+   register tasks and triggers as a side effect of import.
+4. Discovered tasks/triggers are registered and the workflow becomes available.
 
-The `cloacinactl package` command handles the complete packaging process:
+Because discovery happens by **building/importing source**, registration must
+occur at import/macro-expansion time — not behind `if __name__ == "__main__"` or
+inside a function body.
 
-```bash
-# Basic package creation
-cloacinactl package . -o my-workflow.cloacina
+### Rust FFI entry points
 
-# With specific target
-cloacinactl package . -o my-workflow.cloacina --target x86_64-unknown-linux-gnu
+Rust packages don't hand-write `#[no_mangle]` symbols. `cloacina::package!()`
+(invoked at crate root) and the `#[plugin_impl]` machinery emit the fidius plugin
+registry plus the entry points the host calls: `get_task_metadata`,
+`execute_task`, and the computation-graph/reactor/trigger metadata accessors.
+Fidius validates the interface hash before any call.
 
-# With release profile
-cloacinactl package . -o my-workflow.cloacina --profile release
-```
+## Building a Package
 
-### 3. Internal Package Creation Steps
-
-The packaging process (from `cloacinactl/src/commands/package.rs`) involves:
-
-1. **Compilation**: Build the workflow as a shared library using `compile_workflow`
-2. **Metadata Extraction**: Extract task metadata from the compiled library
-3. **Archive Creation**: Create a tar.gz archive with manifest and library
-
-```rust
-// Simplified packaging process
-pub fn package_workflow(
-    project_path: PathBuf,
-    output: PathBuf,
-    target: Option<String>,
-    profile: String,
-    cargo_flags: Vec<String>,
-    cli: &Cli,
-) -> Result<()> {
-    // Step 1: Compile workflow to shared library
-    let compile_result = compile_workflow(
-        project_path,
-        temp_so_path,
-        target,
-        profile,
-        cargo_flags,
-        cli,
-    )?;
-
-    // Step 2: Create package archive
-    create_package_archive(&compile_result, &output, cli)?;
-
-    Ok(())
-}
-```
-
-### 4. Archive Creation Implementation
-
-The archive creation process (from `cloacinactl/src/archive/create.rs`):
-
-```rust
-pub fn create_package_archive(
-    compile_result: &CompileResult,
-    output: &PathBuf,
-    cli: &Cli,
-) -> Result<()> {
-    // Create compressed tar.gz file
-    let output_file = fs::File::create(output)?;
-    let gz_encoder = GzEncoder::new(output_file, Compression::default());
-    let mut tar_builder = Builder::new(gz_encoder);
-
-    // Add manifest.json to archive
-    let manifest_json = serde_json::to_string_pretty(&compile_result.manifest)?;
-    let manifest_bytes = manifest_json.as_bytes();
-    let mut header = tar::Header::new_gnu();
-    header.set_size(manifest_bytes.len() as u64);
-    header.set_cksum();
-
-    tar_builder.append_data(&mut header, "manifest.json", manifest_bytes)?;
-
-    // Add shared library file
-    tar_builder.append_file(
-        &compile_result.manifest.library.filename,
-        &mut fs::File::open(&compile_result.so_path)?
-    )?;
-
-    // Finalize archive
-    tar_builder.finish()?;
-    Ok(())
-}
-```
-
-## Package Inspection
-
-### Using cloacinactl inspect
-
-The `cloacinactl inspect` command provides package inspection capabilities:
+### Rust — `cloacinactl package`
 
 ```bash
-# Human-readable output
-cloacinactl inspect my-workflow.cloacina
+# Compile the workflow cdylib (wrapper around cargo build)
+cloacinactl package build .
 
-# JSON output
-cloacinactl inspect my-workflow.cloacina --format json
+# Pack the source directory into a .cloacina archive
+cloacinactl package pack . -o analytics-workflow-1.0.0.cloacina
 ```
 
-**Example human-readable output:**
-```
-Package Information:
-  File: my-workflow.cloacina
-  Package: data_processing_workflow
-  Version: 1.2.0
-  Description: Advanced data processing and validation workflow
-  Cloacina Version: 0.3.0 (compatible)
+`pack` requires a `package.toml` in the directory and archives the source; it
+does not compile. (Compilation happens at load time on the server.)
 
-Library:
-  File: libdata_processing_workflow.so
-  Architecture: x86_64-unknown-linux-gnu
-  Symbols: ["fidius_get_registry"]
+### Python — tar recipe
 
-Tasks (3):
-  0: fetch_data
-     Dependencies: []
-     Source: src/lib.rs:45:1
+`cloacinactl package pack` currently supports Rust source layouts only. Until
+Python packing lands (tracked in CLOACI-I-0119), build Python archives by hand —
+see the recipe in
+[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}).
 
-  1: validate_data
-     Dependencies: ["fetch_data"]
-     Source: src/lib.rs:67:1
-
-  2: process_data
-     Dependencies: ["validate_data"]
-     Source: src/lib.rs:89:1
-
-Execution Order: fetch_data → validate_data → process_data
-```
-
-### Manual Inspection
-
-Since packages are standard tar.gz files, you can inspect them with standard tools:
+## Inspecting a Package
 
 ```bash
-# List archive contents
-tar -tzf my-workflow.cloacina
+# Built-in inspection
+cloacinactl package inspect analytics-workflow-1.0.0.cloacina
 
-# Extract to directory
-tar -xzf my-workflow.cloacina -C extracted/
-
-# View manifest
-tar -xzOf my-workflow.cloacina manifest.json | jq .
-
-# Check library symbols (Linux)
-tar -xzOf my-workflow.cloacina libmy_workflow.so | nm -D
-```
-
-## Package Validation
-
-### Basic Validation
-
-The packaging system includes validation (from `cloacina/src/registry/loader/validator.rs`):
-
-- **Size validation**: Empty packages and oversized packages are rejected
-- **Format validation**: Files must be valid dynamic libraries (ELF, Mach-O, PE)
-- **Symbol validation**: Required FFI symbols must be present
-- **Metadata validation**: Package names, task IDs, and dependencies are checked
-
-### Library Format Validation
-
-The validator checks for proper dynamic library formats:
-
-```rust
-// ELF format (Linux) - starts with 0x7f followed by "ELF"
-if &data[0..4] == b"\x7fELF" {
-    // Valid ELF format
-}
-
-// Mach-O format (macOS) - magic numbers
-else if &data[0..4] == b"\xcf\xfa\xed\xfe" {
-    // 64-bit Mach-O format
-}
-
-// PE format (Windows) - starts with "MZ"
-else if &data[0..2] == b"MZ" {
-    // Valid PE format
-}
-```
-
-### Required Symbols
-
-Every valid package must export the fidius registry symbol:
-- `fidius_get_registry` - Entry point exported by `fidius_plugin_registry!()`, used by the host to locate the `CloacinaPlugin` implementation and validate ABI compatibility before any method calls are made
-
-## Best Practices
-
-### Package Naming
-
-- Use descriptive, lowercase names with underscores: `data_processor`
-- Include organization prefix for uniqueness: `acme_data_processor`
-- Keep names concise but meaningful
-
-### Version Management
-
-- Follow semantic versioning strictly
-- Increment major version for breaking changes to task interfaces
-- Use pre-release versions for testing: `1.0.0-beta.1`
-
-### Documentation
-
-- Provide comprehensive task descriptions in the manifest
-- Include source locations for debugging
-- Document dependencies clearly
-
-### Size Optimization
-
-- Use release builds to minimize library size
-- Remove unnecessary dependencies from Cargo.toml
-- Consider target-specific builds for production
-
-### Testing
-
-- Test package creation and loading on all target platforms
-- Validate metadata extraction works correctly
-- Verify all tasks execute successfully after packaging
-
-## File Format Constants
-
-Key constants defined in the codebase:
-
-```rust
-// From cloacinactl/src/manifest/types.rs
-pub const CLOACINA_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MANIFEST_FILENAME: &str = "manifest.json";
-pub const REGISTRY_SYMBOL: &str = "fidius_get_registry";
+# Manual — it's just a bzip2 tar
+tar -tjf analytics-workflow-1.0.0.cloacina            # list contents
+tar -xjOf analytics-workflow-1.0.0.cloacina \
+    analytics-workflow-1.0.0/package.toml             # read the manifest
 ```
 
 ## Related Resources
 
-- [Tutorial: Creating Your First Workflow Package]({{< ref "/workflows/tutorials/service/07-packaged-workflows/" >}})
-- [Explanation: FFI System]({{< ref "/platform/explanation/ffi-system/" >}})
-- [Explanation: Packaged Workflow Architecture]({{< ref "/platform/explanation/packaged-workflow-architecture/" >}})
+- [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the full Python procedure
+- [Packaged Triggers]({{< ref "/python/workflows/tutorials/08-packaged-triggers" >}}) — triggers in a packaged Python workflow
+- [FFI System]({{< ref "/platform/explanation/ffi-system/" >}}) — how the host calls into compiled packages
+- [Packaged Workflow Architecture]({{< ref "/platform/explanation/packaged-workflow-architecture/" >}}) — load/registration internals
