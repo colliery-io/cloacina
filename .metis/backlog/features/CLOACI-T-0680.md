@@ -4,7 +4,7 @@ level: task
 title: "Authoring DX follow-ups — package new --kind graph|cron, deeper validate lint, first-package how-to"
 short_code: "CLOACI-T-0680"
 created_at: 2026-06-14T16:37:35.268775+00:00
-updated_at: 2026-06-14T18:51:02.911845+00:00
+updated_at: 2026-06-14T19:18:06.857804+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -72,6 +72,8 @@ Core authoring DX (I-0119) is done; these are polish/coverage, not blocking.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -173,3 +175,9 @@ Core authoring DX (I-0119) is done; these are polish/coverage, not blocking.
 - Verified: `angreal check crate crates/cloacinactl` green; `cargo test -p
   cloacinactl --bins` → 68 passed (incl. all new lint/scaffold/validate tests).
 - Pending: `angreal test e2e cli` for the new kinds end-to-end.
+
+**2026-06-14 — Verified + completed.** `angreal test e2e cli` green (exit 0):
+`authored python/workflow`, `python/graph`, `rust/cron` each
+new→validate→pack→upload-accept, plus `python --kind cron rejected with
+guidance`. Committed `15f78c79` on `i0119-authoring-dx`. All acceptance criteria
+met.
