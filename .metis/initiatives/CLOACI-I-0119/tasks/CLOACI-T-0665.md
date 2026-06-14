@@ -4,19 +4,19 @@ level: task
 title: "cloacinactl package pack cannot pack Python packages (requires Cargo.toml + cargo build)"
 short_code: "CLOACI-T-0665"
 created_at: 2026-06-12T02:22:33.501781+00:00
-updated_at: 2026-06-12T02:22:33.501781+00:00
-parent: 
+updated_at: 2026-06-14T16:14:02.397888+00:00
+parent: CLOACI-I-0119
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
-initiative_id: NULL
+initiative_id: CLOACI-I-0119
 ---
 
 # cloacinactl package pack cannot pack Python packages (requires Cargo.toml + cargo build)
@@ -72,24 +72,24 @@ Consequences observed (2026-06-12, demo harness against a live server):
   currently do to produce Python `.cloacina` archives).
 - **Effort Estimate**: S — branch on `package.toml` `[metadata].language`.
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] **Pick ONE canonical Python `.cloacina` format and make everything agree**
-      (docs, the example, the soak builders, the server reconciler). Today the
-      reconciler is the source of truth: `package.toml` + module under
-      `workflow/<entry_module_root>/`.
-- [ ] `cloacinactl package pack` reads `package.toml` `[metadata].language`; for
+- [x] **Pick ONE canonical Python `.cloacina` format and make everything agree**
+      (docs, the example, the soak builders, the server reconciler). Canonical:
+      `package.toml` + module under `workflow/<entry_module_root>/` (T-0677).
+- [x] `cloacinactl package pack` reads `package.toml` `[metadata].language`; for
       `language = "python"` it skips the `Cargo.toml`/`cargo build` requirement
       and emits the canonical layout (no hand-rolled tar). For `rust` (default):
-      unchanged.
-- [ ] Validate the Python layout at pack time (entry_module resolves under
+      unchanged. (`build` no-ops for Python; `publish` works for both.)
+- [x] Validate the Python layout at pack time (entry_module resolves under
       `workflow/`) so a mis-laid-out module fails at pack, not at server upload.
-- [ ] **Fix the docs** `how-to-guides/packaging-python-workflows.md` (Step 5):
-      it currently documents a `manifest.json` + top-level-module layout the
-      server rejects.
-- [ ] **Fix or repackage the example**
-      `examples/features/computation-graphs/python-packaged-graph` so it is
-      packageable as-is (module under `workflow/`).
+- [x] **Fix the docs** `how-to-guides/packaging-python-workflows.md` (T-0677 +
+      Step 5 now leads with `cloacinactl package pack`).
+- [x] **Fix or repackage the example**
+      `examples/features/computation-graphs/python-packaged-graph` (T-0677 — module
+      moved under `workflow/`, verified loading on a live server).
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -119,3 +119,32 @@ Python packages (CLOACI-T-0664): `cloacinactl package pack` errors on a Python
 package dir for lack of `Cargo.toml`. Confirmed the server accepts Python
 `.cloacina` uploads (a hand-tarred Python computation-graph package uploaded
 `201`), so the only gap is the packer's Rust-only assumption.
+
+**2026-06-14 — Implemented (T2 of I-0119); reparented under CLOACI-I-0119.**
+Reassessed against current code: the "requires Cargo.toml" symptom was already
+resolved by the `package build` / `package pack` noun split — `pack.rs` only
+required `package.toml` and delegated to `fidius_core::package::pack_package`,
+which archives source (no cargo) and handles the bzip2-tar `<name>-<version>/`
+layout for any language. Criteria 1/4/5 (canonical format + docs + example) were
+delivered in CLOACI-T-0677. Two real gaps remained, now fixed:
+- **`publish` was broken for Python** — it unconditionally ran `build::run`
+  (cargo build). `build` now reads `[metadata].language` and no-ops for Python.
+- **No pack-time layout validation** — added. New
+  `crates/cloacinactl/src/nouns/package/manifest.rs` reads `[metadata]` through
+  `CloacinaMetadata` (so `package_type` / `[[metadata.triggers]]` are rejected at
+  pack via `deny_unknown_fields`) and, for Python, validates that `workflow/`
+  exists and `entry_module` resolves under it. `pack` and `publish` share a
+  `pack::pack_to` helper that runs this before archiving. A mis-laid-out package
+  now fails at pack, not at upload.
+- Unit tests added for language parsing + the layout validator (module file,
+  package `__init__`, missing `workflow/`, missing/unresolvable `entry_module`).
+- Docs updated: how-to Step 5 + `package-format.md` now lead with
+  `cloacinactl package pack` for Python (hand-tar recipe demoted to a fallback).
+
+Files: `nouns/package/{manifest.rs (new), build.rs, pack.rs, publish.rs, mod.rs}`;
+`docs/.../packaging-python-workflows.md`; `docs/.../platform/explanation/package-format.md`.
+
+**2026-06-14 — Verified + completed.** `angreal check crate crates/cloacinactl`,
+`angreal test e2e cli`, and the end-to-end `package pack` of `demo-py-workflow`
+(+ live-server upload) all pass. All acceptance criteria met (1/4/5 via T-0677;
+2/3 via this change). Committed `bbc5b1b6` on `i0119-authoring-dx`.
