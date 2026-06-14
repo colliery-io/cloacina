@@ -1,0 +1,41 @@
+cloacina-ui has been installed.
+
+Chart:    {{ .Chart.Name }} {{ .Chart.Version }}
+App:      {{ .Chart.AppVersion }}
+Image:    {{ include "cloacina-ui.image" . }}
+Release:  {{ .Release.Name }} (namespace: {{ .Release.Namespace }})
+
+1. Wait for the pod to become ready:
+
+    kubectl --namespace {{ .Release.Namespace }} \
+      rollout status deployment/{{ include "cloacina-ui.fullname" . }}
+
+{{- if .Values.ingress.enabled }}
+
+2. Ingress is enabled — the UI is reachable at:
+{{- range .Values.ingress.hosts }}
+    http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+
+2. Ingress is disabled. To reach the UI from your laptop:
+
+    kubectl --namespace {{ .Release.Namespace }} \
+      port-forward svc/{{ include "cloacina-ui.fullname" . }} 8081:{{ .Values.service.port }}
+
+   Then open http://localhost:8081.
+{{- end }}
+
+{{- if not .Values.serverUrl }}
+
+NOTE: serverUrl is empty, so the UI will ask for the server URL on the
+/connect screen. Set `--set serverUrl=https://your-server` to prefill it.
+{{- end }}
+
+IMPORTANT: the browser calls cloacina-server cross-origin. The server must
+allow this UI's origin — set CLOACINA_CORS_ALLOWED_ORIGINS on the server to
+the URL users load the UI from (REQ-009). The serverUrl value here is the
+address the *browser* uses to reach the server (its ingress/public URL),
+not the in-cluster Service DNS.
+
+Docs:    https://cloacina.dev

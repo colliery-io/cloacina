@@ -35,11 +35,25 @@ use crate::computation_graph::scheduler::ComputationGraphDeclaration;
 use crate::runtime::Runtime;
 use crate::task::TaskNamespace;
 
+/// One task in a loaded Python workflow, with its dependency edges — captured
+/// host-side (from the scoped Runtime, before it is dropped) so the reconciler
+/// can persist the task DAG into package metadata and the UI can render it like
+/// Rust workflows. (CLOACI-T-0672)
+pub struct PythonTaskNode {
+    /// Local task id (e.g. `"finish"`).
+    pub id: String,
+    /// Local ids of the tasks this task depends on (e.g. `["prepare"]`).
+    pub dependencies: Vec<String>,
+}
+
 /// Result of loading a Python workflow package.
 pub struct LoadedPythonWorkflow {
     /// Tasks registered in the global task registry under their fully-qualified
     /// namespace. The reconciler tracks these so it can unregister on unload.
     pub task_namespaces: Vec<TaskNamespace>,
+    /// Per-task dependency edges (local ids), for persisting/rendering the task
+    /// DAG. Mirrors the Rust path's `PackageMetadata.tasks`. (CLOACI-T-0672)
+    pub tasks: Vec<PythonTaskNode>,
     /// Name of the workflow registered in the global workflow registry.
     pub workflow_name: String,
 }

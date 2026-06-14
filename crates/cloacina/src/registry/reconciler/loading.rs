@@ -442,6 +442,30 @@ impl RegistryReconciler {
                 loaded.workflow_name,
             );
 
+            // Persist the Python task graph (CLOACI-T-0672). Python packages
+            // produce no cdylib, so `mark_build_success` couldn't populate the
+            // row's task list — write it here from the scoped Runtime's view so
+            // `GET /workflows/{name}` (and the UI DAG) show the tasks the same
+            // way Rust packages do. Best-effort: a failure must not abort load.
+            let py_task_graph: Vec<(String, Vec<String>)> = loaded
+                .tasks
+                .iter()
+                .map(|n| (n.id.clone(), n.dependencies.clone()))
+                .collect();
+            if !py_task_graph.is_empty() {
+                if let Err(e) = self
+                    .registry
+                    .persist_task_graph(metadata.id, py_task_graph)
+                    .await
+                {
+                    warn!(
+                        package = %metadata.package_name,
+                        error = %e,
+                        "failed to persist Python task graph metadata"
+                    );
+                }
+            }
+
             (
                 loaded.task_namespaces,
                 Some(loaded.workflow_name),
@@ -984,50 +1008,53 @@ impl RegistryReconciler {
                 package_metadata.tasks.len()
             );
 
-            // Extract the workflow name from the package metadata
-            // The workflow name comes from the #[packaged_workflow(name = "...")] macro
-            // Since package_loader::PackageMetadata doesn't have workflow_name field directly,
-            // we need to extract it from the task metadata namespaced templates
-            let workflow_name = {
-                // Extract workflow name from namespaced_id_template
-                if let Some(first_task) = package_metadata.tasks.first() {
-                    let template = &first_task.namespaced_id_template;
-                    debug!("Parsing workflow_name from template: '{}'", template);
+            // Extract the workflow name from the package metadata.
+            // The workflow name comes from the #[workflow(name = "...")] macro and
+            // is now carried directly on PackageMetadata.workflow_name (sourced
+            // from the cdylib's PackageTasksMetadata). Prefer it so the name we
+            // register the workflow under in the runner matches exactly what the
+            // API exposes and the UI executes by (CLOACI-T-0671). Fall back to
+            // the legacy template-parsing path for metadata predating the field.
+            let workflow_name = if !package_metadata.workflow_name.is_empty() {
+                package_metadata.workflow_name.clone()
+            } else if let Some(first_task) = package_metadata.tasks.first() {
+                // Legacy fallback: extract workflow name from namespaced_id_template
+                let template = &first_task.namespaced_id_template;
+                debug!("Parsing workflow_name from template: '{}'", template);
 
-                    // Split by "::" and extract the workflow_id part (3rd component)
-                    let parts: Vec<&str> = template.split("::").collect();
-                    if parts.len() >= 3 {
-                        let workflow_part = parts[2];
-                        // Handle both {workflow} placeholder and actual workflow_id
-                        if workflow_part == "{workflow}" {
-                            // This is a template, need to look up actual workflow_id from registered tasks
-                            let mut found_id = None;
-                            for namespace in runtime.task_namespaces() {
-                                if namespace.package_name == metadata.package_name
-                                    && namespace.tenant_id == self.config.default_tenant_id
-                                {
-                                    debug!(
-                                        "Found registered task with workflow_id: '{}'",
-                                        namespace.workflow_id
-                                    );
-                                    found_id = Some(namespace.workflow_id.clone());
-                                    break;
-                                }
+                // Split by "::" and extract the workflow_id part (3rd component)
+                let parts: Vec<&str> = template.split("::").collect();
+                if parts.len() >= 3 {
+                    let workflow_part = parts[2];
+                    // Handle both {workflow} placeholder and actual workflow_id
+                    if workflow_part == "{workflow}" {
+                        // This is a template, need to look up actual workflow_id from registered tasks
+                        let mut found_id = None;
+                        for namespace in runtime.task_namespaces() {
+                            if namespace.package_name == metadata.package_name
+                                && namespace.tenant_id == self.config.default_tenant_id
+                            {
+                                debug!(
+                                    "Found registered task with workflow_id: '{}'",
+                                    namespace.workflow_id
+                                );
+                                found_id = Some(namespace.workflow_id.clone());
+                                break;
                             }
-                            // Use found ID or fallback
-                            found_id.unwrap_or_else(|| metadata.package_name.clone())
-                        } else {
-                            // This is the actual workflow_id
-                            workflow_part.to_string()
                         }
+                        // Use found ID or fallback
+                        found_id.unwrap_or_else(|| metadata.package_name.clone())
                     } else {
-                        debug!("Template format unexpected, using package name as fallback");
-                        metadata.package_name.clone()
+                        // This is the actual workflow_id
+                        workflow_part.to_string()
                     }
                 } else {
-                    debug!("No tasks in package metadata, using package name as fallback");
+                    debug!("Template format unexpected, using package name as fallback");
                     metadata.package_name.clone()
                 }
+            } else {
+                debug!("No tasks in package metadata, using package name as fallback");
+                metadata.package_name.clone()
             };
 
             debug!(
@@ -1359,6 +1386,7 @@ impl RegistryReconciler {
             };
             triggers.push(TriggerPackageMetadata {
                 name: impl_.name().to_string(),
+                workflow_name: impl_.workflow_name().to_string(),
                 package_name: package_name.to_string(),
                 poll_interval: format!("{}s", impl_.poll_interval().as_secs()),
                 cron_expression: impl_.cron_expression(),
@@ -1399,6 +1427,9 @@ impl RegistryReconciler {
                     input_strategy: "latest".to_string(),
                     accumulators,
                     trigger_reactor: reg.trigger_reactor.clone(),
+                    // Python CG topology threading is a follow-up — the runtime
+                    // registration carries no node/edge graph yet. (CLOACI-T-0673)
+                    graph_data_json: None,
                 })
             });
 
@@ -1483,22 +1514,37 @@ impl RegistryReconciler {
                 .cron_expression
                 .as_deref()
                 .expect("cron_expression presence already filtered");
+            // Register the schedule against the trigger's TARGET workflow (its
+            // `#[trigger(on = "...")]` binding), NOT the trigger's own name —
+            // the cron scheduler executes `workflow_name` directly. Falls back
+            // to `t.name` for older package metadata that predates the
+            // `workflow_name` field. (CLOACI-T-0669)
+            let target_workflow = if t.workflow_name.is_empty() {
+                t.name.as_str()
+            } else {
+                t.workflow_name.as_str()
+            };
             // Default to UTC so behavior is deterministic across hosts.
             // The trigger metadata doesn't carry a timezone today; if we
             // need per-trigger timezones in future, plumb a field on
             // TriggerPackageMetadata.
-            match registrar.register_cron_workflow(&t.name, expr, "UTC").await {
+            match registrar
+                .register_cron_workflow(target_workflow, expr, "UTC")
+                .await
+            {
                 Ok(id) => {
                     info!(
-                        "Package {} v{}: registered cron schedule '{}' (cron='{}', id={})",
-                        metadata.package_name, metadata.version, t.name, expr, id
+                        "Package {} v{}: registered cron schedule for workflow '{}' \
+                         (trigger '{}', cron='{}', id={})",
+                        metadata.package_name, metadata.version, target_workflow, t.name, expr, id
                     );
                     schedule_ids.push(id);
                 }
                 Err(e) => {
                     warn!(
-                        "Package {} v{}: failed to register cron schedule '{}' (cron='{}'): {}",
-                        metadata.package_name, metadata.version, t.name, expr, e
+                        "Package {} v{}: failed to register cron schedule for workflow '{}' \
+                         (trigger '{}', cron='{}'): {}",
+                        metadata.package_name, metadata.version, target_workflow, t.name, expr, e
                     );
                 }
             }
@@ -1947,11 +1993,13 @@ mod tests {
         WorkflowMetadata {
             id: Uuid::new_v4(),
             registry_id: Uuid::new_v4(),
+            workflow_name: "test-workflow".to_string(),
             package_name: "test-pkg".to_string(),
             version: "1.0.0".to_string(),
             description: Some("Test package".to_string()),
             author: None,
             tasks: vec![],
+            task_graph: vec![],
             schedules: vec![],
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -2115,6 +2163,7 @@ mod tests {
                 input_strategy: "latest".to_string(),
                 accumulators,
                 trigger_reactor: Some(upstream_reactor.to_string()),
+                graph_data_json: None,
             }),
         }
     }
@@ -2279,6 +2328,7 @@ mod tests {
                     config: Default::default(),
                 }],
                 trigger_reactor: Some("self_rx".to_string()),
+                graph_data_json: None,
             }),
         };
         let manifest = make_cloacina_metadata();

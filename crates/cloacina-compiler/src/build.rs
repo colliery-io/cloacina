@@ -309,9 +309,15 @@ fn load_manifest(source_dir: &Path) -> Result<toml::Value, String> {
 }
 
 fn manifest_language(manifest: &toml::Value) -> String {
+    // `language` is canonically a `[metadata]` field — that's what the upload
+    // schema accepts and what every example/fixture sets. (CLOACI-T-0666: this
+    // previously read `[package].language`, which is never populated, so every
+    // packaged-Python build wrongly fell through to cargo and failed.) Keep a
+    // `[package]` fallback for resilience against older hand-authored manifests.
     manifest
-        .get("package")
-        .and_then(|p| p.get("language"))
+        .get("metadata")
+        .and_then(|m| m.get("language"))
+        .or_else(|| manifest.get("package").and_then(|p| p.get("language")))
         .and_then(|v| v.as_str())
         .unwrap_or("rust")
         .to_ascii_lowercase()

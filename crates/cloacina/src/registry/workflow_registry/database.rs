@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::WorkflowRegistryImpl;
 use crate::registry::error::RegistryError;
 use crate::registry::traits::RegistryStorage;
-use crate::registry::types::WorkflowMetadata;
+use crate::registry::types::{WorkflowMetadata, WorkflowTaskNode};
 
 /// Result of inspecting a package — full metadata plus the raw build state.
 #[derive(Debug, Clone)]
@@ -30,6 +30,27 @@ pub struct InspectedPackage {
     pub metadata: WorkflowMetadata,
     pub build_status: String,
     pub build_error: Option<String>,
+}
+
+/// Build the task dependency graph (one node per task, with its upstream
+/// dependencies) from the persisted package metadata's task list, so the API
+/// and UI can render the full DAG. (CLOACI-T-0663)
+pub(super) fn build_task_graph(
+    package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
+) -> Vec<WorkflowTaskNode> {
+    package_metadata
+        .tasks
+        .iter()
+        .map(|t| WorkflowTaskNode {
+            id: t.local_id.clone(),
+            dependencies: t.dependencies.clone(),
+            description: if t.description.trim().is_empty() {
+                None
+            } else {
+                Some(t.description.clone())
+            },
+        })
+        .collect()
 }
 
 impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
@@ -367,6 +388,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             workflows.push(WorkflowMetadata {
                 id: record.id.0,
                 registry_id: record.registry_id.0,
+                workflow_name: if package_metadata.workflow_name.is_empty() {
+                    record.package_name.clone()
+                } else {
+                    package_metadata.workflow_name.clone()
+                },
                 package_name: record.package_name,
                 version: record.version,
                 description: record.description,
@@ -376,6 +402,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
@@ -418,6 +445,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             workflows.push(WorkflowMetadata {
                 id: record.id.0,
                 registry_id: record.registry_id.0,
+                workflow_name: if package_metadata.workflow_name.is_empty() {
+                    record.package_name.clone()
+                } else {
+                    package_metadata.workflow_name.clone()
+                },
                 package_name: record.package_name,
                 version: record.version,
                 description: record.description,
@@ -427,6 +459,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
@@ -571,6 +604,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             let workflow_metadata = WorkflowMetadata {
                 id: record.id.0,
                 registry_id: record.registry_id.0,
+                workflow_name: if package_metadata.workflow_name.is_empty() {
+                    record.package_name.clone()
+                } else {
+                    package_metadata.workflow_name.clone()
+                },
                 package_name: record.package_name,
                 version: record.version,
                 description: record.description,
@@ -580,6 +618,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
@@ -636,6 +675,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             let workflow_metadata = WorkflowMetadata {
                 id: record.id.0,
                 registry_id: record.registry_id.0,
+                workflow_name: if package_metadata.workflow_name.is_empty() {
+                    record.package_name.clone()
+                } else {
+                    package_metadata.workflow_name.clone()
+                },
                 package_name: record.package_name,
                 version: record.version,
                 description: record.description,
@@ -645,6 +689,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
@@ -942,6 +987,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             metadata: WorkflowMetadata {
                 id: record.id.0,
                 registry_id: record.registry_id.0,
+                workflow_name: if package_metadata.workflow_name.is_empty() {
+                    record.package_name.clone()
+                } else {
+                    package_metadata.workflow_name.clone()
+                },
                 package_name: record.package_name,
                 version: record.version,
                 description: record.description,
@@ -951,6 +1001,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .iter()
                     .map(|t| t.local_id.clone())
                     .collect(),
+                task_graph: build_task_graph(&package_metadata),
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
@@ -1157,6 +1208,34 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
         let pid = UniversalUuid(package_id);
         let now = UniversalTimestamp::now();
+
+        // Extract the authoritative metadata (executable `workflow_name`, task
+        // list, graph data, triggers) from the freshly compiled cdylib and
+        // merge it into the stored row's `metadata` JSON. At upload time the
+        // row only carries manifest-derived fields (no workflow_name, empty
+        // tasks); the cdylib is the only place the real workflow name lives.
+        // Persisting it here is what lets the UI/API resolve and execute a
+        // workflow by name when package name ≠ workflow name.
+        // (CLOACI-T-0671 / CLOACI-T-0663)
+        let merged_metadata_json: Option<String> = match self
+            .extract_and_merge_build_metadata(package_id, &compiled)
+            .await
+        {
+            Ok(json) => json,
+            Err(e) => {
+                // Metadata extraction is best-effort: a failure here must not
+                // block recording the successful build (the compiled bytes are
+                // still valid and loadable). Log and proceed without updating
+                // the metadata column.
+                tracing::warn!(
+                    %package_id,
+                    error = %e,
+                    "failed to extract/merge build metadata; recording build success without metadata update"
+                );
+                None
+            }
+        };
+
         let bytes = UniversalBinary::new(compiled);
         let updated: usize = crate::dispatch_backend!(
             self.database.backend(),
@@ -1166,20 +1245,128 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .get_postgres_connection()
                     .await
                     .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let meta = merged_metadata_json.clone();
                 conn.interact(move |conn| {
                     use diesel::prelude::*;
-                    diesel::update(
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .filter(workflow_packages::build_status.eq("building")),
-                    )
-                    .set((
-                        workflow_packages::build_status.eq("success"),
-                        workflow_packages::compiled_data.eq(Some(bytes)),
-                        workflow_packages::compiled_at.eq(Some(now)),
-                        workflow_packages::build_error.eq::<Option<String>>(None),
-                    ))
-                    .execute(conn)
+                    let target = workflow_packages::table
+                        .filter(workflow_packages::id.eq(pid))
+                        .filter(workflow_packages::build_status.eq("building"));
+                    match meta {
+                        Some(meta) => diesel::update(target)
+                            .set((
+                                workflow_packages::build_status.eq("success"),
+                                workflow_packages::compiled_data.eq(Some(bytes)),
+                                workflow_packages::compiled_at.eq(Some(now)),
+                                workflow_packages::build_error.eq::<Option<String>>(None),
+                                workflow_packages::metadata.eq(meta),
+                            ))
+                            .execute(conn),
+                        None => diesel::update(target)
+                            .set((
+                                workflow_packages::build_status.eq("success"),
+                                workflow_packages::compiled_data.eq(Some(bytes)),
+                                workflow_packages::compiled_at.eq(Some(now)),
+                                workflow_packages::build_error.eq::<Option<String>>(None),
+                            ))
+                            .execute(conn),
+                    }
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let meta = merged_metadata_json.clone();
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    let target = workflow_packages::table
+                        .filter(workflow_packages::id.eq(pid))
+                        .filter(workflow_packages::build_status.eq("building"));
+                    match meta {
+                        Some(meta) => diesel::update(target)
+                            .set((
+                                workflow_packages::build_status.eq("success"),
+                                workflow_packages::compiled_data.eq(Some(bytes)),
+                                workflow_packages::compiled_at.eq(Some(now)),
+                                workflow_packages::build_error.eq::<Option<String>>(None),
+                                workflow_packages::metadata.eq(meta),
+                            ))
+                            .execute(conn),
+                        None => diesel::update(target)
+                            .set((
+                                workflow_packages::build_status.eq("success"),
+                                workflow_packages::compiled_data.eq(Some(bytes)),
+                                workflow_packages::compiled_at.eq(Some(now)),
+                                workflow_packages::build_error.eq::<Option<String>>(None),
+                            ))
+                            .execute(conn),
+                    }
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+        if updated == 0 {
+            return Err(RegistryError::Database(format!(
+                "stale build claim on package {pid}: row no longer in 'building' state \
+                 — another compiler must have raced this mark_build_success"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Extract metadata from freshly compiled cdylib bytes and merge the
+    /// authoritative fields (workflow name, tasks, graph data, triggers) into
+    /// the row's stored `PackageMetadata`, returning the re-serialized JSON.
+    ///
+    /// Returns `Ok(None)` when there is nothing to persist (no compiled bytes,
+    /// or the cdylib carries no extractable metadata) so the caller skips the
+    /// metadata column update. The package's identity fields (package_name,
+    /// version, description, author) are preserved from the existing row;
+    /// only the cdylib-derived fields are overwritten. (CLOACI-T-0671 / T-0663)
+    async fn extract_and_merge_build_metadata(
+        &self,
+        package_id: Uuid,
+        compiled: &[u8],
+    ) -> Result<Option<String>, RegistryError> {
+        use crate::dal::unified::models::UnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        if compiled.is_empty() {
+            return Ok(None);
+        }
+
+        // Pull the authoritative fields out of the compiled library.
+        let loader = crate::registry::loader::package_loader::PackageLoader::new()
+            .map_err(|e| RegistryError::Internal(format!("loader init failed: {e}")))?;
+        let extracted = loader
+            .extract_metadata(compiled)
+            .await
+            .map_err(|e| RegistryError::Internal(format!("metadata extraction failed: {e}")))?;
+
+        // Read the row's existing stored metadata so we keep identity fields.
+        let pid = UniversalUuid(package_id);
+        let record: Option<UnifiedWorkflowPackage> = crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    workflow_packages::table
+                        .filter(workflow_packages::id.eq(pid))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()
                 })
                 .await
                 .map_err(|e| RegistryError::Database(e.to_string()))?
@@ -1193,29 +1380,164 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     .map_err(|e| RegistryError::Database(e.to_string()))?;
                 conn.interact(move |conn| {
                     use diesel::prelude::*;
-                    diesel::update(
-                        workflow_packages::table
-                            .filter(workflow_packages::id.eq(pid))
-                            .filter(workflow_packages::build_status.eq("building")),
-                    )
-                    .set((
-                        workflow_packages::build_status.eq("success"),
-                        workflow_packages::compiled_data.eq(Some(bytes)),
-                        workflow_packages::compiled_at.eq(Some(now)),
-                        workflow_packages::build_error.eq::<Option<String>>(None),
-                    ))
-                    .execute(conn)
+                    workflow_packages::table
+                        .filter(workflow_packages::id.eq(pid))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()
                 })
                 .await
                 .map_err(|e| RegistryError::Database(e.to_string()))?
                 .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
             }
         );
+
+        let record = match record {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+
+        // Start from the existing metadata (preserves package_name, version,
+        // description, author) and overwrite the cdylib-derived fields.
+        let mut merged: crate::registry::loader::package_loader::PackageMetadata =
+            serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
+
+        merged.workflow_name = extracted.workflow_name;
+        merged.tasks = extracted.tasks;
+        merged.graph_data = extracted.graph_data;
+        merged.architecture = extracted.architecture;
+        merged.symbols = extracted.symbols;
+        merged.workflow_triggers = extracted.workflow_triggers;
+
+        let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
+        Ok(Some(json))
+    }
+
+    /// Persist a task list (local ids + dependency edges) into the row's stored
+    /// `PackageMetadata`. Used by the Python load path, which has no cdylib to
+    /// extract from — the reconciler supplies the task graph captured from the
+    /// scoped Runtime. (CLOACI-T-0672)
+    pub(super) async fn persist_task_graph_db(
+        &self,
+        package_id: Uuid,
+        tasks: Vec<(String, Vec<String>)>,
+    ) -> Result<(), RegistryError> {
+        use crate::dal::unified::models::UnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+        use crate::registry::loader::package_loader::TaskMetadata;
+
+        let pid = UniversalUuid(package_id);
+
+        // Read the existing metadata so we preserve identity + workflow_name.
+        let record: Option<UnifiedWorkflowPackage> = crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    workflow_packages::table
+                        .filter(workflow_packages::id.eq(pid))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    workflow_packages::table
+                        .filter(workflow_packages::id.eq(pid))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+
+        let record = match record {
+            Some(r) => r,
+            None => return Ok(()),
+        };
+
+        let mut merged: crate::registry::loader::package_loader::PackageMetadata =
+            serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
+
+        let workflow = if merged.workflow_name.is_empty() {
+            merged.package_name.clone()
+        } else {
+            merged.workflow_name.clone()
+        };
+        merged.tasks = tasks
+            .iter()
+            .enumerate()
+            .map(|(i, (id, deps))| TaskMetadata {
+                index: i as u32,
+                local_id: id.clone(),
+                namespaced_id_template: format!(
+                    "{{tenant}}::{}::{}::{}",
+                    merged.package_name, workflow, id
+                ),
+                dependencies: deps.clone(),
+                description: String::new(),
+                source_location: String::new(),
+            })
+            .collect();
+
+        let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
+
+        let updated: usize = crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let json = json.clone();
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set(workflow_packages::metadata.eq(json))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let json = json.clone();
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set(workflow_packages::metadata.eq(json))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+
         if updated == 0 {
-            return Err(RegistryError::Database(format!(
-                "stale build claim on package {pid}: row no longer in 'building' state \
-                 — another compiler must have raced this mark_build_success"
-            )));
+            tracing::warn!(%package_id, "persist_task_graph_db updated no rows");
         }
         Ok(())
     }
@@ -1662,6 +1984,7 @@ mod tests {
     fn sample_metadata(name: &str, version: &str) -> PackageMetadata {
         PackageMetadata {
             package_name: name.to_string(),
+            workflow_name: name.to_string(),
             version: version.to_string(),
             description: Some("A test package".to_string()),
             author: Some("test-author".to_string()),

@@ -46,6 +46,7 @@ pub type WorkflowPackageId = Uuid;
 ///     id: Uuid::new_v4(),
 ///     registry_id: Uuid::new_v4(),
 ///     package_name: "analytics_pipeline".to_string(),
+///     workflow_name: "analytics_workflow".to_string(),
 ///     version: "1.0.0".to_string(),
 ///     description: Some("Customer analytics workflow".to_string()),
 ///     author: Some("Data Team".to_string()),
@@ -66,6 +67,13 @@ pub struct WorkflowMetadata {
     /// Name of the workflow package (e.g., "analytics_pipeline")
     pub package_name: String,
 
+    /// Name of the executable workflow inside the package (e.g.,
+    /// "analytics_workflow"). This is the identifier the runner registry is
+    /// keyed by and is what callers must use to execute the workflow. It often
+    /// differs from `package_name` (package `demo-slow-rust` →
+    /// workflow `demo_slow_workflow`). (CLOACI-T-0671)
+    pub workflow_name: String,
+
     /// Semantic version of the package (e.g., "1.0.0")
     pub version: String,
 
@@ -78,6 +86,13 @@ pub struct WorkflowMetadata {
     /// List of task IDs included in this package
     pub tasks: Vec<String>,
 
+    /// The task dependency graph: one node per task with its upstream
+    /// dependencies, so consumers (the UI) can render the full DAG. Derived
+    /// from the persisted package metadata's task list. Empty for packages
+    /// predating task-graph persistence. (CLOACI-T-0663)
+    #[serde(default)]
+    pub task_graph: Vec<WorkflowTaskNode>,
+
     /// List of schedule names defined in this package
     pub schedules: Vec<String>,
 
@@ -86,6 +101,19 @@ pub struct WorkflowMetadata {
 
     /// When this package metadata was last updated
     pub updated_at: DateTime<Utc>,
+}
+
+/// One node in a workflow's task dependency graph (CLOACI-T-0663).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowTaskNode {
+    /// Local task id (the node id), e.g. `"validate"`.
+    pub id: String,
+
+    /// Local ids of the tasks this task depends on (its incoming edges).
+    pub dependencies: Vec<String>,
+
+    /// Optional human-readable task description.
+    pub description: Option<String>,
 }
 
 /// Package metadata extracted from a .cloacina file.

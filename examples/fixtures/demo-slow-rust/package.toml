@@ -1,0 +1,16 @@
+# Demo slow-streaming fixture (CLOACI-I-0117 / T-0660). A five-task chain
+# where each step sleeps `context["step_seconds"]` (default 4s) before
+# completing, so a single execution emits a visible sequence of task
+# start/finish events over ~20s — giving the UI's live execution view
+# something to animate. Used by the seed/demo harness.
+[package]
+name = "demo-slow-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "demo_slow_workflow"
+language = "rust"
+description = "demo slow-streaming workflow — five chained steps that each sleep"

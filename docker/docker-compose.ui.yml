@@ -1,0 +1,62 @@
+---
+# Cloacina UI stack (CLOACI-I-0117 / T-0659): postgres + cloacina-server +
+# the web UI, wired for the cross-origin browser story.
+#
+# Usage:
+#   docker compose -f docker/docker-compose.ui.yml up --build
+#   → UI at  http://localhost:8081   (connects to the server at :8080)
+#
+# CORS: the browser loads the SPA from the UI origin (:8081) and calls the
+# server (:8080) cross-origin, so the server must allow that origin —
+# CLOACINA_CORS_ALLOWED_ORIGINS below is the I-0113 / REQ-009 opt-in.
+#
+# Runtime config (OQ-5): the UI image is server-agnostic; CLOACINA_SERVER_URL
+# is injected at container start and prefills the /connect form.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cloacina
+      POSTGRES_PASSWORD: cloacina
+      POSTGRES_DB: cloacina
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloacina"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command:
+      - "--database-url"
+      - "postgres://cloacina:cloacina@postgres:5432/cloacina"
+      - "--bind"
+      - "0.0.0.0:8080"
+    environment:
+      # Allow the UI's browser origin to call the API (REQ-009 opt-in).
+      CLOACINA_CORS_ALLOWED_ORIGINS: "http://localhost:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  ui:
+    build:
+      context: ..
+      dockerfile: ui/Dockerfile
+    environment:
+      # Browser reaches the server on the host-published port.
+      CLOACINA_SERVER_URL: "http://localhost:8080"
+    depends_on:
+      - server
+    ports:
+      - "8081:80"
+
+volumes:
+  pgdata:

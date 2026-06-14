@@ -1,0 +1,17 @@
+# Demo cron-trigger fixture (CLOACI-I-0117 / T-0664). A workflow plus a cron
+# trigger that fires it on a schedule, so the UI's Triggers view shows a
+# schedule and executions auto-appear. Self-contained (the trigger's `on`
+# names the workflow in this same package) — modeled on trigger-only-rust's
+# cron trigger + mixed-rust's workflow/trigger binding.
+[package]
+name = "demo-cron-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "demo_cron_workflow"
+language = "rust"
+description = "demo cron workflow — fires on a schedule"
+author = "cloacina-ui-demo"

@@ -131,6 +131,7 @@ async fn test_cross_language_fan_out_via_shared_reactor_name() {
         // The M5 wire-format change: this package opts the graph into the
         // shared-reactor binding by naming "shared_rx".
         trigger_reactor: Some("shared_rx".to_string()),
+        graph_data_json: None,
     };
     // We don't need the FFI plugin path here — `build_declaration_from_ffi`
     // gracefully degrades when the library bytes don't load (it returns a

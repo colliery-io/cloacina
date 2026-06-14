@@ -31,11 +31,11 @@
 use cloacina_api_types::{
     AccumulatorStatus, CreateKeyRequest, CreateTenantRequest, ErrorBody, ExecuteRequest,
     ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse, ExecutionSummary,
-    GraphStatus, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse,
-    TenantCreatedResponse, TenantListResponse, TenantRemovedResponse, TenantSummary,
-    TriggerDetailResponse, TriggerExecution, TriggerScheduleInfo, TriggerScheduleSummary,
-    WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowUploadedResponse,
-    WsTicketResponse,
+    GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode, KeyCreatedResponse, KeyInfo,
+    KeyRevokedResponse, KeyRole, ListResponse, TenantCreatedResponse, TenantListResponse,
+    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerExecution,
+    TriggerScheduleInfo, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
+    WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse, WsTicketResponse,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -127,6 +127,7 @@ impl Modify for SecurityAddon {
         WorkflowUploadedResponse,
         WorkflowSummary,
         WorkflowDetail,
+        WorkflowTaskNode,
         WorkflowDeletedResponse,
         TenantListResponse<WorkflowSummary>,
         TriggerScheduleSummary,
@@ -143,6 +144,9 @@ impl Modify for SecurityAddon {
         TenantListResponse<ExecutionSummary>,
         AccumulatorStatus,
         GraphStatus,
+        GraphTopology,
+        GraphTopologyNode,
+        GraphTopologyEdge,
         ListResponse<AccumulatorStatus>,
         ListResponse<GraphStatus>,
     )),

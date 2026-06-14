@@ -1,0 +1,21 @@
+# Demo Python computation-graph fixture (CLOACI-I-0117 / T-0664). A reactor +
+# accumulator + computation graph defined in Python (cloaca decorators), so the
+# UI's Graphs + Accumulators views populate from a Python package. Content
+# mirrors the proven soak-server Python CG
+# (.angreal/test/soak/server.py::create_python_cg_source_package). The module
+# tree MUST live under workflow/ — the reconciler's Python CG extraction
+# requires it (a top-level module fails with "Missing workflow source directory").
+[package]
+name = "demo-py-graph"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "demo_py_graph"
+language = "python"
+description = "demo python computation graph — reactor-bound market maker"
+entry_module = "demo_py_graph.graph"
+reaction_mode = "when_any"
+input_strategy = "latest"

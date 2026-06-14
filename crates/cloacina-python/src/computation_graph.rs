@@ -776,6 +776,11 @@ pub fn build_python_graph_declaration(
     let accumulator_names = executor.accumulators.clone();
     let reactor_name = executor.reactor_name.clone();
 
+    // Capture the node/edge topology before `executor` is moved into the
+    // graph_fn closure, so the health API can render this Python CG's DAG
+    // the same way Rust CGs do. (CLOACI-T-0673)
+    let topology = Some(python_graph_topology_json(&executor));
+
     // Build CompiledGraphFn from the Python executor
     let graph_fn: cloacina_computation_graph::CompiledGraphFn =
         Arc::new(move |cache: InputCache| {
@@ -819,7 +824,49 @@ pub fn build_python_graph_declaration(
         // same reactor as a Rust (or Python) package share a runtime
         // instance via M2's idempotent registration path.
         reactor_name,
+        topology,
     })
+}
+
+/// Serialize a Python graph executor's node/edge topology to the same compact
+/// JSON shape the Rust `#[computation_graph]` macro emits
+/// (`{"nodes":[{"id","inputs":[..]}],"edges":[{"from","to","label":null|"Variant"}]}`),
+/// so the API/UI render Python and Rust CG DAGs identically. (CLOACI-T-0673)
+fn python_graph_topology_json(executor: &PythonGraphExecutor) -> String {
+    use serde_json::{json, Value};
+
+    let nodes: Vec<Value> = executor
+        .execution_order
+        .iter()
+        .filter_map(|n| executor.node_map.get(n))
+        .map(|d| json!({ "id": d.name, "inputs": d.cache_inputs }))
+        .collect();
+
+    let mut edges: Vec<Value> = Vec::new();
+    for name in &executor.execution_order {
+        if let Some(decl) = executor.node_map.get(name) {
+            match &decl.edge {
+                PyEdgeDecl::Linear { target } => edges.push(json!({
+                    "from": decl.name,
+                    "to": target,
+                    "label": Value::Null,
+                })),
+                PyEdgeDecl::Routing { variants } => {
+                    for (variant_name, target) in variants {
+                        edges.push(json!({
+                            "from": decl.name,
+                            "to": target,
+                            "label": variant_name,
+                        }));
+                    }
+                }
+                // Terminal nodes have no outgoing edge.
+                PyEdgeDecl::Terminal => {}
+            }
+        }
+    }
+
+    serde_json::to_string(&json!({ "nodes": nodes, "edges": edges })).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------

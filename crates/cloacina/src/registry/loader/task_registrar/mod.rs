@@ -295,6 +295,7 @@ mod tests {
 
         PackageMetadata {
             package_name: package_name.to_string(),
+            workflow_name: package_name.to_string(),
             version: "1.0.0".to_string(),
             description: Some("Test package".to_string()),
             author: Some("Test Author".to_string()),

@@ -128,6 +128,10 @@ inventory::collect!(WorkflowDescriptorEntry);
 pub struct ComputationGraphEntry {
     pub name: &'static str,
     pub constructor: fn() -> ComputationGraphRegistration,
+    /// Serialized node/edge topology JSON for this graph, emitted by the
+    /// `#[computation_graph]` macro so `get_graph_metadata` can surface the DAG
+    /// to the API/UI. Empty string when not emitted. (CLOACI-T-0673)
+    pub graph_data_json: &'static str,
 }
 inventory::collect!(ComputationGraphEntry);
 

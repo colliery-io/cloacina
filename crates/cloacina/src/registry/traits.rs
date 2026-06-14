@@ -173,6 +173,31 @@ pub trait WorkflowRegistry: Send + Sync {
         let _ = package_hash;
         Ok(false)
     }
+
+    /// Persist a workflow's task list (local ids + dependency edges) into the
+    /// stored package metadata.
+    ///
+    /// This exists for the **Python** load path: Python packages produce no
+    /// cdylib, so the cdylib-based metadata extraction in `mark_build_success`
+    /// never runs and the row's `tasks` stay empty. The reconciler captures the
+    /// task graph from the scoped Runtime at load time and calls this to write
+    /// it back, so the API/UI can show the task DAG the same way Rust packages
+    /// do. (CLOACI-T-0672)
+    ///
+    /// # Arguments
+    /// * `package_id` — the workflow package row id.
+    /// * `tasks` — `(local_task_id, [dependency_local_ids])` per task.
+    ///
+    /// Default impl is a no-op for registries that don't persist metadata
+    /// (filesystem, in-memory, mocks).
+    async fn persist_task_graph(
+        &self,
+        package_id: WorkflowPackageId,
+        tasks: Vec<(String, Vec<String>)>,
+    ) -> Result<(), RegistryError> {
+        let _ = (package_id, tasks);
+        Ok(())
+    }
 }
 
 /// Trait for binary storage backends.

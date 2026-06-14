@@ -42,6 +42,14 @@ pub fn get_library_extension() -> &'static str {
 pub struct PackageMetadata {
     /// Package name
     pub package_name: String,
+    /// Workflow name the package registers (the `#[workflow(name = "...")]`
+    /// value) — the identifier the runner/cron scheduler executes by. Distinct
+    /// from `package_name` (e.g. package `demo-slow-rust` → workflow
+    /// `demo_slow_workflow`). Persisted so the API can expose it and callers
+    /// can execute by it (CLOACI-T-0671 / T-0663). `#[serde(default)]` keeps
+    /// older stored metadata (without this field) deserializable.
+    #[serde(default)]
+    pub workflow_name: String,
     /// Package version (extracted from library or defaults to "1.0.0")
     pub version: String,
     /// Package description
@@ -299,6 +307,7 @@ impl PackageLoader {
 
         Ok(PackageMetadata {
             package_name: meta.package_name,
+            workflow_name: meta.workflow_name,
             version: "1.0.0".to_string(),
             description: meta.package_description,
             author: meta.package_author,

@@ -1,0 +1,18 @@
+# Demo Python workflow fixture (CLOACI-I-0117 / T-0664). A pure-Python task
+# workflow so the demo exercises the Python packaging path (the compiler skips
+# cargo for language="python" and the reconciler imports the module via PyO3).
+# Content mirrors the proven soak-server Python package
+# (.angreal/test/soak/server.py::create_python_source_package).
+[package]
+name = "demo-py-workflow"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "demo_py_workflow"
+language = "python"
+description = "demo python task workflow"
+author = "cloacina-ui-demo"
+entry_module = "demo_py_workflow.tasks"

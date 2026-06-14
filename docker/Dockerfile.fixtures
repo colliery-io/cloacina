@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1.7
+#
+# Demo-fixtures packer (CLOACI-I-0117 / T-0660). A one-shot image for the demo
+# compose profile: it stages the demo workflow fixtures (rewriting the
+# `__WORKSPACE__` placeholder to the baked `/workspace`) and packs them into
+# `.cloacina` source archives in /out (a shared volume).
+#
+# Why bake /workspace + rewrite to it: the in-cluster cloacina-compiler image
+# also bakes the workspace at /workspace, so a package whose path-deps point at
+# `/workspace/crates/...` resolves identically in both this packer (which
+# `cargo build`-validates during pack) and the compiler (which does the real
+# build). Host-packed fixtures carry host absolute paths and would NOT resolve
+# inside the compiler container — hence packing here, against /workspace.
+#
+# Build:  docker build -t cloacina-fixtures:dev -f docker/Dockerfile.fixtures .
+# Run:    docker run --rm -v pkgs:/out cloacina-fixtures:dev   # → /out/*.cloacina
+
+ARG RUST_VERSION=1.93
+
+FROM rust:${RUST_VERSION}-slim-bookworm
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        libpq-dev \
+        libsasl2-dev \
+        libssl-dev \
+        pkg-config \
+        git \
+        ca-certificates \
+        bzip2 \
+        python3 \
+        python3-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+COPY . /workspace
+ENV CARGO_TARGET_DIR=/workspace/target
+
+# Build cloacinactl (the packer) and pre-warm the workspace dep cache.
+RUN cargo build --release --locked --bin cloacinactl \
+ && cp target/release/cloacinactl /usr/local/bin/cloacinactl
+
+COPY docker/pack-demo-fixtures.sh /usr/local/bin/pack-demo-fixtures.sh
+RUN chmod +x /usr/local/bin/pack-demo-fixtures.sh
+
+ENV CLOACINA_HOME=/workspace/.cloacina
+ENTRYPOINT ["/usr/local/bin/pack-demo-fixtures.sh"]

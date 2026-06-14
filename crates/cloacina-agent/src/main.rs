@@ -783,6 +783,7 @@ fn synthetic_package_metadata(
     use cloacina::registry::loader::package_loader::PackageMetadata;
     PackageMetadata {
         package_name: format!("agent_dynamic_{}", digest),
+        workflow_name: format!("agent_dynamic_{}", digest),
         version: "0.0.0".into(),
         description: None,
         author: None,

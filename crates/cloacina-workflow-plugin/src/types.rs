@@ -112,6 +112,13 @@ pub struct GraphPackageMetadata {
     /// keeps this backward compatible with packages built before T-0544 M5.
     #[serde(default)]
     pub trigger_reactor: Option<String>,
+    /// Serialized node/edge topology of the graph, as JSON
+    /// `{"nodes":[{"id","inputs":[..]}],"edges":[{"from","to","label":null|"Variant"}]}`.
+    /// Emitted by the `#[computation_graph]` macro (Rust) or the Python graph
+    /// builder, so the API/UI can render the CG DAG. `None`/empty for packages
+    /// predating topology emission. (CLOACI-T-0673)
+    #[serde(default)]
+    pub graph_data_json: Option<String>,
 }
 
 fn default_input_strategy() -> String {
@@ -249,6 +256,13 @@ pub struct TriggerInvokeResult {
 pub struct TriggerPackageMetadata {
     /// Trigger name.
     pub name: String,
+    /// Target workflow this trigger fires — the `#[trigger(on = "...")]`
+    /// binding. For cron triggers the reconciler registers the schedule against
+    /// THIS workflow, not `name` (which is just the trigger's identity).
+    /// `#[serde(default)]` keeps older package metadata (pre-CLOACI-T-0669,
+    /// without this field) deserializable. Empty falls back to `name`.
+    #[serde(default)]
+    pub workflow_name: String,
     /// Cargo package name (sourcing context for diagnostics).
     pub package_name: String,
     /// Polling interval as a humantime-parseable string (e.g., "5s", "1m").
@@ -602,6 +616,7 @@ mod tests {
                 },
             ],
             trigger_reactor: None,
+            graph_data_json: None,
         };
 
         let json = serde_json::to_string(&metadata).unwrap();

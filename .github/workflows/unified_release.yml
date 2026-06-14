@@ -542,6 +542,90 @@ jobs:
           docker run --rm "${IMAGE}:latest" --version
 
   # -----------------------------------------------------------------------
+  # Step 5c-ui: Build + push cloacina-ui image (CLOACI-I-0117 / T-0659)
+  #
+  # Multi-arch build via buildx, pushed to ghcr.io/<owner>/cloacina-ui.
+  # Built in lockstep with cloacina-server (NFR-004) — same tag scheme
+  # (<semver>, <major>.<minor>, latest) so the UI and server images stay
+  # version-matched. Context is the repo root because ui/Dockerfile builds
+  # the sibling @cloacina/client SDK before the Vite bundle.
+  # -----------------------------------------------------------------------
+
+  publish-docker-ui:
+    name: Publish cloacina-ui image
+    needs: [verify-version]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute tags
+        id: tags
+        env:
+          TAG_REF: ${{ github.ref }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_REF#refs/tags/}"     # vX.Y.Z
+          version="${tag#v}"              # X.Y.Z
+          major_minor="${version%.*}"     # X.Y
+          owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          image="ghcr.io/${owner_lc}/cloacina-ui"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag_list<<EOF"
+            echo "${image}:${version}"
+            echo "${image}:${major_minor}"
+            echo "${image}:latest"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ui/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tag_list }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (runtime config + SPA serve, linux/amd64)
+        env:
+          IMAGE: ${{ steps.tags.outputs.image }}
+        run: |
+          set -euo pipefail
+          # Verifies the entrypoint renders index.html with the injected
+          # server URL and nginx serves it (the SPA's only runtime contract).
+          docker run -d --name ui-smoke -e CLOACINA_SERVER_URL=http://smoke.test:8080 \
+            -p 8099:80 "${IMAGE}:latest"
+          for i in $(seq 1 15); do
+            if curl -fsS http://localhost:8099/ >/dev/null; then break; fi
+            sleep 1
+          done
+          body=$(curl -fsS http://localhost:8099/)
+          echo "${body}" | grep -q 'defaultServerUrl: "http://smoke.test:8080"'
+          docker rm -f ui-smoke
+
+  # -----------------------------------------------------------------------
   # Step 5d: Publish Helm chart (CLOACI-I-0111 / T-0605)
   #
   # Packages charts/cloacina-server and pushes it as an OCI artifact to
@@ -551,7 +635,7 @@ jobs:
 
   publish-helm:
     name: Publish Helm chart
-    needs: [verify-version, publish-docker]
+    needs: [verify-version, publish-docker, publish-docker-ui]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -578,6 +662,10 @@ jobs:
           sed -i -E "s/^version: .*/version: ${version}/" charts/cloacina-server/Chart.yaml
           sed -i -E "s/^appVersion: .*/appVersion: \"${version}\"/" charts/cloacina-server/Chart.yaml
           grep -E "^(version|appVersion):" charts/cloacina-server/Chart.yaml
+          # cloacina-ui chart tracks the same release tag (NFR-004).
+          sed -i -E "s/^version: .*/version: ${version}/" charts/cloacina-ui/Chart.yaml
+          sed -i -E "s/^appVersion: .*/appVersion: \"${version}\"/" charts/cloacina-ui/Chart.yaml
+          grep -E "^(version|appVersion):" charts/cloacina-ui/Chart.yaml
 
       - name: Log in to ghcr.io (Helm OCI push)
         env:
@@ -586,23 +674,28 @@ jobs:
         run: |
           echo "${GITHUB_TOKEN}" | helm registry login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
 
-      - name: Lint chart
-        run: helm lint charts/cloacina-server
+      - name: Lint charts
+        run: |
+          helm lint charts/cloacina-server
+          helm lint charts/cloacina-ui
 
-      - name: Package chart
+      - name: Package charts
         run: |
           mkdir -p dist-charts
           helm package charts/cloacina-server --destination dist-charts
+          helm package charts/cloacina-ui --destination dist-charts
 
-      - name: Push chart to ghcr.io
+      - name: Push charts to ghcr.io
         env:
           REPO_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
-          chart_pkg=$(ls dist-charts/cloacina-server-*.tgz | head -n1)
-          [ -n "${chart_pkg}" ] || { echo "no chart package found" >&2; exit 1; }
-          helm push "${chart_pkg}" "oci://ghcr.io/${owner_lc}/charts"
+          for prefix in cloacina-server cloacina-ui; do
+            chart_pkg=$(ls dist-charts/${prefix}-*.tgz | head -n1)
+            [ -n "${chart_pkg}" ] || { echo "no ${prefix} chart package found" >&2; exit 1; }
+            helm push "${chart_pkg}" "oci://ghcr.io/${owner_lc}/charts"
+          done
 
   # -----------------------------------------------------------------------
   # Step 6: Cache hygiene
@@ -615,7 +708,7 @@ jobs:
 
   prune-tag-caches:
     name: Prune Tag-Scoped Caches
-    needs: [publish-cargo, publish-pypi, build-release-binaries, publish-docker, publish-helm]
+    needs: [publish-cargo, publish-pypi, build-release-binaries, publish-docker, publish-docker-ui, publish-helm]
     if: always() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

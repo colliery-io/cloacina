@@ -263,6 +263,43 @@ def _poll_build_status(
     )
 
 
+def _get_json(url: str, bootstrap_key: str) -> dict:
+    """Authenticated GET → parsed JSON. Used to assert on the server's actual
+    HTTP response bodies (the API surface the UI/SDK consume)."""
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {bootstrap_key}"}
+    )
+    with urllib.request.urlopen(req, timeout=5.0) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _poll_graph_topology(
+    server_url: str,
+    bootstrap_key: str,
+    graph_name: str,
+    timeout_s: float = 120.0,
+) -> dict:
+    """Poll GET /v1/health/graphs/{name} until the reactor-bound CG is loaded
+    and carries a non-empty node/edge topology, or fail. (CLOACI-T-0673)"""
+    deadline = time.time() + timeout_s
+    last: dict = {}
+    while time.time() < deadline:
+        try:
+            last = _get_json(
+                f"{server_url}/v1/health/graphs/{graph_name}", bootstrap_key
+            )
+            topo = last.get("topology")
+            if topo and topo.get("nodes"):
+                return last
+        except Exception:
+            pass
+        time.sleep(1.0)
+    raise AssertionError(
+        f"graph '{graph_name}' never reported a topology within {timeout_s}s; "
+        f"last body: {json.dumps(last, indent=2)}"
+    )
+
+
 def _poll_run_workflow(
     home: Path,
     workflow_name: str,
@@ -434,6 +471,29 @@ def compiler():
         assert body.get("build_status") == "success", body
         assert body.get("build_error") in (None, "", "null"), body
         print("  ok: happy path → build_status = success")
+
+        # --- workflow metadata: name + task graph -------------------------
+        # Guards CLOACI-T-0663 / T-0671 / T-0672: after a successful build the
+        # row must persist the executable workflow name (distinct from the
+        # package name) and the task list with dependency edges, and the
+        # workflow-detail API must surface both (this is what the UI executes
+        # by and renders as a DAG).
+        detail = _get_json(
+            f"{server_url}/v1/tenants/public/workflows/{happy_id}", bootstrap_key
+        )
+        assert detail.get("workflow_name") == "compiler_happy_workflow", (
+            "workflow_name must be the #[workflow(name=...)] value, not the "
+            f"package name: {detail!r}"
+        )
+        assert detail["workflow_name"] != detail.get("package_name"), detail
+        assert detail.get("tasks"), f"expected non-empty tasks: {detail!r}"
+        task_graph = detail.get("task_graph") or []
+        assert task_graph, f"expected non-empty task_graph: {detail!r}"
+        assert {n["id"] for n in task_graph} == set(detail["tasks"]), detail
+        print(
+            "  ok: workflow_name + tasks + task_graph populated "
+            "(T-0663/0671/0672)"
+        )
 
         # --- failed build ---------------------------------------------------
         broken_dir = _stage_fixture(home, "compiler-broken-rust")

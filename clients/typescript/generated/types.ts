@@ -526,9 +526,35 @@ export interface components {
              *     detailed health is available. Free-form JSON for now.
              */
             health: unknown;
+            /** @description Input strategy of the bound reactor: `"latest"` | `"sequential"`. */
+            input_strategy?: string | null;
             name: string;
             /** @description Pause state of the graph's reactor. */
             paused: boolean;
+            /** @description Reaction mode of the bound reactor: `"when_any"` | `"when_all"`. */
+            reaction_mode?: string | null;
+            /** @description Name of the reactor this graph is bound to (the trigger that fires it). */
+            reactor?: string | null;
+            topology?: null | components["schemas"]["GraphTopology"];
+        };
+        /** @description Node/edge topology of a computation graph (CLOACI-T-0673). */
+        GraphTopology: {
+            edges: components["schemas"]["GraphTopologyEdge"][];
+            nodes: components["schemas"]["GraphTopologyNode"][];
+        };
+        /** @description One directed edge in a computation graph (CLOACI-T-0673). */
+        GraphTopologyEdge: {
+            from: string;
+            /** @description Routing-variant label for conditional edges; `None` for linear edges. */
+            label?: string | null;
+            to: string;
+        };
+        /** @description One compute node in a computation graph (CLOACI-T-0673). */
+        GraphTopologyNode: {
+            /** @description Node id (the compute function name). */
+            id: string;
+            /** @description Accumulator names this node reads from the input cache (entry nodes). */
+            inputs?: string[];
         };
         /**
          * @description `201 Created` body for a new API key. The plaintext `key` is returned
@@ -605,9 +631,16 @@ export interface components {
                  *     detailed health is available. Free-form JSON for now.
                  */
                 health: unknown;
+                /** @description Input strategy of the bound reactor: `"latest"` | `"sequential"`. */
+                input_strategy?: string | null;
                 name: string;
                 /** @description Pause state of the graph's reactor. */
                 paused: boolean;
+                /** @description Reaction mode of the bound reactor: `"when_any"` | `"when_all"`. */
+                reaction_mode?: string | null;
+                /** @description Name of the reactor this graph is bound to (the trigger that fires it). */
+                reactor?: string | null;
+                topology?: null | components["schemas"]["GraphTopology"];
             }[];
             total: number;
         };
@@ -726,6 +759,13 @@ export interface components {
                 /** @description Task IDs included in this package. */
                 tasks: string[];
                 version: string;
+                /**
+                 * @description Executable workflow name (the identifier to execute by). Differs from
+                 *     `package_name` under the standard convention (package `demo-slow-rust`
+                 *     → workflow `demo_slow_workflow`). Falls back to `package_name` for
+                 *     packages predating workflow-name persistence. (CLOACI-T-0671)
+                 */
+                workflow_name: string;
             }[];
             tenant_id: string;
             total: number;
@@ -811,10 +851,23 @@ export interface components {
             /** @description Package UUID. */
             id: string;
             package_name: string;
+            /**
+             * @description The task dependency graph (nodes + their upstream dependencies) for
+             *     rendering the full workflow DAG. Empty for packages predating
+             *     task-graph persistence. (CLOACI-T-0663)
+             */
+            task_graph?: components["schemas"]["WorkflowTaskNode"][];
             /** @description Task IDs included in this package. */
             tasks: string[];
             tenant_id: string;
             version: string;
+            /**
+             * @description Executable workflow name (the identifier to execute by). Differs from
+             *     `package_name` under the standard convention (package `demo-slow-rust`
+             *     → workflow `demo_slow_workflow`). Falls back to `package_name` for
+             *     packages predating workflow-name persistence. (CLOACI-T-0671)
+             */
+            workflow_name: string;
         };
         /** @description One row in the workflow list (`GET /tenants/{tenant_id}/workflows`). */
         WorkflowSummary: {
@@ -827,6 +880,25 @@ export interface components {
             /** @description Task IDs included in this package. */
             tasks: string[];
             version: string;
+            /**
+             * @description Executable workflow name (the identifier to execute by). Differs from
+             *     `package_name` under the standard convention (package `demo-slow-rust`
+             *     → workflow `demo_slow_workflow`). Falls back to `package_name` for
+             *     packages predating workflow-name persistence. (CLOACI-T-0671)
+             */
+            workflow_name: string;
+        };
+        /**
+         * @description One node in a workflow's task dependency graph — a task plus the ids of the
+         *     tasks it depends on. The UI renders these as a DAG. (CLOACI-T-0663)
+         */
+        WorkflowTaskNode: {
+            /** @description Local ids of the tasks this task depends on (its incoming edges). */
+            dependencies: string[];
+            /** @description Optional human-readable task description. */
+            description?: string | null;
+            /** @description Local task id (the node id), e.g. `"validate"`. */
+            id: string;
         };
         /**
          * @description `201 Created` body for a workflow package upload

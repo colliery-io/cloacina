@@ -16,6 +16,13 @@ target/
 docs/public/
 docs/themes/
 
+# Node — installed and built inside the UI image (ui/Dockerfile); never
+# ship host node_modules or stale dist into the build context.
+**/node_modules/
+clients/typescript/dist/
+ui/dist/
+ui/.vite/
+
 # Editor / OS clutter
 .idea/
 .vscode/

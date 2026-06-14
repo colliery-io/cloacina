@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.local
+.vite/
+coverage/
+test-results/
+playwright-report/

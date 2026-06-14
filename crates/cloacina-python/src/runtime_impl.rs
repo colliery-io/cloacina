@@ -60,8 +60,33 @@ impl PythonRuntime for CloacinaPythonRuntime {
             )
             .map_err(|e| format!("Python workflow import failed: {}", e))?;
 
+        // Capture each task's dependency edges from the scoped Runtime while it
+        // is still alive — Python tasks live on the Runtime, not in a cdylib, so
+        // this is the only place the dependency graph is reachable host-side.
+        // We strip namespaces down to local task ids so the shape matches the
+        // Rust path's persisted task list. (CLOACI-T-0672)
+        let tasks = task_namespaces
+            .iter()
+            .map(|ns| {
+                let dependencies = runtime
+                    .get_task(ns)
+                    .map(|task| {
+                        task.dependencies()
+                            .iter()
+                            .map(|dep| dep.task_id.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                cloacina::python_runtime::PythonTaskNode {
+                    id: ns.task_id.clone(),
+                    dependencies,
+                }
+            })
+            .collect();
+
         Ok(LoadedPythonWorkflow {
             task_namespaces,
+            tasks,
             workflow_name: extracted.workflow_name,
         })
     }

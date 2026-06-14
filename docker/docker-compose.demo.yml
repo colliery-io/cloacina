@@ -1,0 +1,182 @@
+---
+# Cloacina UI DEMO stack (CLOACI-I-0117 / T-0660): a self-contained
+# "stand it up and watch it run" profile —
+#   postgres + server + compiler + (one-shot) fixtures-packer + harness + UI.
+#
+#   docker compose -f docker/docker-compose.demo.yml up --build
+#   → UI at  http://localhost:8082   (connects to the server at :8080)
+#     The harness fires a mix of fast / slow / failing runs every few seconds,
+#     so the dashboard and live execution view always have something moving.
+#
+# Flow: the `fixtures` service packs the demo workflows (paths baked to
+# /workspace) into a shared volume; the `compiler` builds those uploaded
+# packages (pending → success); the `harness` uploads them and drives
+# executions; the UI renders it live.
+#
+# Build: server + compiler + fixtures all come from docker/Dockerfile.demo,
+# which compiles the workspace ONCE in a shared builder stage (the compiler and
+# fixtures services even share the same `workspace` image). First build is still
+# sizeable but no longer triples the compile.
+#
+# CORS: the browser loads the SPA from :8082 and calls the server at :8080
+# cross-origin, so the server allows that origin (REQ-009).
+
+x-bootstrap-key: &bootstrap_key "clk_demo_bootstrap_key_0001"
+x-db-url: &db_url "postgres://cloacina:cloacina@postgres:5432/cloacina"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cloacina
+      POSTGRES_PASSWORD: cloacina
+      POSTGRES_DB: cloacina
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloacina"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka broker (KRaft, single node) for Kafka-sourced stream/batch
+  # accumulators. The in-network server reaches it as `kafka:9092` — the
+  # advertised listener MUST be `kafka:9092` (not localhost) so in-cluster
+  # clients connect. The soak's producer execs inside this container
+  # (`docker compose exec kafka …`), so no host port is required. (CLOACI-T-0676)
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      CLUSTER_ID: cloacina-demo-cluster-001
+    volumes:
+      - kafkadata:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.demo
+      target: server
+    command:
+      - "--database-url"
+      - *db_url
+      - "--bind"
+      - "0.0.0.0:8080"
+      - "--bootstrap-key"
+      - *bootstrap_key
+    environment:
+      CLOACINA_CORS_ALLOWED_ORIGINS: "http://localhost:8082"
+      # Resolves the `{{ KAFKA_BROKER }}` token in Kafka-stream accumulator
+      # configs (e.g. demo-kafka-stream-rust) to the in-network broker.
+      CLOACINA_VAR_KAFKA_BROKER: "kafka:9092"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Kafka-sourced stream accumulators connect at CG-load time, so the broker
+      # must be ready before the reconciler loads those packages. (CLOACI-T-0676)
+      kafka:
+        condition: service_healthy
+    # Server + compiler both run DB migrations on boot; on a fresh DB they can
+    # race (duplicate type creation). restart:on-failure lets the loser retry
+    # once the winner's migrations have landed.
+    restart: on-failure
+    ports:
+      - "8080:8080"
+
+  # In-cluster build service: compiles uploaded packages (pending → success).
+  # `--cargo-flag build --lib` drops the default --frozen (the demo fixtures
+  # carry no committed Cargo.lock). restart:on-failure rides out the one-time
+  # migration race with the server on a fresh DB (both migrate on boot).
+  compiler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.demo
+      target: workspace
+    command:
+      - "--bind"
+      - "0.0.0.0:9000"
+      - "--database-url"
+      - *db_url
+      - "--poll-interval-ms"
+      - "1000"
+      # Tell the compiler the target dir explicitly (not just via the image's
+      # CARGO_TARGET_DIR env) so it looks for the built cdylib where cargo wrote
+      # it — otherwise it checks the package's local target/debug and fails.
+      - "--cargo-target-dir"
+      - "/workspace/target"
+      - "--cargo-flag=build"
+      - "--cargo-flag=--lib"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  # One-shot: pack the demo fixtures (paths → /workspace) into the shared
+  # volume the harness uploads from. Exits when done. Reuses the `workspace`
+  # image (same build as the compiler — built once), overriding the entrypoint
+  # to run the packer instead of the compiler.
+  fixtures:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.demo
+      target: workspace
+    entrypoint: ["/usr/local/bin/pack-demo-fixtures.sh"]
+    volumes:
+      - fixtures-pkgs:/out
+
+  ui:
+    build:
+      context: ..
+      dockerfile: ui/Dockerfile
+    environment:
+      CLOACINA_SERVER_URL: "http://localhost:8080"
+    depends_on:
+      - server
+    ports:
+      - "8082:80"
+
+  harness:
+    build:
+      context: ..
+      dockerfile: ui/harness/Dockerfile
+    environment:
+      HARNESS_SERVER_URL: "http://server:8080"
+      HARNESS_API_KEY: *bootstrap_key
+      HARNESS_TENANT: "public"
+      # seed = one-shot: upload + register all packages, fire one
+      # completed/failed/in-flight run, then exit. The cron trigger keeps the
+      # Triggers view live on its own schedule — no continuous harness loop.
+      HARNESS_MODE: "seed"
+      HARNESS_STEP_SECONDS: "4"
+      HARNESS_PACKAGE_DIR: "/packages"
+    depends_on:
+      server:
+        condition: service_started
+      fixtures:
+        condition: service_completed_successfully
+    # The server may still be migrating/restarting when we start; the driver
+    # waits for /health, but restart:on-failure covers a cold-start overrun.
+    restart: on-failure
+    volumes:
+      - fixtures-pkgs:/packages:ro
+
+volumes:
+  pgdata:
+  fixtures-pkgs:
+  kafkadata:

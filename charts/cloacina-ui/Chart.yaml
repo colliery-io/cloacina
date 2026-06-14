@@ -1,0 +1,31 @@
+---
+apiVersion: v2
+name: cloacina-ui
+description: |
+  Cloacina web UI — tenant-scoped control plane (React SPA served by
+  nginx). Pairs with the cloacina-ui image published to ghcr.io and talks
+  to cloacina-server cross-origin over the browser. Optional companion to
+  the cloacina-server chart.
+type: application
+
+# Chart's own semver. Bump per chart change.
+version: 0.1.0
+
+# Tracks the cloacina-ui release the default image.tag points at. The UI
+# is version-locked to the server (NFR-004) — keep this in step with the
+# cloacina-server chart's appVersion when deploying the pair.
+appVersion: "0.7.0"
+
+home: https://cloacina.dev
+sources:
+  - https://github.com/colliery-software/cloacina
+
+maintainers:
+  - name: Colliery Software
+    url: https://github.com/colliery-software
+
+keywords:
+  - workflow
+  - orchestration
+  - ui
+  - react
