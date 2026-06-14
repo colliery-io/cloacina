@@ -4,14 +4,14 @@ level: task
 title: "Reconcile the packaged-workflow format — one canonical layout, fix Python docs + broken example"
 short_code: "CLOACI-T-0677"
 created_at: 2026-06-14T15:31:35.240398+00:00
-updated_at: 2026-06-14T15:32:31.985111+00:00
+updated_at: 2026-06-14T15:54:16.503804+00:00
 parent: CLOACI-I-0119
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -70,18 +70,24 @@ example. Foundation T1 (`package new`) and T2 (`package pack`) build on.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] A single canonical "package format" reference doc: the accepted directory
-      layouts (Rust + Python) and the exact `package.toml` `[package]`/`[metadata]`
-      schema (accepted keys; `package_type`/`[[metadata.triggers]]` rejected).
-- [ ] The Python packaging how-to is rewritten to the server-accepted format
+- [x] A single canonical "package format" reference doc: `package-format.md`
+      rewritten to cover the accepted directory layouts (Rust + Python) and the
+      exact `package.toml` `[package]`/`[metadata]` schema (accepted keys;
+      `package_type`/`[[metadata.triggers]]` rejected). `package-manifest.md`
+      collapsed to a redirect.
+- [x] The Python packaging how-to is rewritten to the server-accepted format
       (`package.toml` + module under `workflow/<mod>/`); the obsolete top-level
       module + `manifest.json` procedure is removed.
-- [ ] The broken `examples/.../python-packaged-graph` is fixed (module under
+- [x] The broken `examples/.../python-packaged-graph` is fixed (module under
       `workflow/`) so it actually loads — verified on a live server.
-- [ ] CLOACI-T-0666 (compiler read `[package].language`, already fixed) is closed.
-- [ ] No remaining doc/example references to rejected keys or the old Python layout.
+- [x] CLOACI-T-0666 (compiler read `[package].language`, already fixed) is closed.
+- [x] No remaining doc/example references to rejected keys or the old Python
+      layout (re-grep clean; remaining hits are explanatory "obsolete" notes and
+      auto-generated rustdoc for the still-existing `ManifestV2` Rust type).
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -168,3 +174,26 @@ example. Foundation T1 (`package new`) and T2 (`package pack`) build on.
 - `docs/.../computation-graphs/tutorials/service/07-packaging.md` (`package_type`)
 - Re-grep to confirm no stragglers; close T-0666 (compiler `[metadata].language`,
   already fixed — Python packages build/load fine, e.g. market_maker just did).
+
+**2026-06-14 — Completed (straggler sweep done).** Commit `0b78705e` on
+`i0119-authoring-dx`:
+- `08-packaged-triggers` (`.md` + tutorial `.py`): removed the dead
+  manifest.json/ManifestV2 trigger-array narrative; both now state the
+  `@cloaca.trigger` decorator *is* the declaration (registered at import), and
+  `package.toml` has no triggers section / rejects `package_type`.
+- `package-format.md`: full rewrite into the **canonical** reference — bzip2 tar
+  of source under `<name>-<version>/`, `[package]` + closed `[metadata]` schema
+  for both Rust and Python, the build-on-load flow (cargo for Rust, import for
+  Python), and the rejected keys. Verified against source via subagent +
+  fixtures (`examples/fixtures/demo-cron-rust`, `demo-py-workflow`).
+- `package-manifest.md`: collapsed the 380-line obsolete manifest.json schema to
+  a thin redirect to `package-format.md`.
+- T-0666 closed.
+- Final re-grep clean: remaining `manifest.json`/`tool.cloaca`/`package_type`
+  hits are all explanatory "obsolete" notes (mine) or auto-generated rustdoc for
+  the `ManifestV2` Rust type that still exists in source (not the on-disk
+  format). The CG `07-packaging.md:72` `package_type` mention is the correct
+  deprecation note — left intact.
+
+All acceptance criteria met. Follow-on CLI work (T1 `package new`, T2/T-0665
+`package pack` for Python, T3 `package validate`) remains under I-0119.
