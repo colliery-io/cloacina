@@ -508,6 +508,22 @@ impl DefaultRunnerConfigBuilder {
         self
     }
 
+    /// Sets how old a claimed task's heartbeat must be before its claim is
+    /// considered stale and reclaimed by the sweeper. Must be greater than
+    /// `heartbeat_interval` (enforced in `build()`). Lower values shorten the
+    /// crash-recovery window (default 60s). (CLOACI-T-0667)
+    pub fn stale_claim_threshold(mut self, value: Duration) -> Self {
+        self.config.stale_claim_threshold = value;
+        self
+    }
+
+    /// Sets how often the stale-claim sweeper runs (default 30s). Only has
+    /// effect when claiming + recovery are enabled. (CLOACI-T-0667)
+    pub fn stale_claim_sweep_interval(mut self, value: Duration) -> Self {
+        self.config.stale_claim_sweep_interval = value;
+        self
+    }
+
     /// Builds and validates the configuration.
     ///
     /// Returns an error if any configuration value is out of bounds.
@@ -809,6 +825,35 @@ mod tests {
         assert!(config.registry_storage_path().is_none());
         assert!(config.runner_id().is_none());
         assert!(config.runner_name().is_none());
+    }
+
+    #[test]
+    fn test_stale_claim_builder_setters() {
+        // CLOACI-T-0667: the stale-claim timing is tunable through the builder.
+        // Defaults: threshold 60s, sweep interval 30s.
+        let def = DefaultRunnerConfig::default();
+        assert_eq!(def.stale_claim_threshold(), Duration::from_secs(60));
+        assert_eq!(def.stale_claim_sweep_interval(), Duration::from_secs(30));
+
+        // A valid override (threshold > heartbeat_interval) is honored end-to-end.
+        let config = DefaultRunnerConfig::builder()
+            .heartbeat_interval(Duration::from_secs(2))
+            .stale_claim_threshold(Duration::from_secs(10))
+            .stale_claim_sweep_interval(Duration::from_secs(5))
+            .build()
+            .unwrap();
+        assert_eq!(config.stale_claim_threshold(), Duration::from_secs(10));
+        assert_eq!(config.stale_claim_sweep_interval(), Duration::from_secs(5));
+
+        // A threshold <= heartbeat_interval is rejected by build() validation.
+        let err = DefaultRunnerConfig::builder()
+            .heartbeat_interval(Duration::from_secs(10))
+            .stale_claim_threshold(Duration::from_secs(5))
+            .build();
+        assert!(
+            err.is_err(),
+            "threshold <= heartbeat_interval must be rejected"
+        );
     }
 
     #[test]

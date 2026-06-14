@@ -89,8 +89,12 @@ impl DefaultRunner {
             self.register_registry_reconciler(&mut manager).await?;
         }
 
-        // Stale-claim sweeper runs whenever push-with-claim is enabled.
-        if self.config.enable_claiming() {
+        // Stale-claim sweeper (crash-recovery: reclaims claims whose owner
+        // stopped heart-beating) runs when claiming is on AND recovery is
+        // enabled. `enable_recovery` previously gated nothing — wiring it here
+        // gives the flag its expected meaning so `enable_recovery(false)` is no
+        // longer a silent no-op. (CLOACI-T-0667)
+        if self.config.enable_claiming() && self.config.enable_recovery() {
             self.register_stale_claim_sweeper(&mut manager).await?;
         }
 
