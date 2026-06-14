@@ -414,6 +414,79 @@ def cli():
             print("  ok: API-10 trigger list --limit/--offset accepted")
 
             # ─────────────────────────────────────────────────────────
+            # CLOACI-I-0119: packaged-workflow authoring loop.
+            # `package new` → edit the scaffold ("sed in some stuff") →
+            # `package validate` (dir AND archive) → `package pack` →
+            # `package upload`, then confirm the package registers. Proves
+            # the scaffolder emits a server-acceptable package and the whole
+            # author DX round-trips against a live server.
+            # ─────────────────────────────────────────────────────────
+            token = str(int(time.time()))
+            pkg_name = f"e2e-authored-{token}"
+            module = pkg_name.replace("-", "_")
+            with tempfile.TemporaryDirectory() as authored_s:
+                pkg_dir = Path(authored_s) / pkg_name
+
+                # 1. scaffold a canonical Python package (T-0678)
+                _cloacinactl(
+                    home, "package", "new", pkg_name,
+                    "--lang", "python", "--path", str(pkg_dir),
+                )
+                tasks_py = pkg_dir / "workflow" / module / "tasks.py"
+                assert tasks_py.exists(), f"scaffold missing {tasks_py}"
+
+                # 2. "sed in some stuff" — an author edits the generated task
+                src = tasks_py.read_text()
+                src = src.replace(
+                    'context.set("hello", "world")',
+                    f'context.set("authored_token", "{token}")',
+                )
+                tasks_py.write_text(src)
+                assert "authored_token" in tasks_py.read_text()
+
+                # 3. validate the edited source dir (T-0679)
+                code, out, _ = _cloacinactl(home, "package", "validate", str(pkg_dir))
+                assert code == 0 and "valid" in out, f"validate(dir) failed: {out!r}"
+
+                # 4. pack into a .cloacina archive (T-0665)
+                archive = Path(authored_s) / f"{pkg_name}.cloacina"
+                _cloacinactl(home, "package", "pack", str(pkg_dir), "-o", str(archive))
+                assert archive.exists(), "pack did not produce an archive"
+
+                # 4b. validate accepts the packed archive too
+                code, out, _ = _cloacinactl(home, "package", "validate", str(archive))
+                assert code == 0 and "valid" in out, f"validate(archive) failed: {out!r}"
+
+                # 5. upload to the tenant — the server loads the Python package
+                code, out, stderr = _cloacinactl(
+                    home, "--tenant", tenant_name,
+                    "package", "upload", str(archive),
+                    check=False,
+                )
+                assert code == 0, (
+                    f"package upload failed: code={code} out={out!r} stderr={stderr!r}"
+                )
+
+                # 6. the uploaded package registers and shows up in `package list`
+                deadline = time.time() + 10.0
+                found = False
+                while time.time() < deadline and not found:
+                    code, out, _ = _cloacinactl(
+                        home, "-o", "json", "--tenant", tenant_name, "package", "list",
+                    )
+                    try:
+                        listed = json.loads(out)
+                    except json.JSONDecodeError:
+                        listed = []
+                    found = any(token in json.dumps(item) for item in listed)
+                    if not found:
+                        time.sleep(0.5)
+                assert found, (
+                    f"uploaded package {pkg_name} not visible in `package list` within 10s"
+                )
+            print("  ok: I-0119 authoring loop new→edit→validate→pack→upload round-trips")
+
+            # ─────────────────────────────────────────────────────────
             # CLOACI-T-0629: substrate contract — end-to-end JIT
             # delivery + ack via `cloacinactl execution events --follow`.
             #
