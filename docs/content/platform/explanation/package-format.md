@@ -171,7 +171,7 @@ Fidius validates the interface hash before any call.
 cloacinactl package build .
 
 # Pack the source directory into a .cloacina archive
-cloacinactl package pack . -o analytics-workflow-1.0.0.cloacina
+cloacinactl package pack . --out analytics-workflow-1.0.0.cloacina
 ```
 
 `pack` requires a `package.toml` in the directory and archives the source; it
@@ -180,7 +180,7 @@ does not compile. (Compilation happens at load time on the server.)
 ### Python — `cloacinactl package pack`
 
 ```bash
-cloacinactl package pack . -o data-pipeline-1.0.0.cloacina
+cloacinactl package pack . --out data-pipeline-1.0.0.cloacina
 ```
 
 `pack` reads `[metadata].language`; for `python` it skips `cargo`, validates the

@@ -196,7 +196,7 @@ Then pack. `cloacinactl package pack` reads `package.toml`, runs the same
 validation, and emits the `.cloacina` archive:
 
 ```bash
-cloacinactl package pack . -o data-pipeline-1.0.0.cloacina
+cloacinactl package pack . --out data-pipeline-1.0.0.cloacina
 ```
 
 A `.cloacina` package is a bzip2-compressed tar archive of `package.toml` + the

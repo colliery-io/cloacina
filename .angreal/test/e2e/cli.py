@@ -450,7 +450,7 @@ def cli():
 
                 # 4. pack into a .cloacina archive (T-0665)
                 archive = Path(authored_s) / f"{pkg_name}.cloacina"
-                _cloacinactl(home, "package", "pack", str(pkg_dir), "-o", str(archive))
+                _cloacinactl(home, "package", "pack", str(pkg_dir), "--out", str(archive))
                 assert archive.exists(), "pack did not produce an archive"
 
                 # 4b. validate accepts the packed archive too
