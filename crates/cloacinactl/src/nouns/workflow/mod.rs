@@ -62,21 +62,28 @@ impl WorkflowCmd {
                 let body: serde_json::Value = client
                     .get(&format!("/v1/tenants/{tenant}/workflows"))
                     .await?;
-                let workflows = body.get("workflows").cloned().unwrap_or(body.clone());
-                let filtered = match (package, workflows.as_array()) {
-                    (Some(pat), Some(items)) => serde_json::Value::Array(
+                // T-0594 unified envelope: the array is under `items`. Reading
+                // the old `workflows` key returned the whole envelope object,
+                // which is not an array — silently dropping the `--package`
+                // filter. Extract `items`, then filter.
+                let items: Vec<serde_json::Value> = body
+                    .get("items")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let filtered = match package {
+                    Some(pat) => serde_json::Value::Array(
                         items
-                            .iter()
+                            .into_iter()
                             .filter(|v| {
                                 v.get("package_name")
                                     .and_then(|n| n.as_str())
                                     .map(|n| n.contains(&pat))
                                     .unwrap_or(false)
                             })
-                            .cloned()
                             .collect(),
                     ),
-                    _ => workflows,
+                    None => serde_json::Value::Array(items),
                 };
                 render::list(&filtered, output)
             }

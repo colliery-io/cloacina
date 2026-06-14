@@ -97,8 +97,9 @@ impl KeyCmd {
             }
             KeyVerb::List => {
                 let body: serde_json::Value = client.get("/v1/auth/keys").await?;
-                let keys = body.get("keys").cloned().unwrap_or(body);
-                render::list(&keys, output)
+                // T-0594 unified `{items,total}` envelope — render::list reads
+                // `items` (the old `.get("keys").unwrap_or(body)` swallow is gone).
+                render::list(&body, output)
             }
             KeyVerb::Revoke { id, force } => {
                 if !force {
