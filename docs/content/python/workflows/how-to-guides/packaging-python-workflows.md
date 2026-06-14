@@ -85,44 +85,51 @@ upload. The accepted keys are:
 
 ## Step 2: Write Your Workflow
 
-In your entry module (`workflow/data_pipeline/tasks.py`):
+In your entry module (`workflow/data_pipeline/tasks.py`), declare tasks with
+**bare `@cloaca.task` decorators at module level** — no `WorkflowBuilder`:
 
 ```python
 import cloaca
 
-with cloaca.WorkflowBuilder("data_pipeline") as builder:
-    builder.description("ETL pipeline for analytics data")
+@cloaca.task(id="extract", dependencies=[])
+def extract(context):
+    # cloaca.var() reads from CLOACINA_VAR_ env vars at runtime
+    # See "External Configuration" section below
+    source = cloaca.var("DATA_SOURCE")
+    context.set("raw_data", fetch_from(source))  # Replace with your data function
+    return context
 
-    @cloaca.task(id="extract")
-    def extract(context):
-        # cloaca.var() reads from CLOACINA_VAR_ env vars at runtime
-        # See "External Configuration" section below
-        source = cloaca.var("DATA_SOURCE")
-        context.set("raw_data", fetch_from(source))  # Replace with your data function
-        return context
+@cloaca.task(id="transform", dependencies=["extract"])
+def transform(context):
+    raw = context.get("raw_data")
+    context.set("clean_data", clean(raw))  # Replace with your transform logic
+    return context
 
-    @cloaca.task(id="transform", dependencies=["extract"])
-    def transform(context):
-        raw = context.get("raw_data")
-        context.set("clean_data", clean(raw))  # Replace with your transform logic
-        return context
-
-    @cloaca.task(id="load", dependencies=["transform"])
-    def load(context):
-        dest = cloaca.var("WAREHOUSE_URL")
-        write_to(dest, context.get("clean_data"))  # Replace with your load logic
-        return context
+@cloaca.task(id="load", dependencies=["transform"])
+def load(context):
+    dest = cloaca.var("WAREHOUSE_URL")
+    write_to(dest, context.get("clean_data"))  # Replace with your load logic
+    return context
 ```
 
-Make `workflow/data_pipeline/__init__.py` import the entry module (so importing
-the package registers the tasks), or point `entry_module` directly at the file
-that defines them (`data_pipeline.tasks`, as above).
+The tasks are grouped into a workflow by the `workflow_name` you set in
+`package.toml` — the loader establishes that workflow context before importing
+`entry_module`, and your bare decorators register into it. Make
+`workflow/data_pipeline/__init__.py` import the entry module (so importing the
+package registers the tasks), or point `entry_module` directly at the file that
+defines them (`data_pipeline.tasks`, as above).
 
-{{< hint type="important" title="Module-Level Registration" >}}
-All `@cloaca.task` and `@cloaca.trigger` decorators **must** execute at import
-time (module level, inside a `WorkflowBuilder` context). The loader discovers
-tasks by importing your `entry_module` — if registration is gated behind
-`if __name__ == "__main__"`, the tasks won't be found.
+{{< hint type="important" title="Bare decorators — not WorkflowBuilder" >}}
+In a **packaged** workflow, do **not** wrap tasks in
+`with cloaca.WorkflowBuilder(...)`. That context manager is for running a
+workflow in-process (it pushes its own workflow context); inside a package it
+shadows the loader's context, so the loader finds no tasks under your
+`workflow_name` and rejects the package with *"Empty package: registered no
+tasks"*. Use bare `@cloaca.task` decorators and let `workflow_name` in
+`package.toml` name the workflow.
+
+All decorators **must** run at import time (module level) — if registration is
+gated behind `if __name__ == "__main__"`, the loader won't find the tasks.
 {{< /hint >}}
 
 ## Step 3: Vendoring Dependencies
@@ -155,10 +162,17 @@ Blocked modules include: `os`, `sys`, `subprocess`, `shutil`, `socket`, `http`,
 
 ## Step 4: Test Before Packaging
 
-Always verify your workflow runs correctly before packaging:
+To run a bare-decorator module in-process, supply the workflow context the
+packaged loader would normally provide by wrapping the **import** in a
+`WorkflowBuilder` with the same name as your `workflow_name`:
 
 ```python
 import cloaca
+
+# WorkflowBuilder here stands in for the loader's context (in-process only —
+# it is NOT part of the packaged module).
+with cloaca.WorkflowBuilder("data_pipeline"):
+    import data_pipeline.tasks   # bare @cloaca.task decorators register here
 
 runner = cloaca.DefaultRunner(":memory:")
 try:
@@ -170,9 +184,39 @@ finally:
 
 ## Step 5: Build the Package
 
+Use `cloacinactl package pack` — it reads `package.toml`, validates the Python
+layout (that `workflow/` exists and `entry_module` resolves under it), and emits
+the `.cloacina` archive:
+
+```bash
+cloacinactl package pack . -o data-pipeline-1.0.0.cloacina
+```
+
 A `.cloacina` package is a bzip2-compressed tar archive of `package.toml` + the
 `workflow/` tree (+ `vendor/` if present), under a single `<name>-<version>/`
-top-level directory. Build it from your project directory:
+top-level directory:
+
+```
+data-pipeline-1.0.0.cloacina
+└── data-pipeline-1.0.0/
+    ├── package.toml
+    ├── workflow/
+    │   └── data_pipeline/
+    │       └── tasks.py
+    └── vendor/                 # if present
+```
+
+{{< hint type="info" title="Packing fails fast on a bad layout" >}}
+If the module tree isn't under `workflow/`, or `entry_module` doesn't resolve to
+a module there, `pack` errors immediately — you don't have to wait for the server
+to reject the upload. The same parse rejects `package_type` and
+`[[metadata.triggers]]`.
+{{< /hint >}}
+
+<details>
+<summary>Building the archive by hand (no <code>cloacinactl</code>)</summary>
+
+The archive is a plain bzip2 tar, so you can build it with standard tools:
 
 ```bash
 name=data-pipeline
@@ -188,22 +232,7 @@ cp -R workflow "$stage/"
 tar -cjf "$name-$version.cloacina" -C "$(dirname "$stage")" "$prefix"
 ```
 
-The resulting archive contains:
-
-```
-data-pipeline-1.0.0.cloacina
-└── data-pipeline-1.0.0/
-    ├── package.toml
-    ├── workflow/
-    │   └── data_pipeline/
-    │       └── tasks.py
-    └── vendor/                 # if present
-```
-
-> **Coming soon.** `cloacinactl package pack` will pack Python packages directly
-> (no hand-tarring) — tracked in initiative CLOACI-I-0119. Until that ships, use
-> the tar command above. (`cloacinactl package pack` currently supports Rust
-> packages only.)
+</details>
 
 ## Step 6: Deploy
 

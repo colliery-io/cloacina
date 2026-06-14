@@ -26,37 +26,40 @@ In this tutorial, you'll learn how to define event-driven triggers alongside you
 
 ## Step 1: Define the Workflow
 
-Start with a workflow that the trigger will fire. Create a file called `data_ingest/__init__.py`:
+Start with a workflow that the trigger will fire. In your entry module
+(`workflow/data_ingest/tasks.py`), declare tasks with **bare `@cloaca.task`
+decorators at module level** — in a packaged workflow the loader builds the
+workflow context from `workflow_name` in `package.toml`, so you do *not* wrap
+tasks in a `WorkflowBuilder` (doing so would shadow the loader's context and the
+package would load with no tasks):
 
 ```python
 import cloaca
 from datetime import datetime
 
-with cloaca.WorkflowBuilder("data_ingest") as builder:
-    builder.description("Ingest data files detected by trigger")
+@cloaca.task(id="validate", dependencies=[])
+def validate(context):
+    """Validate the incoming data file."""
+    filename = context.get("filename", "unknown")
+    print(f"  Validating: {filename}")
+    context.set("valid", True)
+    return context
 
-    @cloaca.task(id="validate")
-    def validate(context):
-        """Validate the incoming data file."""
-        filename = context.get("filename", "unknown")
-        print(f"  Validating: {filename}")
-        context.set("valid", True)
-        return context
-
-    @cloaca.task(id="load", dependencies=["validate"])
-    def load(context):
-        """Load validated data into the warehouse."""
-        filename = context.get("filename", "unknown")
-        print(f"  Loading: {filename}")
-        context.set("loaded_at", datetime.now().isoformat())
-        return context
+@cloaca.task(id="load", dependencies=["validate"])
+def load(context):
+    """Load validated data into the warehouse."""
+    filename = context.get("filename", "unknown")
+    print(f"  Loading: {filename}")
+    context.set("loaded_at", datetime.now().isoformat())
+    return context
 ```
 
 This is a standard workflow — nothing special about triggers yet.
 
 ## Step 2: Define the Trigger
 
-Add a trigger at module level, **outside** the `WorkflowBuilder` context. Triggers are registered independently from the workflow's task graph:
+Add a trigger at module level alongside the tasks. Triggers are registered
+independently from the workflow's task graph:
 
 ```python
 @cloaca.trigger(
@@ -141,16 +144,24 @@ for the full format and the build/deploy steps.
 
 ## Step 5: Test Locally
 
-Before packaging, test the trigger and workflow in library mode:
+Before packaging, test the trigger and workflow in library mode. Because the
+module uses bare decorators, wrap the **import** in a `WorkflowBuilder` named to
+match `workflow_name` — this stands in for the context the packaged loader
+supplies (it is for in-process testing only, not part of the package):
 
 ```python
+import cloaca
+
+with cloaca.WorkflowBuilder("data_ingest"):
+    import data_ingest.tasks   # registers validate/load + inbox_watcher
+
 def test_trigger_and_workflow():
     """Simulate what the daemon does on trigger fire."""
     runner = cloaca.DefaultRunner(":memory:")
 
     try:
         # Simulate a trigger poll that fires
-        result = inbox_watcher()
+        result = data_ingest.tasks.inbox_watcher()
 
         if result.is_fire_result():
             # Execute the workflow with the trigger's context

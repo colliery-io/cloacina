@@ -37,12 +37,14 @@ pub async fn run(
         )));
     }
 
+    // Rust: cargo build. Python: no-op (nothing to compile). build::run
+    // branches on [metadata].language (CLOACI-T-0665).
     super::build::run(dir, release)?;
 
     let tmp = TempDir::new().map_err(CliError::Io)?;
     let pkg_path = tmp.path().join("package.cloacina");
-    let produced = fidius_core::package::pack_package(dir, Some(&pkg_path))
-        .map_err(|e| CliError::UserError(format!("pack_package failed: {e}")))?;
+    // pack_to validates the Python layout before archiving.
+    let produced = super::pack::pack_to(dir, Some(&pkg_path))?;
 
-    super::upload::run(globals, &produced.path).await
+    super::upload::run(globals, &produced).await
 }

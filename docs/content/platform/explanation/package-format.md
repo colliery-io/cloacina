@@ -177,11 +177,18 @@ cloacinactl package pack . -o analytics-workflow-1.0.0.cloacina
 `pack` requires a `package.toml` in the directory and archives the source; it
 does not compile. (Compilation happens at load time on the server.)
 
-### Python — tar recipe
+### Python — `cloacinactl package pack`
 
-`cloacinactl package pack` currently supports Rust source layouts only. Until
-Python packing lands (tracked in CLOACI-I-0119), build Python archives by hand —
-see the recipe in
+```bash
+cloacinactl package pack . -o data-pipeline-1.0.0.cloacina
+```
+
+`pack` reads `[metadata].language`; for `python` it skips `cargo`, validates the
+`workflow/` layout (that the directory exists and `entry_module` resolves under
+it), vendors declared dependencies if applicable, and archives the source. A
+mis-laid-out package fails at pack time rather than at upload. `package build` is
+a no-op for Python (there is nothing to compile). The archive can also be built
+by hand — see
 [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}).
 
 ## Inspecting a Package

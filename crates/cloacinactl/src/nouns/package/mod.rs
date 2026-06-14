@@ -27,6 +27,8 @@ pub mod build;
 pub mod delete;
 pub mod inspect;
 pub mod list;
+pub mod manifest;
+pub mod new;
 pub mod pack;
 pub mod publish;
 pub mod upload;
@@ -39,6 +41,17 @@ pub struct PackageCmd {
 
 #[derive(Subcommand)]
 enum PackageVerb {
+    /// Scaffold a new canonical package source tree (Rust or Python).
+    New {
+        /// Package name (e.g. data-pipeline).
+        name: String,
+        /// Source language to scaffold.
+        #[arg(long, value_enum, default_value_t = new::ScaffoldLang::Python)]
+        lang: new::ScaffoldLang,
+        /// Directory to create (default: ./<name>).
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
     /// cargo build the package source directory.
     Build {
         dir: PathBuf,
@@ -84,6 +97,7 @@ enum PackageVerb {
 impl PackageCmd {
     pub async fn run(self, globals: &GlobalOpts) -> Result<(), CliError> {
         match self.verb {
+            PackageVerb::New { name, lang, path } => new::run(&name, lang, path.as_deref()),
             PackageVerb::Build { dir, release } => build::run(&dir, release),
             PackageVerb::Pack { dir, out, sign } => {
                 pack::run(&dir, out.as_deref(), sign.as_deref())
