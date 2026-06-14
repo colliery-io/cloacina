@@ -6,7 +6,15 @@ weight: 40
 
 # Packaging Python Workflows
 
-This guide explains how to turn a Python workflow into a `.cloacina` package that can be deployed to the Cloacina daemon or server without shipping your source environment.
+This guide explains how to turn a Python workflow into a `.cloacina` package that
+can be deployed to the Cloacina daemon or server without shipping your source
+environment.
+
+> **One canonical format.** A `.cloacina` package is described by a top-level
+> **`package.toml`** and a Python module tree under a **`workflow/`** directory.
+> This is the only format the server/daemon accept. (Older docs that used
+> `pyproject.toml` + `[tool.cloaca]` + a hand-written `manifest.json` are
+> obsolete.)
 
 ## Prerequisites
 
@@ -16,48 +24,68 @@ This guide explains how to turn a Python workflow into a `.cloacina` package tha
 
 ## Project Layout
 
-Organize your workflow as a standard Python package:
+The package root contains a `package.toml` and a `workflow/` directory holding
+your module tree:
 
 ```
-my-workflow/
-├── pyproject.toml
-├── data_pipeline/
-│   ├── __init__.py      # WorkflowBuilder + @task decorators here
-│   └── helpers.py       # Optional helper modules
-└── vendor/              # Optional vendored dependencies
-    └── my_lib/
-        └── __init__.py
+data-pipeline/
+├── package.toml             # package + metadata (REQUIRED, at the root)
+└── workflow/                # REQUIRED directory — your modules live here
+    └── data_pipeline/       # your entry module package
+        ├── __init__.py
+        └── tasks.py         # @cloaca.task decorators here
 ```
 
-The key requirements:
-- Tasks and triggers must be registered via decorators when the entry module is imported
-- The `[tool.cloaca]` section in `pyproject.toml` tells the packager which module to import
+Key requirements:
+- The module tree **must** live under `workflow/`. A top-level module (e.g.
+  `data-pipeline/data_pipeline/`) fails to load with
+  `Missing workflow source directory`.
+- `entry_module` in `package.toml` is the dotted path **relative to `workflow/`**
+  (here, `data_pipeline.tasks`).
+- Tasks/triggers must register at import time (module level, inside a
+  `WorkflowBuilder` context).
 
-## Step 1: Configure pyproject.toml
-
-Add the `[tool.cloaca]` section to your `pyproject.toml`:
+## Step 1: Write `package.toml`
 
 ```toml
-[project]
+[package]
 name = "data-pipeline"
 version = "1.0.0"
-description = "ETL pipeline for analytics"
-requires-python = ">=3.10"
-dependencies = []
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
 
-[tool.cloaca]
-entry_module = "data_pipeline"
+[metadata]
+language = "python"
+workflow_name = "data_pipeline"
+entry_module = "data_pipeline.tasks"
+description = "ETL pipeline for analytics"
+author = "you@example.com"
+requires_python = ">=3.10"
 ```
+
+The `[metadata]` table is a **closed schema** — unknown keys are rejected at
+upload. The accepted keys are:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `entry_module` | yes | Python module imported by the loader for task/trigger discovery |
+| `language` | yes | `"python"` (or `"rust"`). |
+| `workflow_name` | for workflows | The `WorkflowBuilder(name=...)` value. |
+| `graph_name` | for computation graphs | The graph name (instead of `workflow_name`). |
+| `entry_module` | yes | Dotted module path **relative to `workflow/`** that the loader imports. |
+| `description` | no | Human-readable description. |
+| `author` | no | Author/owner. |
+| `requires_python` | no | e.g. `">=3.11"`. |
+| `reaction_mode` / `input_strategy` | computation graphs | `when_any`/`when_all`, `latest`/`sequential`. |
+| `accumulators` | computation graphs | `[[metadata.accumulators]]` entries (stream/kafka sources). |
 
-The `entry_module` is the dotted module path that the loader will `import`. When imported, all `@cloaca.task` and `@cloaca.trigger` decorators in that module fire, registering tasks and triggers.
+> **Do not** add a `package_type` key or `[[metadata.triggers]]` table — both are
+> rejected by the parser. Triggers are declared in code via `@cloaca.trigger`,
+> not in the manifest.
 
 ## Step 2: Write Your Workflow
 
-In your entry module (`data_pipeline/__init__.py`):
+In your entry module (`workflow/data_pipeline/tasks.py`):
 
 ```python
 import cloaca
@@ -86,27 +114,43 @@ with cloaca.WorkflowBuilder("data_pipeline") as builder:
         return context
 ```
 
+Make `workflow/data_pipeline/__init__.py` import the entry module (so importing
+the package registers the tasks), or point `entry_module` directly at the file
+that defines them (`data_pipeline.tasks`, as above).
+
 {{< hint type="important" title="Module-Level Registration" >}}
-All `@cloaca.task` and `@cloaca.trigger` decorators **must** execute at import time (module level, inside a `WorkflowBuilder` context). The loader discovers tasks by importing your module — if registration is gated behind `if __name__ == "__main__"`, the tasks won't be found.
+All `@cloaca.task` and `@cloaca.trigger` decorators **must** execute at import
+time (module level, inside a `WorkflowBuilder` context). The loader discovers
+tasks by importing your `entry_module` — if registration is gated behind
+`if __name__ == "__main__"`, the tasks won't be found.
 {{< /hint >}}
 
 ## Step 3: Vendoring Dependencies
 
-If your workflow uses third-party libraries not available on the target host, place them in a `vendor/` directory at the package root. The loader adds both the workflow directory and `vendor/` to `sys.path` before importing.
+If your workflow uses third-party libraries not available on the target host,
+place them in a `vendor/` directory at the package root. The loader adds both the
+`workflow/` directory and `vendor/` to `sys.path` before importing.
 
 ```
-my-workflow/
-├── data_pipeline/
-│   └── __init__.py
+data-pipeline/
+├── package.toml
+├── workflow/
+│   └── data_pipeline/
+│       └── tasks.py
 └── vendor/
     └── requests/
         └── __init__.py
 ```
 
 {{< hint type="warning" title="Stdlib Shadowing" >}}
-The loader **rejects** any package that shadows Python standard library modules. You cannot vendor modules named `os`, `sys`, `json`, `pathlib`, `subprocess`, or other stdlib names. This is a security measure to prevent code injection.
+The loader **rejects** any package that shadows Python standard library modules.
+You cannot vendor modules named `os`, `sys`, `json`, `pathlib`, `subprocess`, or
+other stdlib names. This is a security measure to prevent code injection.
 
-Blocked modules include: `os`, `sys`, `subprocess`, `shutil`, `socket`, `http`, `urllib`, `ctypes`, `importlib`, `pathlib`, `io`, `json`, `pickle`, `marshal`, `code`, `codeop`, `compile`, `compileall`, `builtins`, `signal`, `multiprocessing`, `threading`, `tempfile`, `glob`, `fnmatch`.
+Blocked modules include: `os`, `sys`, `subprocess`, `shutil`, `socket`, `http`,
+`urllib`, `ctypes`, `importlib`, `pathlib`, `io`, `json`, `pickle`, `marshal`,
+`code`, `codeop`, `compile`, `compileall`, `builtins`, `signal`,
+`multiprocessing`, `threading`, `tempfile`, `glob`, `fnmatch`.
 {{< /hint >}}
 
 ## Step 4: Test Before Packaging
@@ -126,56 +170,40 @@ finally:
 
 ## Step 5: Build the Package
 
-The `.cloacina` package is a bzip2-compressed tar archive containing your Python modules and a `manifest.json`. Create the archive from your project directory:
+A `.cloacina` package is a bzip2-compressed tar archive of `package.toml` + the
+`workflow/` tree (+ `vendor/` if present), under a single `<name>-<version>/`
+top-level directory. Build it from your project directory:
 
 ```bash
-# Create the archive structure
-mkdir -p build/
-cp -r data_pipeline/ build/data_pipeline/
-cp -r vendor/ build/vendor/ 2>/dev/null || true
+name=data-pipeline
+version=1.0.0
+prefix="$name-$version"
 
-# Generate manifest.json (see Package Manifest Reference for the full schema)
-# You can write this by hand or generate it from pyproject.toml
-cat > build/manifest.json << 'EOF'
-{
-    "format_version": "2",
-    "package": {
-        "name": "data-pipeline",
-        "version": "1.0.0",
-        "fingerprint": "sha256:placeholder",
-        "targets": ["linux-x86_64", "linux-arm64", "macos-x86_64", "macos-arm64"]
-    },
-    "language": "python",
-    "python": {
-        "requires_python": ">=3.10",
-        "entry_module": "data_pipeline"
-    },
-    "tasks": [
-        {"id": "extract", "function": "data_pipeline:extract", "dependencies": []},
-        {"id": "transform", "function": "data_pipeline:transform", "dependencies": ["extract"]},
-        {"id": "load", "function": "data_pipeline:load", "dependencies": ["transform"]}
-    ],
-    "created_at": "2026-01-15T10:30:00Z"
-}
-EOF
+stage="$(mktemp -d)/$prefix"
+mkdir -p "$stage"
+cp package.toml "$stage/"
+cp -R workflow "$stage/"
+[ -d vendor ] && cp -R vendor "$stage/"
 
-# Package as a bzip2 tar archive
-cd build && tar -cjf ../data-pipeline-1.0.0.cloacina . && cd ..
+tar -cjf "$name-$version.cloacina" -C "$(dirname "$stage")" "$prefix"
 ```
 
 The resulting archive contains:
 
 ```
 data-pipeline-1.0.0.cloacina
-├── manifest.json
-├── data_pipeline/
-│   ├── __init__.py
-│   └── helpers.py
-└── vendor/                 # If present
-    └── ...
+└── data-pipeline-1.0.0/
+    ├── package.toml
+    ├── workflow/
+    │   └── data_pipeline/
+    │       └── tasks.py
+    └── vendor/                 # if present
 ```
 
-See the [Package Manifest Reference]({{< ref "/platform/reference/package-manifest" >}}) for the full `manifest.json` schema.
+> **Coming soon.** `cloacinactl package pack` will pack Python packages directly
+> (no hand-tarring) — tracked in initiative CLOACI-I-0119. Until that ships, use
+> the tar command above. (`cloacinactl package pack` currently supports Rust
+> packages only.)
 
 ## Step 6: Deploy
 
@@ -187,22 +215,24 @@ Copy the `.cloacina` file into one of the daemon's watched directories:
 cp data-pipeline-1.0.0.cloacina ~/.cloacina/packages/
 ```
 
-The daemon's reconciler will detect it, extract the archive, import your entry module, validate tasks against the manifest, and register the workflow.
+The daemon's reconciler detects it, extracts the archive, imports your
+`entry_module`, registers the tasks, and registers the workflow.
 
 ### To the Server
 
-Upload via the HTTP API:
+Upload via the HTTP API (or `cloacinactl package upload`):
 
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
-  -F "package=@data-pipeline-1.0.0.cloacina" \
+  -F "file=@data-pipeline-1.0.0.cloacina" \
   https://cloacina.example.com/v1/tenants/my_tenant/workflows
 ```
 
 ## External Configuration with var/var_or
 
-Use `cloaca.var()` and `cloaca.var_or()` to read configuration at runtime instead of hardcoding values:
+Use `cloaca.var()` and `cloaca.var_or()` to read configuration at runtime instead
+of hardcoding values:
 
 ```python
 # Resolved from CLOACINA_VAR_DATA_SOURCE environment variable
@@ -223,27 +253,41 @@ See [Variable Registry]({{< ref "/workflows/how-to-guides/variable-registry" >}}
 
 ## Troubleshooting
 
-### Import times out after 60 seconds
+### "Missing workflow source directory"
 
-The loader enforces a 60-second timeout on module import. If your entry module takes longer to import (e.g., heavy native extensions, expensive module-level computation), the package will be rejected with `"Python workflow import timed out after 60s"`. Move expensive initialization out of module scope and into task functions.
+Your module tree must live under a `workflow/` directory at the package root. A
+top-level module (`<pkg>/<module>/`) is rejected — move it to
+`<pkg>/workflow/<module>/`.
+
+### "unknown field `package_type`" (or another `[metadata]` key)
+
+`[metadata]` is a closed schema. Remove `package_type`, `[[metadata.triggers]]`,
+or any other key not in the table in Step 1.
 
 ### "entry_module not found"
 
-The `entry_module` in `[tool.cloaca]` must be a valid Python import path relative to the package root. Verify:
-- The directory matches the dotted path (e.g., `data_pipeline` for `entry_module = "data_pipeline"`)
-- An `__init__.py` exists in the module directory
+`entry_module` is a dotted path **relative to `workflow/`**. Verify the directory
+matches (e.g. `workflow/data_pipeline/tasks.py` for
+`entry_module = "data_pipeline.tasks"`) and that `__init__.py` files exist.
+
+### Import times out after 60 seconds
+
+The loader enforces a 60-second import timeout. Move expensive module-level
+initialization into task functions; the package is rejected with
+`"Python workflow import timed out after 60s"` otherwise.
 
 ### "stdlib shadowing detected"
 
-Remove or rename any vendored module that conflicts with the Python standard library. See the blocked list above.
+Remove or rename any vendored module that conflicts with the Python standard
+library (see the blocked list above).
 
 ### "no tasks registered"
 
-Tasks must be defined inside a `WorkflowBuilder` context at module level. If you define tasks inside a function or behind a conditional, they won't be discovered on import.
+Tasks must be defined inside a `WorkflowBuilder` context at module level. Tasks
+defined inside a function or behind a conditional won't be discovered on import.
 
 ## See Also
 
-- [Package Manifest Reference]({{< ref "/platform/reference/package-manifest" >}}) — full manifest schema
 - [Package Format]({{< ref "/platform/explanation/package-format" >}}) — `.cloacina` archive structure
 - [Running the Daemon]({{< ref "/platform/how-to-guides/running-the-daemon" >}}) — deploying to the local scheduler
 - [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}) — deploying to the HTTP server
