@@ -107,9 +107,12 @@ enum PackageVerb {
 impl PackageCmd {
     pub async fn run(self, globals: &GlobalOpts) -> Result<(), CliError> {
         match self.verb {
-            PackageVerb::New { name, lang, kind, path } => {
-                new::run(&name, lang, kind, path.as_deref())
-            }
+            PackageVerb::New {
+                name,
+                lang,
+                kind,
+                path,
+            } => new::run(&name, lang, kind, path.as_deref()),
             PackageVerb::Validate { path } => validate::run(&path),
             PackageVerb::Build { dir, release } => build::run(&dir, release),
             PackageVerb::Pack { dir, out, sign } => {

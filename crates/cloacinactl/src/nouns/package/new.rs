@@ -59,7 +59,9 @@ pub fn run(
 ) -> Result<(), CliError> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(CliError::UserError("package name must not be empty".to_string()));
+        return Err(CliError::UserError(
+            "package name must not be empty".to_string(),
+        ));
     }
     // The Python module / Rust workflow identifier derived from the package
     // name: hyphens aren't valid identifiers, so map them to underscores.
@@ -78,7 +80,11 @@ pub fn run(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from(name));
 
-    if dir.exists() && fs::read_dir(&dir).map(|mut d| d.next().is_some()).unwrap_or(false) {
+    if dir.exists()
+        && fs::read_dir(&dir)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false)
+    {
         return Err(CliError::UserError(format!(
             "{} already exists and is not empty",
             dir.display()
@@ -286,15 +292,24 @@ fn scaffold_rust(dir: &Path, name: &str, module: &str, kind: ScaffoldKind) -> Re
     )?;
     match kind {
         ScaffoldKind::Workflow => {
-            write(&dir.join("package.toml"), &rust_package_toml(name, module, false))?;
+            write(
+                &dir.join("package.toml"),
+                &rust_package_toml(name, module, false),
+            )?;
             write(&dir.join("src/lib.rs"), &rust_workflow_lib(name, module))?;
         }
         ScaffoldKind::Cron => {
-            write(&dir.join("package.toml"), &rust_package_toml(name, module, false))?;
+            write(
+                &dir.join("package.toml"),
+                &rust_package_toml(name, module, false),
+            )?;
             write(&dir.join("src/lib.rs"), &rust_cron_lib(name, module))?;
         }
         ScaffoldKind::Graph => {
-            write(&dir.join("package.toml"), &rust_graph_package_toml(name, module))?;
+            write(
+                &dir.join("package.toml"),
+                &rust_graph_package_toml(name, module),
+            )?;
             write(&dir.join("src/lib.rs"), &rust_graph_lib(module))?;
         }
     }
@@ -510,7 +525,13 @@ mod tests {
     fn python_workflow_scaffold_canonical_layout() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().join("data-pipeline");
-        run("data-pipeline", ScaffoldLang::Python, ScaffoldKind::Workflow, Some(&dir)).unwrap();
+        run(
+            "data-pipeline",
+            ScaffoldLang::Python,
+            ScaffoldKind::Workflow,
+            Some(&dir),
+        )
+        .unwrap();
 
         assert!(dir.join("workflow/data_pipeline/__init__.py").exists());
         let tasks = fs::read_to_string(dir.join("workflow/data_pipeline/tasks.py")).unwrap();
@@ -526,7 +547,13 @@ mod tests {
     fn python_graph_scaffold_canonical_layout() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().join("my-graph");
-        run("my-graph", ScaffoldLang::Python, ScaffoldKind::Graph, Some(&dir)).unwrap();
+        run(
+            "my-graph",
+            ScaffoldLang::Python,
+            ScaffoldKind::Graph,
+            Some(&dir),
+        )
+        .unwrap();
 
         let graph = fs::read_to_string(dir.join("workflow/my_graph/graph.py")).unwrap();
         assert!(graph.contains("ComputationGraphBuilder"));
@@ -543,7 +570,13 @@ mod tests {
     fn rust_workflow_scaffold_canonical_layout() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().join("my-workflow");
-        run("my-workflow", ScaffoldLang::Rust, ScaffoldKind::Workflow, Some(&dir)).unwrap();
+        run(
+            "my-workflow",
+            ScaffoldLang::Rust,
+            ScaffoldKind::Workflow,
+            Some(&dir),
+        )
+        .unwrap();
 
         let cargo = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
         assert!(cargo.contains("cloacina-workflow = { version = \"0.7\""));
@@ -559,7 +592,13 @@ mod tests {
     fn rust_cron_scaffold_binds_via_on_not_triggers_list() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().join("nightly");
-        run("nightly", ScaffoldLang::Rust, ScaffoldKind::Cron, Some(&dir)).unwrap();
+        run(
+            "nightly",
+            ScaffoldLang::Rust,
+            ScaffoldKind::Cron,
+            Some(&dir),
+        )
+        .unwrap();
 
         let lib = fs::read_to_string(dir.join("src/lib.rs")).unwrap();
         assert!(lib.contains("#[trigger(on = \"nightly\", cron ="));
@@ -571,7 +610,13 @@ mod tests {
     fn rust_graph_scaffold_sets_graph_name_and_macros() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().join("my-graph");
-        run("my-graph", ScaffoldLang::Rust, ScaffoldKind::Graph, Some(&dir)).unwrap();
+        run(
+            "my-graph",
+            ScaffoldLang::Rust,
+            ScaffoldKind::Graph,
+            Some(&dir),
+        )
+        .unwrap();
 
         let manifest = fs::read_to_string(dir.join("package.toml")).unwrap();
         assert!(manifest.contains("graph_name = \"my_graph\""));
@@ -586,8 +631,13 @@ mod tests {
     #[test]
     fn python_cron_is_rejected() {
         let tmp = TempDir::new().unwrap();
-        let err = run("x", ScaffoldLang::Python, ScaffoldKind::Cron, Some(tmp.path()))
-            .unwrap_err();
+        let err = run(
+            "x",
+            ScaffoldLang::Python,
+            ScaffoldKind::Cron,
+            Some(tmp.path()),
+        )
+        .unwrap_err();
         assert!(format!("{err:?}").contains("Rust-only"));
     }
 
@@ -598,16 +648,26 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("something"), b"x").unwrap();
 
-        let err = run("taken", ScaffoldLang::Python, ScaffoldKind::Workflow, Some(&dir))
-            .unwrap_err();
+        let err = run(
+            "taken",
+            ScaffoldLang::Python,
+            ScaffoldKind::Workflow,
+            Some(&dir),
+        )
+        .unwrap_err();
         assert!(format!("{err:?}").contains("not empty"));
     }
 
     #[test]
     fn rejects_empty_name() {
         let tmp = TempDir::new().unwrap();
-        let err = run("  ", ScaffoldLang::Python, ScaffoldKind::Workflow, Some(tmp.path()))
-            .unwrap_err();
+        let err = run(
+            "  ",
+            ScaffoldLang::Python,
+            ScaffoldKind::Workflow,
+            Some(tmp.path()),
+        )
+        .unwrap_err();
         assert!(format!("{err:?}").contains("must not be empty"));
     }
 }

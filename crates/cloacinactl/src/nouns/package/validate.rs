@@ -32,7 +32,10 @@ use crate::shared::error::CliError;
 
 pub fn run(path: &Path) -> Result<(), CliError> {
     if !path.exists() {
-        return Err(CliError::UserError(format!("{} does not exist", path.display())));
+        return Err(CliError::UserError(format!(
+            "{} does not exist",
+            path.display()
+        )));
     }
 
     // A directory is validated in place; anything else is treated as a packed
@@ -44,10 +47,9 @@ pub fn run(path: &Path) -> Result<(), CliError> {
         path.to_path_buf()
     } else {
         let tmp = TempDir::new().map_err(CliError::Io)?;
-        let extracted =
-            fidius_core::package::unpack_package(path, tmp.path()).map_err(|e| {
-                CliError::UserError(format!("failed to unpack {}: {e}", path.display()))
-            })?;
+        let extracted = fidius_core::package::unpack_package(path, tmp.path()).map_err(|e| {
+            CliError::UserError(format!("failed to unpack {}: {e}", path.display()))
+        })?;
         _staging = Some(tmp);
         extracted
     };
@@ -147,7 +149,9 @@ package_type = "workflow"
         )
         .unwrap();
         let err = run(&pkg).unwrap_err();
-        assert!(format!("{err:?}").contains("package_type") || format!("{err:?}").contains("unknown"));
+        assert!(
+            format!("{err:?}").contains("package_type") || format!("{err:?}").contains("unknown")
+        );
     }
 
     #[test]

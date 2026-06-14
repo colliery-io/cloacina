@@ -288,7 +288,10 @@ fn attr_invocations(src: &str, attr: &str) -> Vec<(String, Option<String>)> {
                 None => break,
             };
             let args = src[open + 1..close].to_string();
-            let after = src[close..].find(']').map(|d| close + d + 1).unwrap_or(close);
+            let after = src[close..]
+                .find(']')
+                .map(|d| close + d + 1)
+                .unwrap_or(close);
             let fn_name = src[after..].find("fn ").and_then(|p| {
                 let start = after + p + 3;
                 let ident: String = src[start..]
@@ -492,7 +495,12 @@ mod tests {
             .unwrap_err();
         assert!(format!("{err:?}").contains("graph_name"));
         // declaring graph_name clears it
-        lint_footguns(tmp.path(), PackageLanguage::Rust, &meta("rust", Some("g"), None)).unwrap();
+        lint_footguns(
+            tmp.path(),
+            PackageLanguage::Rust,
+            &meta("rust", Some("g"), None),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -531,9 +539,12 @@ mod tests {
             "import cloaca\nwith cloaca.ComputationGraphBuilder(\"g\"):\n    pass\n",
         )
         .unwrap();
-        let err =
-            lint_footguns(tmp.path(), PackageLanguage::Python, &meta("python", None, Some("g.graph")))
-                .unwrap_err();
+        let err = lint_footguns(
+            tmp.path(),
+            PackageLanguage::Python,
+            &meta("python", None, Some("g.graph")),
+        )
+        .unwrap_err();
         assert!(format!("{err:?}").contains("graph_name"));
     }
 }
