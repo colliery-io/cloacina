@@ -6,6 +6,18 @@ weight: 45
 
 # Package Manifest Reference
 
+{{< hint type="warning" title="Obsolete — `manifest.json` has been removed (CLOACI-I-0119)" >}}
+This `manifest.json` schema is **no longer used**. Packages are now described by a
+top-level **`package.toml`** (`[package]` + a closed `[metadata]` table), and the
+server reads `package.toml` — there is no `manifest.json` in current archives, and
+the reader/writer machinery has been removed. Triggers are declared in code
+(`#[trigger]` / `@cloaca.trigger`), **not** in the manifest. For the current
+`[metadata]` schema and layout see
+[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}})
+(Python) and the Rust packaging tutorial. This page is slated to be replaced by a
+`package.toml` reference.
+{{< /hint >}}
+
 Every `.cloacina` package contains a `manifest.json` file that declares the package's contents, tasks, triggers, and runtime requirements. The reconciler reads this manifest to register workflows and triggers.
 
 ## Format Version

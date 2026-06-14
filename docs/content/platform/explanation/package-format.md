@@ -6,6 +6,17 @@ reviewer: "dstorey"
 review_date: "2025-01-17"
 ---
 
+{{< hint type="warning" title="Outdated — pending rewrite (CLOACI-I-0119)" >}}
+This page describes a superseded archive format (a JSON `manifest.json` + a
+compiled library). The current format is a top-level **`package.toml`** plus the
+package source — Rust (`Cargo.toml` + `src/lib.rs`, compiled by the
+cloacina-compiler) or Python (a module tree under `workflow/<mod>/`). The server
+reads `package.toml`, not `manifest.json` (the `manifest.json` machinery has been
+removed). For the authoritative current format see the
+[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}})
+how-to and the Rust packaging tutorial. This page is slated for rewrite.
+{{< /hint >}}
+
 This article explains the structure and format of `.cloacina` packages, which are the distributable units for Cloacina workflows. Understanding the package format is essential for creating custom tooling, debugging package issues, and working with the packaging system.
 
 ## Overview

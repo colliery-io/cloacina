@@ -10,5 +10,9 @@ dev = [
     "pytest>=7.0.0",
 ]
 
-[tool.cloaca]
-entry_module = "data_pipeline.tasks"
+# NOTE: This is a *run* example (see run_pipeline.py — it executes the workflow
+# in-process via cloaca.DefaultRunner). It is NOT a packaging example. To package
+# a Python workflow for the daemon/server, see
+# docs/.../python/workflows/how-to-guides/packaging-python-workflows.md
+# (a `package.toml` + a module under `workflow/`). The old `[tool.cloaca]`
+# manifest mechanism is obsolete and has been removed here. (CLOACI-I-0119)
