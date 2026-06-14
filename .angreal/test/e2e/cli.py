@@ -414,6 +414,109 @@ def cli():
             print("  ok: API-10 trigger list --limit/--offset accepted")
 
             # ─────────────────────────────────────────────────────────
+            # CLOACI-I-0119: packaged-workflow authoring loop.
+            # `package new` → edit the scaffold ("sed in some stuff") →
+            # `package validate` (dir AND archive) → `package pack` →
+            # `package upload`, then confirm the package registers. Proves
+            # the scaffolder emits a server-acceptable package and the whole
+            # author DX round-trips against a live server.
+            # ─────────────────────────────────────────────────────────
+            token = str(int(time.time()))
+            pkg_name = f"e2e-authored-{token}"
+            module = pkg_name.replace("-", "_")
+            with tempfile.TemporaryDirectory() as authored_s:
+                pkg_dir = Path(authored_s) / pkg_name
+
+                # 1. scaffold a canonical Python package (T-0678)
+                _cloacinactl(
+                    home, "package", "new", pkg_name,
+                    "--lang", "python", "--path", str(pkg_dir),
+                )
+                tasks_py = pkg_dir / "workflow" / module / "tasks.py"
+                assert tasks_py.exists(), f"scaffold missing {tasks_py}"
+
+                # 2. "sed in some stuff" — an author edits the generated task
+                src = tasks_py.read_text()
+                src = src.replace(
+                    'context.set("hello", "world")',
+                    f'context.set("authored_token", "{token}")',
+                )
+                tasks_py.write_text(src)
+                assert "authored_token" in tasks_py.read_text()
+
+                # 3. validate the edited source dir (T-0679)
+                code, out, _ = _cloacinactl(home, "package", "validate", str(pkg_dir))
+                assert code == 0 and "valid" in out, f"validate(dir) failed: {out!r}"
+
+                # 4. pack into a .cloacina archive (T-0665)
+                archive = Path(authored_s) / f"{pkg_name}.cloacina"
+                _cloacinactl(home, "package", "pack", str(pkg_dir), "--out", str(archive))
+                assert archive.exists(), "pack did not produce an archive"
+
+                # 4b. validate accepts the packed archive too
+                code, out, _ = _cloacinactl(home, "package", "validate", str(archive))
+                assert code == 0 and "valid" in out, f"validate(archive) failed: {out!r}"
+
+                # 5. upload to the tenant — the server parses package.toml,
+                # stores the source package, and returns a package id. NOTE:
+                # this lane runs only the server (no cloacina-compiler service),
+                # so the package stays `pending` and never reaches `success` /
+                # `package list` here — the build→success→list path is covered
+                # by the compiler e2e + the demo stack. The author-DX contract
+                # this scenario locks is: scaffold → edit → validate → pack →
+                # upload produces a package the server *accepts*.
+                code, out, stderr = _cloacinactl(
+                    home, "--tenant", tenant_name,
+                    "package", "upload", str(archive),
+                    check=False,
+                )
+                assert code == 0, (
+                    f"package upload failed: code={code} out={out!r} stderr={stderr!r}"
+                )
+                package_id = out.strip()
+                assert package_id, (
+                    f"upload returned no package id (stdout empty); stderr={stderr!r}"
+                )
+                print("  ok: authored python/workflow new→edit→validate→pack→upload "
+                      f"accepted (package_id={package_id})")
+
+                # T-0680: the graph and cron kinds round-trip the same way
+                # (scaffold → validate → pack → upload-accept). cron is Rust-only.
+                for lang, kind in [("python", "graph"), ("rust", "cron")]:
+                    kname = f"e2e-{kind}-{token}"
+                    kdir = Path(authored_s) / kname
+                    _cloacinactl(
+                        home, "package", "new", kname,
+                        "--lang", lang, "--kind", kind, "--path", str(kdir),
+                    )
+                    code, out, _ = _cloacinactl(home, "package", "validate", str(kdir))
+                    assert code == 0 and "valid" in out, (
+                        f"validate({lang}/{kind}) failed: {out!r}"
+                    )
+                    karchive = Path(authored_s) / f"{kname}.cloacina"
+                    _cloacinactl(home, "package", "pack", str(kdir), "--out", str(karchive))
+                    code, out, stderr = _cloacinactl(
+                        home, "--tenant", tenant_name, "package", "upload",
+                        str(karchive), check=False,
+                    )
+                    assert code == 0 and out.strip(), (
+                        f"upload({lang}/{kind}) failed: code={code} out={out!r} stderr={stderr!r}"
+                    )
+                    print(f"  ok: authored {lang}/{kind} new→validate→pack→upload accepted")
+
+                # T-0680: --kind cron --lang python is rejected with guidance.
+                code, _, stderr = _cloacinactl(
+                    home, "package", "new", f"e2e-pycron-{token}",
+                    "--lang", "python", "--kind", "cron",
+                    "--path", str(Path(authored_s) / "pycron"),
+                    check=False,
+                )
+                assert code != 0 and "Rust-only" in stderr, (
+                    f"python+cron should be rejected; code={code} stderr={stderr!r}"
+                )
+                print("  ok: python --kind cron rejected with guidance")
+
+            # ─────────────────────────────────────────────────────────
             # CLOACI-T-0629: substrate contract — end-to-end JIT
             # delivery + ack via `cloacinactl execution events --follow`.
             #

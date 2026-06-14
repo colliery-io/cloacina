@@ -14,8 +14,9 @@
  *  limitations under the License.
  */
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use super::manifest::{self, PackageLanguage};
 use crate::shared::error::CliError;
 
 pub fn run(dir: &Path, out: Option<&Path>, sign: Option<&Path>) -> Result<(), CliError> {
@@ -33,16 +34,29 @@ pub fn run(dir: &Path, out: Option<&Path>, sign: Option<&Path>) -> Result<(), Cl
         )));
     }
 
-    if !dir.join("package.toml").exists() {
-        return Err(CliError::UserError(format!(
-            "{} has no package.toml — not a cloacina package source",
-            dir.display()
-        )));
+    let produced = pack_to(dir, out)?;
+    println!("{}", produced.display());
+    Ok(())
+}
+
+/// Validate the package source and pack it into a `.cloacina` archive, returning
+/// the produced archive path. Shared by `pack` and `publish`.
+///
+/// CLOACI-T-0665: branches on `[metadata].language`. Python packages are
+/// validated for the server-expected `workflow/` layout up front so a
+/// mis-laid-out module fails here rather than at upload. (Reading the manifest
+/// through `CloacinaMetadata` also rejects `package_type` / `[[metadata.triggers]]`.)
+pub fn pack_to(dir: &Path, out: Option<&Path>) -> Result<PathBuf, CliError> {
+    let meta = manifest::read_metadata(dir)?;
+    let lang = manifest::language(&meta)?;
+    match lang {
+        PackageLanguage::Python => manifest::validate_python_layout(dir, &meta)?,
+        PackageLanguage::Rust => manifest::validate_rust_layout(dir)?,
     }
+    manifest::lint_footguns(dir, lang, &meta)?;
 
     let produced = fidius_core::package::pack_package(dir, out)
         .map_err(|e| CliError::UserError(format!("pack_package failed: {e}")))?;
 
-    println!("{}", produced.path.display());
-    Ok(())
+    Ok(produced.path)
 }

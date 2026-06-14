@@ -17,18 +17,25 @@
 use std::path::Path;
 use std::process::Command;
 
+use super::manifest::{self, PackageLanguage};
 use crate::shared::error::CliError;
 
 pub fn run(dir: &Path, release: bool) -> Result<(), CliError> {
+    // CLOACI-T-0665: Python packages have nothing to compile — `pack` archives
+    // the source tree directly. Detect the language from `[metadata].language`
+    // and no-op for Python so `package build` (and `publish`, which calls this)
+    // work uniformly for both languages.
+    if manifest::read_language(dir)? == PackageLanguage::Python {
+        println!(
+            "{} is a python package — nothing to compile (use `package pack` to archive it)",
+            dir.display()
+        );
+        return Ok(());
+    }
+
     if !dir.join("Cargo.toml").exists() {
         return Err(CliError::UserError(format!(
             "{} has no Cargo.toml",
-            dir.display()
-        )));
-    }
-    if !dir.join("package.toml").exists() {
-        return Err(CliError::UserError(format!(
-            "{} has no package.toml — not a cloacina package source",
             dir.display()
         )));
     }

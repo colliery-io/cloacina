@@ -32,8 +32,12 @@ pub async fn run(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliEr
     let body: Value = client
         .get(&format!("/v1/tenants/{tenant}/workflows"))
         .await?;
+    // The server returns the unified `TenantListResponse` envelope
+    // (`{tenant_id, items, total}`, CLOACI-T-0594). Read `items`; fall back to
+    // the legacy `workflows` key for older servers.
     let items: Vec<Value> = body
-        .get("workflows")
+        .get("items")
+        .or_else(|| body.get("workflows"))
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();

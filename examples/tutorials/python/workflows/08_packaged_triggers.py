@@ -5,13 +5,16 @@ Cloaca Tutorial 08: Packaged Triggers
 This tutorial demonstrates how triggers work in packaged workflows:
 
 1. Defining triggers alongside tasks using @cloaca.trigger
-2. How triggers are declared in ManifestV2 for .cloacina packages
-3. The relationship between decorator registration and manifest declaration
+2. How a .cloacina package is described by package.toml (no trigger section)
+3. Why the @cloaca.trigger decorator *is* the declaration
 
 When a Python workflow is packaged as a .cloacina archive, triggers are:
-- Defined in code via @cloaca.trigger (provides the poll implementation)
-- Declared in manifest.json (tells the reconciler about them)
-- Auto-registered when the package is loaded
+- Defined in code via @cloaca.trigger (provides the poll implementation AND the
+  declaration — name, poll interval, concurrency)
+- Auto-registered when the reconciler imports the package's entry_module
+
+There is no `triggers` array in package.toml. The decorator running at import
+time is the whole story.
 """
 
 import cloaca
@@ -59,25 +62,14 @@ def inbox_watcher():
     """
     Poll for new files in the inbox directory.
 
-    In a .cloacina package, this trigger would also be declared in
-    manifest.json as:
+    In a .cloacina package there is nothing else to declare: the
+    @cloaca.trigger decorator above carries the name, poll interval, and
+    concurrency setting. When the reconciler imports this module, the
+    decorator registers the trigger and binds it to the `data_ingest`
+    workflow built in the same module.
 
-        {
-            "name": "inbox_watcher",
-            "trigger_type": "python",
-            "workflow": "data_ingest",
-            "poll_interval": "5s",
-            "allow_concurrent": false,
-            "config": { "path": "/data/inbox/" }
-        }
-
-    The manifest declaration tells the reconciler:
-    - Which workflow to fire when the trigger activates
-    - The poll interval and concurrency settings
-    - Optional config for the trigger implementation
-
-    The @cloaca.trigger decorator provides the actual poll() implementation.
-    Both must agree on the trigger name.
+    package.toml has no `triggers` section — adding one (or a `package_type`
+    key) is rejected at upload. The decorator is the declaration.
     """
     global poll_count
     poll_count += 1
@@ -139,48 +131,48 @@ def demo_workflow_execution():
         runner.shutdown()
 
 
-def demo_manifest_explanation():
-    """Explain the ManifestV2 trigger fields."""
+def demo_package_explanation():
+    """Explain how a trigger-bearing workflow is packaged."""
     print("\n" + "=" * 60)
-    print("Part 3: ManifestV2 Trigger Declaration")
+    print("Part 3: Packaging — package.toml has no trigger section")
     print("=" * 60)
 
     print("""
-When packaging a Python workflow as a .cloacina archive, triggers
-are declared in manifest.json alongside tasks:
+A .cloacina package is a top-level package.toml plus your module tree
+under workflow/. The manifest declares package identity + [metadata]
+only — there is NO triggers array:
 
-    {
-        "format_version": "2",
-        "package": { "name": "data_ingest", ... },
-        "language": "python",
-        "tasks": [ ... ],
-        "triggers": [
-            {
-                "name": "inbox_watcher",
-                "trigger_type": "python",
-                "workflow": "data_ingest",
-                "poll_interval": "5s",
-                "allow_concurrent": false,
-                "config": { "path": "/data/inbox/" }
-            }
-        ]
-    }
+    package.toml
+    workflow/
+        data_ingest/
+            __init__.py
+            tasks.py        # @cloaca.task + @cloaca.trigger live here
 
-Field reference:
-  name             Unique trigger name (must match @cloaca.trigger name)
-  trigger_type     "python" for @cloaca.trigger, "rust" for #[trigger]
-  workflow         Which workflow to fire (package name or task ID)
-  poll_interval    Duration string: "100ms", "5s", "2m", "1h"
-  allow_concurrent Allow parallel runs with same context hash
-  config           Optional JSON for trigger-specific settings
+    # package.toml
+    [package]
+    name = "data-ingest"
+    version = "1.0.0"
+    interface = "cloacina-workflow-plugin"
+    interface_version = 1
+    extension = "cloacina"
+
+    [metadata]
+    language = "python"
+    workflow_name = "data_ingest"
+    entry_module = "data_ingest.tasks"
+    requires_python = ">=3.10"
+
+The @cloaca.trigger decorator IS the declaration — name, poll_interval,
+and allow_concurrent all live on the decorator. Adding a [[triggers]]
+table (or a package_type key) to package.toml is rejected at upload.
     """)
 
-    print("The reconciler uses both the manifest and the decorator:")
-    print("  1. Package is loaded -> Python module imported")
-    print("  2. @cloaca.trigger decorators fire -> triggers registered")
-    print("  3. Reconciler reads manifest -> verifies triggers exist")
-    print("  4. TriggerScheduler polls registered triggers")
-    print("  5. When a trigger fires -> associated workflow executes")
+    print("How the reconciler wires it up on load:")
+    print("  1. Package is loaded -> entry_module is imported")
+    print("  2. @cloaca.trigger / @cloaca.task decorators run at import")
+    print("  3. Trigger registers itself (name, interval, concurrency)")
+    print("  4. TriggerScheduler polls the registered trigger")
+    print("  5. When the trigger fires -> bound workflow executes")
 
 
 def main():
@@ -190,16 +182,16 @@ def main():
 
     demo_trigger_polls()
     demo_workflow_execution()
-    demo_manifest_explanation()
+    demo_package_explanation()
 
     print("\n" + "=" * 60)
     print("Tutorial Complete!")
     print("=" * 60)
     print("\nWhat you learned:")
-    print("  - @cloaca.trigger provides the poll implementation")
-    print("  - ManifestV2 'triggers' field declares triggers for packages")
-    print("  - Both must agree on the trigger name")
-    print("  - The reconciler wires them together on package load")
+    print("  - @cloaca.trigger provides the poll implementation AND declaration")
+    print("  - package.toml has no triggers section — the decorator is the source")
+    print("  - The reconciler imports entry_module, which registers the trigger")
+    print("  - The trigger binds to the workflow built in the same module")
     print("\nSee also:")
     print("  - Tutorial 07: Event triggers basics")
     print("  - examples/features/packaged-triggers/: Rust packaged trigger")

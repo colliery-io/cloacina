@@ -11,7 +11,7 @@ In this tutorial, you'll learn how to define event-driven triggers alongside you
 ## Learning Objectives
 
 - Define triggers alongside tasks in a packaged workflow
-- Understand the relationship between `@cloaca.trigger` decorators and manifest declarations
+- Understand that `@cloaca.trigger` decorators *are* the declaration — there is no manifest trigger section
 - Package a trigger-bearing workflow as a `.cloacina` archive
 - See how the reconciler wires triggers to workflows on load
 
@@ -26,37 +26,40 @@ In this tutorial, you'll learn how to define event-driven triggers alongside you
 
 ## Step 1: Define the Workflow
 
-Start with a workflow that the trigger will fire. Create a file called `data_ingest/__init__.py`:
+Start with a workflow that the trigger will fire. In your entry module
+(`workflow/data_ingest/tasks.py`), declare tasks with **bare `@cloaca.task`
+decorators at module level** — in a packaged workflow the loader builds the
+workflow context from `workflow_name` in `package.toml`, so you do *not* wrap
+tasks in a `WorkflowBuilder` (doing so would shadow the loader's context and the
+package would load with no tasks):
 
 ```python
 import cloaca
 from datetime import datetime
 
-with cloaca.WorkflowBuilder("data_ingest") as builder:
-    builder.description("Ingest data files detected by trigger")
+@cloaca.task(id="validate", dependencies=[])
+def validate(context):
+    """Validate the incoming data file."""
+    filename = context.get("filename", "unknown")
+    print(f"  Validating: {filename}")
+    context.set("valid", True)
+    return context
 
-    @cloaca.task(id="validate")
-    def validate(context):
-        """Validate the incoming data file."""
-        filename = context.get("filename", "unknown")
-        print(f"  Validating: {filename}")
-        context.set("valid", True)
-        return context
-
-    @cloaca.task(id="load", dependencies=["validate"])
-    def load(context):
-        """Load validated data into the warehouse."""
-        filename = context.get("filename", "unknown")
-        print(f"  Loading: {filename}")
-        context.set("loaded_at", datetime.now().isoformat())
-        return context
+@cloaca.task(id="load", dependencies=["validate"])
+def load(context):
+    """Load validated data into the warehouse."""
+    filename = context.get("filename", "unknown")
+    print(f"  Loading: {filename}")
+    context.set("loaded_at", datetime.now().isoformat())
+    return context
 ```
 
 This is a standard workflow — nothing special about triggers yet.
 
 ## Step 2: Define the Trigger
 
-Add a trigger at module level, **outside** the `WorkflowBuilder` context. Triggers are registered independently from the workflow's task graph:
+Add a trigger at module level alongside the tasks. Triggers are registered
+independently from the workflow's task graph:
 
 ```python
 @cloaca.trigger(
@@ -88,58 +91,77 @@ def inbox_watcher():
     return cloaca.TriggerResult.skip()
 ```
 
-Notice the three parameters: `name` identifies the trigger (and must match the manifest declaration), `poll_interval` controls how often the function is called, and `allow_concurrent=False` prevents overlapping executions. See the [Package Manifest Reference]({{< ref "/platform/reference/package-manifest" >}}) for the full field listing.
+Notice the three parameters: `name` identifies the trigger, `poll_interval` controls how often the function is called, and `allow_concurrent=False` prevents overlapping executions. The decorator is the *only* place these are declared — there is no separate manifest entry to keep in sync.
 
-## Step 3: Understand the Manifest
+## Step 3: Triggers Are Declared in Code, Not the Manifest
 
-When this workflow is packaged as a `.cloacina` archive, the manifest (`manifest.json`) declares both the tasks and the triggers. Here's what the `triggers` section looks like:
+There is **no trigger section in the package manifest**. The `@cloaca.trigger`
+decorator *is* the declaration: when the reconciler imports your `entry_module`,
+the decorator registers the trigger (name, poll interval, config) and binds it to
+its workflow. The manifest (`package.toml`) carries only package identity +
+`[metadata]`; adding triggers to it (or a `package_type` key) is rejected at
+upload.
 
-```json
-{
-    "triggers": [
-        {
-            "name": "inbox_watcher",
-            "trigger_type": "python",
-            "workflow": "data_ingest",
-            "poll_interval": "5s",
-            "allow_concurrent": false,
-            "config": { "path": "/data/inbox/" }
-        }
-    ]
-}
-```
-
-The `name` must match your `@cloaca.trigger(name=...)` value exactly, and `workflow` tells the reconciler which workflow to fire. See the [Package Manifest Reference]({{< ref "/platform/reference/package-manifest" >}}) for the complete schema.
+So the only thing to get right for triggers is that the `@cloaca.trigger`
+decorator runs at import time (module level) — same rule as `@cloaca.task`.
 
 ## Step 4: Set Up the Package
 
-Create a `pyproject.toml` for the package:
+A `.cloacina` package is a top-level `package.toml` plus your module tree under
+`workflow/`:
 
-```toml
-[project]
-name = "data-ingest"
-version = "1.0.0"
-description = "File ingestion workflow with inbox watcher trigger"
-requires-python = ">=3.10"
-
-[tool.cloaca]
-entry_module = "data_ingest"
+```
+data-ingest/
+├── package.toml
+└── workflow/
+    └── data_ingest/
+        ├── __init__.py
+        └── tasks.py        # @cloaca.task + @cloaca.trigger here
 ```
 
-The `entry_module` tells the loader which Python module to import for task and trigger discovery.
+`package.toml`:
+
+```toml
+[package]
+name = "data-ingest"
+version = "1.0.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+language = "python"
+workflow_name = "data_ingest"
+entry_module = "data_ingest.tasks"
+description = "File ingestion workflow with inbox watcher trigger"
+requires_python = ">=3.10"
+```
+
+`entry_module` is the dotted path **relative to `workflow/`** that the loader
+imports for task + trigger discovery. See
+[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}})
+for the full format and the build/deploy steps.
 
 ## Step 5: Test Locally
 
-Before packaging, test the trigger and workflow in library mode:
+Before packaging, test the trigger and workflow in library mode. Because the
+module uses bare decorators, wrap the **import** in a `WorkflowBuilder` named to
+match `workflow_name` — this stands in for the context the packaged loader
+supplies (it is for in-process testing only, not part of the package):
 
 ```python
+import cloaca
+
+with cloaca.WorkflowBuilder("data_ingest"):
+    import data_ingest.tasks   # registers validate/load + inbox_watcher
+
 def test_trigger_and_workflow():
     """Simulate what the daemon does on trigger fire."""
     runner = cloaca.DefaultRunner(":memory:")
 
     try:
         # Simulate a trigger poll that fires
-        result = inbox_watcher()
+        result = data_ingest.tasks.inbox_watcher()
 
         if result.is_fire_result():
             # Execute the workflow with the trigger's context
@@ -155,25 +177,27 @@ def test_trigger_and_workflow():
 
 ## Step 6: Deploy to the Daemon
 
-Copy your `.cloacina` package into the daemon's watch directory. The reconciler will import your module, match your `@cloaca.trigger` decorator to the manifest declaration, and start polling automatically.
+Copy your `.cloacina` package into the daemon's watch directory. The reconciler will import your `entry_module`, which runs your `@cloaca.trigger` decorator at import time — registering the trigger and starting the poll loop automatically.
 
 ```bash
 cp data-ingest-1.0.0.cloacina ~/.cloacina/packages/
 ```
 
-{{< hint type="important" title="Name Agreement" >}}
-The `name` in `@cloaca.trigger(name="inbox_watcher")` **must** match the `name` in the manifest's `triggers` array. If they disagree, the reconciler will reject the package.
+{{< hint type="info" title="No Manifest Sync Needed" >}}
+Because the `@cloaca.trigger` decorator is the declaration, there is no `triggers`
+array in `package.toml` to keep in agreement — and adding one (or a `package_type`
+key) is rejected at upload. Just make sure the decorator runs at import time.
 {{< /hint >}}
 
 ## What You Learned
 
-- `@cloaca.trigger` provides the poll implementation; the manifest declares it for the reconciler
-- Both must agree on the trigger name
+- `@cloaca.trigger` *is* the declaration — it registers the trigger when the module is imported
+- The manifest (`package.toml`) carries package identity + `[metadata]` only; no trigger section
 - Triggers are packaged alongside tasks in the same `.cloacina` archive
-- The reconciler wires them together on package load
+- The reconciler imports your `entry_module` on load, which wires everything together
 
 ## Next Steps
 
 - [Computation Graphs]({{< ref "/python/computation-graphs/tutorials/09-computation-graph" >}}) — reactive, event-driven processing
-- [Package Manifest Reference]({{< ref "/platform/reference/package-manifest" >}}) — full manifest schema
+- [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the full `package.toml` format and build steps
 - [Running the Daemon]({{< ref "/platform/how-to-guides/running-the-daemon" >}}) — deploy your package

@@ -27,9 +27,12 @@ pub mod build;
 pub mod delete;
 pub mod inspect;
 pub mod list;
+pub mod manifest;
+pub mod new;
 pub mod pack;
 pub mod publish;
 pub mod upload;
+pub mod validate;
 
 #[derive(Args)]
 pub struct PackageCmd {
@@ -39,12 +42,32 @@ pub struct PackageCmd {
 
 #[derive(Subcommand)]
 enum PackageVerb {
+    /// Scaffold a new canonical package source tree (Rust or Python).
+    New {
+        /// Package name (e.g. data-pipeline).
+        name: String,
+        /// Source language to scaffold.
+        #[arg(long, value_enum, default_value_t = new::ScaffoldLang::Python)]
+        lang: new::ScaffoldLang,
+        /// Package shape: workflow (default), graph, or cron (cron is Rust-only).
+        #[arg(long, value_enum, default_value_t = new::ScaffoldKind::Workflow)]
+        kind: new::ScaffoldKind,
+        /// Directory to create (default: ./<name>).
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
     /// cargo build the package source directory.
     Build {
         dir: PathBuf,
         /// Build in release profile (default is debug).
         #[arg(long)]
         release: bool,
+    },
+    /// Validate a package (source dir or .cloacina archive) against the
+    /// canonical format without uploading.
+    Validate {
+        /// Package source directory or .cloacina archive.
+        path: PathBuf,
     },
     /// fidius-pack the source directory into a .cloacina archive.
     Pack {
@@ -84,6 +107,13 @@ enum PackageVerb {
 impl PackageCmd {
     pub async fn run(self, globals: &GlobalOpts) -> Result<(), CliError> {
         match self.verb {
+            PackageVerb::New {
+                name,
+                lang,
+                kind,
+                path,
+            } => new::run(&name, lang, kind, path.as_deref()),
+            PackageVerb::Validate { path } => validate::run(&path),
             PackageVerb::Build { dir, release } => build::run(&dir, release),
             PackageVerb::Pack { dir, out, sign } => {
                 pack::run(&dir, out.as_deref(), sign.as_deref())
