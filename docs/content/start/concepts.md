@@ -19,11 +19,11 @@ precise definition of every term.
   data flows from one task to the next.
 - **Workflow** — a DAG of tasks with dependencies. Durable and database-backed:
   it survives restarts, retries failures, and recovers. See
-  [Workflows]({{< ref "/workflows" >}}).
+  [Workflows]({{< ref "/engine/workflows" >}}).
 - **Computation graph** — a DAG whose **entire traversal** is the unit of
   scheduling. Once triggered, all nodes run together with in-memory channels
   between them — deterministic and low-latency. See
-  [Computation Graphs]({{< ref "/computation-graphs" >}}).
+  [Computation Graphs]({{< ref "/engine/computation-graphs" >}}).
 - **Trigger** — an event source (a cron schedule, an external event) that starts
   a workflow or graph.
 - **Accumulator** — an adapter that consumes an external stream or source (Kafka,
@@ -54,5 +54,5 @@ what you read here matches what you see in every interface.
 
 - [When to Use Cloacina]({{< ref "/start/is-cloacina-for-you" >}}) — pick the right primitive and mode.
 - [Features Overview]({{< ref "/start/features" >}}) — the full capability catalog.
-- [Workflows]({{< ref "/workflows" >}}) / [Computation Graphs]({{< ref "/computation-graphs" >}}) — the deep tracks.
+- [Workflows]({{< ref "/engine/workflows" >}}) / [Computation Graphs]({{< ref "/engine/computation-graphs" >}}) — the deep tracks.
 - [Glossary]({{< ref "/reference/glossary" >}}) — every term, precisely defined.

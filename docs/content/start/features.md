@@ -35,9 +35,9 @@ problem, see [When to Use Cloacina]({{< ref "/start/is-cloacina-for-you" >}}).
 
 ## Two execution primitives
 
-- **[Workflows]({{< ref "/workflows" >}})** — durable DAGs of tasks with
+- **[Workflows]({{< ref "/engine/workflows" >}})** — durable DAGs of tasks with
   dependencies, retries, and recovery; the task is the unit of scheduling.
-- **[Computation Graphs]({{< ref "/computation-graphs" >}})** — in-process,
+- **[Computation Graphs]({{< ref "/engine/computation-graphs" >}})** — in-process,
   deterministic, event-driven DAGs; the whole traversal is the unit.
 - **They compose** — workflows can
   [subscribe to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}})
