@@ -54,6 +54,9 @@ used as labels. Adding a new metric should preserve this invariant; see
 | `cloacina_context_merge_failures_total` | `kind` | Failures merging dependency contexts. `kind` ∈ `parse` (JSON deserialize failed — fails the task as `ContextLoadFailed`), `merge` (Context API rejected an insert/update; counted but does not fail the task). Closes COR-11. |
 | `cloacina_fleet_agents_evicted_total` | — | Execution-agent fleet: agents removed by the heartbeat sweeper after their heartbeat went stale (older than `--agent-liveness-misses` × the advertised interval). Sustained non-zero means agents are dying or losing connectivity. CLOACI-I-0114 / T-0634. |
 | `cloacina_fleet_work_reassigned_total` | — | Execution-agent fleet: in-flight `delivery_outbox` rows re-targeted from an evicted (dead) agent to a live agent by the sweeper's reclaim path. Tracks how much work crashed agents shed onto the rest of the fleet. CLOACI-T-0634. |
+| `cloacina_delivery_outbox_sweep_runs_total` | — | Delivery-outbox sweeper: total sweep passes executed. Complements the `cloacina_delivery_outbox_open` gauge. |
+| `cloacina_delivery_outbox_sweep_redeliveries_total` | — | Delivery-outbox sweeper: total outbox rows re-delivered by a sweep pass (e.g. after a missed acknowledgement). |
+| `cloacina_reactor_firings_pruned_total` | — | Reactor firing-history rows pruned during retention cleanup. Each increment counts one pruned firing record. |
 
 ### Histograms
 

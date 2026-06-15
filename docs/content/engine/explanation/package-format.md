@@ -197,14 +197,18 @@ by hand — see
 ## Inspecting a Package
 
 ```bash
-# Built-in inspection
-cloacinactl package inspect analytics-workflow-1.0.0.cloacina
+# Validate + inspect a local archive (unpacks it and checks the manifest)
+cloacinactl package validate analytics-workflow-1.0.0.cloacina
 
 # Manual — it's just a bzip2 tar
 tar -tjf analytics-workflow-1.0.0.cloacina            # list contents
 tar -xjOf analytics-workflow-1.0.0.cloacina \
     analytics-workflow-1.0.0/package.toml             # read the manifest
 ```
+
+> `cloacinactl package validate <file>` operates on a **local** `.cloacina`
+> archive. `cloacinactl package inspect <id>` is different — it queries a
+> **running server** for an already-registered workflow by id, not a local file.
 
 ## Related Resources
 

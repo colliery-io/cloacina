@@ -52,7 +52,7 @@ helm install cloacina \
   --set postgresql.auth.password=$(openssl rand -hex 16)
 ```
 
-This pulls in Bitnami's `postgresql` subchart. **Don't use this in
+This enables the bundled **in-tree** `postgresql` subchart — a Service + PVC around the official `docker.io/library/postgres` image (it replaced the Bitnami chart). **Don't use this in
 production** — the credentials are exposed via Helm values, and the
 PVC isn't backed up by anything you don't run yourself.
 
@@ -109,7 +109,7 @@ cert-manager users can wire issuance via the standard
 
 | Knob | Default | Effect |
 |------|---------|--------|
-| `livenessProbe`, `readinessProbe`, `startupProbe` | `/v1/health` HTTP | Override per-probe; set to `null` to disable |
+| `livenessProbe`, `readinessProbe`, `startupProbe` | `/health` (liveness/startup) and `/ready` (readiness) HTTP | Override per-probe; set to `null` to disable |
 | `server.requireSignatures` | `false` | Reject unsigned packages |
 | `server.verificationOrgId` | `""` | Trusted org UUID (required when signatures are required) |
 | `server.tenantRunnerCacheSize` | `256` | LRU cap on per-tenant `DefaultRunner` instances |

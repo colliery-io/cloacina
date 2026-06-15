@@ -877,12 +877,29 @@ Get health details for a specific computation graph.
 |---|---|
 | `404` | `{"error": "graph 'pricing_graph' not found"}` |
 
+## Execution-Agent Fleet
+
+When the server runs an execution-agent fleet, agents call a dedicated set of
+endpoints to register, heartbeat, and return results. These are consumed by the
+agents themselves, not by typical API clients:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/v1/agent/register` | An agent announces itself and its advertised heartbeat interval. |
+| `POST` | `/v1/agent/heartbeat` | Liveness heartbeat; missing heartbeats let the sweeper evict the agent and reassign its in-flight work. |
+| `POST` | `/v1/agent/result` | An agent returns the outcome of a dispatched unit of work. |
+| `GET`  | `/v1/agent/artifact/{digest}` | An agent fetches a content-addressed package artifact by digest. |
+
+See [Execution-Agent Fleet]({{< ref "/service/explanation/execution-agent-fleet" >}})
+for how the fleet coordinates, and [Deploy an Execution-Agent Fleet]({{< ref "/service/how-to/deploy-an-execution-agent-fleet" >}}) to run one.
+
 ## WebSocket Endpoints
 
-The API server also exposes WebSocket endpoints for real-time interaction with computation graphs:
+The API server also exposes WebSocket endpoints for real-time interaction with computation graphs and event delivery:
 
 - **`/v1/ws/accumulator/{name}`** -- push events into a graph accumulator
 - **`/v1/ws/reactor/{name}`** -- send commands (force-fire, pause, resume) and query reactor state
+- **`/v1/ws/delivery/{recipient}`** -- subscribe to at-least-once outbox deliveries (how execution events reach `cloacinactl execution follow` and SDK subscribers)
 
 WebSocket connections authenticate via a single-use ticket obtained from `POST /v1/auth/ws-ticket`. See the [WebSocket Protocol]({{< ref "websocket-protocol" >}}) reference for connection details and message formats.
 

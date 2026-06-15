@@ -479,7 +479,8 @@ api_key = "file:/etc/cloacina/staging-key"
 # Daemon settings.
 [daemon]
 poll_interval_ms = 500              # Reconciler fallback interval
-log_level = "info"                  # trace / debug / info / warn / error
+log_level = "info"                  # NOTE: not currently wired to runtime logging —
+                                    # verbosity is controlled by RUST_LOG and `-v`/`--verbose`
 shutdown_timeout_s = 30             # Graceful drain timeout
 watcher_debounce_ms = 500           # Filesystem watcher debounce
 trigger_poll_interval_ms = 1000     # Custom-poll trigger base interval

@@ -35,7 +35,7 @@ This starts PostgreSQL 16 on port 5432 with credentials `cloacina:cloacina` and 
 cloacinactl server start --database-url postgresql://cloacina:cloacina@localhost:5432/cloacina
 ```
 
-The server binds to `0.0.0.0:8080` by default. To change the bind address:
+The server binds to `127.0.0.1:8080` (loopback) by default. To accept remote connections — e.g. in a container or behind a proxy — set the bind address explicitly (`0.0.0.0:8080` for all interfaces):
 
 ```bash
 cloacinactl server start \

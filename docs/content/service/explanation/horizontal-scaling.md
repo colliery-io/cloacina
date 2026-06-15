@@ -216,17 +216,15 @@ This ensures that the sweeper only acts on tasks that have been stale for at lea
 
 ### Configuration
 
-The sweeper is configured through `DefaultRunnerConfig` struct fields. Note that `stale_claim_sweep_interval` and `stale_claim_threshold` are **not** available as builder methods -- they use their default values when constructing via the builder. To customize them, modify the struct fields directly after calling `.build()`:
+The sweeper is configured through `DefaultRunnerConfig`. `stale_claim_sweep_interval` and `stale_claim_threshold` are available as builder methods (alongside `enable_claiming` and `heartbeat_interval`):
 
 ```rust
-let mut config = DefaultRunnerConfig::builder()
+let config = DefaultRunnerConfig::builder()
     .enable_claiming(true)
     .heartbeat_interval(Duration::from_secs(10))
+    .stale_claim_sweep_interval(Duration::from_secs(30))  // default: 30s
+    .stale_claim_threshold(Duration::from_secs(60))       // default: 60s
     .build();
-
-// These fields are set directly on the struct, not via the builder:
-// config.stale_claim_sweep_interval = Duration::from_secs(30);  // default: 30s
-// config.stale_claim_threshold = Duration::from_secs(60);        // default: 60s
 ```
 
 The `stale_claim_threshold` must be greater than the `heartbeat_interval`. If the heartbeat interval is 10 seconds and the stale threshold is 60 seconds, a runner must miss 6 consecutive heartbeats before its claims are considered stale.

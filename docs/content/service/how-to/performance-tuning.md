@@ -188,7 +188,7 @@ let config = DefaultRunnerConfig::builder()
 
 ### Pipeline timeout
 
-The `pipeline_timeout` (default: **Some(3600 seconds / 1 hour)**) is the maximum time for an entire workflow execution from start to finish. Set to `None` to disable.
+The `workflow_timeout` (default: **Some(3600 seconds / 1 hour)**) is the maximum time for an entire workflow execution from start to finish. Set to `None` to disable.
 
 ```rust
 use std::time::Duration;
@@ -196,12 +196,12 @@ use cloacina::runner::DefaultRunnerConfig;
 
 // Strict pipeline timeout for SLA-bound workflows
 let config = DefaultRunnerConfig::builder()
-    .pipeline_timeout(Some(Duration::from_secs(600)))  // 10 minutes total
+    .workflow_timeout(Some(Duration::from_secs(600)))  // 10 minutes total
     .build();
 
 // No pipeline timeout (tasks still have individual timeouts)
 let config = DefaultRunnerConfig::builder()
-    .pipeline_timeout(None)
+    .workflow_timeout(None)
     .build();
 ```
 
@@ -213,10 +213,10 @@ When a task times out:
 3. The scheduler picks it up on the next poll after `retry_at` passes
 4. Each retry attempt counts toward the pipeline timeout
 
-If `pipeline_timeout` expires while a task is waiting for retry, the entire pipeline is failed. Size your pipeline timeout to accommodate worst-case retry scenarios:
+If `workflow_timeout` expires while a task is waiting for retry, the entire pipeline is failed. Size your pipeline timeout to accommodate worst-case retry scenarios:
 
 ```
-pipeline_timeout >= (task_timeout * max_attempts * num_sequential_tasks) + scheduling_overhead
+workflow_timeout >= (task_timeout * max_attempts * num_sequential_tasks) + scheduling_overhead
 ```
 
 ## 5. Cron Scheduling Performance
@@ -242,7 +242,7 @@ let config = DefaultRunnerConfig::builder()
 
 ### Catchup execution limits
 
-The `cron_max_catchup_executions` (default: **usize::MAX**, effectively unlimited) limits how many missed executions are launched after downtime. Without a limit, a schedule that runs every minute would launch 1,440 catchup executions after 24 hours of downtime.
+The `cron_max_catchup_executions` (default: **100**) limits how many missed executions are launched after downtime. Without a limit, a schedule that runs every minute would launch 1,440 catchup executions after 24 hours of downtime.
 
 ```rust
 use std::time::Duration;
@@ -287,7 +287,7 @@ With 100 registered schedules at 30-second poll interval, expect ~3-4 queries pe
 
 ### Reconciliation interval
 
-The `registry_reconcile_interval` (default: **60 seconds**) controls how often the reconciler scans for new or updated workflow packages.
+The `registry_reconcile_interval` (default: **5 seconds**) controls how often the reconciler scans for new or updated workflow packages.
 
 ```rust
 use std::time::Duration;
@@ -456,7 +456,7 @@ let config = DefaultRunnerConfig::builder()
     .max_concurrent_tasks(16)
     .scheduler_poll_interval(Duration::from_millis(25))
     .task_timeout(Duration::from_secs(30))
-    .pipeline_timeout(Some(Duration::from_secs(120)))
+    .workflow_timeout(Some(Duration::from_secs(120)))
     .db_pool_size(30)
     .enable_cron_scheduling(false)       // disable if not needed
     .enable_registry_reconciler(false)   // load workflows at startup only
@@ -482,7 +482,7 @@ let config = DefaultRunnerConfig::builder()
     .max_concurrent_tasks(32)
     .scheduler_poll_interval(Duration::from_millis(50))
     .task_timeout(Duration::from_secs(300))
-    .pipeline_timeout(Some(Duration::from_secs(3600)))
+    .workflow_timeout(Some(Duration::from_secs(3600)))
     .db_pool_size(50)
     .cron_poll_interval(Duration::from_secs(30))
     .cron_max_catchup_executions(10)
@@ -511,7 +511,7 @@ let config = DefaultRunnerConfig::builder()
     .max_concurrent_tasks(4)
     .scheduler_poll_interval(Duration::from_millis(500))
     .task_timeout(Duration::from_secs(1800))       // 30 min per task
-    .pipeline_timeout(Some(Duration::from_secs(14400)))  // 4 hours total
+    .workflow_timeout(Some(Duration::from_secs(14400)))  // 4 hours total
     .db_pool_size(10)
     .cron_poll_interval(Duration::from_secs(60))
     .cron_max_catchup_executions(1)     // only catch up one missed run
@@ -606,17 +606,17 @@ Tune `stale_claim_threshold` based on your longest expected network partition or
 | `max_concurrent_tasks` | 4 | tasks |
 | `scheduler_poll_interval` | 100 | ms |
 | `task_timeout` | 300 | seconds |
-| `pipeline_timeout` | 3600 | seconds |
+| `workflow_timeout` | 3600 | seconds |
 | `db_pool_size` | 10 | connections |
 | `cron_poll_interval` | 30 | seconds |
-| `cron_max_catchup_executions` | unlimited | executions |
+| `cron_max_catchup_executions` | 100 | executions |
 | `cron_recovery_interval` | 300 | seconds |
 | `cron_lost_threshold_minutes` | 10 | minutes |
 | `cron_max_recovery_age` | 86400 | seconds |
 | `cron_max_recovery_attempts` | 3 | attempts |
 | `trigger_base_poll_interval` | 1 | seconds |
 | `trigger_poll_timeout` | 30 | seconds |
-| `registry_reconcile_interval` | 60 | seconds |
+| `registry_reconcile_interval` | 5 | seconds |
 | `heartbeat_interval` | 10 | seconds |
 | `stale_claim_sweep_interval` | 30 | seconds |
 | `stale_claim_threshold` | 60 | seconds |
