@@ -190,14 +190,17 @@ struct PricingAccumulator;
 
 #[async_trait::async_trait]
 impl Accumulator for PricingAccumulator {
-    type Event = PricingUpdate;    // what comes in from the socket channel
     type Output = PricingSignal;   // what goes out to the reactor
 
-    fn process(&mut self, event: PricingUpdate) -> Option<PricingSignal> {
-        // Passthrough: convert PricingUpdate → PricingSignal
-        // Returning None would suppress this event (e.g. for filtering)
+    fn process(&mut self, event: Vec<u8>) -> Option<PricingSignal> {
+        // The runtime hands `process` the raw serialized bytes; deserialize
+        // to the type the sender used (types::serialize == bincode).
+        let update: PricingUpdate =
+            cloacina::computation_graph::types::deserialize(&event).ok()?;
+        // Passthrough: convert PricingUpdate → PricingSignal.
+        // Returning None would suppress this event (e.g. for filtering).
         Some(PricingSignal {
-            price: event.mid_price,
+            price: update.mid_price,
             change_pct: 0.0, // analysis happens in the graph
         })
     }
@@ -224,7 +227,7 @@ The function name (`pricing`) becomes the source name. This must match the key y
 {{< /tab >}}
 {{< /tabs >}}
 
-In Rust, `type Event` is the raw type you push into the socket channel and `type Output` is what the accumulator emits to the boundary channel after `process()`. In Python the function receives a raw event dict and returns the processed dict. In both languages, returning `None` silently drops the event — useful for filtering or deduplication.
+In Rust, `process()` receives the raw serialized bytes off the socket channel — deserialize them to your event type, then return the `Output` the accumulator emits to the boundary channel. In Python the function receives a raw event dict and returns the processed dict. In both languages, returning `None` silently drops the event — useful for filtering or deduplication.
 
 Cloacina ships four accumulator decorators in Python — `@cloaca.passthrough_accumulator`, `@cloaca.stream_accumulator`, `@cloaca.polling_accumulator`, and `@cloaca.batch_accumulator`. The Rust `Accumulator` trait additionally supports a `#[state_accumulator]` form that has no Python equivalent yet (tracked in CLOACI-T-0688).
 

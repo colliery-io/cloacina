@@ -96,7 +96,7 @@ hand off to the live view.
 
 ## What's next
 
-- [Deploy the web UI](../how-to-guides/deploy-the-web-ui/) as a
+- [Deploy the web UI]({{< ref "/service/how-to/deploy-the-web-ui" >}}) as a
   container against any server.
 - Manage tenant API keys from the **API Keys** view (create shows the
   key exactly once — copy it then).

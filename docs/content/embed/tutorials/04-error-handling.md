@@ -50,11 +50,16 @@ Retries back off between attempts (`fixed` / `linear` / `exponential`). Use
 `retry_condition` to retry only `transient` errors. Because execution is
 **at-least-once**, a task may run more than once — keep it idempotent.
 
-## What you learned (the track)
+## What you learned
 
 You can now define tasks, pass data, express a DAG, and handle failure — embedded
-in your own process. To take it further:
+in your own process. That's the foundation; the rest of the track builds on it.
 
-- **Going to production embedded?** → [Running embedded in production]({{< ref "/embed/how-to" >}})
-- **Event-driven, in-process?** → [Computation Graphs]({{< ref "/engine/computation-graphs/computation-graph" >}})
+## Next
+
+- **[05 — Cron scheduling]({{< ref "/embed/tutorials/05-cron-scheduling" >}})** — run a workflow on a schedule.
 - Retry patterns: [Conditional Retries]({{< ref "/embed/how-to/conditional-retries" >}})
+
+The track continues through scheduling, multi-tenancy, triggers, deferral, and the
+registry (05–09), then computation graphs (10–13). The
+[tutorials index]({{< ref "/embed/tutorials" >}}) lists the full sequence.

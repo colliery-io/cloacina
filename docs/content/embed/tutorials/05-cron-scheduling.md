@@ -47,10 +47,11 @@ pub mod report_workflow {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().init();
 
-    // Turn on cron scheduling in the runner config.
-    let mut config = DefaultRunnerConfig::default();
-    config.enable_cron_scheduling = true;
-    config.cron_poll_interval = Duration::from_secs(5); // check for due schedules every 5s
+    // Turn on cron scheduling in the runner config via the builder.
+    let config = DefaultRunnerConfig::builder()
+        .enable_cron_scheduling(true)
+        .cron_poll_interval(Duration::from_secs(5)) // check for due schedules every 5s
+        .build()?;
 
     let runner = DefaultRunner::with_config("sqlite://cron.db", config).await?;
 
@@ -83,17 +84,17 @@ with cloaca.WorkflowBuilder("daily_report") as builder:
         context.set("report_data", report_data)
         return context
 
-runner = cloaca.DefaultRunner(":memory:")
+# Turn on cron scheduling in the runner config.
+config = cloaca.DefaultRunnerConfig(
+    enable_cron_scheduling=True,
+    cron_poll_interval_seconds=5,  # check for due schedules every 5s
+)
+runner = cloaca.DefaultRunner.with_config(":memory:", config)
 
 # Register the workflow against a cron expression + timezone.
-schedule = cloaca.CronSchedule(
-    workflow_name="daily_report",
-    cron_expression="*/30 * * * * *",  # every 30 seconds for the demo
-    timezone="UTC",
-    enabled=True,
-)
-runner.add_cron_schedule(schedule)
-print("Cron schedule registered")
+# Returns the new schedule's id.
+schedule_id = runner.register_cron_workflow("daily_report", "*/30 * * * * *", "UTC")
+print(f"Cron schedule registered (ID: {schedule_id})")
 
 # Let it run, then shut down.
 time.sleep(65)
@@ -105,71 +106,41 @@ runner.shutdown()
 Run it. The workflow fires on its own at each interval — you'll see the task's
 log line appear repeatedly without anyone triggering it.
 
-## Pass context into a scheduled run
-
-A schedule can carry a default [Context]({{< ref "/embed/tutorials/02-context" >}})
-so each scheduled execution starts with known inputs.
-
-{{< tabs "cron-context" >}}
-{{< tab "Rust" >}}
-```rust
-// In Rust, the workflow's tasks read whatever defaults you set inside them;
-// register the same workflow under several schedules to vary behaviour.
-runner
-    .register_cron_workflow("report_workflow", "0 9 * * 1-5", "America/New_York")
-    .await?; // 9 AM on weekdays, Eastern time
-```
-{{< /tab >}}
-{{< tab "Python" >}}
-```python
-schedule = cloaca.CronSchedule(
-    workflow_name="system_backup",
-    cron_expression="0 2 * * SUN",
-    timezone="UTC",
-    enabled=True,
-    context=cloaca.Context({"backup_type": "full"}),
-)
-runner.add_cron_schedule(schedule)
-```
-{{< /tab >}}
-{{< /tabs >}}
-
 The cron fields are standard: minute, hour, day-of-month, month, day-of-week.
 `*/2 * * * *` is every two minutes; `0 9 * * 1-5` is 9 AM on weekdays. Use `"UTC"`
 unless business logic genuinely requires a local timezone.
 
 ## Handling missed executions
 
-If your process is down when a schedule was due, Cloacina decides what to do via
-recovery and catchup. **Recovery** automatically re-runs executions that were
-claimed but never finished (e.g. a crash) — it's on by default. **Catchup**
-governs intentional downtime: `Skip` ignores intervals missed while down (right
-for health checks), while `RunAll` replays them (right for ETL that must process
-every interval).
+If your process is down when a schedule was due, Cloacina can automatically
+re-run executions that were claimed but never finished. Turn on cron recovery in
+the config and cap how many missed intervals it will replay at once.
 
 {{< tabs "cron-recovery" >}}
 {{< tab "Rust" >}}
 ```rust
-let mut config = DefaultRunnerConfig::default();
-config.enable_cron_scheduling = true;
-config.cron_enable_recovery = true;          // re-run lost executions
-config.cron_recovery_interval = Duration::from_secs(30);
-config.cron_max_catchup_executions = 50;     // cap catchup to avoid a storm
+let config = DefaultRunnerConfig::builder()
+    .enable_cron_scheduling(true)
+    .cron_enable_recovery(true)                    // re-run lost executions
+    .cron_recovery_interval(Duration::from_secs(30))
+    .cron_max_catchup_executions(50)               // cap catchup to avoid a storm
+    .build()?;
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
 ```python
-# Recovery is enabled by default. To replay intervals missed during downtime,
-# choose a catchup policy on the schedule (Skip ignores them, RunAll replays).
-schedule = cloaca.CronSchedule(
-    workflow_name="incremental_backup",
-    cron_expression="0 3 * * *",
-    timezone="UTC",
-    enabled=True,
+config = cloaca.DefaultRunnerConfig(
+    enable_cron_scheduling=True,
+    cron_enable_recovery=True,            # re-run lost executions
+    cron_recovery_interval_seconds=30,
+    cron_max_catchup_executions=50,       # cap catchup to avoid a storm
 )
 ```
 {{< /tab >}}
 {{< /tabs >}}
+
+For the full recovery-versus-catchup model, see
+[Cron Scheduling]({{< ref "/engine/explanation/cron-scheduling" >}}).
 
 Because scheduled runs are at-least-once, keep scheduled tasks idempotent — see
 [04 — Error handling]({{< ref "/embed/tutorials/04-error-handling" >}}).
@@ -177,8 +148,7 @@ Because scheduled runs are at-least-once, keep scheduled tasks idempotent — se
 ## What you learned / next
 
 You enabled in-process cron scheduling, registered a workflow against a cron
-expression and timezone, passed default context, and chose how missed executions
-are handled.
+expression and timezone, and chose how missed executions are handled.
 
 - **Next:** [06 — Multi-tenancy]({{< ref "/embed/tutorials/06-multi-tenancy" >}})
 - How scheduling works under the hood: [Cron Scheduling]({{< ref "/engine/explanation/cron-scheduling" >}})

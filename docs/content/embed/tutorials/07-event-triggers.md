@@ -47,10 +47,17 @@ pub mod file_processing {
 {{< /tab >}}
 {{< tab "Python" >}}
 ```python
-with cloaca.WorkflowBuilder("file_processor") as builder:
+with cloaca.WorkflowBuilder("file_processing") as builder:
     builder.description("Process incoming files")
 
-    @cloaca.task(id="process_file")
+    @cloaca.task(id="validate_file")
+    def validate_file(context):
+        filename = context.get("filename", "unknown")
+        context.set("validated", True)
+        print(f"Validated: {filename}")
+        return context
+
+    @cloaca.task(id="process_file", dependencies=["validate_file"])
     def process_file(context):
         filename = context.get("filename", "unknown")
         print(f"Processing: {filename}")
@@ -69,66 +76,38 @@ file every fifth poll.
 {{< tabs "trigger-define" >}}
 {{< tab "Rust" >}}
 ```rust
-use async_trait::async_trait;
-use cloacina::trigger::{Trigger, TriggerError, TriggerResult};
-use cloacina::Context;
+use cloacina::trigger;
+use cloacina::{Context, TriggerError, TriggerResult};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
 
+// The poll fn has no `self`, so polling state lives in a module-level static.
 static FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-#[derive(Debug, Clone)]
-pub struct FileWatcherTrigger {
-    name: String,
-    poll_interval: Duration,
-    watch_path: String,
-}
-
-impl FileWatcherTrigger {
-    pub fn new(name: &str, watch_path: &str, poll_interval: Duration) -> Self {
-        Self {
-            name: name.to_string(),
-            poll_interval,
-            watch_path: watch_path.to_string(),
-        }
+// `#[trigger]` generates the `Trigger` impl plus a zero-arg constructor and
+// submits it to the runtime inventory at compile time, so `Runtime::new()`
+// (inside `DefaultRunner`) auto-registers it — no explicit `register_trigger`
+// call. `on = "..."` names the workflow this trigger fires.
+#[trigger(
+    name = "file_watcher",
+    on = "file_processing",
+    poll_interval = "2s",
+    allow_concurrent = false
+)]
+async fn file_watcher() -> Result<TriggerResult, TriggerError> {
+    // Pretend a new file lands on disk every fifth poll. Real code would
+    // `std::fs::read_dir` or call an object-storage API.
+    let count = FILE_COUNTER.fetch_add(1, Ordering::SeqCst);
+    if count % 5 != 4 {
+        return Ok(TriggerResult::Skip);
     }
 
-    async fn check_for_new_files(&self) -> Option<String> {
-        let count = FILE_COUNTER.fetch_add(1, Ordering::SeqCst);
-        if count % 5 == 4 {
-            Some(format!("data_{}.csv", chrono::Utc::now().timestamp()))
-        } else {
-            None
-        }
-    }
-}
-
-#[async_trait]
-impl Trigger for FileWatcherTrigger {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn poll_interval(&self) -> Duration {
-        self.poll_interval
-    }
-
-    fn allow_concurrent(&self) -> bool {
-        false // Don't process same file twice
-    }
-
-    async fn poll(&self) -> Result<TriggerResult, TriggerError> {
-        if let Some(filename) = self.check_for_new_files().await {
-            let mut ctx = Context::new();
-            ctx.insert("filename", serde_json::json!(filename))
-                .map_err(|e| TriggerError::PollError { message: e.to_string() })?;
-            ctx.insert("watch_path", serde_json::json!(self.watch_path.clone()))
-                .map_err(|e| TriggerError::PollError { message: e.to_string() })?;
-            Ok(TriggerResult::Fire(Some(ctx)))
-        } else {
-            Ok(TriggerResult::Skip)
-        }
-    }
+    let filename = format!("data_{}.csv", chrono::Utc::now().timestamp());
+    let mut ctx = Context::new();
+    ctx.insert("filename", serde_json::json!(filename))
+        .map_err(|e| TriggerError::PollError { message: e.to_string() })?;
+    ctx.insert("watch_path", serde_json::json!("/data/inbox"))
+        .map_err(|e| TriggerError::PollError { message: e.to_string() })?;
+    Ok(TriggerResult::Fire(Some(ctx)))
 }
 ```
 {{< /tab >}}
@@ -138,7 +117,6 @@ import cloaca
 import random
 
 @cloaca.trigger(
-    workflow="file_processor",
     name="file_watcher",
     poll_interval="5s",
     allow_concurrent=False
@@ -161,34 +139,44 @@ so dedup can tell fires apart.
 ## Register and run
 
 Enable trigger scheduling on the runner, then register the trigger so the runner
-polls it.
+polls it. In Rust you bind the trigger to its target workflow explicitly; in
+Python the `@cloaca.trigger` decorator registers `file_watcher` at import time, so
+constructing the runner is enough to start polling — after that you manage the
+trigger at runtime.
 
 {{< tabs "trigger-register" >}}
 {{< tab "Rust" >}}
 ```rust
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::trigger::register_trigger;
 use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = DefaultRunnerConfig::default();
-    config.enable_trigger_scheduling = true;
-    config.trigger_base_poll_interval = Duration::from_secs(1);
+    // Enable trigger scheduling so the runner spins up its poll loop.
+    let config = DefaultRunnerConfig::builder()
+        .enable_trigger_scheduling(true)
+        .trigger_base_poll_interval(Duration::from_secs(1))
+        .build()
+        .unwrap();
 
     let runner = DefaultRunner::with_config("sqlite://triggers.db?mode=rwc", config).await?;
 
-    let trigger = FileWatcherTrigger::new("file_watcher", "/data/inbox", Duration::from_secs(2));
-    register_trigger(trigger.clone());
+    // `#[trigger]` already auto-registered `file_watcher` into the runtime
+    // inventory, so look it up by name rather than constructing it.
+    let trigger = runner
+        .runtime()
+        .get_trigger("file_watcher")
+        .ok_or("trigger 'file_watcher' not in runtime inventory")?;
 
-    let dal = runner.dal();
-    dal.trigger_schedule().upsert(
-        cloacina::models::trigger_schedule::NewTriggerSchedule::new(
-            "file_watcher",
-            "file_processing",
-            Duration::from_secs(2),
-        )
-    ).await?;
+    // Persist the trigger -> workflow schedule row so the unified scheduler
+    // dispatches `file_processing` whenever the trigger fires.
+    let scheduler = runner
+        .unified_scheduler()
+        .await
+        .ok_or("unified scheduler not enabled — check enable_trigger_scheduling()")?;
+    scheduler
+        .register_trigger(trigger.as_ref(), "file_processing")
+        .await?;
 
     info!("Trigger registered. Running for 30 seconds...");
     tokio::time::sleep(Duration::from_secs(30)).await;
@@ -202,9 +190,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```python
 import cloaca
 
+# The @cloaca.trigger decorator already registered file_watcher at import
+# time, so constructing the runner starts the poll loop for it.
 runner = cloaca.DefaultRunner("sqlite://triggers.db")
 
-# List registered trigger schedules
+# List the registered trigger schedules
 for schedule in runner.list_trigger_schedules():
     print(f"{schedule['trigger_name']} -> {schedule['workflow_name']}")
 
@@ -221,9 +211,12 @@ runner.shutdown()
 {{< /tab >}}
 {{< /tabs >}}
 
-The runner polls `file_watcher` every two seconds; on the fifth poll it fires
-`file_processing` with the new filename in context, and `validate_file` →
-`process_file` run with it.
+The runner polls `file_watcher` on its interval. In the Rust example the
+`register_trigger` call binds it to `file_processing`, so on the fifth poll the
+trigger fires that workflow with the new filename in context and `validate_file` →
+`process_file` run with it. In Python the decorated `file_watcher` is registered
+the moment the runner starts; `list_trigger_schedules`, `set_trigger_enabled`, and
+`get_trigger_execution_history` then let you inspect and control it at runtime.
 
 ## Next
 

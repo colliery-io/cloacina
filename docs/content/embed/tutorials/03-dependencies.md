@@ -64,5 +64,5 @@ workflow is built — cycles and missing tasks are rejected.
 
 ## Next
 
-- **[04 — Error handling & retries]({{< ref "/embed/tutorials" >}})**
+- **[04 — Error handling & retries]({{< ref "/embed/tutorials/04-error-handling" >}})**
 - Explanation: [Trigger Rules]({{< ref "/engine/explanation/trigger-rules" >}})

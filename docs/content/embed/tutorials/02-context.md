@@ -64,5 +64,5 @@ returned as `result.final_context`.
 
 ## Next
 
-- **[03 — Dependencies & parallelism]({{< ref "/embed/tutorials" >}})**
+- **[03 — Dependencies & parallelism]({{< ref "/embed/tutorials/03-dependencies" >}})**
 - Reference: [Context]({{< ref "/engine/workflows/context" >}})

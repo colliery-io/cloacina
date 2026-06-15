@@ -346,6 +346,7 @@ You now have:
 > [Deploy the Web UI]({{< ref "/service/how-to/deploy-the-web-ui" >}})
 > for the full wiring.
 
+- **Next: [02 — The Web UI]({{< ref "/service/tutorials/02-the-web-ui" >}})** — operate and observe this server from the browser.
 - [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}})
   — productionize multi-tenancy and learn the operational caveats
   (the runner-schema execution gap is critical for true isolation).

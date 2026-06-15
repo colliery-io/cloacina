@@ -2,8 +2,6 @@
 title: "03 — Packaged Workflows"
 description: "Create distributable workflow packages with the packaged workflow system"
 weight: 13
-reviewer: "dstorey"
-review_date: "2025-01-17"
 aliases:
   - "/workflows/tutorials/service/07-packaged-workflows/"
 
@@ -24,28 +22,7 @@ Welcome to the workflow packages tutorial! In this guide, you'll learn how to cr
 
 ## What Are Workflow Packages?
 
-Before we start building, let's understand what workflow packages are and when to use them:
-
-**Embedded Workflows** (from previous tutorials):
-- Defined directly in your application code
-- Compiled into your binary
-- Great for application-specific business logic
-
-**Workflow Packages** (this tutorial):
-- Defined in separate Cargo projects
-- Compiled to shared libraries (.so/.dylib/.dll)
-- Packaged into .cloacina archives for distribution
-- Dynamically loaded at runtime
-- Perfect for reusable workflows and multi-tenant scenarios
-
-{{< hint type=info title="When to Use Workflow Packages" >}}
-Choose workflow packages when you need:
-- **Distribution**: Share workflows between teams or applications
-- **Versioning**: Independent workflow lifecycle management
-- **Multi-tenancy**: Different workflows per tenant
-- **Hot-swapping**: Update workflows without restarting the application
-- **Modularity**: Separate workflow development from application development
-{{< /hint >}}
+Workflow packages are workflows compiled to shared libraries and distributed as `.cloacina` archives that a server loads dynamically at runtime — see [Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture" >}}) for the full rationale and trade-offs.
 
 ## Setting Up Your Project
 
@@ -408,25 +385,15 @@ You should see output showing:
 - Task definitions and dependencies (collect_data → process_data → generate_report)
 - Platform and architecture information
 
-## What's Different from Embedded Workflows?
+## How Packages Differ from Embedded Workflows
 
-| Aspect | Embedded Workflows | Workflow Packages |
-|--------|-------------------|-------------------|
-| **Distribution** | Part of application binary | Standalone .cloacina packages |
-| **Loading** | Compile-time registration | Dynamic runtime loading |
-| **Versioning** | Application version | Independent package versioning |
-| **Deployment** | Requires application redeployment | Hot-swappable without downtime |
-| **Multi-tenancy** | Shared across all tenants | Per-tenant packages |
-| **Testing** | Application integration tests | Independent package tests |
+Unlike embedded workflows compiled into the application binary, packages are standalone artifacts loaded dynamically at runtime — for the full comparison see [Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture" >}}).
 
 ## Next Steps
 
-Congratulations! You've created and tested your first workflow package. Next, you'll learn how to work with the workflow registry for dynamic loading and execution:
+You've created and tested your first workflow package.
 
-- [**Tutorial 09: Working with the Workflow Registry**]({{< ref "/embed/tutorials/09-workflow-registry/" >}}) - Register and execute workflows dynamically
-- **Multi-tenant Deployments**: Different workflows per tenant
-- **Continuous Deployment**: CI/CD pipelines for workflow packages
-- **Advanced Packaging**: Complex dependencies and cross-compilation
+Next: [04 — Packaging a Computation Graph]({{< ref "/service/tutorials/04-packaging" >}})
 
 ## Related Resources
 

@@ -55,7 +55,7 @@ what you read here matches what you see in every interface.
 
 ## Where to go next
 
-- [When to Use Cloacina]({{< ref "/start/is-cloacina-for-you" >}}) — pick the right primitive and mode.
+- [Is Cloacina for you?]({{< ref "/start/is-cloacina-for-you" >}}) — pick the right primitive and door.
 - [Features Overview]({{< ref "/start/features" >}}) — the full capability catalog.
 - [Workflows]({{< ref "/engine/workflows" >}}) / [Computation Graphs]({{< ref "/engine/computation-graphs" >}}) — the deep tracks.
 - [Glossary]({{< ref "/reference/glossary" >}}) — every term, precisely defined.

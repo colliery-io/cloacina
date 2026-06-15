@@ -128,6 +128,6 @@ on first error." `retry_attempts = 1, retry_condition = "all"` means
 
 ## See also
 
-- [`retry_attempts`, `retry_delay_ms`, `retry_backoff` reference](../reference/) — the rest of the retry-policy knobs
+- [`retry_attempts`, `retry_delay_ms`, `retry_backoff` reference]({{< ref "/reference/macros" >}}) — the rest of the retry-policy knobs
 - [`cloacina_workflow::RetryPolicy`](https://docs.rs/cloacina-workflow) — the underlying policy struct
 - Source: [`crates/cloacina-workflow/src/retry.rs`](https://github.com/colliery-io/cloacina/blob/main/crates/cloacina-workflow/src/retry.rs)

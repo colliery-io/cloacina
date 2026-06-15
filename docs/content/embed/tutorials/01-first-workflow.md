@@ -130,5 +130,5 @@ You'll see a completed status and the `message` value in the final context.
 
 ## Next
 
-- **[02 — Passing data with Context]({{< ref "/embed/tutorials" >}})**
+- **[02 — Passing data with Context]({{< ref "/embed/tutorials/02-context" >}})**
 - Reference: [Workflow]({{< ref "/engine/workflows/workflow" >}}) · [Task]({{< ref "/engine/workflows/task" >}}) · [Context]({{< ref "/engine/workflows/context" >}}) · [Runner]({{< ref "/engine/workflows/runner" >}})

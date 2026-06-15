@@ -199,8 +199,13 @@ key) is rejected at upload. Just make sure the decorator runs at import time.
 - Triggers are packaged alongside tasks in the same `.cloacina` archive
 - The reconciler imports your `entry_module` on load, which wires everything together
 
-## Next Steps
+## Where to go next
 
-- [Computation Graphs]({{< ref "/embed/tutorials/10-computation-graph" >}}) — reactive, event-driven processing
+This is an optional, packaging-focused follow-on to
+[07 — Event Triggers]({{< ref "/embed/tutorials/07-event-triggers" >}}) — it takes the
+in-process trigger you learned there and ships it inside a `.cloacina` package. It's
+the end of the tutorial track.
+
 - [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}) — the full `package.toml` format and build steps
 - [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}) — deploy your package
+- [Package Format]({{< ref "/engine/explanation/package-format" >}}) — what's inside a `.cloacina` archive

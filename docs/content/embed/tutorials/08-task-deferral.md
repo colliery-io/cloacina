@@ -7,60 +7,41 @@ aliases:
 
 ---
 
-## Overview
+# 08 — Task Deferral
 
-This tutorial walks through using `TaskHandle` and its `defer_until` method to release a concurrency slot while a task polls an external condition. When the condition is met, the task reclaims a slot and resumes execution. This pattern is useful for tasks that spend most of their time waiting on I/O, external services, or file availability without occupying a concurrency slot the whole time.
+When a task spends most of its time waiting on I/O, an external service, or a
+file that hasn't arrived yet, you don't want it to hold a concurrency slot the
+whole time. A `#[task]` function can accept a `TaskHandle` and call
+`defer_until` to release its slot, poll a condition, and reclaim a slot once the
+condition is met — freeing the executor to run other tasks in the meantime.
+
+{{< hint type=note title="Shown in Rust" >}}
+This tutorial is shown in Rust only. `TaskHandle::defer_until` is a Rust-side
+capability; consult the [Python TaskHandle reference]({{< ref "/reference/python-api/task" >}})
+for the current Python parity status before relying on it from `cloaca`.
+{{< /hint >}}
 
 ## Prerequisites
 
-Before starting this tutorial, you should:
+- Completion of [Tutorial 01 — First Workflow]({{< ref "/embed/tutorials/01-first-workflow/" >}})
+- Comfort with the `#[task]` and `#[workflow]` macros and Rust async/await
 
-- Have completed [Tutorial 01 — First Workflow]({{< ref "/embed/tutorials/01-first-workflow/" >}})
-- Be comfortable with the `#[task]` and `#[workflow]` macros
-- Understand async/await patterns in Rust
+## A deferring task and its downstream consumer
 
-## Time Estimate
-
-15-20 minutes
-
-## What You Will Learn
-
-- How to accept a `TaskHandle` in a task function
-- How `defer_until` releases and reclaims concurrency slots
-- How to compose deferred and non-deferred tasks in a single workflow
-- How the executor manages slots across deferred tasks
-
-## Key Concepts
-
-### TaskHandle
-
-`TaskHandle` is an optional second parameter that a `#[task]` function can accept. The macro system detects parameters named `handle` or `task_handle` and automatically arranges for the executor to provide a `TaskHandle` at runtime.
-
-The handle provides access to concurrency slot management. Tasks that do not need this capability omit the parameter entirely and behave as before.
-
-### defer_until
-
-`defer_until` is the primary method on `TaskHandle`. It:
-
-1. Releases the executor's concurrency slot so other tasks can run
-2. Polls a user-supplied async condition at a given interval
-3. Reclaims a slot when the condition returns `true`
-4. Returns control to the task, which continues executing with the slot held
-
-While deferred, the task's async future stays parked in the tokio runtime consuming minimal resources.
-
-## Walkthrough: The Deferred Tasks Example
-
-The example lives in `examples/features/deferred-tasks/`. It defines a two-task pipeline where the first task defers until simulated external data is ready, then the second task processes that data.
-
-### Step 1: Define a Task with TaskHandle
+`wait_for_data` takes a second parameter, `handle: &mut TaskHandle`. The macro
+detects a parameter named `handle` (or `task_handle`) and arranges for the
+executor to supply a `TaskHandle` at runtime. Inside the task, `defer_until`
+releases the slot and polls until the condition returns `true`. `process_data`
+is an ordinary task that runs once the deferred task completes.
 
 ```rust
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError, TaskHandle};
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::info;
 
 #[workflow(
     name = "deferred_pipeline",
@@ -74,136 +55,121 @@ pub mod deferred_pipeline {
         context: &mut Context<serde_json::Value>,
         handle: &mut TaskHandle,
     ) -> Result<(), TaskError> {
-        // ...
+        info!("wait_for_data: Starting — will defer until data is ready");
+
+        // Simulate an external readiness check.
+        // In production this would call an API, check a file, etc.
+        let poll_count = Arc::new(AtomicUsize::new(0));
+        let pc = poll_count.clone();
+
+        handle
+            .defer_until(
+                move || {
+                    let pc = pc.clone();
+                    async move {
+                        let n = pc.fetch_add(1, Ordering::SeqCst);
+                        info!("wait_for_data: polling external source (attempt {})", n + 1);
+                        // Simulate: data becomes ready after 3 polls
+                        n >= 2
+                    }
+                },
+                Duration::from_millis(500),
+            )
+            .await
+            .map_err(|e| TaskError::ExecutionFailed {
+                message: format!("defer_until failed: {e}"),
+                task_id: "wait_for_data".into(),
+                timestamp: chrono::Utc::now(),
+            })?;
+
+        info!(
+            "wait_for_data: Data is ready after {} polls — slot reclaimed",
+            poll_count.load(Ordering::SeqCst)
+        );
+
+        // Write the "received" data into context for downstream tasks
+        context.insert("external_data", json!({"status": "ready", "records": 42}))?;
+        Ok(())
+    }
+
+    #[task(id = "process_data", dependencies = ["wait_for_data"])]
+    pub async fn process_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        let data = context
+            .get("external_data")
+            .ok_or_else(|| TaskError::ExecutionFailed {
+                message: "external_data not found in context".into(),
+                task_id: "process_data".into(),
+                timestamp: chrono::Utc::now(),
+            })?
+            .clone();
+
+        let records = data.get("records").and_then(|v| v.as_u64()).unwrap_or(0);
+        context.insert("processed_count", json!(records))?;
+        context.insert("processing_complete", json!(true))?;
+
+        info!("process_data: Processed {} records", records);
+        Ok(())
     }
 }
 ```
 
-The key difference from a normal task is the second parameter: `handle: &mut TaskHandle`. The macro detects this by name (`handle` or `task_handle`) and sets `requires_handle() = true` on the generated `Task` trait implementation.
+`defer_until` takes a condition closure that returns `impl Future<Output = bool>`
+and is invoked once every poll interval; it returns `Result<(), ExecutorError>`,
+which the example maps onto `TaskError`. The condition releases the slot on entry
+and reclaims one when it first returns `true` — here, after three polls.
 
-### Step 2: Use defer_until to Wait for a Condition
-
-Inside `wait_for_data`, the task calls `defer_until` with a condition closure and a poll interval:
-
-```rust
-let poll_count = Arc::new(AtomicUsize::new(0));
-let pc = poll_count.clone();
-
-handle
-    .defer_until(
-        move || {
-            let pc = pc.clone();
-            async move {
-                let n = pc.fetch_add(1, Ordering::SeqCst);
-                info!("polling external source (attempt {})", n + 1);
-                // Simulate: data becomes ready after 3 polls
-                n >= 2
-            }
-        },
-        Duration::from_millis(500),
-    )
-    .await
-    .map_err(|e| TaskError::ExecutionFailed {
-        message: format!("defer_until failed: {e}"),
-        task_id: "wait_for_data".into(),
-        timestamp: chrono::Utc::now(),
-    })?;
-```
-
-While this loop is running:
-
-- The task's concurrency slot is released after the first call to `defer_until`
-- Other tasks in the executor can use that freed slot
-- Once the condition returns `true` (after 3 polls here), a slot is reclaimed
-- Execution continues normally after the `await`
-
-### Step 3: Write Results and Chain to a Downstream Task
-
-After resuming, the task writes data into the context for downstream consumers:
-
-```rust
-context.insert("external_data", json!({"status": "ready", "records": 42}))?;
-Ok(())
-```
-
-A second task depends on the deferred task and processes the data:
-
-```rust
-#[task(id = "process_data", dependencies = ["wait_for_data"])]
-pub async fn process_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let data = context
-        .get("external_data")
-        .ok_or_else(|| TaskError::ExecutionFailed {
-            message: "external_data not found in context".into(),
-            task_id: "process_data".into(),
-            timestamp: chrono::Utc::now(),
-        })?
-        .clone();
-
-    let records = data.get("records").and_then(|v| v.as_u64()).unwrap_or(0);
-    context.insert("processed_count", json!(records))?;
-    context.insert("processing_complete", json!(true))?;
-    Ok(())
-}
-```
-
-This task does not take a `TaskHandle` -- it runs as a normal task and executes once `wait_for_data` completes.
-
-### Step 4: Run the Pipeline
+## Run the pipeline
 
 ```rust
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt()
+        .with_env_filter("deferred_tasks=info,cloacina=info")
+        .init();
+
+    let _ = std::fs::remove_file("deferred-tasks.db");
+
     let runner =
         DefaultRunner::with_config("sqlite://deferred-tasks.db", DefaultRunnerConfig::default())
             .await?;
 
+    // Workflow is auto-registered by the #[workflow] macro.
     let result = runner.execute("deferred_pipeline", Context::new()).await?;
 
-    println!("Status: {:?}", result.status);
-    println!("Processed: {} records", result.final_context.get("processed_count").unwrap());
+    info!("Status: {:?}", result.status);
+    if let Some(count) = result.final_context.get("processed_count") {
+        info!("Processed {} records", count);
+    }
 
     runner.shutdown().await?;
     Ok(())
 }
 ```
 
-The workflow is auto-registered by the `#[workflow]` macro. The executor detects that `wait_for_data` requires a handle and provides one at runtime.
+The executor detects that `wait_for_data` requires a handle and provides one at
+runtime. Running it produces output like:
 
-## Condition Function Requirements
+```text
+wait_for_data: Starting — will defer until data is ready
+wait_for_data: polling external source (attempt 1)
+wait_for_data: polling external source (attempt 2)
+wait_for_data: polling external source (attempt 3)
+wait_for_data: Data is ready after 3 polls — slot reclaimed
+process_data: Processed 42 records
+Status: Completed
+Processed 42 records
+```
 
-The condition closure passed to `defer_until` must:
+The three polling lines confirm the task deferred and resumed; `Status:
+Completed` with 42 processed records confirms the slot was reclaimed and the
+downstream task ran. The full source lives at
+`examples/features/workflows/deferred-tasks/`.
 
-- Return `impl Future<Output = bool>`
-- Be callable multiple times (it is invoked every `poll_interval`)
-- Return `true` when the task should resume
+For the internal mechanics of slot tokens and the `defer_until` lifecycle, when
+deferral is and isn't worth the overhead, and patterns for real-world conditions,
+see [Task Deferral]({{< ref "/engine/explanation/task-deferral" >}}).
 
-Common real-world conditions include:
+## Prev / Next
 
-| Pattern | Example |
-|---------|---------|
-| File existence | `Path::new("/data/input.csv").exists()` |
-| API readiness | `client.get(url).send().await?.status().is_success()` |
-| Queue message | `queue.peek().await.is_some()` |
-| Database flag | `db.query("SELECT ready FROM jobs WHERE id = $1", &[&id]).await?.ready` |
-
-## Error Handling
-
-`defer_until` returns `Result<(), ExecutorError>`. It can fail if:
-
-- The executor's semaphore is closed (typically during shutdown)
-- The slot cannot be reclaimed
-
-Map the error to `TaskError` to propagate it through the normal task error path, as shown in the example above.
-
-## When Not to Use defer_until
-
-- **Short waits**: If the expected wait is under a few seconds, the overhead of releasing and reclaiming a slot may not be worth it. Just `tokio::time::sleep` instead.
-- **CPU-bound polling**: The condition should be cheap. Expensive computation in the condition will block a tokio worker thread.
-- **Single-task pipelines**: If only one task is running, releasing the slot provides no benefit since no other task can use it.
-
-## See Also
-
-- [Task Deferral Architecture]({{< ref "/engine/explanation/task-deferral" >}}) -- internal mechanics of slot tokens and the defer_until lifecycle
-- [Macro Reference]({{< ref "/reference/macros" >}}) -- full `#[task]` attribute reference including handle detection
-- [Python TaskHandle]({{< ref "/reference/python-api/task" >}}) -- using `TaskHandle` from Python
+- Prev: [07 — Event Triggers]({{< ref "/embed/tutorials/07-event-triggers/" >}})
+- Next: [09 — Working with the Workflow Registry]({{< ref "/embed/tutorials/09-workflow-registry/" >}})
