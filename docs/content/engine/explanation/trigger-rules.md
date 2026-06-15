@@ -57,7 +57,7 @@ is one of the comparison operators (`equals`, `not_equals`, `greater_than`, `les
 floats; `contains` works on both strings (substring match) and arrays (element membership).
 
 For the full syntax tables and operator details, see the
-[Macro Reference]({{< ref "/workflows/reference/macros" >}}).
+[Macro Reference]({{< ref "/reference/macros" >}}).
 
 ## Combinators
 
@@ -168,7 +168,7 @@ be skipped unless they have trigger rules that explicitly handle the skip case (
 
 Each terminal state (`Completed`, `Failed`, `Skipped`) maps to exactly one `true` condition
 among `task_success`, `task_failed`, and `task_skipped`. See the
-[Macro Reference]({{< ref "/workflows/reference/macros" >}}) for the full truth table.
+[Macro Reference]({{< ref "/reference/macros" >}}) for the full truth table.
 
 When a `context_value` condition is evaluated, the context is loaded from the task's
 dependencies:
@@ -310,7 +310,7 @@ Trigger rule result: All -> true (all conditions passed)
 ## Further Reading
 
 - [Tutorial 04: Error Handling]({{< ref "/workflows/tutorials/library/04-error-handling" >}}) -- step-by-step walkthrough building a resilient pipeline with fallbacks, conditional branching, and error notification
-- [Macro Reference]({{< ref "/workflows/reference/macros" >}}) -- full syntax tables for `trigger_rules`, condition types, operators, and combinators
+- [Macro Reference]({{< ref "/reference/macros" >}}) -- full syntax tables for `trigger_rules`, condition types, operators, and combinators
 - {{< api-link path="cloacina::execution_planner::TriggerRule" type="enum" display="TriggerRule" >}} -- Rust API docs
 - {{< api-link path="cloacina::execution_planner::TriggerCondition" type="enum" display="TriggerCondition" >}}
 - {{< api-link path="cloacina::execution_planner::ValueOperator" type="enum" display="ValueOperator" >}}

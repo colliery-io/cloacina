@@ -179,7 +179,7 @@ side, and the reconciler loads them from the same package metadata.
 
 ## Related
 
-- [Computation Graph Reference]({{< ref "/computation-graphs/reference/computation-graphs" >}}) — the `#[computation_graph]` macro surface.
+- [Computation Graph Reference]({{< ref "/reference/computation-graphs" >}}) — the `#[computation_graph]` macro surface.
 - [Reactor Lifecycle]({{< ref "/engine/explanation/reactor-lifecycle" >}}) — what trigger-less graphs *don't* have.
 - [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}) — methods 7 and 8.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — step 4.

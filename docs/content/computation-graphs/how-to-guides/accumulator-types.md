@@ -355,7 +355,7 @@ fn previous_outputs() -> VecDeque<DecisionOutput>;
 The buffer keeps the last `capacity` entries, evicting the oldest as new
 boundaries arrive. Because it is DAL-persisted, a restarted graph resumes with
 its prior history intact. See the
-[Computation Graphs reference]({{< ref "/computation-graphs/reference/computation-graphs" >}})
+[Computation Graphs reference]({{< ref "/reference/computation-graphs" >}})
 for the generated runtime details.
 
 ---

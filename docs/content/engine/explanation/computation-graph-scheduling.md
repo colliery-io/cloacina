@@ -203,4 +203,4 @@ Without a DAL (embedded mode), state is lost on restart — accumulators and the
 - [Computation Graph Architecture]({{< ref "/engine/explanation/architecture" >}}) — graph execution model
 - [Accumulator Design]({{< ref "/engine/explanation/accumulator-design" >}}) — how accumulators work
 - [Cron Scheduling Architecture]({{< ref "/engine/explanation/cron-scheduling" >}}) — time-based workflow scheduling
-- [Computation Graph Reference]({{< ref "/computation-graphs/reference/computation-graphs" >}}) — API reference
+- [Computation Graph Reference]({{< ref "/reference/computation-graphs" >}}) — API reference

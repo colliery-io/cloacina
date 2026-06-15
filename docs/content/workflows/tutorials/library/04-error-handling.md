@@ -739,7 +739,7 @@ To continue your Cloacina journey, explore:
 
 ## Related Resources
 
-- [Macro Reference]({{< ref "/workflows/reference/macros" >}}) - Complete reference for all retry options, trigger rule forms, callback signatures, and backoff strategies
+- [Macro Reference]({{< ref "/reference/macros" >}}) - Complete reference for all retry options, trigger rule forms, callback signatures, and backoff strategies
 - [API Documentation]({{< ref "/reference/" >}}) - Core API documentation
 - [Quick Start Guide]({{< ref "/quick-start/" >}}) - Getting started with Cloacina
 
