@@ -15,7 +15,7 @@ a closed `[metadata]` table), and the server reads `package.toml` directly. The
 
 The canonical manifest schema now lives with the archive format:
 
-- **[Package Format]({{< ref "/platform/explanation/package-format" >}})** — the
+- **[Package Format]({{< ref "/engine/explanation/package-format" >}})** — the
   `.cloacina` archive layout (Rust + Python) and the full `package.toml`
   `[package]` / `[metadata]` schema, including which keys are accepted and which
   are rejected (`package_type`, `[[metadata.triggers]]`).

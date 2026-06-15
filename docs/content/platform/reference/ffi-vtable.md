@@ -45,7 +45,7 @@ don't have to change their import path.
 
 Returns the package's full task catalog — for each task, its namespace,
 dependency list, description, and source location. The reconciler calls
-this at load time (step 6 of the [reconciler pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}})) to register a `DynamicLibraryTask` constructor in the host
+this at load time (step 6 of the [reconciler pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}})) to register a `DynamicLibraryTask` constructor in the host
 `Runtime` per declared task.
 
 ## Method Index 1 — `execute_task`
@@ -202,5 +202,5 @@ language-neutral.
 ## Related
 
 - [`package!()` macro reference]({{< ref "/platform/reference/package-shell-macro" >}}) — what emits this vtable.
-- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — how the host consumes the vtable across the six load steps.
-- [Inventory and Runtime Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}}) — why these methods exist.
+- [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — how the host consumes the vtable across the six load steps.
+- [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}) — why these methods exist.

@@ -31,7 +31,7 @@ problem, see [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}).
   [Variable Registry]({{< ref "/workflows/how-to-guides/variable-registry" >}}).
 - **Two database backends, chosen at runtime** — Postgres or SQLite via the
   connection URL, no recompile. See
-  [Database Backends]({{< ref "/platform/explanation/database-backends" >}}).
+  [Database Backends]({{< ref "/service/explanation/database-backends" >}}).
 
 ## Two execution primitives
 
@@ -84,7 +84,7 @@ first if those terms are new.
 - **Execution-agent fleet** — `cloacina-agent` workers run tasks off the server
   for horizontal scale. See
   [Deploy an Execution-Agent Fleet]({{< ref "/service/how-to/deploy-an-execution-agent-fleet" >}})
-  and [Execution-Agent Fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}).
+  and [Execution-Agent Fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}).
 
 ## Packaging
 
@@ -92,15 +92,15 @@ first if those terms are new.
   Rust compiled on the server at load). Scaffold, validate, pack, and upload with
   `cloacinactl package`. See
   [Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}})
-  and the [Package Format]({{< ref "/platform/explanation/package-format" >}}).
+  and the [Package Format]({{< ref "/engine/explanation/package-format" >}}).
 - **Reconciler** — the server loads and registers uploaded packages
   automatically. See
-  [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}).
+  [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}).
 
 ## Multi-tenancy & auth
 
 - **Schema-per-tenant isolation** (Postgres) — see
-  [Multi-Tenancy]({{< ref "/platform/explanation/multi-tenancy" >}}) and
+  [Multi-Tenancy]({{< ref "/service/explanation/multi-tenancy" >}}) and
   [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}}).
 - **API keys with roles** — admin / write / read, managed via `cloacinactl key`
   and the API.
@@ -117,7 +117,7 @@ first if those terms are new.
 
 - **Observability** — Prometheus `/metrics`, structured logs, and optional
   OpenTelemetry export. See
-  [Observability]({{< ref "/platform/explanation/observability" >}}) and the
+  [Observability]({{< ref "/service/explanation/observability" >}}) and the
   [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}).
 - **Package signing** — optional signature verification, enforced when the server
   runs with signatures required; signing private keys are encrypted at rest
@@ -125,9 +125,9 @@ first if those terms are new.
   [Package Signing]({{< ref "/service/how-to/security/package-signing" >}})
   and [Require Signed Packages]({{< ref "/service/how-to/require-signed-packages" >}}).
 - **Build sandboxing** — the compiler builds untrusted packages in an isolated
-  environment (Linux). See [Security Model]({{< ref "/platform/explanation/security-model" >}}).
+  environment (Linux). See [Security Model]({{< ref "/service/explanation/security-model" >}}).
 - **Horizontal scaling** — stateless schedulers coordinate through the database.
-  See [Horizontal Scaling]({{< ref "/platform/explanation/horizontal-scaling" >}}).
+  See [Horizontal Scaling]({{< ref "/service/explanation/horizontal-scaling" >}}).
 
 ## Tooling
 

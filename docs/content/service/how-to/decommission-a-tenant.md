@@ -8,7 +8,7 @@ weight: 80
 
 This recipe walks through removing a tenant from a running `cloacina-server` cleanly — closing the auth surface, draining in-flight work, evicting cached connections, and dropping the schema. The server's `DELETE /v1/tenants/{name}` route performs all four steps in order with bounded drain semantics per CLOACI-T-0581.
 
-For the conceptual model (why the orchestration is structured this way), see [Multi-tenancy]({{< ref "/platform/explanation/multi-tenancy" >}}).
+For the conceptual model (why the orchestration is structured this way), see [Multi-tenancy]({{< ref "/service/explanation/multi-tenancy" >}}).
 
 ## Prerequisites
 
@@ -122,7 +122,7 @@ If the HTTP response is a 4xx/5xx error rather than a success body, one or more 
 
 ## See also
 
-- [Multi-tenancy]({{< ref "/platform/explanation/multi-tenancy" >}}) — conceptual model for why the orchestration is structured this way.
+- [Multi-tenancy]({{< ref "/service/explanation/multi-tenancy" >}}) — conceptual model for why the orchestration is structured this way.
 - [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}#delete-v1tenantsschema_name) — full route shape and response body fields.
 - [Configure multi-tenant deployment]({{< ref "configure-multi-tenant-deployment" >}}) — provisioning side (the inverse of this recipe).
 - [DatabaseAdmin API Reference]({{< ref "/platform/reference/database-admin" >}}) — what step 4 calls under the hood.

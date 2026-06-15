@@ -620,7 +620,7 @@ Tune `stale_claim_threshold` based on your longest expected network partition or
 
 ## Related Resources
 
-- [Explanation: Performance Characteristics]({{< ref "/platform/explanation/performance-characteristics" >}})
-- [Explanation: Database Backends]({{< ref "/platform/explanation/database-backends" >}})
+- [Explanation: Performance Characteristics]({{< ref "/service/explanation/performance-characteristics" >}})
+- [Explanation: Database Backends]({{< ref "/service/explanation/database-backends" >}})
 - [How-to: Production Deployment]({{< ref "/service/how-to/production-deployment" >}})
 - [How-to: Multi-Tenant Setup]({{< ref "/workflows/how-to-guides/multi-tenant-setup" >}})

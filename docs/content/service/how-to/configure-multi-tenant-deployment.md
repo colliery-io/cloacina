@@ -21,7 +21,7 @@ and the known isolation caveats you need to design around.
 
 For the architectural design (per-schema isolation, the
 `TenantDatabaseCache`, the role/scope model, the rationale behind
-each choice), see [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}).
+each choice), see [Multi-Tenancy Architecture]({{< ref "/service/explanation/multi-tenancy" >}}).
 This guide focuses on the operational recipe.
 
 ## Step 1: Capture the Bootstrap Key
@@ -184,7 +184,7 @@ the deployment-relevant summary follows.
 - For CPU/memory side-channel isolation (which Cloacina does **not**
   provide between tenants on the same host), run a separate
   `cloacina-server` per tenant. Schema isolation alone is fine for
-  most threat models — see [Security Model]({{< ref "/platform/explanation/security-model" >}}#multi-tenant-isolation) for the trade-offs.
+  most threat models — see [Security Model]({{< ref "/service/explanation/security-model" >}}#multi-tenant-isolation) for the trade-offs.
 
 ### 2. Tenant teardown is orchestrated; no manual restart needed (post-T-0581)
 
@@ -291,7 +291,7 @@ cloacinactl --profile admin --tenant globex workflow list
 
 ## Related
 
-- [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}) — schema isolation design.
+- [Multi-Tenancy Architecture]({{< ref "/service/explanation/multi-tenancy" >}}) — schema isolation design.
 - [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — the tenant + key endpoints, full operational caveats list.
 - [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — TLS termination, reverse proxy.
 - [Multi-Tenant Setup]({{< ref "/workflows/how-to-guides/multi-tenant-setup" >}}) — embedded-mode multi-tenancy via `DefaultRunner::with_schema`.

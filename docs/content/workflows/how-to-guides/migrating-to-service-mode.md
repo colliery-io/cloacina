@@ -246,5 +246,5 @@ mod tests {
 
 - [Packaged Workflows Tutorial]({{< ref "/workflows/tutorials/service/07-packaged-workflows" >}}) — step-by-step packaging guide
 - [Workflow Registry Tutorial]({{< ref "/workflows/tutorials/service/08-workflow-registry" >}}) — managing packages in the registry
-- [FFI System]({{< ref "/platform/explanation/ffi-system" >}}) — how dynamic loading works
-- [Packaged Workflow Architecture]({{< ref "/platform/explanation/packaged-workflow-architecture" >}}) — design rationale
+- [FFI System]({{< ref "/engine/explanation/ffi-system" >}}) — how dynamic loading works
+- [Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture" >}}) — design rationale

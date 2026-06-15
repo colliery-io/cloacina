@@ -151,4 +151,4 @@ mechanism. You should care about it only when:
 
 - [`package!()` Macro Reference]({{< ref "/platform/reference/package-shell-macro" >}})
 - [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}})
-- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — what the host does after receiving FFI metadata.
+- [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — what the host does after receiving FFI metadata.

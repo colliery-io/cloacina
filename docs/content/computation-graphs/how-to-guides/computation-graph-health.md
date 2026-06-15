@@ -322,5 +322,5 @@ The reactor recovers automatically when the accumulator reconnects and returns t
 - [Monitoring Executions]({{< ref "/workflows/how-to-guides/monitoring-executions" >}})
 - [Choosing and using accumulator types]({{< ref "accumulator-types" >}})
 - [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}})
-- [Observability]({{< ref "/platform/explanation/observability" >}})
+- [Observability]({{< ref "/service/explanation/observability" >}})
 - [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}})

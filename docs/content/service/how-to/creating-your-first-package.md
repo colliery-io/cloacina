@@ -99,4 +99,4 @@ build + pack + upload in one step.
 ## See Also
 
 - [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the Python format in depth
-- [Package Format]({{< ref "/platform/explanation/package-format" >}}) — archive layout + `package.toml` schema
+- [Package Format]({{< ref "/engine/explanation/package-format" >}}) — archive layout + `package.toml` schema

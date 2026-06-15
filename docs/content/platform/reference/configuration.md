@@ -235,7 +235,7 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 
 | config.toml Key | Default | Description |
 |---|---|---|
-| `server.default_executor` | `"default"` | Executor key every task is dispatched to. There is no per-task routing — all work goes to this one executor. `"default"` is the in-process thread executor; set `"fleet"` to offload all work to the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). The key is hard-matched against registered executors at server startup; an unknown key fails fast (no silent fallback). |
+| `server.default_executor` | `"default"` | Executor key every task is dispatched to. There is no per-task routing — all work goes to this one executor. `"default"` is the in-process thread executor; set `"fleet"` to offload all work to the [execution-agent fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}). The key is hard-matched against registered executors at server startup; an unknown key fails fast (no silent fallback). |
 
 ```toml
 [server]

@@ -71,13 +71,13 @@ The unified shell collapses every per-symbol FFI emission into one
 expansion site that always matches the canonical `CloacinaPlugin`
 trait declaration. For the design rationale, the predecessor model
 this replaced, and the trade-offs, see [Inventory and Runtime
-Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}}).
+Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}).
 
 ## Inventory boundary
 
 The shell macro walks the cdylib's own inventory section, not the
 host's. The FFI vtable bridges across the shared-library boundary.
-See [Inventory and Runtime Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}})
+See [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}})
 for the full mechanism.
 
 ## Versioning
@@ -97,6 +97,6 @@ builds.
 ## Related
 
 - [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}}) — full method-by-method spec.
-- [Inventory and Runtime Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}}) — why the cdylib boundary matters.
-- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — how the host consumes what `package!()` emits.
+- [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}) — why the cdylib boundary matters.
+- [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — how the host consumes what `package!()` emits.
 - [Migrating to Service Mode]({{< ref "/workflows/how-to-guides/migrating-to-service-mode" >}}) — full Cargo.toml setup.

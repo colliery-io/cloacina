@@ -1209,7 +1209,7 @@ Or explore these resources:
 
 ## Related Resources
 
-- [Explanation: Multi-tenancy]({{< ref "/platform/explanation/multi-tenancy/" >}}) - Deep dive into architecture
+- [Explanation: Multi-tenancy]({{< ref "/service/explanation/multi-tenancy/" >}}) - Deep dive into architecture
 - [How-to: Multi-tenant Setup]({{< ref "/workflows/how-to-guides/multi-tenant-setup/" >}}) - Detailed setup guide
 - [How-to: Multi-tenant Recovery]({{< ref "/workflows/how-to-guides/multi-tenant-recovery/" >}}) - Recovery strategies
 

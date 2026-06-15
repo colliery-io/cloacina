@@ -8,7 +8,7 @@ weight: 81
 
 This recipe walks through enabling fail-closed package-signature verification on a running `cloacina-server`. Once configured, the server rejects every package upload that isn't signed by a trusted key for the configured verification org. The path is fail-fast (server refuses to start if misconfigured) and fail-closed (no soft-fail; failed verification = upload rejected).
 
-For the rationale (what threat model this protects against, what it doesn't), see [Security Model]({{< ref "/platform/explanation/security-model" >}}#package-signature-verification).
+For the rationale (what threat model this protects against, what it doesn't), see [Security Model]({{< ref "/service/explanation/security-model" >}}#package-signature-verification).
 
 ## Prerequisites
 
@@ -147,7 +147,7 @@ cloacinactl server start ...
 
 ## See also
 
-- [Security Model]({{< ref "/platform/explanation/security-model" >}}#package-signature-verification) — rationale and threat model.
+- [Security Model]({{< ref "/service/explanation/security-model" >}}#package-signature-verification) — rationale and threat model.
 - [Package signing]({{< ref "security/package-signing" >}}) — library-side API for generating signatures.
 - [Security: local development]({{< ref "security/local-development" >}}) — iterating on a signing pipeline locally.
 - [API Error Envelope]({{< ref "/platform/reference/api-error-envelope" >}}#403-forbidden) — full enumeration of signature-related error codes.

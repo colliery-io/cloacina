@@ -30,12 +30,12 @@ and a Postgres database for multi-tenant/production deployments.
 - [Repository Structure]({{< ref "/platform/reference/repository-structure" >}}) — Codebase layout
 
 ### Explanation
-- [Database Backends]({{< ref "/platform/explanation/database-backends" >}}) — PostgreSQL vs SQLite trade-offs
-- [Multi-tenancy]({{< ref "/platform/explanation/multi-tenancy" >}}) — Schema isolation architecture
-- [Package Format]({{< ref "/platform/explanation/package-format" >}}) — .cloacina file structure
-- [FFI System]({{< ref "/platform/explanation/ffi-system" >}}) — Dynamic library loading
-- [Horizontal Scaling]({{< ref "/platform/explanation/horizontal-scaling" >}}) — Multi-instance coordination
-- [Performance Characteristics]({{< ref "/platform/explanation/performance-characteristics" >}}) — Throughput and latency
+- [Database Backends]({{< ref "/service/explanation/database-backends" >}}) — PostgreSQL vs SQLite trade-offs
+- [Multi-tenancy]({{< ref "/service/explanation/multi-tenancy" >}}) — Schema isolation architecture
+- [Package Format]({{< ref "/engine/explanation/package-format" >}}) — .cloacina file structure
+- [FFI System]({{< ref "/engine/explanation/ffi-system" >}}) — Dynamic library loading
+- [Horizontal Scaling]({{< ref "/service/explanation/horizontal-scaling" >}}) — Multi-instance coordination
+- [Performance Characteristics]({{< ref "/service/explanation/performance-characteristics" >}}) — Throughput and latency
 
 ### How-to Guides
 - [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — Deploy to production

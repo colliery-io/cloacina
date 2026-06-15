@@ -325,6 +325,6 @@ defined inside a function or behind a conditional won't be discovered on import.
 ## See Also
 
 - [Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}}) — scaffold this layout with `cloacinactl package new`
-- [Package Format]({{< ref "/platform/explanation/package-format" >}}) — `.cloacina` archive structure
+- [Package Format]({{< ref "/engine/explanation/package-format" >}}) — `.cloacina` archive structure
 - [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}) — deploying to the local scheduler
 - [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}) — deploying to the HTTP server

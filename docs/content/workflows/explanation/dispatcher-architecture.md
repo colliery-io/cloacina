@@ -203,7 +203,7 @@ impl TaskExecutor for MyCustomExecutor {
 
 Execution topology is a single server-level deployment knob: the **default executor** key. Every task is dispatched to that one executor; there is no per-task matching, no glob rules, and no precedence chain.
 
-The key defaults to `default` (the in-process `ThreadTaskExecutor`). Set it to another registered key — e.g. `fleet` for the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}) — to send all work there. The preferred surface is `[server].default_executor` in `~/.cloacina/config.toml`:
+The key defaults to `default` (the in-process `ThreadTaskExecutor`). Set it to another registered key — e.g. `fleet` for the [execution-agent fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}) — to send all work there. The preferred surface is `[server].default_executor` in `~/.cloacina/config.toml`:
 
 ```toml
 [server]

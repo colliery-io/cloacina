@@ -91,4 +91,4 @@ queryable via `cloacinactl graph status market_maker`.
 
 - [Topology Dict Schema]({{< ref "/python/computation-graphs/reference/topology-dict-schema" >}})
 - [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the same packaging model for workflows.
-- [Package Format]({{< ref "/platform/explanation/package-format" >}}) — the `.cloacina` archive structure.
+- [Package Format]({{< ref "/engine/explanation/package-format" >}}) — the `.cloacina` archive structure.

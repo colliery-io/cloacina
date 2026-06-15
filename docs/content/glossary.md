@@ -80,7 +80,7 @@ Directed Acyclic Graph. The dependency structure of tasks in a workflow, where e
 
 ### DAL
 
-Data Access Layer. The abstraction over database backends that allows Cloacina to operate against either PostgreSQL or SQLite without changing application code. The DAL handles differences in UUID representation, schema management, and query syntax. See [Database Backends]({{< ref "/platform/explanation/database-backends" >}}).
+Data Access Layer. The abstraction over database backends that allows Cloacina to operate against either PostgreSQL or SQLite without changing application code. The DAL handles differences in UUID representation, schema management, and query syntax. See [Database Backends]({{< ref "/service/explanation/database-backends" >}}).
 
 ### DefaultRunner
 
@@ -112,7 +112,7 @@ The background service that spawns async tasks and manages concurrency limits us
 
 ### FFI
 
-Foreign Function Interface. The mechanism for loading packaged workflows as dynamic libraries at runtime. Cloacina uses a C ABI (Application Binary Interface) boundary via fidius to call into compiled workflow packages without requiring the host and plugin to share the same Rust compiler version. See [FFI System]({{< ref "/platform/explanation/ffi-system" >}}).
+Foreign Function Interface. The mechanism for loading packaged workflows as dynamic libraries at runtime. Cloacina uses a C ABI (Application Binary Interface) boundary via fidius to call into compiled workflow packages without requiring the host and plugin to share the same Rust compiler version. See [FFI System]({{< ref "/engine/explanation/ffi-system" >}}).
 
 ### Filtered subscription
 
@@ -120,7 +120,7 @@ A reactor → workflow subscription with an attached CEL predicate. Only firings
 
 ### fidius
 
-The binary serialization and packaging library used internally by Cloacina. fidius transforms Rust traits into stable C ABI plugins, handling serialization across the FFI boundary. It uses JSON encoding in debug builds for readability and bincode (a compact binary format) in release builds for performance. See [FFI System]({{< ref "/platform/explanation/ffi-system" >}}).
+The binary serialization and packaging library used internally by Cloacina. fidius transforms Rust traits into stable C ABI plugins, handling serialization across the FFI boundary. It uses JSON encoding in debug builds for readability and bincode (a compact binary format) in release builds for performance. See [FFI System]({{< ref "/engine/explanation/ffi-system" >}}).
 
 ### GraphResult
 
@@ -140,7 +140,7 @@ The one-line installer at `https://get.cloacina.dev/install.sh` (sourced from `i
 
 ### Inventory (registration)
 
-The registration mechanism Cloacina uses to surface tasks, workflows, triggers, reactors, and computation graphs to the runtime. Macros emit `inventory::submit!` entries (e.g., `TaskEntry`, `WorkflowDescriptorEntry`, `ReactorEntry`, `ComputationGraphEntry`, `TriggerlessGraphEntry`) into a per-binary inventory section. At startup, `cloacina::Runtime::seed_from_inventory()` walks every entry in the local section and registers a constructor per entry. Replaces the pre-I-0096 `#[ctor]`-based path; no `ctor` dependency is required. Inventory entries do **not** span shared-library boundaries — that's why packaged cdylibs use the FFI vtable rather than relying on cross-cdylib inventory iteration. See [Inventory and Runtime Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}}).
+The registration mechanism Cloacina uses to surface tasks, workflows, triggers, reactors, and computation graphs to the runtime. Macros emit `inventory::submit!` entries (e.g., `TaskEntry`, `WorkflowDescriptorEntry`, `ReactorEntry`, `ComputationGraphEntry`, `TriggerlessGraphEntry`) into a per-binary inventory section. At startup, `cloacina::Runtime::seed_from_inventory()` walks every entry in the local section and registers a constructor per entry. Replaces the pre-I-0096 `#[ctor]`-based path; no `ctor` dependency is required. Inventory entries do **not** span shared-library boundaries — that's why packaged cdylibs use the FFI vtable rather than relying on cross-cdylib inventory iteration. See [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}).
 
 ### Ledger
 
@@ -152,7 +152,7 @@ The positional dispatch table that the host uses to call into a packaged cdylib 
 
 ### Multi-tenancy
 
-Running isolated workflow environments within a single Cloacina deployment. Implemented using PostgreSQL schema separation, where each tenant's data (workflows, executions, contexts) lives in a dedicated schema, preventing accidental cross-tenant access. See [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}).
+Running isolated workflow environments within a single Cloacina deployment. Implemented using PostgreSQL schema separation, where each tenant's data (workflows, executions, contexts) lives in a dedicated schema, preventing accidental cross-tenant access. See [Multi-Tenancy Architecture]({{< ref "/service/explanation/multi-tenancy" >}}).
 
 ### Node
 
@@ -164,7 +164,7 @@ In some code paths, metric names (e.g., `cloacina_pipelines_total`), and interna
 
 ### Package (.cloacina)
 
-A distributable workflow artifact containing compiled code (as a platform-specific shared library — .so on Linux, .dylib on macOS) and metadata. Packages are uploaded to the runner's registry and loaded at runtime by the reconciler. They enable shipping workflows independently of the host application. See [Package Format]({{< ref "/platform/explanation/package-format" >}}).
+A distributable workflow artifact containing compiled code (as a platform-specific shared library — .so on Linux, .dylib on macOS) and metadata. Packages are uploaded to the runner's registry and loaded at runtime by the reconciler. They enable shipping workflows independently of the host application. See [Package Format]({{< ref "/engine/explanation/package-format" >}}).
 
 ### `package!()` Macro
 
@@ -181,7 +181,7 @@ A background service that periodically scans the package registry, loads newly r
 ### Reconciler Pipeline
 
 The six-step ordered load sequence the reconciler executes per package:
-(1) cron triggers, (2) custom-poll triggers, (3) reactors, (4) trigger-less computation graphs, (5) reactor-bound computation graphs, (6) workflows. Unload runs the same six steps in reverse. The ordering matters: workflows reference triggers, computation graphs reference reactors, and reactor-bound CGs require their reactor to be present in the scheduler before binding. Failures are isolated per step — a partially-loaded package can still be cleanly unwound. See [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}).
+(1) cron triggers, (2) custom-poll triggers, (3) reactors, (4) trigger-less computation graphs, (5) reactor-bound computation graphs, (6) workflows. Unload runs the same six steps in reverse. The ordering matters: workflows reference triggers, computation graphs reference reactors, and reactor-bound CGs require their reactor to be present in the scheduler before binding. Failures are isolated per step — a partially-loaded package can still be cleanly unwound. See [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}).
 
 ### Reactor Unload
 
@@ -205,7 +205,7 @@ The background service that evaluates task readiness and transitions tasks from 
 
 ### Schema Isolation
 
-The PostgreSQL multi-tenancy strategy where each tenant uses a separate database schema. All tables (workflows, executions, tasks, contexts) are duplicated per schema, providing strong data isolation while sharing a single database connection pool. See [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}).
+The PostgreSQL multi-tenancy strategy where each tenant uses a separate database schema. All tables (workflows, executions, tasks, contexts) are duplicated per schema, providing strong data isolation while sharing a single database connection pool. See [Multi-Tenancy Architecture]({{< ref "/service/explanation/multi-tenancy" >}}).
 
 ### Slot
 

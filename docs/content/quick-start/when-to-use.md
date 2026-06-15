@@ -39,11 +39,11 @@ in learning it.
 - **You need multi-tenancy or horizontal scaling on SQLite.** SQLite is
   single-process: ideal for embedding and local/dev, but multi-tenant isolation
   and multi-replica coordination require **Postgres**. See
-  [Database Backends]({{< ref "/platform/explanation/database-backends" >}}).
+  [Database Backends]({{< ref "/service/explanation/database-backends" >}}).
 - **You need the managed multi-tenant server on Windows/macOS.** The embedded
   library and the daemon are cross-platform; the hardened multi-tenant **server**
   (with build sandboxing) targets **Linux**. See
-  [Security Model]({{< ref "/platform/explanation/security-model" >}}).
+  [Security Model]({{< ref "/service/explanation/security-model" >}}).
 - **You require exactly-once execution.** Cloacina guarantees **at-least-once**
   with recovery; tasks and graph nodes must be idempotent under redelivery.
 - **Your tasks are synchronous and you don't want async.** Tasks and graph nodes
@@ -89,7 +89,7 @@ be a hosted, click-to-build platform.
 The embedded library and the server are **not exclusive** — you can author and
 test embedded, then deploy to a server. The two deployment
 postures have deliberately different trust models (high-trust single-user vs.
-low-trust multi-tenant); see [Security Model]({{< ref "/platform/explanation/security-model" >}}).
+low-trust multi-tenant); see [Security Model]({{< ref "/service/explanation/security-model" >}}).
 
 ### Moving from embedded to the server
 

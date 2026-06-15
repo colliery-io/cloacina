@@ -157,7 +157,7 @@ the guide that covers it in depth.
 - [ ] CORS configured **only if** a browser UI calls the server cross-origin — via the `CLOACINA_CORS_ALLOWED_ORIGINS` env var (works with `cloacinactl server start`) or the `--cors-allowed-origins` flag on the `cloacina-server` binary. The value is the origin users load the UI from. See [Deploy the Web UI]({{< ref "/service/how-to/deploy-the-web-ui" >}}).
 
 **Data & isolation**
-- [ ] PostgreSQL (not SQLite) for any multi-tenant or multi-replica deployment. See [Database Backends]({{< ref "/platform/explanation/database-backends" >}}).
+- [ ] PostgreSQL (not SQLite) for any multi-tenant or multi-replica deployment. See [Database Backends]({{< ref "/service/explanation/database-backends" >}}).
 - [ ] Multi-tenant isolation reviewed — in particular that executions actually run against the tenant's own schema (a misconfigured runner can execute against the wrong schema and break isolation). See [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}}).
 - [ ] Database backups and a restore drill in place.
 

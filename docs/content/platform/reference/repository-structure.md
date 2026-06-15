@@ -228,4 +228,4 @@ Manual cargo invocations work too but bypass the angreal task definitions; prefe
 - [CLI Reference]({{< ref "cli" >}}) — `cloacinactl` command surface.
 - [HTTP API Reference]({{< ref "http-api" >}}) — `cloacina-server` REST endpoints.
 - [Compiler + Server Deployment Runbook]({{< ref "/service/how-to/compiler-deployment-runbook" >}}) — long-form runbook for the server + compiler pair.
-- [Packaged Workflow Architecture]({{< ref "/platform/explanation/packaged-workflow-architecture" >}}) — how the cdylib + FFI vtable pieces fit together.
+- [Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture" >}}) — how the cdylib + FFI vtable pieces fit together.

@@ -24,7 +24,7 @@ subscriptions and how to recover if an unload partially fails.
 
 ## Background
 
-The reconciler runs a [six-step pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}})
+The reconciler runs a [six-step pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}})
 on unload, in reverse order:
 
 1. Workflows + tasks unregistered.
@@ -235,7 +235,7 @@ After every unload, verify clean teardown:
 
 ## Related
 
-- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — full ordering and rationale.
+- [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — full ordering and rationale.
 - [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}}) — the dual-layer reactor teardown.
 - [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}}) — for tenant-aware unloads.
 - [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — the package delete endpoint.

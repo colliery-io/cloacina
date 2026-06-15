@@ -202,7 +202,7 @@ cloacina_workflow_plugin::inventory::submit! {
 The `inventory` mechanism replaces the pre-I-0096 `#[ctor]`-based path —
 no `ctor = "0.2"` dependency is required, and the `cloacina_macros`
 crate emits these entries directly. See [Inventory and Runtime
-Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}})
+Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}})
 for the rationale behind the flip.
 
 In packaged mode (`feature = "packaged"`), the same constructor is

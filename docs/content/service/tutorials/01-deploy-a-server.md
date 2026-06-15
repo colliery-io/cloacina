@@ -206,7 +206,7 @@ Response:
 {"package_id": "f47ac10b-...", "tenant_id": "acme"}
 ```
 
-The reconciler runs through its [six-step pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}})
+The reconciler runs through its [six-step pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}})
 to load the package. Watch the server logs in your first terminal.
 You'll see lines like:
 
@@ -351,5 +351,5 @@ You now have:
   management.
 - [Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}})
   — wire metrics into Prometheus + OpenTelemetry tracing.
-- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}})
+- [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}})
   — understand what just happened during the package upload.

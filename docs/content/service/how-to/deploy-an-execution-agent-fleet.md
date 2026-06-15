@@ -6,7 +6,7 @@ weight: 58
 
 # Deploy an Execution-Agent Fleet
 
-This guide stands up an [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}):
+This guide stands up an [execution-agent fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}):
 a pool of DB-less `cloacina-agent` workers that the server offloads task
 execution to. For *why* the fleet exists and how it works internally, read the
 explanation; this is the operational path.
@@ -154,7 +154,7 @@ CLOACINA_AGENT_HEARTBEAT_INTERVAL_S=5 CLOACINA_AGENT_LIVENESS_MISSES=2 cloacina-
 
 ## See also
 
-- [Execution-Agent Fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}) — how it works.
+- [Execution-Agent Fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}) — how it works.
 - [CLI Reference]({{< ref "/platform/reference/cli" >}}#agent) — `cloacina-agent` + server fleet flags.
 - [Environment Variables]({{< ref "/platform/reference/environment-variables" >}}#execution-agent) — agent + fleet env vars.
 - [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — the `cloacina_fleet_*` series.

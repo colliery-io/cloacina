@@ -217,7 +217,7 @@ except Exception as e:
 
 ## See Also
 
-- [Multi-Tenancy Guide]({{< ref "/platform/explanation/multi-tenancy" >}})
+- [Multi-Tenancy Guide]({{< ref "/service/explanation/multi-tenancy" >}})
 - [Multi-Tenant Setup]({{< ref "/workflows/how-to-guides/multi-tenant-setup" >}})
 - [Rust Database Admin API]({{< ref "/platform/reference/database-admin" >}})
 - [Tutorial: Multi-Tenancy]({{< ref "/python/workflows/tutorials/06-multi-tenancy" >}})

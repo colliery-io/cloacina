@@ -211,11 +211,11 @@ an unknown key fails fast.
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
-| `--default-executor <KEY>` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). Forwarded by `cloacinactl server start`; also settable directly on `cloacina-server`. CLOACI-T-0640. |
+| `--default-executor <KEY>` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}). Forwarded by `cloacinactl server start`; also settable directly on `cloacina-server`. CLOACI-T-0640. |
 
 ### Fleet agent liveness (`cloacina-server`)
 
-These flags tune the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). They live on the `cloacina-server` binary directly (and via the env vars below); the `cloacinactl server start` wrapper does **not** forward them, so set them on `cloacina-server` itself or through the environment.
+These flags tune the [execution-agent fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}). They live on the `cloacina-server` binary directly (and via the env vars below); the `cloacinactl server start` wrapper does **not** forward them, so set them on `cloacina-server` itself or through the environment.
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
@@ -259,7 +259,7 @@ for health.
 ## `agent`
 
 The execution-agent (`cloacina-agent`) is a **DB-less** worker that joins a
-server's [fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). It
+server's [fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}). It
 registers over REST, opens the delivery WebSocket, fetches compiled workflow
 cdylibs by digest, executes the task in-process, and reports the result back —
 holding no database connection of its own. It is a standalone binary, not a
@@ -534,4 +534,4 @@ The `~/.cloacina/` directory (configurable via `--home`) holds:
 - [Configuration Reference]({{< ref "/platform/reference/configuration" >}}) — `DefaultRunnerConfig` builder details.
 - [Environment Variables Reference]({{< ref "/platform/reference/environment-variables" >}}) — full env var list.
 - [Cron Scheduling Architecture]({{< ref "/workflows/explanation/cron-scheduling" >}}) — how the daemon processes cron schedules.
-- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — what the daemon's reconciler does after detecting a new package.
+- [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — what the daemon's reconciler does after detecting a new package.

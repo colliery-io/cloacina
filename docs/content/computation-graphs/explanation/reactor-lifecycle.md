@@ -59,7 +59,7 @@ make sure they do.
 
 ## Load
 
-The reconciler runs step 3 of the [pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) for each package:
+The reconciler runs step 3 of the [pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) for each package:
 
 1. Read FFI method 4 (`get_reactor_metadata`) — get the package's
    declared reactors.
@@ -134,6 +134,6 @@ component is permanently abandoned).
 
 ## Related
 
-- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — step 3 detail.
+- [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — step 3 detail.
 - [Computation Graph Scheduling]({{< ref "/computation-graphs/explanation/computation-graph-scheduling" >}}) — runtime model.
 - [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}}) — methods 4 (`get_reactor_metadata`) and the rest.

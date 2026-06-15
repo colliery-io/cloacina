@@ -447,7 +447,7 @@ Because there's no lease and no leader, **failover is trivial**: if a scheduler 
 
 Scaling shape: add or remove `cloacina-server` replicas at will. Each replica polls independently; the atomic claim is the only coordination primitive. There is no membership protocol, no quorum, no broker.
 
-See `crates/cloacina/src/cron_trigger_scheduler.rs` for the claim implementation and [Horizontal Scaling]({{< ref "/platform/explanation/horizontal-scaling" >}}) for the analogous task-level mechanism.
+See `crates/cloacina/src/cron_trigger_scheduler.rs` for the claim implementation and [Horizontal Scaling]({{< ref "/service/explanation/horizontal-scaling" >}}) for the analogous task-level mechanism.
 
 
 ## Performance Considerations
@@ -503,7 +503,7 @@ Operationally relevant metrics for cron:
 - **`cloacina_scheduler_claim_attempts_total{outcome=claimed|contended|empty}`** — diagnostic for multi-scheduler deployments. Sustained `contended` ≫ 0 means multiple schedulers are racing for the same rows (expected at low scale; tune `cron_poll_interval` down if it becomes load).
 - **`cloacina_scheduler_stale_claims_swept_total`** — non-zero rate indicates a scheduler crashed mid-firing and the sweep reclaimed its row. Investigate scheduler logs for the affected window.
 
-For the full namespace + PromQL recipes, see [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}). For the rationale behind the SQL-derived gauge model (why `cloacina_active_workflows` is leak-proof across crashes), see [Observability]({{< ref "/platform/explanation/observability" >}}).
+For the full namespace + PromQL recipes, see [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}). For the rationale behind the SQL-derived gauge model (why `cloacina_active_workflows` is leak-proof across crashes), see [Observability]({{< ref "/service/explanation/observability" >}}).
 
 
 ## Best Practices

@@ -59,7 +59,7 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Trusted org UUID |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner cache cap |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `--tenant-deletion-drain-timeout-s` | `30` | Drain timeout during teardown |
-| `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to (CLOACI-T-0640). `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
+| `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to (CLOACI-T-0640). `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. CLOACI-T-0639. |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | `--agent-liveness-misses` | `3` | Consecutive missed heartbeats before the server marks a fleet agent dead and reclaims its in-flight work. Effective dead-after = interval × misses (default 15s × 3 = 45s). CLOACI-T-0639. |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
@@ -79,7 +79,7 @@ The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`,
 
 ## Execution Agent
 
-The [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}) (`cloacina-agent`) is a DB-less worker that registers with a server, fetches compiled workflow artifacts, executes tasks, and reports results. It holds **no** database connection; all of its configuration is server + API-key oriented.
+The [execution-agent fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}) (`cloacina-agent`) is a DB-less worker that registers with a server, fetches compiled workflow artifacts, executes tasks, and reports results. It holds **no** database connection; all of its configuration is server + API-key oriented.
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|

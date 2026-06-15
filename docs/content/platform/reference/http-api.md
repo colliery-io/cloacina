@@ -1013,6 +1013,6 @@ been removed.
 
 - [CLI Reference]({{< ref "cli" >}}) — `cloacinactl server start` flags and bootstrap-key behavior.
 - [DatabaseAdmin API]({{< ref "database-admin" >}}) — tenant provisioning internals.
-- [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}) — schema isolation design.
+- [Multi-Tenancy Architecture]({{< ref "/service/explanation/multi-tenancy" >}}) — schema isolation design.
 - [WebSocket Protocol]({{< ref "websocket-protocol" >}}) — real-time WebSocket endpoints and message formats.
-- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — how the server loads and unloads packaged workflows.
+- [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — how the server loads and unloads packaged workflows.

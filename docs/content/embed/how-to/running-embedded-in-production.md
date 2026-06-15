@@ -17,7 +17,7 @@ service. (If you'd rather operate a standalone control plane, that's the
   and local/dev. No multi-replica coordination.
 - **PostgreSQL** — required for **multiple replicas** of your app sharing
   orchestration state, and for schema-isolated multi-tenancy. See
-  [Database Backends]({{< ref "/platform/explanation/database-backends" >}}).
+  [Database Backends]({{< ref "/service/explanation/database-backends" >}}).
 
 The backend is chosen by the connection URL at runtime — no recompile.
 
@@ -88,10 +88,10 @@ in-flight bookkeeping completes. Tie it to your service's graceful-shutdown path
 Running several instances of your app against **one Postgres** is supported — the
 runners coordinate through the database (claiming work atomically). Use Postgres
 (not SQLite), keep `enable_recovery` on, and ensure tasks are idempotent. See
-[Horizontal Scaling]({{< ref "/platform/explanation/horizontal-scaling" >}}) for the
+[Horizontal Scaling]({{< ref "/service/explanation/horizontal-scaling" >}}) for the
 coordination model.
 
 ## See also
 
 - [Runner]({{< ref "/engine/workflows/runner" >}}) · [Reference · Configuration]({{< ref "/reference" >}})
-- [Database Backends]({{< ref "/platform/explanation/database-backends" >}})
+- [Database Backends]({{< ref "/service/explanation/database-backends" >}})

@@ -150,7 +150,7 @@ shape, with the message preserved verbatim.
 ## Loading and unloading
 
 Trigger-less graphs load in **step 4** of the [reconciler
-pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}})
+pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}})
 — after triggers and reactors, before reactor-bound CGs and
 workflows. Step 4 builds a `TriggerlessGraphRegistration` per graph
 and registers it in the host `Runtime`. Step 6 then validates that
@@ -182,4 +182,4 @@ side, and the reconciler loads them from the same package metadata.
 - [Computation Graph Reference]({{< ref "/computation-graphs/reference/computation-graphs" >}}) — the `#[computation_graph]` macro surface.
 - [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}}) — what trigger-less graphs *don't* have.
 - [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}}) — methods 7 and 8.
-- [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — step 4.
+- [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — step 4.

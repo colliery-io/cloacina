@@ -141,4 +141,4 @@ vs. database-polled rows.
 
 - [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}}) — the methods the reconciler calls in each step.
 - [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}}) — step 3 detail.
-- [Inventory and Runtime Seeding]({{< ref "/platform/explanation/inventory-and-runtime-seeding" >}}) — how step 6 differs between embedded and packaged paths.
+- [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}) — how step 6 differs between embedded and packaged paths.

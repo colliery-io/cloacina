@@ -28,7 +28,7 @@ door to start at.
   draw pipelines.
 - **You need multi-tenancy or horizontal scaling on SQLite.** Those require
   **PostgreSQL** (SQLite is single-process). See
-  [Database Backends]({{< ref "/platform/explanation/database-backends" >}}).
+  [Database Backends]({{< ref "/service/explanation/database-backends" >}}).
 - **You need the managed multi-tenant server on Windows/macOS.** The library and
   daemon are cross-platform; the hardened multi-tenant **server** targets **Linux**.
 - **You require exactly-once execution.** Cloacina is **at-least-once** with
@@ -62,7 +62,7 @@ trade-off, not a ranking.
 The two doors share the same engine, packaging format, and primitives — moving a
 `.cloacina` package between them is a repackaging step, not a rewrite. They have
 deliberately different trust models (high-trust single-user vs. low-trust
-multi-tenant); see [Security Model]({{< ref "/platform/explanation/security-model" >}}).
+multi-tenant); see [Security Model]({{< ref "/service/explanation/security-model" >}}).
 
 ## Choosing a primitive
 
