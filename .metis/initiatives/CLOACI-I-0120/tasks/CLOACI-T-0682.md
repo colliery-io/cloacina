@@ -4,14 +4,14 @@ level: task
 title: "P0 — Orientation & onboarding: what/why/when-not/features/getting-started/concepts"
 short_code: "CLOACI-T-0682"
 created_at: 2026-06-15T03:17:05.672111+00:00
-updated_at: 2026-06-15T03:17:52.251464+00:00
+updated_at: 2026-06-15T11:23:10.295861+00:00
 parent: CLOACI-I-0120
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -90,15 +90,17 @@ compliance) on the P0 set, address blockers+majors, commit, open PR.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] Landing `_index.md` answers what/why/**when-not**/ways-to-run/get-started. (DONE)
-- [ ] `quick-start/_index.md` surfaces the demo-stack first-success path prominently.
-- [ ] A dedicated "When to use Cloacina (and when not)" explanation doc exists, linked from the landing.
-- [ ] A "Features overview" page catalogs capabilities and reflects SHIPPED reality (fleet/UI/SDKs/substrate done), linked into deep docs.
-- [ ] A concepts/primitives orientation page introduces the five S-0011 primitives.
-- [ ] README pitch is consistent with the new landing.
-- [ ] The four reviewers return zero blockers/majors (clarity zero blockers) on the P0 set; PR opened.
+- [x] Landing `_index.md` answers what/why/**when-not**/ways-to-run/get-started.
+- [x] `quick-start/_index.md` surfaces the "see it running" (server+UI) path.
+- [x] A dedicated "When to use Cloacina (and when not)" explanation doc, linked from the landing.
+- [x] A "Features overview" page catalogs capabilities and reflects SHIPPED reality, linked into deep docs.
+- [x] A concepts/primitives orientation page introduces the five S-0011 primitives.
+- [x] README pitch consistent with the new landing.
+- [x] The four reviewers return zero blockers/majors (clarity zero blockers); PR opened.
 
 ## Status Updates
 
