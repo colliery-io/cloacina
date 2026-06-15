@@ -4,14 +4,14 @@ level: task
 title: "Engine: Package (.cloacina) primitive"
 short_code: "CLOACI-T-0695"
 created_at: 2026-06-15T14:19:42.752752+00:00
-updated_at: 2026-06-15T14:19:42.752752+00:00
+updated_at: 2026-06-15T15:53:45.967891+00:00
 parent: CLOACI-I-0122
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -26,9 +26,12 @@ initiative_id: CLOACI-I-0122
 
 [[CLOACI-I-0122]]
 
-## Objective **[REQUIRED]**
+## Objective
 
-{Clear statement of what this task accomplishes}
+Author `/engine/packaging/package.md` — the `.cloacina` package as an elevated
+primitive: Python module-tree vs Rust compiled-on-load layouts (tabs), the
+new→validate→pack→upload loop, and the "bare decorators, no WorkflowBuilder in a
+package" rule. See [[CLOACI-I-0122]].
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -64,11 +67,13 @@ initiative_id: CLOACI-I-0122
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria **[REQUIRED]**
+## Acceptance Criteria
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+## Acceptance Criteria
+
+- [x] `package.md` authored (Python/Rust layout tabs + cloacinactl loop)
+- [x] "bare decorators, no WorkflowBuilder in a package" rule stated
+- [x] `hugo` builds clean (522 pages)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 

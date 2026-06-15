@@ -4,14 +4,14 @@ level: task
 title: "Engine: scheduling cluster — Trigger (poll/cron), Cron schedule"
 short_code: "CLOACI-T-0694"
 created_at: 2026-06-15T14:19:41.355322+00:00
-updated_at: 2026-06-15T14:19:41.355322+00:00
+updated_at: 2026-06-15T15:53:45.075519+00:00
 parent: CLOACI-I-0122
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -26,9 +26,12 @@ initiative_id: CLOACI-I-0122
 
 [[CLOACI-I-0122]]
 
-## Objective **[REQUIRED]**
+## Objective
 
-{Clear statement of what this task accomplishes}
+Author `/engine/scheduling/`: **Trigger** (poll/cron) and **Cron schedule** —
+dual-language tabs. Surface the cron parity nuance honestly: Python has full cron
+at the runner API (`register_cron_workflow`, …) but no packaged cron-trigger
+decorator (Rust-only → [[CLOACI-T-0688]]). See [[CLOACI-I-0122]].
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -64,11 +67,13 @@ initiative_id: CLOACI-I-0122
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria **[REQUIRED]**
+## Acceptance Criteria
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+## Acceptance Criteria
+
+- [x] `trigger.md` + `cron-schedule.md` authored with dual-language tabs
+- [x] Cron parity nuance surfaced (Python runtime API vs Rust packaged decorator → T-0688)
+- [x] `hugo` builds clean (522 pages)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
