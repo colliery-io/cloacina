@@ -12,7 +12,7 @@ This tutorial walks through using `TaskHandle` and its `defer_until` method to r
 
 Before starting this tutorial, you should:
 
-- Have completed [Tutorial 1 - First Workflow]({{< ref "/embed/tutorials/01-first-workflow/" >}})
+- Have completed [Tutorial 01 — First Workflow]({{< ref "/embed/tutorials/01-first-workflow/" >}})
 - Be comfortable with the `#[task]` and `#[workflow]` macros
 - Understand async/await patterns in Rust
 

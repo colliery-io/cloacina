@@ -6,7 +6,7 @@ weight: 24
 
 # Packaged Triggers
 
-In this tutorial, you'll learn how to define event-driven triggers alongside your Python workflows so they can be packaged and deployed to the Cloacina daemon. While [Tutorial 7]({{< ref "/embed/tutorials/07-event-triggers" >}}) introduced triggers running directly in your Python process, this tutorial focuses on the packaging story — how triggers and workflows are declared, bundled, and auto-registered when loaded by the reconciler (the daemon component that discovers, validates, and registers packages).
+In this tutorial, you'll learn how to define event-driven triggers alongside your Python workflows so they can be packaged and deployed to the Cloacina daemon. While [Tutorial 07]({{< ref "/embed/tutorials/07-event-triggers" >}}) introduced triggers running directly in your Python process, this tutorial focuses on the packaging story — how triggers and workflows are declared, bundled, and auto-registered when loaded by the reconciler (the daemon component that discovers, validates, and registers packages).
 
 ## Learning Objectives
 
@@ -17,7 +17,7 @@ In this tutorial, you'll learn how to define event-driven triggers alongside you
 
 ## Prerequisites
 
-- Completion of [Tutorial 7: Event Triggers]({{< ref "/embed/tutorials/07-event-triggers" >}})
+- Completion of [Tutorial 07: Event Triggers]({{< ref "/embed/tutorials/07-event-triggers" >}})
 - Familiarity with the daemon (see [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}))
 
 ## Time Estimate

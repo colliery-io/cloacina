@@ -132,7 +132,7 @@ pub mod market_pipeline {
 }
 ```
 
-The key difference from Tutorial 07: `combine` takes two `Option<&T>` parameters. The graph fires when _either_ source updates, so one of them may not have a value yet. Your code must handle `None` gracefully.
+The key difference from Tutorial 10: `combine` takes two `Option<&T>` parameters. The graph fires when _either_ source updates, so one of them may not have a value yet. Your code must handle `None` gracefully.
 
 ---
 
@@ -335,4 +335,4 @@ You've built a full event-driven multi-source pipeline:
 
 ## What's next?
 
-- [Tutorial 10 — Routing]({{< ref "/embed/tutorials/13-routing/" >}}): add conditional branching with enum dispatch — route the graph down different paths based on the decision node's output
+- [Tutorial 13 — Routing]({{< ref "/embed/tutorials/13-routing/" >}}): add conditional branching with enum dispatch — route the graph down different paths based on the decision node's output
