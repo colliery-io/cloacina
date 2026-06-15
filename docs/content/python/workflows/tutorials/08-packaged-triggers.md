@@ -18,7 +18,7 @@ In this tutorial, you'll learn how to define event-driven triggers alongside you
 ## Prerequisites
 
 - Completion of [Tutorial 7: Event Triggers]({{< ref "/python/workflows/tutorials/07-event-triggers" >}})
-- Familiarity with the daemon (see [Running the Daemon]({{< ref "/platform/how-to-guides/running-the-daemon" >}}))
+- Familiarity with the daemon (see [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}))
 
 ## Time Estimate
 
@@ -200,4 +200,4 @@ key) is rejected at upload. Just make sure the decorator runs at import time.
 
 - [Computation Graphs]({{< ref "/python/computation-graphs/tutorials/09-computation-graph" >}}) — reactive, event-driven processing
 - [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the full `package.toml` format and build steps
-- [Running the Daemon]({{< ref "/platform/how-to-guides/running-the-daemon" >}}) — deploy your package
+- [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}) — deploy your package

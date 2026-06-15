@@ -138,7 +138,7 @@ library, local daemon, single server, or server + compiler + agent fleet. The
 [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}#choosing-a-mode)
 decision table maps each goal to a mode. This guide assumes the **server** shape;
 for the horizontally-scaled fleet see
-[Deploy an Execution Agent Fleet]({{< ref "/platform/how-to-guides/deploy-an-execution-agent-fleet" >}}).
+[Deploy an Execution Agent Fleet]({{< ref "/service/how-to/deploy-an-execution-agent-fleet" >}}).
 
 ## Production readiness checklist
 
@@ -154,17 +154,17 @@ the guide that covers it in depth.
 **Authentication & access**
 - [ ] Bootstrap admin key captured into a secret manager on first start, then the `~/.cloacina/bootstrap-key` file removed or locked down. It is shown only once.
 - [ ] Application clients use **tenant-scoped** keys (`cloacinactl key create … --role …`), never the admin key. See [01 - Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}).
-- [ ] CORS configured **only if** a browser UI calls the server cross-origin — via the `CLOACINA_CORS_ALLOWED_ORIGINS` env var (works with `cloacinactl server start`) or the `--cors-allowed-origins` flag on the `cloacina-server` binary. The value is the origin users load the UI from. See [Deploy the Web UI]({{< ref "/platform/how-to-guides/deploy-the-web-ui" >}}).
+- [ ] CORS configured **only if** a browser UI calls the server cross-origin — via the `CLOACINA_CORS_ALLOWED_ORIGINS` env var (works with `cloacinactl server start`) or the `--cors-allowed-origins` flag on the `cloacina-server` binary. The value is the origin users load the UI from. See [Deploy the Web UI]({{< ref "/service/how-to/deploy-the-web-ui" >}}).
 
 **Data & isolation**
 - [ ] PostgreSQL (not SQLite) for any multi-tenant or multi-replica deployment. See [Database Backends]({{< ref "/platform/explanation/database-backends" >}}).
-- [ ] Multi-tenant isolation reviewed — in particular that executions actually run against the tenant's own schema (a misconfigured runner can execute against the wrong schema and break isolation). See [Configure a Multi-Tenant Deployment]({{< ref "/platform/how-to-guides/configure-multi-tenant-deployment" >}}).
+- [ ] Multi-tenant isolation reviewed — in particular that executions actually run against the tenant's own schema (a misconfigured runner can execute against the wrong schema and break isolation). See [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}}).
 - [ ] Database backups and a restore drill in place.
 
 **Supply chain**
-- [ ] In low-trust / multi-tenant deployments, package signing required so unsigned packages are refused — otherwise a compromised or untrusted uploader could get arbitrary code compiled and run in your build sandbox. See [Require Signed Packages]({{< ref "/platform/how-to-guides/require-signed-packages" >}}).
+- [ ] In low-trust / multi-tenant deployments, package signing required so unsigned packages are refused — otherwise a compromised or untrusted uploader could get arbitrary code compiled and run in your build sandbox. See [Require Signed Packages]({{< ref "/service/how-to/require-signed-packages" >}}).
 
 **Operations**
 - [ ] Load-balancer health checks wired to `GET /health` (liveness) and `GET /ready` (readiness — confirms the DB pool is reachable and no computation graph has crashed).
 - [ ] Metrics scraped from `/metrics` and tracing wired up. See [Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}).
-- [ ] Runner sizing tuned for your load — database connection pool size, task concurrency, and execution timeouts. See [Performance Tuning]({{< ref "/platform/how-to-guides/performance-tuning" >}}) for the server knobs and recommended values.
+- [ ] Runner sizing tuned for your load — database connection pool size, task concurrency, and execution timeouts. See [Performance Tuning]({{< ref "/service/how-to/performance-tuning" >}}) for the server knobs and recommended values.

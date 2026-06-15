@@ -11,7 +11,7 @@ Platform documentation covers cross-cutting concerns that apply regardless of wh
 **Who this is for:** operators and developers deploying and running Cloacina as a
 service (the `cloacina-server`, compiler, and agent fleet) — applies to both
 Rust- and Python-authored packages. **Prerequisites:** a working package (see
-[Creating Your First Package]({{< ref "/platform/how-to-guides/creating-your-first-package" >}}))
+[Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}}))
 and a Postgres database for multi-tenant/production deployments.
 
 ## Topics
@@ -38,8 +38,8 @@ and a Postgres database for multi-tenant/production deployments.
 - [Performance Characteristics]({{< ref "/platform/explanation/performance-characteristics" >}}) — Throughput and latency
 
 ### How-to Guides
-- [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) — Deploy to production
-- [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}) — Server setup
-- [Running the Daemon]({{< ref "/platform/how-to-guides/running-the-daemon" >}}) — Local scheduler
-- [Performance Tuning]({{< ref "/platform/how-to-guides/performance-tuning" >}}) — Optimization guide
-- [Security]({{< ref "/platform/how-to-guides/security" >}}) — Authentication and authorization
+- [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — Deploy to production
+- [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}) — Server setup
+- [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}) — Local scheduler
+- [Performance Tuning]({{< ref "/service/how-to/performance-tuning" >}}) — Optimization guide
+- [Security]({{< ref "/service/how-to/security" >}}) — Authentication and authorization

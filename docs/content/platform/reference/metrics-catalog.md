@@ -233,7 +233,7 @@ When introducing a new metric:
 
 ## Related
 
-- [Compiler + Server Deployment Runbook]({{< ref "/platform/how-to-guides/compiler-deployment-runbook" >}}) — how to deploy and operate the metric-emitting binaries.
-- [Performance Tuning]({{< ref "/platform/how-to-guides/performance-tuning" >}}) — uses these metrics to drive tuning decisions.
+- [Compiler + Server Deployment Runbook]({{< ref "/service/how-to/compiler-deployment-runbook" >}}) — how to deploy and operate the metric-emitting binaries.
+- [Performance Tuning]({{< ref "/service/how-to/performance-tuning" >}}) — uses these metrics to drive tuning decisions.
 - [Workflows: Observability]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}) — workflow-author perspective on which metrics matter when.
 - ADR-0005 — Deployment-mode trust model (`/metrics` posture per deployment mode).

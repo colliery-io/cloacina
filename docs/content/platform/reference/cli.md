@@ -284,7 +284,7 @@ cloacina-agent --server <URL> --api-key <KEY>
 
 The agent exposes no HTTP surface of its own — observe it via its logs and the
 server's fleet metrics (`cloacina_fleet_*`). See the how-to guide
-[Deploy an execution-agent fleet]({{< ref "/platform/how-to-guides/deploy-an-execution-agent-fleet" >}}).
+[Deploy an execution-agent fleet]({{< ref "/service/how-to/deploy-an-execution-agent-fleet" >}}).
 
 ---
 

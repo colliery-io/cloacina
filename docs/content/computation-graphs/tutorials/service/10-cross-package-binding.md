@@ -349,7 +349,7 @@ subscribers is genuinely the right move (vs. realizing the
 publisher unload was a mistake and aborting).
 
 For the full unload-ordering recipe — including recovery from
-partial unloads — see [Safely Unload a Package]({{< ref "/platform/how-to-guides/safely-unload-a-package" >}}).
+partial unloads — see [Safely Unload a Package]({{< ref "/service/how-to/safely-unload-a-package" >}}).
 
 ## What you've built
 
@@ -373,6 +373,6 @@ partial unloads — see [Safely Unload a Package]({{< ref "/platform/how-to-guid
 - [Trigger-less Computation Graphs]({{< ref "/computation-graphs/explanation/trigger-less-graphs" >}})
   — the *other* CG model: graphs invoked by workflow tasks rather
   than by reactor events.
-- [Safely Unload a Package]({{< ref "/platform/how-to-guides/safely-unload-a-package" >}})
+- [Safely Unload a Package]({{< ref "/service/how-to/safely-unload-a-package" >}})
   — the full unload-ordering recipe, including recovery from
   partial unloads.

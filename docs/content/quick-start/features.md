@@ -76,14 +76,14 @@ first if those terms are new.
 
 - **Embedded library** — `cloacina` (Rust) / `cloaca` (Python) in your process.
 - **Daemon** — `cloacinactl daemon` watches a directory and runs packages locally.
-  See [Running the Daemon]({{< ref "/platform/how-to-guides/running-the-daemon" >}}).
+  See [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}).
 - **Server** — `cloacina-server`, an HTTP + WebSocket control plane. See
   [Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}).
 - **Compiler service** — `cloacina-compiler` builds uploaded packages in a
-  sandbox. See [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}).
+  sandbox. See [Running the Compiler]({{< ref "/service/how-to/running-the-compiler" >}}).
 - **Execution-agent fleet** — `cloacina-agent` workers run tasks off the server
   for horizontal scale. See
-  [Deploy an Execution-Agent Fleet]({{< ref "/platform/how-to-guides/deploy-an-execution-agent-fleet" >}})
+  [Deploy an Execution-Agent Fleet]({{< ref "/service/how-to/deploy-an-execution-agent-fleet" >}})
   and [Execution-Agent Fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}).
 
 ## Packaging
@@ -91,7 +91,7 @@ first if those terms are new.
 - **`.cloacina` packages** — a `package.toml` plus source (Python module tree, or
   Rust compiled on the server at load). Scaffold, validate, pack, and upload with
   `cloacinactl package`. See
-  [Creating Your First Package]({{< ref "/platform/how-to-guides/creating-your-first-package" >}})
+  [Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}})
   and the [Package Format]({{< ref "/platform/explanation/package-format" >}}).
 - **Reconciler** — the server loads and registers uploaded packages
   automatically. See
@@ -101,7 +101,7 @@ first if those terms are new.
 
 - **Schema-per-tenant isolation** (Postgres) — see
   [Multi-Tenancy]({{< ref "/platform/explanation/multi-tenancy" >}}) and
-  [Configure a Multi-Tenant Deployment]({{< ref "/platform/how-to-guides/configure-multi-tenant-deployment" >}}).
+  [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}}).
 - **API keys with roles** — admin / write / read, managed via `cloacinactl key`
   and the API.
 
@@ -122,8 +122,8 @@ first if those terms are new.
 - **Package signing** — optional signature verification, enforced when the server
   runs with signatures required; signing private keys are encrypted at rest
   (AES-256-GCM). See
-  [Package Signing]({{< ref "/platform/how-to-guides/security/package-signing" >}})
-  and [Require Signed Packages]({{< ref "/platform/how-to-guides/require-signed-packages" >}}).
+  [Package Signing]({{< ref "/service/how-to/security/package-signing" >}})
+  and [Require Signed Packages]({{< ref "/service/how-to/require-signed-packages" >}}).
 - **Build sandboxing** — the compiler builds untrusted packages in an isolated
   environment (Linux). See [Security Model]({{< ref "/platform/explanation/security-model" >}}).
 - **Horizontal scaling** — stateless schedulers coordinate through the database.

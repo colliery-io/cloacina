@@ -205,7 +205,7 @@ tar -xjOf analytics-workflow-1.0.0.cloacina \
 
 ## Related Resources
 
-- [Creating Your First Package]({{< ref "/platform/how-to-guides/creating-your-first-package" >}}) — scaffold/validate/pack/upload with `package new`
+- [Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}}) — scaffold/validate/pack/upload with `package new`
 - [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the full Python procedure
 - [Packaged Triggers]({{< ref "/python/workflows/tutorials/08-packaged-triggers" >}}) — triggers in a packaged Python workflow
 - [FFI System]({{< ref "/platform/explanation/ffi-system/" >}}) — how the host calls into compiled packages

@@ -249,6 +249,6 @@ After wiring observability:
 ## Related
 
 - [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — full endpoint surface, including `/metrics` semantics and the operational-caveats section.
-- [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) — TLS termination + reverse proxy; how to gate `/metrics` if needed.
+- [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — TLS termination + reverse proxy; how to gate `/metrics` if needed.
 - [Daemon Status & Health]({{< ref "/platform/reference/cli" >}}#daemon-status) — full `daemon status` output reference.
 - [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — every `cloacina_*` metric with labels, descriptions, and PromQL recipes.

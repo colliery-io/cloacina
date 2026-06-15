@@ -139,7 +139,7 @@ server-side metrics above. See the [Metrics Catalog]({{< ref "metrics-catalog" >
 
 ## See also
 
-- [Deploy an execution-agent fleet]({{< ref "/platform/how-to-guides/deploy-an-execution-agent-fleet" >}}) — the operational how-to.
+- [Deploy an execution-agent fleet]({{< ref "/service/how-to/deploy-an-execution-agent-fleet" >}}) — the operational how-to.
 - [CLI Reference]({{< ref "/platform/reference/cli" >}}#agent) — `cloacina-agent` flags and the server's fleet/liveness flags.
 - [Horizontal Scaling]({{< ref "horizontal-scaling" >}}) — the single-DB multi-runner model the fleet complements.
 - [FFI System]({{< ref "ffi-system" >}}) — how compiled workflow cdylibs are loaded.

@@ -30,7 +30,7 @@ the pieces fit together.
   require Postgres; for a single-tenant first-run, SQLite is fine.
 - A pre-built `.cloacina` package — the example below uses
   `examples/features/workflows/packaged-workflow/` from the Cloacina
-  repository. See [Use cloacina-compiler Locally]({{< ref "/platform/how-to-guides/use-cloacina-compiler-locally" >}})
+  repository. See [Use cloacina-compiler Locally]({{< ref "/service/how-to/use-cloacina-compiler-locally" >}})
   if you need to build one.
 - `curl` for ad-hoc HTTP calls. Optional: `jq` for prettier JSON
   responses.
@@ -340,13 +340,13 @@ You now have:
 > `CLOACINA_CORS_ALLOWED_ORIGINS=https://ui.example.com` (the value is the URL
 > users load the UI from). The equivalent `--cors-allowed-origins` flag is
 > available when you run the `cloacina-server` binary directly. See
-> [Deploy the Web UI]({{< ref "/platform/how-to-guides/deploy-the-web-ui" >}})
+> [Deploy the Web UI]({{< ref "/service/how-to/deploy-the-web-ui" >}})
 > for the full wiring.
 
-- [Configure a Multi-Tenant Deployment]({{< ref "/platform/how-to-guides/configure-multi-tenant-deployment" >}})
+- [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}})
   — productionize multi-tenancy and learn the operational caveats
   (the runner-schema execution gap is critical for true isolation).
-- [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}})
+- [Production Deployment]({{< ref "/service/how-to/production-deployment" >}})
   — add TLS termination, reverse proxy, and external secret
   management.
 - [Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}})

@@ -13,7 +13,7 @@ artifacts, and writes them back for runner instances to load.
 
 This is the **service** path. For laptop / CI use of
 `cloacinactl package build` + `pack`, see
-[Use cloacina-compiler Locally]({{< ref "/platform/how-to-guides/use-cloacina-compiler-locally" >}}).
+[Use cloacina-compiler Locally]({{< ref "/service/how-to/use-cloacina-compiler-locally" >}}).
 
 ## Threat model
 
@@ -264,9 +264,9 @@ Daily-rotated structured logs land in `~/.cloacina/logs/cloacina-compiler.log`. 
 
 ## Related
 
-- [Compiler + Server Deployment Runbook]({{< ref "/platform/how-to-guides/compiler-deployment-runbook" >}}) — long-form runbook for the server + compiler pair across bare-metal, Compose, and Kubernetes.
-- [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) — TLS termination for the `cloacinactl server start` server. Separate concern from the compiler.
-- [Use cloacina-compiler Locally]({{< ref "/platform/how-to-guides/use-cloacina-compiler-locally" >}}) — local laptop / CI path, no service.
+- [Compiler + Server Deployment Runbook]({{< ref "/service/how-to/compiler-deployment-runbook" >}}) — long-form runbook for the server + compiler pair across bare-metal, Compose, and Kubernetes.
+- [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — TLS termination for the `cloacinactl server start` server. Separate concern from the compiler.
+- [Use cloacina-compiler Locally]({{< ref "/service/how-to/use-cloacina-compiler-locally" >}}) — local laptop / CI path, no service.
 - [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — the full `cloacina_*` and `cloacina_compiler_*` metric surface.
 - **ADR-0005** — Deployment-mode trust model (why the compiler is Linux-only, single-tenant build).
 - **CLOACI-I-0104** — Phase 1 hardening initiative (timeouts, offline, setrlimit).

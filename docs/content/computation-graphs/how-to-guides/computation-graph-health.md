@@ -10,8 +10,8 @@ This guide shows how to use the Cloacina API and the `cloacinactl graph` shortcu
 
 ## Prerequisites
 
-- API server running (see [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}))
-- A valid API key stored in `API_KEY` (or a configured `cloacinactl` profile, see [Use CLI profiles]({{< ref "/platform/how-to-guides/use-cli-profiles" >}}))
+- API server running (see [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}))
+- A valid API key stored in `API_KEY` (or a configured `cloacinactl` profile, see [Use CLI profiles]({{< ref "/service/how-to/use-cli-profiles" >}}))
 - At least one computation graph registered with the server
 
 ## Health vs readiness
@@ -210,7 +210,7 @@ For scripting, append `-o json` and parse the unified envelope:
 cloacinactl --profile prod graph list -o json | jq '.items[] | select(.health.state != "live")'
 ```
 
-The CLI honors the same auth tokens as direct `curl` — see [Use CLI profiles]({{< ref "/platform/how-to-guides/use-cli-profiles" >}}) for the profile setup.
+The CLI honors the same auth tokens as direct `curl` — see [Use CLI profiles]({{< ref "/service/how-to/use-cli-profiles" >}}) for the profile setup.
 
 ---
 
@@ -323,4 +323,4 @@ The reactor recovers automatically when the accumulator reconnects and returns t
 - [Choosing and using accumulator types]({{< ref "accumulator-types" >}})
 - [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}})
 - [Observability]({{< ref "/platform/explanation/observability" >}})
-- [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}})
+- [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}})

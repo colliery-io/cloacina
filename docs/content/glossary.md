@@ -44,11 +44,11 @@ The operator + developer CLI. Provides noun-verb commands for tenants, keys, pac
 
 ### `cloacina-compiler`
 
-The compilation service that produces `.cloacina` archives from a source manifest. Runs as a long-lived service (`cloacinactl compiler ...` invokes its API) with timeouts, offline-mode, and `setrlimit`-based sandboxing per CLOACI-I-0104. Exposes its own `/metrics` (`cloacina_compiler_*` namespace). See [Compiler Deployment Runbook]({{< ref "/platform/how-to-guides/compiler-deployment-runbook" >}}).
+The compilation service that produces `.cloacina` archives from a source manifest. Runs as a long-lived service (`cloacinactl compiler ...` invokes its API) with timeouts, offline-mode, and `setrlimit`-based sandboxing per CLOACI-I-0104. Exposes its own `/metrics` (`cloacina_compiler_*` namespace). See [Compiler Deployment Runbook]({{< ref "/service/how-to/compiler-deployment-runbook" >}}).
 
 ### `cloacina-server`
 
-The HTTP + WebSocket service that hosts loaded packaged workflows, tenants, and computation graphs. Implements the `/v1/...` API, the WebSocket force-fire and accumulator-push paths, and `/metrics` exposition. Distributed as a binary, a container image (`ghcr.io/colliery-io/cloacina-server`), and a Helm chart. See [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}).
+The HTTP + WebSocket service that hosts loaded packaged workflows, tenants, and computation graphs. Implements the `/v1/...` API, the WebSocket force-fire and accumulator-push paths, and `/metrics` exposition. Distributed as a binary, a container image (`ghcr.io/colliery-io/cloacina-server`), and a Helm chart. See [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}).
 
 ### `cloacina-python` / Cloaca
 
@@ -128,7 +128,7 @@ The output of a computation graph execution. It is an enum with two variants: `C
 
 ### Helm chart
 
-The Kubernetes packaging for `cloacina-server`. Ships at `charts/cloacina-server/` with an embedded local Postgres subchart (per CLOACI-T-0610) — no external Bitnami dependency. See [Deploying to Kubernetes]({{< ref "/platform/how-to-guides/deploying-to-kubernetes" >}}).
+The Kubernetes packaging for `cloacina-server`. Ships at `charts/cloacina-server/` with an embedded local Postgres subchart (per CLOACI-T-0610) — no external Bitnami dependency. See [Deploying to Kubernetes]({{< ref "/service/how-to/deploying-to-kubernetes" >}}).
 
 ### InputCache
 
@@ -261,7 +261,7 @@ Helper macros that resolve registry variables — typed values keyed by name and
 
 ### Verification org
 
-The trust root for package signatures. When a server is started with `--require-signatures --verification-org-id <ORG>`, only packages signed by a key whose embedded org metadata matches `<ORG>` are admitted; unsigned or mis-org packages are rejected at upload (HTTP 403). Per CLOACI-I-0103. See [Require Signed Packages]({{< ref "/platform/how-to-guides/require-signed-packages" >}}).
+The trust root for package signatures. When a server is started with `--require-signatures --verification-org-id <ORG>`, only packages signed by a key whose embedded org metadata matches `<ORG>` are admitted; unsigned or mis-org packages are rejected at upload (HTTP 403). Per CLOACI-I-0103. See [Require Signed Packages]({{< ref "/service/how-to/require-signed-packages" >}}).
 
 ### Workflow
 

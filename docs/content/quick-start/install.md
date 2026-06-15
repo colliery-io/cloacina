@@ -115,7 +115,7 @@ The server is published as a container image on every release:
 docker pull ghcr.io/colliery-io/cloacina-server:v0.7.0
 ```
 
-See [Running the server image]({{< ref "/platform/how-to-guides/running-the-server-image" >}}) for the full container deploy walkthrough — environment variables, signature enforcement, log retention.
+See [Running the server image]({{< ref "/service/how-to/running-the-server-image" >}}) for the full container deploy walkthrough — environment variables, signature enforcement, log retention.
 
 ## Kubernetes (Helm)
 
@@ -125,4 +125,4 @@ A Helm chart with an embedded local Postgres subchart ships in-tree:
 helm install cloacina-server ./charts/cloacina-server
 ```
 
-See [Deploying to Kubernetes]({{< ref "/platform/how-to-guides/deploying-to-kubernetes" >}}) for production values, the embedded Postgres subchart story, and the operator-flag reference.
+See [Deploying to Kubernetes]({{< ref "/service/how-to/deploying-to-kubernetes" >}}) for production values, the embedded Postgres subchart story, and the operator-flag reference.

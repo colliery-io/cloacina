@@ -105,7 +105,7 @@ This is a packaging step, not a rewrite. Conceptually:
 
 The package is portable: once built, the same artifact runs under the daemon or
 the server unchanged. For the actual procedure, see
-[Creating Your First Package]({{< ref "/platform/how-to-guides/creating-your-first-package" >}})
+[Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}})
 and, for the Python specifics,
 [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}).
 

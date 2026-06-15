@@ -10,7 +10,7 @@ This guide shows how to monitor workflow executions, inspect event logs, check t
 
 ## Prerequisites
 
-- API server running (see [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}))
+- API server running (see [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}))
 - A valid API key stored in the `API_KEY` environment variable
 - At least one tenant created with workflows deployed
 

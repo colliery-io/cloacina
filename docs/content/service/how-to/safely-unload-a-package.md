@@ -237,5 +237,5 @@ After every unload, verify clean teardown:
 
 - [Reconciler Pipeline]({{< ref "/platform/explanation/reconciler-pipeline" >}}) — full ordering and rationale.
 - [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}}) — the dual-layer reactor teardown.
-- [Configure a Multi-Tenant Deployment]({{< ref "/platform/how-to-guides/configure-multi-tenant-deployment" >}}) — for tenant-aware unloads.
+- [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}}) — for tenant-aware unloads.
 - [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — the package delete endpoint.

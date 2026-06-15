@@ -14,7 +14,7 @@ start from a working, server-accepted skeleton instead of hand-assembling
 ## Prerequisites
 
 - `cloacinactl` on your `PATH` (and a configured server profile for the upload
-  step — see [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}})).
+  step — see [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}})).
 - For Python packages: nothing else. For Rust packages: a Rust toolchain.
 
 ## Step 1: Scaffold

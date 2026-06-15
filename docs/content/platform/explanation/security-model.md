@@ -115,7 +115,7 @@ CLOACI-I-0104 (Phase 1 hardening) added defenses:
 - **`setrlimit` per-build resource caps** (CPU, memory, file descriptors, processes). Linux only.
 - **Interim deployment posture documented:** unprivileged UID, no outbound network beyond the curated vendor paths, no admin credentials beyond the build-claim DB user.
 
-CLOACI-I-0105 (Phase 2) will add process-level sandboxing (Linux namespaces); until then, the operational posture in [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) is your bound.
+CLOACI-I-0105 (Phase 2) will add process-level sandboxing (Linux namespaces); until then, the operational posture in [Running the Compiler]({{< ref "/service/how-to/running-the-compiler" >}}) is your bound.
 
 The threat model the compiler addresses:
 
@@ -146,7 +146,7 @@ What multi-tenant isolation **does not** guarantee:
 - **Privileged operator actions.** An `is_admin` key can do anything; key compromise = total compromise. Treat `is_admin` keys like AWS root credentials.
 - **Postgres-level row-level security.** Cloacina relies on schema-level isolation and the `SET search_path` enforcement above; it does not layer Postgres RLS policies on top. If your compliance posture requires defense-in-depth at the DB layer, layer RLS yourself.
 
-For the operational mechanics — how to provision tenants, how to safely decommission them, how to rotate per-tenant credentials — see the [Multi-tenancy explanation]({{< ref "multi-tenancy" >}}) and the multi-tenant how-tos under `/platform/how-to-guides/`.
+For the operational mechanics — how to provision tenants, how to safely decommission them, how to rotate per-tenant credentials — see the [Multi-tenancy explanation]({{< ref "multi-tenancy" >}}) and the multi-tenant how-tos under `/service/how-to/`.
 
 ## `/metrics` and `/health` posture
 
@@ -163,8 +163,8 @@ Deployments where this is unacceptable should terminate `/metrics` at the revers
 - [Package Format]({{< ref "package-format" >}}) — how `.cloacina` archives are structured.
 - [Packaged Workflow Architecture]({{< ref "packaged-workflow-architecture" >}}) — the FFI / cdylib trust boundary.
 - `require-signed-packages` how-to (DOC-C deliverable; not yet written) will cover the operator-side mechanics of turning on signature enforcement — `--require-signatures` + `--verification-org-id` setup, audit-log expectations, and recovery if you lock yourself out.
-- [Package Signing]({{< ref "/platform/how-to-guides/security/package-signing" >}}) — how to set up the signing pipeline.
-- [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) — compiler threat model + Phase 1 hardening flags.
+- [Package Signing]({{< ref "/service/how-to/security/package-signing" >}}) — how to set up the signing pipeline.
+- [Running the Compiler]({{< ref "/service/how-to/running-the-compiler" >}}) — compiler threat model + Phase 1 hardening flags.
 - **CLOACI-A-0005** — Deployment-mode trust model (the authoritative ADR for this page).
 - **CLOACI-I-0103** — Signature verification at the canonical load path.
 - **CLOACI-I-0104** — Compiler hardening Phase 1.

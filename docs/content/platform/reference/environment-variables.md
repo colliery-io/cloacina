@@ -289,7 +289,7 @@ Exposed on `localhost:9092`.
 
 ## Compiler
 
-`cloacina-compiler` reads its own envs from the underlying binary (see [Compiler + Server Deployment Runbook]({{< ref "/platform/how-to-guides/compiler-deployment-runbook" >}}) for the wrapper-flag set and [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) for the threat model + hardening flags).
+`cloacina-compiler` reads its own envs from the underlying binary (see [Compiler + Server Deployment Runbook]({{< ref "/service/how-to/compiler-deployment-runbook" >}}) for the wrapper-flag set and [Running the Compiler]({{< ref "/service/how-to/running-the-compiler" >}}) for the threat model + hardening flags).
 
 | Variable | Purpose | Default | Component | Notes |
 |----------|---------|---------|-----------|-------|
@@ -341,4 +341,4 @@ Quick reference of all Cloacina-specific environment variables:
 
 - [Configuration Reference]({{< ref "configuration" >}}) -- `DefaultRunnerConfig` fields and `config.toml` schema
 - [CLI Reference]({{< ref "cli" >}}) -- Command-line flags and their env var equivalents
-- [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) -- Using environment variables in production
+- [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) -- Using environment variables in production

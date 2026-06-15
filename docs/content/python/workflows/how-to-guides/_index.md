@@ -21,6 +21,6 @@ Practical recipes — each solves one specific problem.
 ## Operations
 
 Operational recipes (multi-tenant decommission, signed-package enforcement, CLI
-profiles) live on the [platform how-to-guides]({{< ref "/platform/how-to-guides" >}})
+profiles) live on the [platform how-to-guides]({{< ref "/service/how-to" >}})
 — the Python runner inherits the same operational surface, so they apply
 regardless of authoring language.

@@ -293,5 +293,5 @@ cloacinactl --profile admin --tenant globex workflow list
 
 - [Multi-Tenancy Architecture]({{< ref "/platform/explanation/multi-tenancy" >}}) — schema isolation design.
 - [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — the tenant + key endpoints, full operational caveats list.
-- [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) — TLS termination, reverse proxy.
+- [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — TLS termination, reverse proxy.
 - [Multi-Tenant Setup]({{< ref "/workflows/how-to-guides/multi-tenant-setup" >}}) — embedded-mode multi-tenancy via `DefaultRunner::with_schema`.

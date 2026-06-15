@@ -14,7 +14,7 @@ This runbook covers how to deploy the pair in three environments —
 local bare-metal, Docker Compose, and Kubernetes — plus the config
 knobs you'll want to know about and the "a build is stuck" playbook.
 
-The short-form how-to is [`running-the-compiler.md`]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) — covers the threat model and vendor-curation
+The short-form how-to is [`running-the-compiler.md`]({{< ref "/service/how-to/running-the-compiler" >}}) — covers the threat model and vendor-curation
 posture. This runbook focuses on multi-process deploy mechanics.
 
 ## Why two binaries
@@ -99,7 +99,7 @@ The official Helm chart for `cloacina-server` is published as an OCI
 artifact at `ghcr.io/colliery-io/charts/cloacina-server` (per T-0610,
 which embeds a local Postgres subchart so the chart no longer depends
 on the Bitnami `postgresql` chart). See
-[Deploying to Kubernetes (Helm)]({{< ref "/platform/how-to-guides/deploying-to-kubernetes" >}}) for the chart-driven install path.
+[Deploying to Kubernetes (Helm)]({{< ref "/service/how-to/deploying-to-kubernetes" >}}) for the chart-driven install path.
 
 The Helm chart currently ships the server only — the compiler is not
 yet templated. For a server+compiler topology on K8s, layer your own
@@ -150,14 +150,14 @@ evidence the defaults are wrong.
 
 The compiler hardening flags from I-0104 (`--frozen --offline` cargo
 defaults, `setrlimit`-based resource limits, configurable per-build
-timeout) are documented in [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) — they're the security-relevant knobs and live with the
+timeout) are documented in [Running the Compiler]({{< ref "/service/how-to/running-the-compiler" >}}) — they're the security-relevant knobs and live with the
 threat model rather than here.
 
 ### Server
 
 The server publishes `/metrics` on the same port as the API
 (unauthenticated, by design). Key deployment-relevant flags are
-documented in [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}) and the full set is in [CLI Reference]({{< ref "/platform/reference/cli" >}}).
+documented in [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}) and the full set is in [CLI Reference]({{< ref "/platform/reference/cli" >}}).
 
 For signature enforcement, the server accepts `--require-signatures`
 and `--verification-org-id <UUID>` (per I-0103) to enforce
@@ -217,9 +217,9 @@ Operationally useful at the compiler tier:
 
 ## References
 
-- [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}) — short-form how-to with threat model and vendor curation.
-- [Deploying the API Server]({{< ref "/platform/how-to-guides/deploying-the-api-server" >}}) — server-specific deployment.
-- [Deploying to Kubernetes (Helm)]({{< ref "/platform/how-to-guides/deploying-to-kubernetes" >}}) — chart-driven install.
+- [Running the Compiler]({{< ref "/service/how-to/running-the-compiler" >}}) — short-form how-to with threat model and vendor curation.
+- [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}) — server-specific deployment.
+- [Deploying to Kubernetes (Helm)]({{< ref "/service/how-to/deploying-to-kubernetes" >}}) — chart-driven install.
 - [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — all `cloacina_*` and `cloacina_compiler_*` metrics.
 - **ADR-0004** — Compiler Service Architecture.
 - **CLOACI-I-0097** — The initiative that built this.
