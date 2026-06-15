@@ -4,14 +4,14 @@ level: task
 title: "Engine: durable-DAG cluster — Workflow, Task, Context, Runner (dual-language)"
 short_code: "CLOACI-T-0692"
 created_at: 2026-06-15T14:19:38.994317+00:00
-updated_at: 2026-06-15T14:19:38.994317+00:00
+updated_at: 2026-06-15T15:44:57.622185+00:00
 parent: CLOACI-I-0122
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -26,9 +26,12 @@ initiative_id: CLOACI-I-0122
 
 [[CLOACI-I-0122]]
 
-## Objective **[REQUIRED]**
+## Objective
 
-{Clear statement of what this task accomplishes}
+Author the durable-DAG primitive pages under `/engine/workflows/`: **Workflow**
+(exemplar), **Task**, **Context**, **Runner** — concept + reference, each with
+Rust-default/Python `{{< tabs >}}` examples grounded in the verified tutorials.
+Runner is documented as an elevated operational primitive. See [[CLOACI-I-0122]].
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -64,11 +67,19 @@ initiative_id: CLOACI-I-0122
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria **[REQUIRED]**
+## Acceptance Criteria
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+## Acceptance Criteria
+
+- [x] `workflow.md`, `task.md`, `context.md`, `runner.md` authored with dual-language tabs
+- [x] All examples grounded in verified tutorial idioms (`workflow!`/`#[task]`, `WorkflowBuilder`/`@cloaca.task`)
+- [x] `hugo` builds clean (513 pages), all cross-refs resolve
+
+## Status Updates
+
+**2026-06-15** — Cluster authored; build green, no ref errors. Workflow page is
+the exemplar pattern (definition → mental model → Rust/Python tabs → key facts →
+"build one" punts to doors → see also) replicated across the cluster.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
