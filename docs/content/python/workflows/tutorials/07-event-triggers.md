@@ -519,15 +519,15 @@ In this tutorial, you learned:
 
 ## Next Steps
 
-{{< button relref="/python/api-reference/trigger/" >}}Trigger API Reference{{< /button >}}
-{{< button relref="/python/api-reference/task/" >}}Task API Reference{{< /button >}}
-{{< button relref="/python/api-reference/runner/" >}}Runner API Reference{{< /button >}}
+{{< button relref="/reference/python-api/trigger/" >}}Trigger API Reference{{< /button >}}
+{{< button relref="/reference/python-api/task/" >}}Task API Reference{{< /button >}}
+{{< button relref="/reference/python-api/runner/" >}}Runner API Reference{{< /button >}}
 
 ## Related Resources
 
 - [Explanation: Trigger Rules]({{< ref "/workflows/explanation/trigger-rules/" >}}) - Deep dive into trigger architecture
 - [Tutorial 05: Cron Scheduling]({{< ref "/python/workflows/tutorials/05-cron-scheduling/" >}}) - Time-based scheduling
-- [API Reference: Task Decorator]({{< ref "/python/api-reference/task/" >}}) - Complete task options
+- [API Reference: Task Decorator]({{< ref "/reference/python-api/task/" >}}) - Complete task options
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial is based on the example at [`examples/tutorials/python/workflows/07_event_triggers.py`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/python/workflows/07_event_triggers.py).

@@ -1199,7 +1199,7 @@ Continue to the next tutorial to learn about event-driven workflows:
 Or explore these resources:
 
 {{< button relref="/python/workflows/how-to-guides/" >}}Explore How-to Guides{{< /button >}}
-{{< button relref="/python/api-reference/" >}}Browse API Reference{{< /button >}}
+{{< button relref="/reference/python-api/" >}}Browse API Reference{{< /button >}}
 
 ### Recommended Learning Path
 

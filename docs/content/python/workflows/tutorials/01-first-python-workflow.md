@@ -434,7 +434,7 @@ Congratulations! You've created and executed your first Python workflow. In the 
 ## Related Resources
 
 - [Quick Start Guide]({{< ref "/python/quick-start/" >}}) - Simpler introduction
-- [API Reference]({{< ref "/python/api-reference/" >}}) - Complete API documentation
+- [API Reference]({{< ref "/reference/python-api/" >}}) - Complete API documentation
 - [Examples]({{< ref "/python/workflows/tutorials/" >}}) - More code examples
 
 {{< hint type="info" title="Reference Implementation" >}}

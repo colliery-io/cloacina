@@ -174,7 +174,7 @@ def cleanup_temp_files(task_id, error, context):
 
 ## Context Usage
 
-Tasks receive a [Context]({{< ref "/python/api-reference/context/" >}}) object for data flow:
+Tasks receive a [Context]({{< ref "/reference/python-api/context/" >}}) object for data flow:
 
 ```python
 @cloaca.task(id="context_example")
@@ -342,8 +342,8 @@ The `defer_until` call will fail if there is no real `TaskHandle`, so direct cal
 
 ## See Also
 
-- **[Context]({{< ref "/python/api-reference/context/" >}})** - Data passed between tasks
-- **[WorkflowBuilder]({{< ref "/python/api-reference/workflow-builder/" >}})** - Combine tasks into workflows
-- **[DefaultRunner]({{< ref "/python/api-reference/runner/" >}})** - Execute workflows containing tasks
+- **[Context]({{< ref "/reference/python-api/context/" >}})** - Data passed between tasks
+- **[WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}})** - Combine tasks into workflows
+- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** - Execute workflows containing tasks
 - **[Task Deferral Architecture]({{< ref "/workflows/explanation/task-deferral" >}})** - Internal mechanics of slot tokens and defer_until
 - **[Tutorial 10 - Task Deferral]({{< ref "/workflows/tutorials/service/10-task-deferral" >}})** - Rust walkthrough of the deferred-tasks example

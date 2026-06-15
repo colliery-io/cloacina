@@ -296,7 +296,7 @@ print(f"Success rate: {stats['success_rate']:.2%}")
 
 ## Trigger Management
 
-Event triggers poll custom conditions and fire workflows when conditions are met. See [Trigger Decorator]({{< ref "/python/api-reference/trigger/" >}}) for defining triggers.
+Event triggers poll custom conditions and fire workflows when conditions are met. See [Trigger Decorator]({{< ref "/reference/python-api/trigger/" >}}) for defining triggers.
 
 ### `list_trigger_schedules(enabled_only=None, limit=None, offset=None)`
 
@@ -427,7 +427,7 @@ with cloaca.DefaultRunner("sqlite:///app.db") as runner:
 
 ## Configuration
 
-See [DefaultRunnerConfig]({{< ref "/python/api-reference/configuration/" >}}) for detailed configuration options.
+See [DefaultRunnerConfig]({{< ref "/reference/python-api/configuration/" >}}) for detailed configuration options.
 
 **Key Configuration Options:**
 - `max_concurrent_tasks`: Number of tasks that can run simultaneously
@@ -644,7 +644,7 @@ runner.shutdown()
 
 ## Related Classes
 
-- **[Context]({{< ref "/python/api-reference/context/" >}})** - Data passed to execute()
-- **[DefaultRunnerConfig]({{< ref "/python/api-reference/configuration/" >}})** - Configuration options
-- **[PipelineResult]({{< ref "/python/api-reference/pipeline-result/" >}})** - Execution results
-- **[WorkflowBuilder]({{< ref "/python/api-reference/workflow-builder/" >}})** - Build workflows to execute
+- **[Context]({{< ref "/reference/python-api/context/" >}})** - Data passed to execute()
+- **[DefaultRunnerConfig]({{< ref "/reference/python-api/configuration/" >}})** - Configuration options
+- **[PipelineResult]({{< ref "/reference/python-api/pipeline-result/" >}})** - Execution results
+- **[WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}})** - Build workflows to execute

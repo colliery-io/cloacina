@@ -150,7 +150,7 @@ def resilient_task(context):
 | `retry_condition` | str | `"never"`, `"transient"` (retry only transient errors), or `"all"` |
 | `retry_jitter` | bool | Add randomized jitter to backoff delays |
 
-See the [Task Decorator]({{< ref "/python/api-reference/task/" >}}) reference for
+See the [Task Decorator]({{< ref "/reference/python-api/task/" >}}) reference for
 the full argument list (including `on_success`, `on_failure`, `invokes`, and
 `post_invocation`).
 
@@ -184,7 +184,7 @@ Each schedule dict has the keys: `id`, `workflow_name`, `cron_expression`,
 `created_at`, `updated_at`. Execution history and statistics are available via
 `get_cron_execution_history(schedule_id, ...)` and
 `get_cron_execution_stats(since)`. See the
-[DefaultRunner]({{< ref "/python/api-reference/runner/" >}}) reference for the
+[DefaultRunner]({{< ref "/reference/python-api/runner/" >}}) reference for the
 full set of cron, trigger, and reactor-subscription (event-driven trigger)
 methods.
 
@@ -241,7 +241,7 @@ admin.remove_tenant("tenant_acme", "acme_user")
 `create_tenant(config)` returns a `TenantCredentials` object with the read-only
 properties `username`, `password`, `schema_name`, and `connection_string`.
 `remove_tenant(schema_name, username)` drops the tenant. See the
-[DatabaseAdmin]({{< ref "/python/api-reference/database-admin/" >}}) reference
+[DatabaseAdmin]({{< ref "/reference/python-api/database-admin/" >}}) reference
 for the full multi-tenant flow.
 
 ## Environment variables
@@ -274,6 +274,6 @@ reference for the full variable-registry conventions.
 
 ## See Also
 
-- **[DefaultRunner]({{< ref "/python/api-reference/runner/" >}})** — execute workflows, cron, triggers, reactor subscriptions
-- **[DatabaseAdmin]({{< ref "/python/api-reference/database-admin/" >}})** — multi-tenant provisioning
-- **[Task Decorator]({{< ref "/python/api-reference/task/" >}})** — full task argument surface, including retry
+- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** — execute workflows, cron, triggers, reactor subscriptions
+- **[DatabaseAdmin]({{< ref "/reference/python-api/database-admin/" >}})** — multi-tenant provisioning
+- **[Task Decorator]({{< ref "/reference/python-api/task/" >}})** — full task argument surface, including retry

@@ -6,7 +6,7 @@ weight: 60
 
 # Workflow
 
-The `Workflow` class represents a built workflow that can be executed by a runner. Workflows are typically created using the [WorkflowBuilder]({{< ref "/python/api-reference/workflow-builder/" >}}) class.
+The `Workflow` class represents a built workflow that can be executed by a runner. Workflows are typically created using the [WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}}) class.
 
 ## Overview
 
@@ -60,7 +60,7 @@ print(f"Number of tasks: {len(workflow.tasks)}")
 
 ## Execution
 
-Workflows are executed using a [DefaultRunner]({{< ref "/python/api-reference/runner/" >}}):
+Workflows are executed using a [DefaultRunner]({{< ref "/reference/python-api/runner/" >}}):
 
 ```python
 # Create runner
@@ -237,7 +237,7 @@ def handle_errors(context):
 
 ## See Also
 
-- **[WorkflowBuilder]({{< ref "/python/api-reference/workflow-builder/" >}})** - Build workflows
-- **[Task Decorator]({{< ref "/python/api-reference/task/" >}})** - Define workflow tasks
-- **[DefaultRunner]({{< ref "/python/api-reference/runner/" >}})** - Execute workflows
-- **[Context]({{< ref "/python/api-reference/context/" >}})** - Data flow between tasks
+- **[WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}})** - Build workflows
+- **[Task Decorator]({{< ref "/reference/python-api/task/" >}})** - Define workflow tasks
+- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** - Execute workflows
+- **[Context]({{< ref "/reference/python-api/context/" >}})** - Data flow between tasks

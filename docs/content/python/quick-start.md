@@ -286,7 +286,7 @@ Now that you have a working workflow, explore more advanced features:
 
 {{< button relref="/python/workflows/tutorials/" >}}📚 Follow Tutorials{{< /button >}}
 {{< button relref="/python/workflows/tutorials/" >}}💡 See More Examples{{< /button >}}
-{{< button relref="/python/api-reference/" >}}📖 API Reference{{< /button >}}
+{{< button relref="/reference/python-api/" >}}📖 API Reference{{< /button >}}
 
 ### Recommended Learning Path
 

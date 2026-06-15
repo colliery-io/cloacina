@@ -295,7 +295,7 @@ runner = cloaca.DefaultRunner(credentials.connection_string)
 
 ## See Also
 
-- [Python Database Admin API]({{< ref "/python/api-reference/database-admin" >}})
+- [Python Database Admin API]({{< ref "/reference/python-api/database-admin" >}})
 - [Multi-Tenancy Architecture]({{< ref "/service/explanation/multi-tenancy" >}})
 - [Multi-Tenant Setup Guide]({{< ref "/workflows/how-to-guides/multi-tenant-setup" >}})
 - [Python Multi-Tenancy Tutorial]({{< ref "/python/workflows/tutorials/06-multi-tenancy" >}})

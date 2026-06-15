@@ -59,4 +59,4 @@ The Python section mirrors the Rust split: workflows on one side, computation gr
 
 ### API
 
-- [API Reference]({{< ref "/python/api-reference" >}}) — Class-by-class / method-by-method Python API surface.
+- [API Reference]({{< ref "/reference/python-api" >}}) — Class-by-class / method-by-method Python API surface.

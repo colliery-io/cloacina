@@ -283,7 +283,7 @@ async def wait_for_approval(context, handle):
     # Slot reclaimed, continue processing
 ```
 
-See the [Python TaskHandle reference]({{< ref "/python/api-reference/task" >}}) for the full API.
+See the [Python TaskHandle reference]({{< ref "/reference/python-api/task" >}}) for the full API.
 
 ## See Also
 

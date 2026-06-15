@@ -108,7 +108,7 @@ first if those terms are new.
 ## Clients & UI
 
 - **Client SDKs** — Rust, Python, and TypeScript clients for calling a running
-  server over HTTP/WebSocket. See [Client SDKs]({{< ref "/sdks" >}}).
+  server over HTTP/WebSocket. See [Client SDKs]({{< ref "/reference/sdks" >}}).
 - **Web UI** — operate and observe a server: workflows, executions (with a live
   event stream), triggers, computation-graph health, package upload, and API-key
   management. See [The Web UI]({{< ref "/service/tutorials/02-the-web-ui" >}}).

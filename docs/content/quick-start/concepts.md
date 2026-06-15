@@ -7,7 +7,7 @@ weight: 4
 # Concepts
 
 Cloacina is built from a small set of primitives. This page introduces them and
-how they fit together; the [Glossary]({{< ref "/glossary" >}}) has the full,
+how they fit together; the [Glossary]({{< ref "/reference/glossary" >}}) has the full,
 precise definition of every term.
 
 ## The primitives
@@ -55,4 +55,4 @@ what you read here matches what you see in every interface.
 - [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}) — pick the right primitive and mode.
 - [Features Overview]({{< ref "/quick-start/features" >}}) — the full capability catalog.
 - [Workflows]({{< ref "/workflows" >}}) / [Computation Graphs]({{< ref "/computation-graphs" >}}) — the deep tracks.
-- [Glossary]({{< ref "/glossary" >}}) — every term, precisely defined.
+- [Glossary]({{< ref "/reference/glossary" >}}) — every term, precisely defined.

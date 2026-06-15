@@ -578,7 +578,7 @@ register_all_workflows()
 
 ## Related Classes
 
-- **[Context]({{< ref "/python/api-reference/context/" >}})** - Data passed through workflows
-- **[DefaultRunner]({{< ref "/python/api-reference/runner/" >}})** - Executes built workflows
-- **[Task Decorator]({{< ref "/python/api-reference/task/" >}})** - Defines tasks added to workflows
-- **[Workflow]({{< ref "/python/api-reference/workflow/" >}})** - Built workflow objects
+- **[Context]({{< ref "/reference/python-api/context/" >}})** - Data passed through workflows
+- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** - Executes built workflows
+- **[Task Decorator]({{< ref "/reference/python-api/task/" >}})** - Defines tasks added to workflows
+- **[Workflow]({{< ref "/reference/python-api/workflow/" >}})** - Built workflow objects

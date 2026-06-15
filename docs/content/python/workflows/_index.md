@@ -12,11 +12,11 @@ The Python surface for authoring and operating workflows with Cloacina. The layo
 
 - **[Tutorials]({{< ref "tutorials" >}})** — Learning-oriented walkthroughs from "hello world" through packaging.
 - **[How-to guides]({{< ref "how-to-guides" >}})** — Task-oriented recipes for development and operations.
-- **[Reference]({{< ref "reference" >}})** — Look-up details (environment variables, Python-specific surfaces). For the call-by-call Python API, see [API Reference]({{< ref "/python/api-reference" >}}).
+- **[Reference]({{< ref "reference" >}})** — Look-up details (environment variables, Python-specific surfaces). For the call-by-call Python API, see [API Reference]({{< ref "/reference/python-api" >}}).
 - **[Explanation]({{< ref "explanation" >}})** — Conceptual material: Python runtime architecture, PyO3 boundary, GIL trade-offs.
 
 ## See also
 
 - [Python · Computation Graphs]({{< ref "/python/computation-graphs" >}}) — the CG-side Python surface.
-- [Python · API Reference]({{< ref "/python/api-reference" >}}) — class-by-class / method-by-method Python API.
+- [Python · API Reference]({{< ref "/reference/python-api" >}}) — class-by-class / method-by-method Python API.
 - [Rust · Workflows]({{< ref "/workflows" >}}) — the underlying Rust surface; many explanations carry over verbatim.

@@ -639,7 +639,7 @@ Excellent work! You now understand how to manage complex data flows through Cloa
 
 ## Related Resources
 
-- [API Reference: Context]({{< ref "/python/api-reference/context/" >}}) - Complete Context API
+- [API Reference: Context]({{< ref "/reference/python-api/context/" >}}) - Complete Context API
 - [Examples: Data Processing]({{< ref "/python/workflows/tutorials/00-basic-workflow/" >}}) - More data pipeline examples
 - [How-to: Testing Workflows]({{< ref "/python/workflows/how-to-guides/testing-workflows/" >}}) - Testing with context data
 

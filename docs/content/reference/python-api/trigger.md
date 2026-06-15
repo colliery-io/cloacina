@@ -258,7 +258,7 @@ for execution in history:
 
 ## See Also
 
-- **[Context]({{< ref "/python/api-reference/context/" >}})** - Data passed from triggers to workflows
-- **[WorkflowBuilder]({{< ref "/python/api-reference/workflow-builder/" >}})** - Define workflows that triggers activate
-- **[DefaultRunner]({{< ref "/python/api-reference/runner/" >}})** - Execute workflows and manage triggers
+- **[Context]({{< ref "/reference/python-api/context/" >}})** - Data passed from triggers to workflows
+- **[WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}})** - Define workflows that triggers activate
+- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** - Execute workflows and manage triggers
 - **[Tutorial: Event Triggers]({{< ref "/workflows/tutorials/service/09-event-triggers/" >}})** - Step-by-step trigger implementation guide

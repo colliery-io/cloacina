@@ -567,4 +567,4 @@ def workflow_health_check(runner):
 - [Backend Selection]({{< ref "/python/workflows/how-to-guides/backend-selection/" >}}) - Choose the right database backend
 - [Testing Workflows]({{< ref "/python/workflows/how-to-guides/testing-workflows/" >}}) - Performance testing strategies
 - [Multi-Tenancy Tutorial]({{< ref "/python/workflows/tutorials/06-multi-tenancy/" >}}) - Multi-tenant performance considerations
-- [API Reference]({{< ref "/python/api-reference/" >}}) - Configuration options for performance
+- [API Reference]({{< ref "/reference/python-api/" >}}) - Configuration options for performance

@@ -841,7 +841,7 @@ Excellent! You now know how to build resilient workflows with comprehensive erro
 
 ## Related Resources
 
-- [API Reference: Error Handling]({{< ref "/python/api-reference/exceptions/" >}}) - Exception types and handling
+- [API Reference: Error Handling]({{< ref "/reference/python-api/exceptions/" >}}) - Exception types and handling
 - [How-to: Testing Workflows]({{< ref "/python/workflows/how-to-guides/testing-workflows/" >}}) - Testing error scenarios
 
 {{< hint type="info" title="Reference Implementation" >}}

@@ -798,7 +798,7 @@ Congratulations! You now understand:
 
 With cron scheduling mastered, you're ready to:
 
-1. **[API Reference]({{< ref "/python/api-reference/" >}})** - Explore advanced scheduling options
+1. **[API Reference]({{< ref "/reference/python-api/" >}})** - Explore advanced scheduling options
 2. **[Examples]({{< ref "/python/workflows/tutorials/" >}})** - See real-world scheduling patterns
 3. **[Performance Guide]({{< ref "/python/workflows/how-to-guides/" >}})** - Optimize scheduled workflows
 

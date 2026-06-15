@@ -250,6 +250,6 @@ def monitor_performance(result):
 
 ## See Also
 
-- **[DefaultRunner]({{< ref "/python/api-reference/runner/" >}})** - Execute workflows and get results
-- **[Context]({{< ref "/python/api-reference/context/" >}})** - Access final context data
-- **[Workflow]({{< ref "/python/api-reference/workflow/" >}})** - Workflows that produce results
+- **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** - Execute workflows and get results
+- **[Context]({{< ref "/reference/python-api/context/" >}})** - Access final context data
+- **[Workflow]({{< ref "/reference/python-api/workflow/" >}})** - Workflows that produce results

@@ -302,5 +302,5 @@ Once you understand this basic example, explore:
 ## Related Resources
 
 - [Tutorial: First Python Workflow]({{< ref "/python/workflows/tutorials/01-first-python-workflow/" >}}) - Step-by-step learning
-- [API Reference: Task Decorator]({{< ref "/python/api-reference/task/" >}}) - Complete task API
-- [API Reference: WorkflowBuilder]({{< ref "/python/api-reference/workflow-builder/" >}}) - Workflow construction API
+- [API Reference: Task Decorator]({{< ref "/reference/python-api/task/" >}}) - Complete task API
+- [API Reference: WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}}) - Workflow construction API

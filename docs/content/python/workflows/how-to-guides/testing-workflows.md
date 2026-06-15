@@ -446,5 +446,5 @@ class TestDataProcessingWorkflow:
 ## See Also
 
 - **[Error Handling Tutorial]({{< ref "/python/workflows/tutorials/04-error-handling/" >}})** - Learn about error handling patterns
-- **[API Reference]({{< ref "/python/api-reference/" >}})** - Complete API documentation
+- **[API Reference]({{< ref "/reference/python-api/" >}})** - Complete API documentation
 - **[Performance Optimization]({{< ref "/python/workflows/how-to-guides/performance-optimization/" >}})** - Optimize workflow performance

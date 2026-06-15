@@ -40,4 +40,4 @@ See the [Variable Registry how-to]({{< ref "/workflows/how-to-guides/variable-re
 ## See also
 
 - [Rust · Environment Variables]({{< ref "/reference/environment-variables" >}}).
-- [Python · API Reference · Configuration]({{< ref "/python/api-reference/configuration" >}}).
+- [Python · API Reference · Configuration]({{< ref "/reference/python-api/configuration" >}}).

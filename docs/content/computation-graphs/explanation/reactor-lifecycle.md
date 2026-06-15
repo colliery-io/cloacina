@@ -7,7 +7,7 @@ weight: 25
 # Reactor Lifecycle
 
 A reactor is the runtime orchestrator for a computation graph: it
-owns the [InputCache]({{< ref "/glossary#inputcache" >}}), evaluates
+owns the [InputCache]({{< ref "/reference/glossary#inputcache" >}}), evaluates
 reaction criteria after each accumulator update, and fires the
 compiled graph function when criteria are met. This document covers
 the *lifecycle* of a reactor — how it gets created, how it gets

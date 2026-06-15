@@ -14,5 +14,5 @@ Look-up material specific to the Python CG surface.
 
 ## See also
 
-- [Python · API Reference · Computation Graphs]({{< ref "/python/api-reference/computation-graphs" >}}) — class-by-class Python API.
+- [Python · API Reference · Computation Graphs]({{< ref "/reference/python-api/computation-graphs" >}}) — class-by-class Python API.
 - [Rust · CG · Reference]({{< ref "/computation-graphs/reference" >}}) — most of the macro/attribute surface translates directly.

@@ -6,7 +6,7 @@ weight: 26
 
 # Trigger-less Computation Graphs
 
-Most computation graphs are *driven*: a [reactor]({{< ref "/glossary#reactor" >}})
+Most computation graphs are *driven*: a [reactor]({{< ref "/reference/glossary#reactor" >}})
 watches accumulators, fires the graph when reaction criteria are
 met, and pipes the InputCache snapshot into the graph's entry nodes.
 The graph runs on the reactor's schedule, not the workflow's.

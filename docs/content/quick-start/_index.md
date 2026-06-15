@@ -109,7 +109,7 @@ For lookup-style information rather than learning paths:
   schema.
 - [HTTP API Reference]({{< ref "/reference/http-api" >}}) —
   every endpoint, auth model, operational caveats.
-- [Glossary]({{< ref "/glossary" >}}) — every term used in these
+- [Glossary]({{< ref "/reference/glossary" >}}) — every term used in these
   docs, in one place.
 
 Advanced (only if you implement package loading by hand):
@@ -119,7 +119,7 @@ Advanced (only if you implement package loading by hand):
 
 ## Need help?
 
-- [Troubleshooting]({{< ref "/troubleshooting" >}}) — common
+- [Troubleshooting]({{< ref "/reference/troubleshooting" >}}) — common
   problems and resolutions.
 - [GitHub issues](https://github.com/colliery-io/cloacina/issues) —
   bug reports and feature requests.
