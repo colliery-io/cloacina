@@ -12,3 +12,10 @@ protocols, configuration and environment variables, the metrics catalog, client
 SDKs, the glossary, and troubleshooting.
 
 {{< toc-tree >}}
+
+## Generated API reference
+
+Auto-generated from source (rustdoc / pdoc) — the authoritative symbol-level API:
+
+- [Rust API]({{< ref "/api-reference/rust" >}}) — `cloacina`, `cloacina-macros`, and the computation-graph crates.
+- [Python API (`cloaca`)]({{< ref "/api-reference/cloaca" >}}) — the PyO3 bindings.
