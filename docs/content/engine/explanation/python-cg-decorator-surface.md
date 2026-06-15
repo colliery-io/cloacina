@@ -31,7 +31,7 @@ versus the `criteria = when_any(...)` form in Rust.
   DAL-persisted history buffer) has no Python decorator.
 - **Topology is a dict, parsed at build time.** Rust declares the graph as a
   token-tree literal inside the macro (compile-time); Python passes a
-  [topology dict]({{< ref "/python/computation-graphs/reference/topology-dict-schema" >}})
+  [topology dict]({{< ref "/reference/topology-dict-schema" >}})
   to `ComputationGraphBuilder`, validated when the `with` block exits.
 - **Node values are owned, not borrowed.** Rust node functions take `Option<&T>`
   references into the cache; Python node functions receive owned values (the
@@ -45,10 +45,10 @@ Whichever language authors a computation graph, the result registers into the
 same engine and packages into the same `.cloacina` format. The server/runner
 loads a Python-authored graph and a Rust-authored graph through the same path —
 it doesn't care which language wrote it. See
-[Package a Python Computation Graph]({{< ref "/python/computation-graphs/how-to-guides/package-a-python-computation-graph" >}}).
+[Package a Python Computation Graph]({{< ref "/engine/computation-graphs/how-to/package-a-python-computation-graph" >}}).
 
 ## See also
 
-- [Topology Dict Schema]({{< ref "/python/computation-graphs/reference/topology-dict-schema" >}}) — the `graph={...}` format.
+- [Topology Dict Schema]({{< ref "/reference/topology-dict-schema" >}}) — the `graph={...}` format.
 - [Computation Graph (Rust reference)]({{< ref "/reference/computation-graphs" >}}) — the macro family this mirrors.
 - [Choosing Accumulator Types]({{< ref "/engine/computation-graphs/how-to/accumulator-types" >}}) — what each accumulator does.

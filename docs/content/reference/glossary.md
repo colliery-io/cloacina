@@ -52,7 +52,7 @@ The HTTP + WebSocket service that hosts loaded packaged workflows, tenants, and 
 
 ### `cloacina-python` / Cloaca
 
-The Rust crate (`cloacina-python`) that produces the Python `cloaca` PyPI wheel. Per CLOACI-T-0529 / CLOACI-T-0532, the Python bindings live in a dedicated crate so the core `cloacina` library does not depend on PyO3. The Python surface tracks the Rust surface 1:1 (`@cloaca.task` ↔ `#[task]`, etc.). See [Python · Workflows · Explanation · Python Runtime Architecture]({{< ref "/python/workflows/explanation/python-runtime-architecture" >}}).
+The Rust crate (`cloacina-python`) that produces the Python `cloaca` PyPI wheel. Per CLOACI-T-0529 / CLOACI-T-0532, the Python bindings live in a dedicated crate so the core `cloacina` library does not depend on PyO3. The Python surface tracks the Rust surface 1:1 (`@cloaca.task` ↔ `#[task]`, etc.). See [Python · Workflows · Explanation · Python Runtime Architecture]({{< ref "/embed/explanation/python-runtime-architecture" >}}).
 
 ### `complete_task_transaction`
 

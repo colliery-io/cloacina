@@ -1003,7 +1003,7 @@ Excellent work! You now understand how to build sophisticated workflows with com
 
 ## Related Resources
 
-- [How-to: Performance Optimization]({{< ref "/python/workflows/how-to-guides/performance-optimization/" >}}) - Workflow optimization techniques
+- [How-to: Performance Optimization]({{< ref "/embed/how-to/performance-optimization/" >}}) - Workflow optimization techniques
 - [API Reference: WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}}) - Advanced workflow configuration
 
 {{< hint type="info" title="Reference Implementation" >}}

@@ -269,7 +269,7 @@ runner = cloaca.DefaultRunner(database_url)
 ```
 
 See the
-[Environment Variables]({{< ref "/python/workflows/reference/environment-variables" >}})
+[Environment Variables]({{< ref "/reference/python-environment-variables" >}})
 reference for the full variable-registry conventions.
 
 ## See Also

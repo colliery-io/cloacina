@@ -53,7 +53,7 @@ data-pipeline/
 Edit the generated tasks/nodes to do your real work. (Python packaged modules
 use **bare decorators** — the loader names the workflow from `workflow_name` /
 `graph_name`; don't wrap them in a `WorkflowBuilder`. See
-[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}).)
+[Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}).)
 
 ## Step 2: Validate
 
@@ -98,5 +98,5 @@ build + pack + upload in one step.
 
 ## See Also
 
-- [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the Python format in depth
+- [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}) — the Python format in depth
 - [Package Format]({{< ref "/engine/explanation/package-format" >}}) — archive layout + `package.toml` schema

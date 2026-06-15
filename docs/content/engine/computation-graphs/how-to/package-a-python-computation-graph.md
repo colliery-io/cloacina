@@ -10,11 +10,11 @@ A Python-authored computation graph packages and deploys exactly like a Python
 workflow: a `package.toml` plus a module tree under `workflow/`. The server loads
 it through the same path as a Rust-authored graph. This how-to packages the
 `market_maker` graph end to end. (For the workflow analog, see
-[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}).)
+[Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}).)
 
 ## Prerequisites
 
-- A Python computation graph (see [Python CG Decorator Surface]({{< ref "/python/computation-graphs/explanation/python-cg-decorator-surface" >}})).
+- A Python computation graph (see [Python CG Decorator Surface]({{< ref "/engine/explanation/python-cg-decorator-surface" >}})).
 - `cloacinactl` installed, and a running server to upload to.
 
 ## Step 1: Lay out the package
@@ -30,7 +30,7 @@ market-maker/
 
 The module tree **must** live under `workflow/`. `graph.py` holds the reactor,
 the accumulators, the `ComputationGraphBuilder`, and the `@cloaca.node` functions
-(see the [Topology Dict Schema]({{< ref "/python/computation-graphs/reference/topology-dict-schema" >}})).
+(see the [Topology Dict Schema]({{< ref "/reference/topology-dict-schema" >}})).
 
 ## Step 2: Write `package.toml`
 
@@ -89,6 +89,6 @@ queryable via `cloacinactl graph status market_maker`.
 
 ## See also
 
-- [Topology Dict Schema]({{< ref "/python/computation-graphs/reference/topology-dict-schema" >}})
-- [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the same packaging model for workflows.
+- [Topology Dict Schema]({{< ref "/reference/topology-dict-schema" >}})
+- [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}) — the same packaging model for workflows.
 - [Package Format]({{< ref "/engine/explanation/package-format" >}}) — the `.cloacina` archive structure.

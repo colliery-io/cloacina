@@ -1204,8 +1204,8 @@ Or explore these resources:
 ### Recommended Learning Path
 
 1. **[Tutorial 07: Event Triggers]({{< ref "/python/workflows/tutorials/07-event-triggers/" >}})** - Event-driven workflow execution
-2. **[How-to: Backend Selection]({{< ref "/python/workflows/how-to-guides/backend-selection/" >}})** - Choose between SQLite and PostgreSQL
-3. **[How-to: Performance Optimization]({{< ref "/python/workflows/how-to-guides/performance-optimization/" >}})** - Scale your workflows
+2. **[How-to: Backend Selection]({{< ref "/embed/how-to/backend-selection/" >}})** - Choose between SQLite and PostgreSQL
+3. **[How-to: Performance Optimization]({{< ref "/embed/how-to/performance-optimization/" >}})** - Scale your workflows
 
 ## Related Resources
 

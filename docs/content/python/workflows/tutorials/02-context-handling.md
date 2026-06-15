@@ -641,7 +641,7 @@ Excellent work! You now understand how to manage complex data flows through Cloa
 
 - [API Reference: Context]({{< ref "/reference/python-api/context/" >}}) - Complete Context API
 - [Examples: Data Processing]({{< ref "/python/workflows/tutorials/00-basic-workflow/" >}}) - More data pipeline examples
-- [How-to: Testing Workflows]({{< ref "/python/workflows/how-to-guides/testing-workflows/" >}}) - Testing with context data
+- [How-to: Testing Workflows]({{< ref "/embed/how-to/testing-workflows/" >}}) - Testing with context data
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial is based on patterns from [`test_scenario_09_context_propagation.py`](https://github.com/colliery-io/cloacina/blob/main/tests/python/test_scenario_09_context_propagation.py) and data processing examples from the Cloacina test suite.

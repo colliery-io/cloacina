@@ -139,7 +139,7 @@ requires_python = ">=3.10"
 
 `entry_module` is the dotted path **relative to `workflow/`** that the loader
 imports for task + trigger discovery. See
-[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}})
+[Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}})
 for the full format and the build/deploy steps.
 
 ## Step 5: Test Locally
@@ -199,5 +199,5 @@ key) is rejected at upload. Just make sure the decorator runs at import time.
 ## Next Steps
 
 - [Computation Graphs]({{< ref "/python/computation-graphs/tutorials/09-computation-graph" >}}) — reactive, event-driven processing
-- [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the full `package.toml` format and build steps
+- [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}) — the full `package.toml` format and build steps
 - [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}) — deploy your package

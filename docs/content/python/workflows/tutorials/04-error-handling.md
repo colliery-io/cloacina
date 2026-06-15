@@ -842,7 +842,7 @@ Excellent! You now know how to build resilient workflows with comprehensive erro
 ## Related Resources
 
 - [API Reference: Error Handling]({{< ref "/reference/python-api/exceptions/" >}}) - Exception types and handling
-- [How-to: Testing Workflows]({{< ref "/python/workflows/how-to-guides/testing-workflows/" >}}) - Testing error scenarios
+- [How-to: Testing Workflows]({{< ref "/embed/how-to/testing-workflows/" >}}) - Testing error scenarios
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial demonstrates patterns from [`test_scenario_11_retry_mechanisms.py`](https://github.com/colliery-io/cloacina/blob/main/tests/python/test_scenario_11_retry_mechanisms.py) and [`test_scenario_17_advanced_error_handling.py`](https://github.com/colliery-io/cloacina/blob/main/tests/python/test_scenario_17_advanced_error_handling.py) in the Cloacina test suite.

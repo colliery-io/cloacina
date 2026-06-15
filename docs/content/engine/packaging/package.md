@@ -61,5 +61,5 @@ cloacinactl --tenant acme package upload my-pipeline-0.1.0.cloacina
 
 ## See also
 
-- [Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}}) · [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}})
+- [Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}}) · [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}})
 - [Run the Service]({{< ref "/service" >}}) — where packages are deployed.

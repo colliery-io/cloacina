@@ -17,7 +17,7 @@ over the same Rust engine the [`cloacina` crate]({{< ref "/workflows" >}}) uses,
 with full surface parity. The same primitives, packaging format, and database
 model apply; where the Python ergonomics differ (decorators + a builder vs.
 macros, owned values vs. borrows, the GIL), the
-[Python Runtime Architecture]({{< ref "/python/workflows/explanation/python-runtime-architecture" >}})
+[Python Runtime Architecture]({{< ref "/embed/explanation/python-runtime-architecture" >}})
 explains why. Concepts and platform/operations docs in the Rust-side sections
 apply to Python deployments too.
 

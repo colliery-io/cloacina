@@ -64,7 +64,7 @@ data-pipeline-1.0.0.cloacina        (bzip2 tar)
 For Python, the module tree **must** live under `workflow/`; a top-level module
 is rejected at load with `Missing workflow source directory`. The `vendor/`
 directory (if present) and `workflow/` are both added to `sys.path` before
-import. See [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}})
+import. See [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}})
 for the full Python procedure.
 
 ## The `package.toml` Manifest
@@ -189,7 +189,7 @@ it), vendors declared dependencies if applicable, and archives the source. A
 mis-laid-out package fails at pack time rather than at upload. `package build` is
 a no-op for Python (there is nothing to compile). The archive can also be built
 by hand — see
-[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}).
+[Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}).
 
 ## Inspecting a Package
 
@@ -206,7 +206,7 @@ tar -xjOf analytics-workflow-1.0.0.cloacina \
 ## Related Resources
 
 - [Creating Your First Package]({{< ref "/service/how-to/creating-your-first-package" >}}) — scaffold/validate/pack/upload with `package new`
-- [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — the full Python procedure
+- [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}) — the full Python procedure
 - [Packaged Triggers]({{< ref "/python/workflows/tutorials/08-packaged-triggers" >}}) — triggers in a packaged Python workflow
 - [FFI System]({{< ref "/engine/explanation/ffi-system/" >}}) — how the host calls into compiled packages
 - [Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture/" >}}) — load/registration internals

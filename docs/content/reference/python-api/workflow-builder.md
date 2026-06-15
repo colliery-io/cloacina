@@ -19,7 +19,7 @@ Cloaca has three ways to define a workflow. They are not interchangeable — pic
 2. **Manual builder + `register_workflow_constructor`** — the same in-process scenario, for **dynamic or programmatic** construction (e.g. a factory that builds workflow variants from config). You call `build()` yourself and register a constructor function — see the [Complete Workflow Example](#complete-workflow-example) below.
 3. **Bare `@cloaca.task` decorators (no builder at all)** — for **packaged `.cloacina` workflows** loaded by a server or daemon. The package loader supplies the workflow context, so a packaged module declares tasks with `@cloaca.task` and does **not** construct a `WorkflowBuilder`.
 
-**Pitfall:** a `WorkflowBuilder` inside a packaged workflow module fails to load (the loader has already supplied the workflow context). Packaged modules use bare decorators only — see [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}).
+**Pitfall:** a `WorkflowBuilder` inside a packaged workflow module fails to load (the loader has already supplied the workflow context). Packaged modules use bare decorators only — see [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}).
 {{< /hint >}}
 
 This page documents patterns 1 and 2 (in-process). For pattern 3, see the packaging guides.

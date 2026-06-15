@@ -19,7 +19,7 @@ The canonical manifest schema now lives with the archive format:
   `.cloacina` archive layout (Rust + Python) and the full `package.toml`
   `[package]` / `[metadata]` schema, including which keys are accepted and which
   are rejected (`package_type`, `[[metadata.triggers]]`).
-- **[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}})**
+- **[Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}})**
   — the step-by-step Python packaging procedure.
 
 ## Triggers

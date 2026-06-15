@@ -77,7 +77,7 @@ with cloaca.ComputationGraphBuilder(
 
 `reactor=` takes a `@cloaca.reactor`-decorated **class**, and each `graph` entry
 is a **dict** (`inputs` list, plus `next` / `routes`, or empty for terminal). See
-the [topology dict schema]({{< ref "/python/computation-graphs/reference/topology-dict-schema" >}})
+the [topology dict schema]({{< ref "/reference/topology-dict-schema" >}})
 for the full format. Python node functions receive **owned** values (the boundary
 copies them) where Rust takes references.
 {{< /tab >}}
