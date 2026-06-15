@@ -232,6 +232,17 @@ def cli():
             assert isinstance(parsed, list)
             print("  ok: package list -o json parses")
 
+            # --- key list reads the T-0594 `items` envelope (regression guard) ---
+            # The bootstrap key exists, so a correct `items`-aware read returns a
+            # non-empty array of key objects. Guards the CLI list commands against
+            # the unified-envelope key drift that broke `package list`.
+            code, out, _ = _cloacinactl(home, "-o", "json", "key", "list")
+            keys = json.loads(out)
+            assert isinstance(keys, list) and keys and all("id" in k for k in keys), (
+                f"key list should return the bootstrap key(s) as an items array: {out!r}"
+            )
+            print("  ok: key list returns items envelope (non-empty)")
+
             # ─────────────────────────────────────────────────────────
             # CLOACI-I-0107 regression coverage. Every test below pins
             # one or more of the seven API-XX findings from the May

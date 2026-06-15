@@ -55,8 +55,8 @@ impl GraphCmd {
         match self.verb {
             GraphVerb::List => {
                 let body: serde_json::Value = client.get("/v1/health/graphs").await?;
-                let graphs = body.get("graphs").cloned().unwrap_or(body);
-                render::list(&graphs, output)
+                // T-0594 unified `{items,total}` envelope — render::list reads `items`.
+                render::list(&body, output)
             }
             GraphVerb::Status { name } => {
                 let body: serde_json::Value =
@@ -65,8 +65,8 @@ impl GraphCmd {
             }
             GraphVerb::Accumulators => {
                 let body: serde_json::Value = client.get("/v1/health/accumulators").await?;
-                let accs = body.get("accumulators").cloned().unwrap_or(body);
-                render::list(&accs, output)
+                // T-0594 unified `{items,total}` envelope — render::list reads `items`.
+                render::list(&body, output)
             }
         }
     }
