@@ -4,14 +4,14 @@ level: task
 title: "Engine: in-process cluster — Computation Graph, Node, Reactor, Accumulator, Boundary"
 short_code: "CLOACI-T-0693"
 created_at: 2026-06-15T14:19:40.405878+00:00
-updated_at: 2026-06-15T14:19:40.405878+00:00
+updated_at: 2026-06-15T15:51:25.671123+00:00
 parent: CLOACI-I-0122
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -26,9 +26,13 @@ initiative_id: CLOACI-I-0122
 
 [[CLOACI-I-0122]]
 
-## Objective **[REQUIRED]**
+## Objective
 
-{Clear statement of what this task accomplishes}
+Author the in-process primitive pages under `/engine/computation-graphs/`:
+**Computation Graph**, **Node** (coupled), **Reactor**, **Accumulator** (+5
+variants), **Boundary event** (coupled) — dual-language tabs grounded in the CG
+tutorials + decorator-surface doc. State-accumulator parity gap surfaced in the
+Python tab (→ [[CLOACI-T-0688]]). See [[CLOACI-I-0122]].
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -64,11 +68,19 @@ initiative_id: CLOACI-I-0122
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria **[REQUIRED]**
+## Acceptance Criteria
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+## Acceptance Criteria
+
+- [x] `computation-graph.md`, `node.md`, `reactor.md`, `accumulator.md`, `boundary.md` authored
+- [x] Node + Boundary documented coupled to their parents
+- [x] state-accumulator parity gap shown in Python tab (links T-0688)
+- [x] `hugo` builds clean (519 pages), all cross-refs resolve
+
+## Status Updates
+
+**2026-06-15** — In-process cluster authored; build green. Grounded in CG library
+tutorials 07/08 + the Python CG decorator-surface doc.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
