@@ -15,4 +15,4 @@ Conceptual material — how the Python CG surface maps onto the underlying Rust 
 ## See also
 
 - [Rust · CG · Explanation]({{< ref "/engine/explanation" >}}) — every doc here applies to Python as well.
-- [Python · Workflows · Explanation · Python Runtime Architecture]({{< ref "/python/engine/explanation/python-runtime-architecture" >}}) — the PyO3 / GIL / FFI layer all Python surfaces share.
+- [Python · Workflows · Explanation · Python Runtime Architecture]({{< ref "/python/workflows/explanation/python-runtime-architecture" >}}) — the PyO3 / GIL / FFI layer all Python surfaces share.
