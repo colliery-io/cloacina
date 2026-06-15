@@ -6,7 +6,7 @@ weight: 20
 
 # Choosing and Using Accumulator Types
 
-This guide explains the four accumulator types available in Cloacina's computation graph system, when to use each, and how to implement them.
+This guide explains the five accumulator types available in Cloacina's computation graph system, when to use each, and how to implement them.
 
 ## Prerequisites
 
@@ -25,6 +25,7 @@ An accumulator sits between an external data source and a reactor. It receives r
 | Stream | Message broker (Kafka, etc.) | Broker-driven + socket | Continuous high-volume feed from a topic |
 | Polling | Timer | Periodic | Pull-based sources (databases, REST APIs) |
 | Batch | Socket buffer | Timer / size / reactor signal | Collect events between graph executions |
+| State | Socket + bounded history buffer (DAL-persisted) | Retains the last *N* boundaries | Cyclic/stateful graphs that read their own recent outputs back as input |
 
 ---
 
@@ -329,6 +330,33 @@ tokio::spawn(batch_accumulator_runtime(
 ```
 
 The reactor signals the flush sender after every successful graph execution. The timer and size threshold serve as fallbacks. On shutdown, any remaining buffered events are flushed automatically.
+
+---
+
+## State
+
+`#[state_accumulator(capacity = N)]` maintains a bounded history buffer of the
+most recent `N` boundaries, persisted to the DAL so it survives restarts. It is
+socket-driven (no external source) and is the right choice for **cyclic or
+stateful graphs** that need to read their own recent outputs back as input.
+
+### Function signature
+
+The function takes no event argument and declares the buffered history type as a
+`VecDeque<T>`; the macro manages the bounded buffer:
+
+```rust
+use std::collections::VecDeque;
+
+#[state_accumulator(capacity = 10)]
+fn previous_outputs() -> VecDeque<DecisionOutput>;
+```
+
+The buffer keeps the last `capacity` entries, evicting the oldest as new
+boundaries arrive. Because it is DAL-persisted, a restarted graph resumes with
+its prior history intact. See the
+[Computation Graphs reference]({{< ref "/computation-graphs/reference/computation-graphs" >}})
+for the generated runtime details.
 
 ---
 
