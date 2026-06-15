@@ -11,6 +11,24 @@ aliases:
 
 This guide covers how recovery works in multi-tenant Cloacina deployments, how to handle common failure scenarios, and how to monitor tenant health.
 
+{{< hint type=note title="Server-mode operators" >}}
+The examples below use the embedded `DefaultRunner` API. If you run the
+**`cloacina-server`** service, you don't call these directly — the server creates a
+`DefaultRunner` per tenant lazily on first use and caches it (LRU, capped by
+`--tenant-runner-cache-size`). The same automatic recovery described here runs
+**inside each tenant's runner**, so interrupted work is recovered the same way.
+
+To recover a wedged tenant in server mode:
+1. **Restart the server process.** Tenant runners are rebuilt lazily on the next
+   request, each re-running recovery on connect — there is no per-tenant "restart"
+   endpoint; eviction/recreation is automatic.
+2. **For SQLite tenants**, restore the tenant's database file (see the SQLite
+   section below) before the runner is recreated.
+3. **For PostgreSQL tenants**, the schema and its data persist across restarts; see
+   the PostgreSQL section. To retire a tenant entirely, use
+   [Decommission a Tenant]({{< ref "/service/how-to/decommission-a-tenant" >}}).
+{{< /hint >}}
+
 ## Automatic Recovery
 
 Cloacina has recovery enabled by default. Each tenant's recovery operates independently, so a failure in one tenant does not affect others.

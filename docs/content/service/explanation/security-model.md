@@ -62,6 +62,8 @@ Every authenticated route under `/v1/*` requires an `Authorization: Bearer <key>
 
 The cache is small and short-lived deliberately: it shaves the per-request DB hit at high throughput, but the 30-second TTL bounds how long a revoked key can keep working. Explicit revocation via `DELETE /v1/auth/keys/{key_id}` clears the *entire* cache (not just the revoked entry) so revocation is immediate at the cost of a brief revalidation spike.
 
+To create, list, and revoke keys in practice, see [Manage API Keys]({{< ref "/service/how-to/manage-api-keys" >}}).
+
 ### Roles vs the `is_admin` god-mode
 
 Cloacina keys carry two pieces of authority: a **tenant-scoped role** (`admin` / `write` / `read`) and an **`is_admin` flag** that grants god-mode across all tenants.

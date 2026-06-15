@@ -162,7 +162,7 @@ the guide that covers it in depth.
 **Data & isolation**
 - [ ] PostgreSQL (not SQLite) for any multi-tenant or multi-replica deployment. See [Database Backends]({{< ref "/service/explanation/database-backends" >}}).
 - [ ] Multi-tenant isolation reviewed — in particular that executions actually run against the tenant's own schema (a misconfigured runner can execute against the wrong schema and break isolation). See [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}}).
-- [ ] Database backups and a restore drill in place.
+- [ ] Database backups and a restore drill in place. See [Back Up and Restore]({{< ref "/service/how-to/backup-and-restore" >}}).
 
 **Supply chain**
 - [ ] In low-trust / multi-tenant deployments, package signing required so unsigned packages are refused — otherwise a compromised or untrusted uploader could get arbitrary code compiled and run in your build sandbox. See [Require Signed Packages]({{< ref "/service/how-to/require-signed-packages" >}}).
@@ -171,3 +171,24 @@ the guide that covers it in depth.
 - [ ] Load-balancer health checks wired to `GET /health` (liveness) and `GET /ready` (readiness — confirms the DB pool is reachable and no computation graph has crashed).
 - [ ] Metrics scraped from `/metrics` and tracing wired up. See [Observe Execution State]({{< ref "/embed/how-to/observe-execution-state" >}}).
 - [ ] Runner sizing tuned for your load — database connection pool size, task concurrency, and execution timeouts. See [Performance Tuning]({{< ref "/service/how-to/performance-tuning" >}}) for the server knobs and recommended values.
+
+## Upgrading the server
+
+For Kubernetes/Helm deployments, follow the rolling-update path in
+[Deploying to Kubernetes]({{< ref "/service/how-to/deploying-to-kubernetes" >}}#upgrades).
+For a directly-managed server (`cloacinactl server start` or the container image),
+upgrade like this:
+
+1. **Back up the database first.** Run a fresh backup ([Back Up and Restore]({{< ref "/service/how-to/backup-and-restore" >}})) so you can roll back if a migration misbehaves.
+2. **Pin the new version.** Deploy a specific image tag (e.g. `ghcr.io/colliery-io/cloacina-server:0.7.0`), never `:latest`, so the rollout is reproducible.
+3. **Drain, then swap.** Stop sending new traffic at the reverse proxy, let in-flight requests finish, stop the old process, and start the new one against the **same** `DATABASE_URL`. The server **runs any pending schema migrations automatically on startup** (embedded, transaction-safe), so no manual migration step is needed.
+4. **Gate traffic on readiness.** Wait for `GET /ready` to return 200 before re-enabling proxy traffic — it confirms the DB pool is reachable and no loaded graph crashed on boot.
+
+**Downtime note:** a single-replica server has a brief gap between stop and ready.
+For zero-downtime, run multiple replicas against one PostgreSQL database (see
+[Horizontal Scaling]({{< ref "/service/explanation/horizontal-scaling" >}})) and
+roll them one at a time behind the proxy.
+
+**Rollback:** if the new version fails readiness, restart the previous pinned tag
+against the same database. If a migration changed the schema incompatibly, restore
+the pre-upgrade backup from step 1.

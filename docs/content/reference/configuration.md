@@ -11,6 +11,28 @@ aliases:
 
 This page documents all configuration options for the Cloacina runtime. Configuration is specified programmatically via `DefaultRunnerConfig` (Rust API), through `~/.cloacina/config.toml` (daemon/server), or via environment variables.
 
+## Server flags (`cloacina-server`)
+
+When you run Cloacina as a service, the `cloacina-server` binary takes these
+command-line flags (most also accept an environment variable). The
+`cloacinactl server start` wrapper forwards the same settings.
+
+| Flag | Env var | Default | Purpose |
+|------|---------|---------|---------|
+| `--bind` | — | `127.0.0.1:8080` | HTTP listen address. Set `0.0.0.0:8080` to accept remote connections (containers, behind a proxy). The server exposes a **single** HTTP port. |
+| `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
+| `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | auto-generated | First-run admin key; if unset, one is generated and written once to `~/.cloacina/bootstrap-key`. |
+| `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject unsigned package uploads. Requires `--verification-org-id`. |
+| `--verification-org-id` | `CLOACINA_VERIFICATION_ORG_ID` | — | Trusted org UUID for signature verification (mandatory when signatures are required). |
+| `--tenant-runner-cache-size` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | LRU cap on cached per-tenant runners. |
+| `--default-executor` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to; set `fleet` to route to the execution-agent fleet. |
+| `--reconcile-interval-s` | — | runtime default | Seconds between reconciler passes. |
+| `--log-retention-days` | — | `14` | Daily-rotated log files to keep (`0` = unbounded). |
+| `--home` | — | `~/.cloacina` | Home directory for keys, logs, config. |
+| `-v`, `--verbose` | — | off | Debug logging (overrides `RUST_LOG`). |
+
+For the full deployment walkthrough see [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}) and [Running the server image]({{< ref "/service/how-to/running-the-server-image" >}}).
+
 ## DefaultRunnerConfig
 
 The `DefaultRunnerConfig` struct controls all runtime behavior of the `DefaultRunner`. Create one with the builder pattern:
