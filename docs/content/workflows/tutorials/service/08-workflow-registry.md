@@ -359,7 +359,7 @@ Congratulations! You've successfully set up and used the workflow registry. In f
 ## Related Resources
 
 - [Tutorial 07: Packaged Workflows]({{< ref "/workflows/tutorials/service/07-packaged-workflows/" >}})
-- [API Documentation]({{< ref "/platform/reference/" >}})
+- [API Documentation]({{< ref "/reference/" >}})
 
 ## Download the Example
 

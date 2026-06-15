@@ -299,4 +299,4 @@ curl -s -X DELETE http://localhost:8080/auth/keys/a1b2c3d4-e5f6-7890-abcd-ef1234
 
 Revoked keys are rejected immediately (the server clears its LRU auth cache on revocation).
 
-For the full list of API endpoints including tenant management, workflow upload, and execution, see the [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}).
+For the full list of API endpoints including tenant management, workflow upload, and execution, see the [HTTP API Reference]({{< ref "/reference/http-api" >}}).

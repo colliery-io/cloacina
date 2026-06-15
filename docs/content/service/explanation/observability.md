@@ -6,7 +6,7 @@ weight: 40
 
 # Observability
 
-Cloacina exposes three observability surfaces — Prometheus metrics, structured logs, and OpenTelemetry traces — built on a few non-obvious design choices that this page explains. The *what* lives in [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}); this page is the *why*.
+Cloacina exposes three observability surfaces — Prometheus metrics, structured logs, and OpenTelemetry traces — built on a few non-obvious design choices that this page explains. The *what* lives in [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}); this page is the *why*.
 
 ## The `cloacina_*` namespace
 
@@ -122,7 +122,7 @@ A few choices Cloacina explicitly made the opposite way from common defaults:
 
 ## See also
 
-- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — every metric, type, labels, meaning, PromQL examples.
+- [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) — every metric, type, labels, meaning, PromQL examples.
 - [Performance Characteristics]({{< ref "performance-characteristics" >}}) — what numbers to expect from the gauges and histograms.
 - [Performance Tuning]({{< ref "/service/how-to/performance-tuning" >}}) — using these metrics to drive tuning decisions.
 - [Workflows: Observability]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}) — workflow-author perspective on which metric matters when.

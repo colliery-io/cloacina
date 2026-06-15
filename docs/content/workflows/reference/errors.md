@@ -279,5 +279,5 @@ The following automatic conversions are available via `From` implementations:
 ## See Also
 
 - [Macro Reference]({{< ref "macros" >}}) -- `retry_condition` and `trigger_rules` attributes that affect error handling
-- [Configuration Reference]({{< ref "/platform/reference/configuration" >}}) -- timeout and recovery settings
+- [Configuration Reference]({{< ref "/reference/configuration" >}}) -- timeout and recovery settings
 - [Cron Scheduling Architecture]({{< ref "/workflows/explanation/cron-scheduling" >}}) -- recovery behavior for cron errors

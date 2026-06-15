@@ -82,7 +82,7 @@ args: ["--max-concurrency", "4"]
 ```
 
 Scale by adding replicas; the server spreads work across live agents greedily by
-free capacity. Useful options (full list in the [CLI reference]({{< ref "/platform/reference/cli" >}}#agent)):
+free capacity. Useful options (full list in the [CLI reference]({{< ref "/reference/cli" >}}#agent)):
 
 - `--max-concurrency <N>` (default 4) — packets this agent runs at once; a
   saturated agent refuses further work.
@@ -155,6 +155,6 @@ CLOACINA_AGENT_HEARTBEAT_INTERVAL_S=5 CLOACINA_AGENT_LIVENESS_MISSES=2 cloacina-
 ## See also
 
 - [Execution-Agent Fleet]({{< ref "/service/explanation/execution-agent-fleet" >}}) — how it works.
-- [CLI Reference]({{< ref "/platform/reference/cli" >}}#agent) — `cloacina-agent` + server fleet flags.
-- [Environment Variables]({{< ref "/platform/reference/environment-variables" >}}#execution-agent) — agent + fleet env vars.
-- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — the `cloacina_fleet_*` series.
+- [CLI Reference]({{< ref "/reference/cli" >}}#agent) — `cloacina-agent` + server fleet flags.
+- [Environment Variables]({{< ref "/reference/environment-variables" >}}#execution-agent) — agent + fleet env vars.
+- [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) — the `cloacina_fleet_*` series.

@@ -180,7 +180,7 @@ cloacinactl config profile use acme-prod
 Now `cloacinactl` reads the server URL and key from the profile by
 default. The key is stored as a literal string; for production use
 the `env:VAR` or `file:PATH` schemes documented in [API Key
-Schemes]({{< ref "/platform/reference/cli" >}}#api-key-schemes).
+Schemes]({{< ref "/reference/cli" >}}#api-key-schemes).
 
 ## Step 7: Upload a packaged workflow
 

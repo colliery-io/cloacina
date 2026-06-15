@@ -164,7 +164,7 @@ up, 2 otherwise. Use this in scripts and supervisor checks.
 ## `server`
 
 The HTTP API server (`cloacina-server`). Backed by PostgreSQL or
-SQLite. Exposes the [HTTP API]({{< ref "/platform/reference/http-api" >}})
+SQLite. Exposes the [HTTP API]({{< ref "/reference/http-api" >}})
 under the `/v1/` prefix and the unauth probes `/health`, `/ready`,
 `/metrics`.
 
@@ -530,8 +530,8 @@ The `~/.cloacina/` directory (configurable via `--home`) holds:
 
 # See Also
 
-- [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — endpoints exposed by `cloacinactl server start`.
-- [Configuration Reference]({{< ref "/platform/reference/configuration" >}}) — `DefaultRunnerConfig` builder details.
-- [Environment Variables Reference]({{< ref "/platform/reference/environment-variables" >}}) — full env var list.
+- [HTTP API Reference]({{< ref "/reference/http-api" >}}) — endpoints exposed by `cloacinactl server start`.
+- [Configuration Reference]({{< ref "/reference/configuration" >}}) — `DefaultRunnerConfig` builder details.
+- [Environment Variables Reference]({{< ref "/reference/environment-variables" >}}) — full env var list.
 - [Cron Scheduling Architecture]({{< ref "/workflows/explanation/cron-scheduling" >}}) — how the daemon processes cron schedules.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — what the daemon's reconciler does after detecting a new package.

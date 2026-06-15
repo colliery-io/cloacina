@@ -206,7 +206,7 @@ Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}})
 for the rationale behind the flip.
 
 In packaged mode (`feature = "packaged"`), the same constructor is
-walked at FFI call time by the [`cloacina::package!()`]({{< ref "/platform/reference/package-shell-macro" >}})
+walked at FFI call time by the [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}})
 shell macro instead of being seeded into a process-local `Runtime`.
 
 ### Complete Example

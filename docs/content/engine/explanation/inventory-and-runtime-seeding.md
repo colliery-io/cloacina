@@ -108,7 +108,7 @@ crate is faithful to it.
 ## How packaged plugins work
 
 The FFI vtable is the bridge across the boundary. Each plugin
-implements `CloacinaPlugin` (the [`cloacina::package!()`]({{< ref "/platform/reference/package-shell-macro" >}})
+implements `CloacinaPlugin` (the [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}})
 macro emits this) and exposes nine methods. The plugin's
 implementation **does** see its own inventory section — it walks
 `inventory::iter::<TaskEntry>` etc. inside the cdylib and projects
@@ -133,7 +133,7 @@ In day-to-day workflow authoring, it doesn't. The macros hide the
 mechanism. You should care about it only when:
 
 - **Writing a packaged plugin.** Make sure
-  [`cloacina::package!()`]({{< ref "/platform/reference/package-shell-macro" >}})
+  [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}})
   is at the crate root and `feature = "packaged"` is set; otherwise
   the cdylib has no FFI vtable and the host has no way to discover
   your tasks.
@@ -149,6 +149,6 @@ mechanism. You should care about it only when:
 
 ## Related
 
-- [`package!()` Macro Reference]({{< ref "/platform/reference/package-shell-macro" >}})
-- [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}})
+- [`package!()` Macro Reference]({{< ref "/reference/package-shell-macro" >}})
+- [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}})
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — what the host does after receiving FFI metadata.

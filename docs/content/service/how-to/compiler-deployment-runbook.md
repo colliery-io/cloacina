@@ -157,7 +157,7 @@ threat model rather than here.
 
 The server publishes `/metrics` on the same port as the API
 (unauthenticated, by design). Key deployment-relevant flags are
-documented in [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}) and the full set is in [CLI Reference]({{< ref "/platform/reference/cli" >}}).
+documented in [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}) and the full set is in [CLI Reference]({{< ref "/reference/cli" >}}).
 
 For signature enforcement, the server accepts `--require-signatures`
 and `--verification-org-id <UUID>` (per I-0103) to enforce
@@ -177,7 +177,7 @@ CLOACI-I-0112 initiative.
 Both `cloacina-server` and `cloacina-compiler` expose Prometheus
 metrics at `GET /metrics`. The full catalog of `cloacina_*` and
 `cloacina_compiler_*` metrics — with PromQL examples — lives in
-[Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}).
+[Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}).
 
 Operationally useful at the compiler tier:
 
@@ -220,7 +220,7 @@ Operationally useful at the compiler tier:
 - [Running the Compiler]({{< ref "/service/how-to/running-the-compiler" >}}) — short-form how-to with threat model and vendor curation.
 - [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}}) — server-specific deployment.
 - [Deploying to Kubernetes (Helm)]({{< ref "/service/how-to/deploying-to-kubernetes" >}}) — chart-driven install.
-- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — all `cloacina_*` and `cloacina_compiler_*` metrics.
+- [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) — all `cloacina_*` and `cloacina_compiler_*` metrics.
 - **ADR-0004** — Compiler Service Architecture.
 - **CLOACI-I-0097** — The initiative that built this.
 - **CLOACI-S-0010** — Full spec: schema, state machine, claim protocol, heartbeat, sweeper semantics.

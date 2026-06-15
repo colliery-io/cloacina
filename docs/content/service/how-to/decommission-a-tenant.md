@@ -123,8 +123,8 @@ If the HTTP response is a 4xx/5xx error rather than a success body, one or more 
 ## See also
 
 - [Multi-tenancy]({{< ref "/service/explanation/multi-tenancy" >}}) — conceptual model for why the orchestration is structured this way.
-- [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}#delete-v1tenantsschema_name) — full route shape and response body fields.
+- [HTTP API Reference]({{< ref "/reference/http-api" >}}#delete-v1tenantsschema_name) — full route shape and response body fields.
 - [Configure multi-tenant deployment]({{< ref "configure-multi-tenant-deployment" >}}) — provisioning side (the inverse of this recipe).
-- [DatabaseAdmin API Reference]({{< ref "/platform/reference/database-admin" >}}) — what step 4 calls under the hood.
+- [DatabaseAdmin API Reference]({{< ref "/reference/database-admin" >}}) — what step 4 calls under the hood.
 - **CLOACI-I-0106** — multi-tenant abstraction initiative.
 - **CLOACI-T-0581** — 4-step teardown orchestration.

@@ -25,7 +25,7 @@ A packaged computation graph compiles into a shared library that the host loads 
   `cloacina::Runtime::seed_from_inventory()` walks these at startup.
   In packaged mode the entries live inside the cdylib's own inventory
   section and are read across the FFI boundary by the
-  [`cloacina::package!()`]({{< ref "/platform/reference/package-shell-macro" >}}) shell.
+  [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}}) shell.
 
 The `#[computation_graph]` macro expands into code that references types from this crate. Packaged graph authors depend on `cloacina-computation-graph`. Embedded-mode users get the same types re-exported from `cloacina` directly — there is no difference in API.
 
@@ -45,7 +45,7 @@ Cloacina uses [fidius](https://github.com/colliery-software/fidius) as its plugi
 | 7 | `METHOD_GET_TRIGGERLESS_GRAPH_METADATA` | Returns trigger-less computation graphs declared by the package |
 | 8 | `METHOD_INVOKE_TRIGGERLESS_GRAPH` | Invokes a named trigger-less computation graph |
 
-Methods 4–8 are marked `#[optional(since = 2)]` on the trait — older plugins that pre-date these methods return `CallError::NotImplemented`, which the host treats as "package declares no reactors / triggers / trigger-less graphs." See the [FFI vtable reference]({{< ref "/platform/reference/ffi-vtable" >}}) for the full surface.
+Methods 4–8 are marked `#[optional(since = 2)]` on the trait — older plugins that pre-date these methods return `CallError::NotImplemented`, which the host treats as "package declares no reactors / triggers / trigger-less graphs." See the [FFI vtable reference]({{< ref "/reference/ffi-vtable" >}}) for the full surface.
 
 `GraphPackageMetadata` is the FFI handshake. It tells the host everything needed to wire up the graph without the host knowing anything about the graph's internal types:
 

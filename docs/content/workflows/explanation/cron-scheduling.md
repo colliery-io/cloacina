@@ -325,7 +325,7 @@ When a scheduler starts after downtime and finds firings whose `next_execution_a
 
 The cron recovery service (`crates/cloacina/src/cron_recovery.rs`) inspects `last_executed_at` against the cron expression and applies the policy on each recovery tick (cadence: `cron_recovery_interval`, default 5min). Set the policy at schedule-registration time via the DAL — the field is not currently exposed on `register_cron_workflow` and is set during direct row insert.
 
-See [Configuration Reference]({{< ref "/platform/reference/configuration" >}}) for the related knobs:
+See [Configuration Reference]({{< ref "/reference/configuration" >}}) for the related knobs:
 `cron_max_catchup_executions` (default unbounded), `cron_recovery_interval` (default 5min), `cron_max_recovery_age` (default 24h), `cron_max_recovery_attempts` (default 3).
 
 
@@ -503,7 +503,7 @@ Operationally relevant metrics for cron:
 - **`cloacina_scheduler_claim_attempts_total{outcome=claimed|contended|empty}`** — diagnostic for multi-scheduler deployments. Sustained `contended` ≫ 0 means multiple schedulers are racing for the same rows (expected at low scale; tune `cron_poll_interval` down if it becomes load).
 - **`cloacina_scheduler_stale_claims_swept_total`** — non-zero rate indicates a scheduler crashed mid-firing and the sweep reclaimed its row. Investigate scheduler logs for the affected window.
 
-For the full namespace + PromQL recipes, see [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}). For the rationale behind the SQL-derived gauge model (why `cloacina_active_workflows` is leak-proof across crashes), see [Observability]({{< ref "/service/explanation/observability" >}}).
+For the full namespace + PromQL recipes, see [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}). For the rationale behind the SQL-derived gauge model (why `cloacina_active_workflows` is leak-proof across crashes), see [Observability]({{< ref "/service/explanation/observability" >}}).
 
 
 ## Best Practices

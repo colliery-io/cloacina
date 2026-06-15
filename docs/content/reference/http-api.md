@@ -58,7 +58,7 @@ delivery endpoint addressed at `exec_events:<execution_id>`, and tails events
 live until interrupted. For a historical snapshot, poll
 `GET /v1/tenants/{tenant_id}/executions/{exec_id}/events?since=…`; `--since` and
 `--follow` cannot be combined yet (cursor support is future work). See the
-[WebSocket Protocol]({{< ref "/platform/reference/websocket-protocol" >}}) for the
+[WebSocket Protocol]({{< ref "/reference/websocket-protocol" >}}) for the
 envelope and ticket flow.
 
 ## Authentication

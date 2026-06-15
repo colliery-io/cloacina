@@ -101,7 +101,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 
 ## WebSocket auth failures
 
-WebSocket upgrades (`/v1/ws/accumulator/{name}`, `/v1/ws/reactor/{name}`) reject with the same `ApiError` envelope **before** the upgrade completes; the response is an ordinary HTTP `401`/`403` with the JSON body above. Post-upgrade frame-level errors are emitted as JSON messages inside the WebSocket stream — see [WebSocket Protocol]({{< ref "/platform/reference/websocket-protocol" >}}) for that shape.
+WebSocket upgrades (`/v1/ws/accumulator/{name}`, `/v1/ws/reactor/{name}`) reject with the same `ApiError` envelope **before** the upgrade completes; the response is an ordinary HTTP `401`/`403` with the JSON body above. Post-upgrade frame-level errors are emitted as JSON messages inside the WebSocket stream — see [WebSocket Protocol]({{< ref "/reference/websocket-protocol" >}}) for that shape.
 
 The `reason` field in the message text on `403`s aligns with the labels on `cloacina_ws_auth_failures_total` so operator dashboards and audit logs use the same vocabulary:
 
@@ -112,7 +112,7 @@ The `reason` field in the message text on `403`s aligns with the labels on `cloa
 
 ## See also
 
-- [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — endpoint surface; every error response shown there is rendered in this envelope.
-- [WebSocket Protocol]({{< ref "/platform/reference/websocket-protocol" >}}) — frame format and post-upgrade error shape.
-- [CLI Reference]({{< ref "/platform/reference/cli" >}}) — CLI exit codes derived from these HTTP statuses (1 for user error, 2 for transport, 3 for not-found, 4 for auth, 5 for other server reject).
-- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — `cloacina_api_requests_total{status=…}` for tracking the rate of each HTTP status.
+- [HTTP API Reference]({{< ref "/reference/http-api" >}}) — endpoint surface; every error response shown there is rendered in this envelope.
+- [WebSocket Protocol]({{< ref "/reference/websocket-protocol" >}}) — frame format and post-upgrade error shape.
+- [CLI Reference]({{< ref "/reference/cli" >}}) — CLI exit codes derived from these HTTP statuses (1 for user error, 2 for transport, 3 for not-found, 4 for auth, 5 for other server reject).
+- [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) — `cloacina_api_requests_total{status=…}` for tracking the rate of each HTTP status.

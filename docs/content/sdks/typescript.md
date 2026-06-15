@@ -74,6 +74,6 @@ const { data } = await client.api.GET("/v1/health/graphs");
 
 ## Reference
 
-- Wire contract: [OpenAPI document](/openapi.json), [WebSocket protocol](/platform/reference/websocket-protocol/)
+- Wire contract: [OpenAPI document](/openapi.json), [WebSocket protocol](/reference/websocket-protocol/)
 - Generated types ship in the package under `generated/types.ts` (`paths`, `components` exports)
 - Regeneration (pinned): see `clients/typescript/README.md` in the repository

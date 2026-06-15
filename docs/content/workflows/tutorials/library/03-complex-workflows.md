@@ -740,7 +740,7 @@ Congratulations! You've created a parallel processing workflow. In the next tuto
 
 ## Related Resources
 
-- [API Documentation]({{< ref "/platform/reference/" >}})
-- [Task Reference]({{< ref "/platform/reference/" >}})
-- [Context Reference]({{< ref "/platform/reference/" >}})
-- [Workflow Reference]({{< ref "/platform/reference/" >}})
+- [API Documentation]({{< ref "/reference/" >}})
+- [Task Reference]({{< ref "/reference/" >}})
+- [Context Reference]({{< ref "/reference/" >}})
+- [Workflow Reference]({{< ref "/reference/" >}})

@@ -195,12 +195,12 @@ language-neutral.
   rejected at load time, preventing silent ABI drift.
 - Adding a method requires bumping the version, marking the new
   method `#[optional(since = N)]`, and adding the canonical method-index
-  constant in the same edit. The unified [`cloacina::package!()`]({{< ref "/platform/reference/package-shell-macro" >}})
+  constant in the same edit. The unified [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}})
   shell macro emits the new method automatically.
 - Deleting or reordering a method is a hard breaking change. Don't.
 
 ## Related
 
-- [`package!()` macro reference]({{< ref "/platform/reference/package-shell-macro" >}}) — what emits this vtable.
+- [`package!()` macro reference]({{< ref "/reference/package-shell-macro" >}}) — what emits this vtable.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — how the host consumes the vtable across the six load steps.
 - [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}) — why these methods exist.

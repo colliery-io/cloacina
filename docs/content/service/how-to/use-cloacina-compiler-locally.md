@@ -186,7 +186,7 @@ specific reconciler step (cron triggers / custom triggers / reactors
 ## Related
 
 - [Migrating to Service Mode]({{< ref "/workflows/how-to-guides/migrating-to-service-mode" >}}) — full Cargo.toml + build.rs setup for packaged workflows.
-- [`package!()` Macro Reference]({{< ref "/platform/reference/package-shell-macro" >}}) — what the cdylib actually exports.
+- [`package!()` Macro Reference]({{< ref "/reference/package-shell-macro" >}}) — what the cdylib actually exports.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — what happens when a package is loaded.
-- [CLI Reference]({{< ref "/platform/reference/cli" >}}) — full `cloacinactl package` flag list.
+- [CLI Reference]({{< ref "/reference/cli" >}}) — full `cloacinactl package` flag list.
 - [Compiler Deployment Runbook]({{< ref "/service/how-to/compiler-deployment-runbook" >}}) — running `cloacina-compiler` as a service.

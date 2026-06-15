@@ -55,7 +55,7 @@ The macro emits, gated on `#[cfg(feature = "packaged")]`:
   the plugin at load time.
 
 The host (`cloacina::registry::reconciler`) calls each method by
-**positional index** (see the [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}})). The
+**positional index** (see the [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}})). The
 macro never inserts new abstraction layers between the host and the
 inventory entries — it is pure projection across the FFI boundary.
 
@@ -96,7 +96,7 @@ builds.
 
 ## Related
 
-- [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}}) — full method-by-method spec.
+- [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}) — full method-by-method spec.
 - [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}) — why the cdylib boundary matters.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — how the host consumes what `package!()` emits.
 - [Migrating to Service Mode]({{< ref "/workflows/how-to-guides/migrating-to-service-mode" >}}) — full Cargo.toml setup.

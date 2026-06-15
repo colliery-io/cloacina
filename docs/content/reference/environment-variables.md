@@ -181,7 +181,7 @@ When `OTEL_EXPORTER_OTLP_ENDPOINT` is **not** set, no OpenTelemetry overhead is 
 
 ### Prometheus Metrics
 
-The server (and `cloacina-compiler`, per CLOACI-I-0109) expose a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the binary is running. The full catalog — every metric name, type, labels, meaning, and example PromQL — lives in [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}).
+The server (and `cloacina-compiler`, per CLOACI-I-0109) expose a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the binary is running. The full catalog — every metric name, type, labels, meaning, and example PromQL — lives in [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}).
 
 The top-of-mind metrics for operators:
 

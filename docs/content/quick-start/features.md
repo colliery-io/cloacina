@@ -118,7 +118,7 @@ first if those terms are new.
 - **Observability** — Prometheus `/metrics`, structured logs, and optional
   OpenTelemetry export. See
   [Observability]({{< ref "/service/explanation/observability" >}}) and the
-  [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}).
+  [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}).
 - **Package signing** — optional signature verification, enforced when the server
   runs with signatures required; signing private keys are encrypted at rest
   (AES-256-GCM). See
@@ -133,7 +133,7 @@ first if those terms are new.
 
 - **`cloacinactl`** — the operator + developer CLI (daemon, server/compiler
   lifecycle, package, workflow, execution, tenant, key, trigger, graph). See the
-  [CLI Reference]({{< ref "/platform/reference/cli" >}}).
+  [CLI Reference]({{< ref "/reference/cli" >}}).
 - **HTTP + WebSocket API** — see the
-  [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) and
-  [WebSocket Protocol]({{< ref "/platform/reference/websocket-protocol" >}}).
+  [HTTP API Reference]({{< ref "/reference/http-api" >}}) and
+  [WebSocket Protocol]({{< ref "/reference/websocket-protocol" >}}).

@@ -88,5 +88,5 @@ Reconnection, dedup-on-row-id, and acks are handled inside the stream; a `4426` 
 ## Reference
 
 - API docs: `cargo doc -p cloacina-client` / [docs.rs](https://docs.rs/cloacina-client)
-- Wire contract: [OpenAPI document](/openapi.json), [WebSocket protocol](/platform/reference/websocket-protocol/)
-- Error/exit semantics shared with the CLI: [API error envelope](/platform/reference/api-error-envelope/)
+- Wire contract: [OpenAPI document](/openapi.json), [WebSocket protocol](/reference/websocket-protocol/)
+- Error/exit semantics shared with the CLI: [API error envelope](/reference/api-error-envelope/)

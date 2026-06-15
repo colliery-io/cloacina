@@ -67,6 +67,6 @@ Reconnection, dedup-on-row-id, and acks are handled inside the iterator; a `4426
 
 ## Reference
 
-- Wire contract: [OpenAPI document](/openapi.json), [WebSocket protocol](/platform/reference/websocket-protocol/)
+- Wire contract: [OpenAPI document](/openapi.json), [WebSocket protocol](/reference/websocket-protocol/)
 - Generated models live under `cloacina_client.models`
 - Regeneration (pinned): see `clients/python/README.md` in the repository

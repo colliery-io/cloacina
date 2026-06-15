@@ -24,7 +24,7 @@ Per ADR-0003 §3, server-targeting flags resolve in this order (highest preceden
 3. The default profile from `default_profile`.
 4. Error: "no server/key configured."
 
-API keys in profiles accept several schemes (see [API Key Schemes]({{< ref "/platform/reference/cli" >}}#api-key-schemes)):
+API keys in profiles accept several schemes (see [API Key Schemes]({{< ref "/reference/cli" >}}#api-key-schemes)):
 
 | Scheme | Example | Behavior |
 |---|---|---|
@@ -173,14 +173,14 @@ If you find yourself always passing `--tenant <x>` for a specific server, create
 
 ## What this how-to does NOT cover
 
-- **The actual `~/.cloacina/config.toml` schema beyond profiles.** See [CLI Reference: Configuration File]({{< ref "/platform/reference/cli" >}}#configuration-file) for the full schema (daemon settings, watch directories, etc.).
-- **Server-side key creation.** See `cloacinactl key create` documented in [CLI Reference]({{< ref "/platform/reference/cli" >}}#key) for minting the keys you'll then reference from profiles.
+- **The actual `~/.cloacina/config.toml` schema beyond profiles.** See [CLI Reference: Configuration File]({{< ref "/reference/cli" >}}#configuration-file) for the full schema (daemon settings, watch directories, etc.).
+- **Server-side key creation.** See `cloacinactl key create` documented in [CLI Reference]({{< ref "/reference/cli" >}}#key) for minting the keys you'll then reference from profiles.
 - **The `keyring:` scheme** (reserved for v1.1; currently rejected with a clear error message at parse time).
 
 ## See also
 
-- [CLI Reference: Profile Resolution]({{< ref "/platform/reference/cli" >}}#profile-resolution) — full precedence rules and the formal config schema.
-- [CLI Reference: API Key Schemes]({{< ref "/platform/reference/cli" >}}#api-key-schemes) — the four schemes in detail.
+- [CLI Reference: Profile Resolution]({{< ref "/reference/cli" >}}#profile-resolution) — full precedence rules and the formal config schema.
+- [CLI Reference: API Key Schemes]({{< ref "/reference/cli" >}}#api-key-schemes) — the four schemes in detail.
 - [Configure multi-tenant deployment]({{< ref "configure-multi-tenant-deployment" >}}) — uses profiles end-to-end with tenant-scoped keys.
 - **ADR-0003 §3** — the precedence ordering this page describes.
 - **CLOACI-I-0098** — `cloacinactl` redesign initiative (defined the profile model).

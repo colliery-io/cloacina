@@ -237,7 +237,7 @@ The response includes the reactor's live state:
 }
 ```
 
-The `/v1/health/graphs/{name}` endpoint reports the reactor's overall state — it does not currently surface per-firing counters. To verify the event reached the reactor and the graph fired, scrape `/metrics` and inspect `cloacina_reactor_fires_total{graph="price_signal"}` (the counter increments on every successful firing); if it stays at zero, the event did not reach the reactor — check the server logs for deserialization errors. See [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) for the full reactor metric set.
+The `/v1/health/graphs/{name}` endpoint reports the reactor's overall state — it does not currently surface per-firing counters. To verify the event reached the reactor and the graph fired, scrape `/metrics` and inspect `cloacina_reactor_fires_total{graph="price_signal"}` (the counter increments on every successful firing); if it stays at zero, the event did not reach the reactor — check the server logs for deserialization errors. See [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) for the full reactor metric set.
 
 {{< hint type=warning title="Type mismatch errors" >}}
 The accumulator deserializes the payload into the boundary type declared in your graph (`OrderBook` in Tutorial 07). If the JSON keys don't match the struct fields exactly, deserialization fails silently and the reactor does not fire. Double-check field names: `best_bid` and `best_ask`.

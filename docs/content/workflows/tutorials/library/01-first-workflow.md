@@ -273,9 +273,9 @@ Congratulations! You've created and executed your first Cloacina workflow. In th
 
 ## Related Resources
 
-- [API Documentation]({{< ref "/platform/reference/" >}})
-- [Task Reference]({{< ref "/platform/reference/" >}})
-- [Context Reference]({{< ref "/platform/reference/" >}})
+- [API Documentation]({{< ref "/reference/" >}})
+- [Task Reference]({{< ref "/reference/" >}})
+- [Context Reference]({{< ref "/reference/" >}})
 
 ## Download the Example
 

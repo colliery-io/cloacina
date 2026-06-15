@@ -138,7 +138,7 @@ cloacinactl --server https://cloacina.example.com \
 ```
 
 Profile resolution precedence: explicit `--server` / `--api-key`
-flags > named profile > `default_profile`. See [CLI Reference]({{< ref "/platform/reference/cli" >}}#profile-resolution).
+flags > named profile > `default_profile`. See [CLI Reference]({{< ref "/reference/cli" >}}#profile-resolution).
 
 ## Step 5: Per-Tenant Package Deployments
 
@@ -162,7 +162,7 @@ isolated.
 
 Build your deployment around these. The full enumeration with
 implementation details lives in [HTTP API Reference → Operational
-Caveats]({{< ref "/platform/reference/http-api" >}}#operational-caveats);
+Caveats]({{< ref "/reference/http-api" >}}#operational-caveats);
 the deployment-relevant summary follows.
 
 ### 1. Per-tenant execution is now the default (post-I-0106)
@@ -292,6 +292,6 @@ cloacinactl --profile admin --tenant globex workflow list
 ## Related
 
 - [Multi-Tenancy Architecture]({{< ref "/service/explanation/multi-tenancy" >}}) — schema isolation design.
-- [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — the tenant + key endpoints, full operational caveats list.
+- [HTTP API Reference]({{< ref "/reference/http-api" >}}) — the tenant + key endpoints, full operational caveats list.
 - [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — TLS termination, reverse proxy.
 - [Multi-Tenant Setup]({{< ref "/workflows/how-to-guides/multi-tenant-setup" >}}) — embedded-mode multi-tenancy via `DefaultRunner::with_schema`.

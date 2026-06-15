@@ -267,7 +267,7 @@ A graph enters the "crashed" state when its tokio task exits. This happens if th
 
 ## Metric-driven monitoring
 
-For long-running monitoring, prefer scraping `/metrics` instead of polling health endpoints. Relevant counters and gauges (full catalog in [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}})):
+For long-running monitoring, prefer scraping `/metrics` instead of polling health endpoints. Relevant counters and gauges (full catalog in [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}})):
 
 | Metric | Type | Labels | Use |
 |---|---|---|---|
@@ -321,6 +321,6 @@ The reactor recovers automatically when the accumulator reconnects and returns t
 
 - [Monitoring Executions]({{< ref "/workflows/how-to-guides/monitoring-executions" >}})
 - [Choosing and using accumulator types]({{< ref "accumulator-types" >}})
-- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}})
+- [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}})
 - [Observability]({{< ref "/service/explanation/observability" >}})
 - [Deploying the API Server]({{< ref "/service/how-to/deploying-the-api-server" >}})

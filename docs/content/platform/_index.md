@@ -21,13 +21,13 @@ and a Postgres database for multi-tenant/production deployments.
 - [The Web UI]({{< ref "/service/tutorials/02-the-web-ui" >}}) — operate and observe a running server
 
 ### Reference
-- [CLI Reference]({{< ref "/platform/reference/cli" >}}) — `cloacinactl` commands and flags
-- [HTTP API]({{< ref "/platform/reference/http-api" >}}) — REST endpoints for the server
-- [WebSocket Protocol]({{< ref "/platform/reference/websocket-protocol" >}}) — Real-time event streaming
-- [Database Admin API]({{< ref "/platform/reference/database-admin" >}}) — Tenant provisioning
-- [Configuration]({{< ref "/platform/reference/configuration" >}}) — All config options
-- [Environment Variables]({{< ref "/platform/reference/environment-variables" >}}) — Runtime settings
-- [Repository Structure]({{< ref "/platform/reference/repository-structure" >}}) — Codebase layout
+- [CLI Reference]({{< ref "/reference/cli" >}}) — `cloacinactl` commands and flags
+- [HTTP API]({{< ref "/reference/http-api" >}}) — REST endpoints for the server
+- [WebSocket Protocol]({{< ref "/reference/websocket-protocol" >}}) — Real-time event streaming
+- [Database Admin API]({{< ref "/reference/database-admin" >}}) — Tenant provisioning
+- [Configuration]({{< ref "/reference/configuration" >}}) — All config options
+- [Environment Variables]({{< ref "/reference/environment-variables" >}}) — Runtime settings
+- [Repository Structure]({{< ref "/reference/repository-structure" >}}) — Codebase layout
 
 ### Explanation
 - [Database Backends]({{< ref "/service/explanation/database-backends" >}}) — PostgreSQL vs SQLite trade-offs

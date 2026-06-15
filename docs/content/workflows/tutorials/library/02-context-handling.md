@@ -407,10 +407,10 @@ Congratulations! You've created a multi-task workflow with dependencies and data
 
 ## Related Resources
 
-- [API Documentation]({{< ref "/platform/reference/" >}})
-- [Task Reference]({{< ref "/platform/reference/" >}})
-- [Context Reference]({{< ref "/platform/reference/" >}})
-- [Workflow Reference]({{< ref "/platform/reference/" >}})
+- [API Documentation]({{< ref "/reference/" >}})
+- [Task Reference]({{< ref "/reference/" >}})
+- [Context Reference]({{< ref "/reference/" >}})
+- [Workflow Reference]({{< ref "/reference/" >}})
 
 ## Download the Example
 

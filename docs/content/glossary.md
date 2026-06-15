@@ -16,7 +16,7 @@ A long-lived component that connects to an external data source, receives events
 
 ### ApiError
 
-The standardized error response envelope returned by every `/v1/...` HTTP route. Per CLOACI-I-0107, all error responses share the shape `{"error": "human-readable message", "code": "MACHINE_CODE"}` regardless of HTTP status; the `code` is stable and tied to the failure class (`AUTH_INVALID_TOKEN`, `TENANT_NOT_FOUND`, `SIGNATURE_REQUIRED`, etc.) so clients can branch on it without parsing the message. See [API Error Envelope]({{< ref "/platform/reference/api-error-envelope" >}}).
+The standardized error response envelope returned by every `/v1/...` HTTP route. Per CLOACI-I-0107, all error responses share the shape `{"error": "human-readable message", "code": "MACHINE_CODE"}` regardless of HTTP status; the `code` is stable and tied to the failure class (`AUTH_INVALID_TOKEN`, `TENANT_NOT_FOUND`, `SIGNATURE_REQUIRED`, etc.) so clients can branch on it without parsing the message. See [API Error Envelope]({{< ref "/reference/api-error-envelope" >}}).
 
 ### Backoff Strategy
 
@@ -40,7 +40,7 @@ The core Rust workflow orchestration and computation graph engine. Cloacina prov
 
 ### `cloacinactl`
 
-The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Install with `curl -fsSL https://get.cloacina.dev/install.sh | bash`. See [CLI Reference]({{< ref "/platform/reference/cli" >}}) and [Installing cloacinactl]({{< ref "/quick-start/install" >}}).
+The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Install with `curl -fsSL https://get.cloacina.dev/install.sh | bash`. See [CLI Reference]({{< ref "/reference/cli" >}}) and [Installing cloacinactl]({{< ref "/quick-start/install" >}}).
 
 ### `cloacina-compiler`
 
@@ -88,7 +88,7 @@ The primary implementation of the WorkflowExecutor trait. DefaultRunner manages 
 
 ### DefaultRunnerConfig
 
-The configuration struct for DefaultRunner, using a builder pattern for construction. It specifies the database URL, concurrency limits, heartbeat intervals, stale claim thresholds, and other operational parameters. See [Configuration Reference]({{< ref "/platform/reference/configuration" >}}).
+The configuration struct for DefaultRunner, using a builder pattern for construction. It specifies the database URL, concurrency limits, heartbeat intervals, stale claim thresholds, and other operational parameters. See [Configuration Reference]({{< ref "/reference/configuration" >}}).
 
 ### Detector
 
@@ -148,7 +148,7 @@ A persistent record of execution events used by the continuous scheduling system
 
 ### Method-Index Vtable
 
-The positional dispatch table that the host uses to call into a packaged cdylib over the FFI boundary. The `CloacinaPlugin` trait declares nine methods (indices 0–8); `cloacina-workflow-plugin` exports canonical constants (`METHOD_GET_TASK_METADATA = 0` through `METHOD_INVOKE_TRIGGERLESS_GRAPH = 8`) so call sites and trait declarations cannot drift. Methods 4–8 are marked `#[optional(since = 2)]`, so plugins built against trait v1 return `CallError::NotImplemented` for those slots — the host treats that as "package declares no reactors / triggers / trigger-less graphs." See [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}}).
+The positional dispatch table that the host uses to call into a packaged cdylib over the FFI boundary. The `CloacinaPlugin` trait declares nine methods (indices 0–8); `cloacina-workflow-plugin` exports canonical constants (`METHOD_GET_TASK_METADATA = 0` through `METHOD_INVOKE_TRIGGERLESS_GRAPH = 8`) so call sites and trait declarations cannot drift. Methods 4–8 are marked `#[optional(since = 2)]`, so plugins built against trait v1 return `CallError::NotImplemented` for those slots — the host treats that as "package declares no reactors / triggers / trigger-less graphs." See [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}).
 
 ### Multi-tenancy
 
@@ -168,7 +168,7 @@ A distributable workflow artifact containing compiled code (as a platform-specif
 
 ### `package!()` Macro
 
-The unified plugin shell macro `cloacina::package!()` that goes at the crate root of a packaged cdylib (gated on `feature = "packaged"`). It emits the full `CloacinaPlugin` trait implementation — all nine FFI methods (indices 0–8) — by walking the cdylib's local `inventory::iter::<TaskEntry>`, `<TriggerEntry>`, `<ReactorEntry>`, `<ComputationGraphEntry>`, and `<TriggerlessGraphEntry>` sections at FFI call time. Replaces the per-macro `_ffi` emission path that pre-I-0102 packages used. A duplicate-invocation guard prevents accidentally calling `package!()` twice in the same crate. See [Package Shell Macro Reference]({{< ref "/platform/reference/package-shell-macro" >}}).
+The unified plugin shell macro `cloacina::package!()` that goes at the crate root of a packaged cdylib (gated on `feature = "packaged"`). It emits the full `CloacinaPlugin` trait implementation — all nine FFI methods (indices 0–8) — by walking the cdylib's local `inventory::iter::<TaskEntry>`, `<TriggerEntry>`, `<ReactorEntry>`, `<ComputationGraphEntry>`, and `<TriggerlessGraphEntry>` sections at FFI call time. Replaces the per-macro `_ffi` emission path that pre-I-0102 packages used. A duplicate-invocation guard prevents accidentally calling `package!()` twice in the same crate. See [Package Shell Macro Reference]({{< ref "/reference/package-shell-macro" >}}).
 
 ### Reactor
 

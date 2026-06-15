@@ -6,11 +6,11 @@ weight: 10
 
 # Python Environment Variables
 
-This page documents environment variables that affect Python workflows. The Python runtime inherits the full [Rust environment variable surface]({{< ref "/platform/reference/environment-variables" >}}).
+This page documents environment variables that affect Python workflows. The Python runtime inherits the full [Rust environment variable surface]({{< ref "/reference/environment-variables" >}}).
 
 ## Inherited from Rust
 
-The Python runner (`cloaca.DefaultRunner`) reads the same environment variables as the Rust `DefaultRunner` — DSN, log level, registry-variable namespace, multi-tenant search path. See the [Rust environment variables reference]({{< ref "/platform/reference/environment-variables" >}}) for the full inventory.
+The Python runner (`cloaca.DefaultRunner`) reads the same environment variables as the Rust `DefaultRunner` — DSN, log level, registry-variable namespace, multi-tenant search path. See the [Rust environment variables reference]({{< ref "/reference/environment-variables" >}}) for the full inventory.
 
 ## No separate `CLOACA_*` prefix
 
@@ -39,5 +39,5 @@ See the [Variable Registry how-to]({{< ref "/workflows/how-to-guides/variable-re
 
 ## See also
 
-- [Rust · Environment Variables]({{< ref "/platform/reference/environment-variables" >}}).
+- [Rust · Environment Variables]({{< ref "/reference/environment-variables" >}}).
 - [Python · API Reference · Configuration]({{< ref "/python/api-reference/configuration" >}}).

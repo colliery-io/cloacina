@@ -62,7 +62,7 @@ Cloacina provides several tools and resources to help you get started and mainta
      - Explanatory documentation
      - Tutorials for new users
    - **Adding a Prometheus metric?** Also update the
-     [Metrics Catalog]({{< relref "/platform/reference/metrics-catalog" >}})
+     [Metrics Catalog]({{< relref "/reference/metrics-catalog" >}})
      — add a row describing the metric, its labels, and one example PromQL
      query. The `angreal test metrics-format` CI job validates exposition
      format but does not validate the docs are up to date.

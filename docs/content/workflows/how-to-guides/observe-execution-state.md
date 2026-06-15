@@ -93,7 +93,7 @@ scrape_configs:
 ```
 
 > **`/metrics` is unauthenticated.** Reverse-proxy it if you need
-> access control. See [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}#operational-caveats).
+> access control. See [HTTP API Reference]({{< ref "/reference/http-api" >}}#operational-caveats).
 
 ## Surface 2: Structured Logs
 
@@ -248,7 +248,7 @@ After wiring observability:
 
 ## Related
 
-- [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) — full endpoint surface, including `/metrics` semantics and the operational-caveats section.
+- [HTTP API Reference]({{< ref "/reference/http-api" >}}) — full endpoint surface, including `/metrics` semantics and the operational-caveats section.
 - [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — TLS termination + reverse proxy; how to gate `/metrics` if needed.
-- [Daemon Status & Health]({{< ref "/platform/reference/cli" >}}#daemon-status) — full `daemon status` output reference.
-- [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}}) — every `cloacina_*` metric with labels, descriptions, and PromQL recipes.
+- [Daemon Status & Health]({{< ref "/reference/cli" >}}#daemon-status) — full `daemon status` output reference.
+- [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) — every `cloacina_*` metric with labels, descriptions, and PromQL recipes.

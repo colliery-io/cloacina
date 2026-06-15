@@ -117,11 +117,11 @@ Per-runner knobs that govern subscription dispatch:
 | `reactor_firings_prune_interval` | `1h` | How often the durable event log is pruned. |
 | `reactor_firings_retention` | `7days` | Retention window for `reactor_firings` rows. Past this, dispatched firings are GC'd. Increase for longer audit windows. |
 
-These are set on the per-tenant `DefaultRunner` config. See [Configuration Reference]({{< ref "/platform/reference/configuration" >}}) for the full knob set.
+These are set on the per-tenant `DefaultRunner` config. See [Configuration Reference]({{< ref "/reference/configuration" >}}) for the full knob set.
 
 ## Metrics
 
-Two counters track subscription throughput (full catalog in [Metrics Catalog]({{< ref "/platform/reference/metrics-catalog" >}})):
+Two counters track subscription throughput (full catalog in [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}})):
 
 - `cloacina_reactor_firings_total{graph, reactor}` — per-reactor firings recorded in the durable log.
 - `cloacina_reactor_firings_pruned_total` — firings GC'd by the prune loop.

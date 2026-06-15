@@ -104,18 +104,18 @@ Highlights:
 
 For lookup-style information rather than learning paths:
 
-- [CLI Reference]({{< ref "/platform/reference/cli" >}}) — every
+- [CLI Reference]({{< ref "/reference/cli" >}}) — every
   `cloacinactl` command, flag, env var, exit code, config-file
   schema.
-- [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}) —
+- [HTTP API Reference]({{< ref "/reference/http-api" >}}) —
   every endpoint, auth model, operational caveats.
 - [Glossary]({{< ref "/glossary" >}}) — every term used in these
   docs, in one place.
 
 Advanced (only if you implement package loading by hand):
 
-- [`package!()` Macro Reference]({{< ref "/platform/reference/package-shell-macro" >}}) — the macro that wraps a Rust package for loading.
-- [FFI Vtable Reference]({{< ref "/platform/reference/ffi-vtable" >}}) — the low-level plugin ABI.
+- [`package!()` Macro Reference]({{< ref "/reference/package-shell-macro" >}}) — the macro that wraps a Rust package for loading.
+- [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}) — the low-level plugin ABI.
 
 ## Need help?
 

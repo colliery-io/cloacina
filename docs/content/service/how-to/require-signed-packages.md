@@ -104,7 +104,7 @@ cloacinactl --profile prod package upload wrong-key-workflow.cloacina
 # expect: HTTP 403 with code "invalid_signature"
 ```
 
-The full error-code catalog for signature failures is in [API Error Envelope]({{< ref "/platform/reference/api-error-envelope" >}}#403-forbidden).
+The full error-code catalog for signature failures is in [API Error Envelope]({{< ref "/reference/api-error-envelope" >}}#403-forbidden).
 
 ### 6. Check the audit log
 
@@ -150,7 +150,7 @@ cloacinactl server start ...
 - [Security Model]({{< ref "/service/explanation/security-model" >}}#package-signature-verification) — rationale and threat model.
 - [Package signing]({{< ref "security/package-signing" >}}) — library-side API for generating signatures.
 - [Security: local development]({{< ref "security/local-development" >}}) — iterating on a signing pipeline locally.
-- [API Error Envelope]({{< ref "/platform/reference/api-error-envelope" >}}#403-forbidden) — full enumeration of signature-related error codes.
-- [HTTP API Reference]({{< ref "/platform/reference/http-api" >}}#post-v1tenantstenant_idworkflows) — the upload route.
+- [API Error Envelope]({{< ref "/reference/api-error-envelope" >}}#403-forbidden) — full enumeration of signature-related error codes.
+- [HTTP API Reference]({{< ref "/reference/http-api" >}}#post-v1tenantstenant_idworkflows) — the upload route.
 - **CLOACI-I-0103** — Wire signature verification on the server upload + load path (opt-in).
 - **CLOACI-T-0567** — `--verification-org-id` fail-fast wiring.

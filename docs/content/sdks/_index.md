@@ -23,5 +23,5 @@ Run cloacina-server as a managed orchestration service and call into it from you
 - **Auth** is an API key sent as `Authorization: Bearer <key>`; tenant scope rides the key and the URL path. WebSocket connections never carry the long-lived key — every SDK mints a single-use, 60-second ticket (`POST /v1/auth/ws-ticket`) per connection.
 - **Errors** follow one envelope: `{"error": "<human message>", "code": "<machine code>"}`. Each SDK surfaces both fields on its typed error.
 - **Lists** are paged `{items, total}` envelopes; each SDK ships a pagination iterator.
-- **Live events** stream over the [substrate delivery WebSocket](/platform/reference/websocket-protocol/) with at-least-once semantics — every SDK's wrapper handles dedup, acks, and reconnection for you.
+- **Live events** stream over the [substrate delivery WebSocket](/reference/websocket-protocol/) with at-least-once semantics — every SDK's wrapper handles dedup, acks, and reconnection for you.
 - **The contract is enforced**, not aspirational: every endpoint and WS lifecycle is exercised against a live server in CI (`angreal test sdk-contract`), and generated code is diffed against the committed spec on every PR.
