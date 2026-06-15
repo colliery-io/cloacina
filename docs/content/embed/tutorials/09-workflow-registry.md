@@ -1,7 +1,7 @@
 ---
-title: "08 - Working with the Workflow Registry"
+title: "09 — Working with the Workflow Registry"
 description: "Set up and use the workflow registry for dynamic workflow execution with cron scheduling"
-weight: 18
+weight: 19
 reviewer: "dstorey"
 review_date: "2025-01-17"
 ---

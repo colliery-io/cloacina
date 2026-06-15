@@ -32,7 +32,7 @@ A database-level lock mechanism that prevents multiple runners from executing th
 
 ### Cloaca
 
-The Python bindings package for Cloacina. Cloaca exposes Cloacina's workflow orchestration, computation graphs, and runner management to Python applications via PyO3. See [Python Bindings]({{< ref "/python/" >}}).
+The Python bindings package for Cloacina. Cloaca exposes Cloacina's workflow orchestration, computation graphs, and runner management to Python applications via PyO3. See [Python Bindings]({{< ref "/reference/python-api" >}}).
 
 ### Cloacina
 

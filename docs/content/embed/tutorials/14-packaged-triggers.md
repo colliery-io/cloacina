@@ -1,12 +1,12 @@
 ---
-title: "08 - Packaged Triggers"
+title: "14 — Packaged Triggers"
 description: "Define event-driven triggers in packaged Python workflows for deployment to the Cloacina daemon"
-weight: 18
+weight: 24
 ---
 
 # Packaged Triggers
 
-In this tutorial, you'll learn how to define event-driven triggers alongside your Python workflows so they can be packaged and deployed to the Cloacina daemon. While [Tutorial 7]({{< ref "/python/workflows/tutorials/07-event-triggers" >}}) introduced triggers running directly in your Python process, this tutorial focuses on the packaging story — how triggers and workflows are declared, bundled, and auto-registered when loaded by the reconciler (the daemon component that discovers, validates, and registers packages).
+In this tutorial, you'll learn how to define event-driven triggers alongside your Python workflows so they can be packaged and deployed to the Cloacina daemon. While [Tutorial 7]({{< ref "/embed/tutorials/07-event-triggers" >}}) introduced triggers running directly in your Python process, this tutorial focuses on the packaging story — how triggers and workflows are declared, bundled, and auto-registered when loaded by the reconciler (the daemon component that discovers, validates, and registers packages).
 
 ## Learning Objectives
 
@@ -17,7 +17,7 @@ In this tutorial, you'll learn how to define event-driven triggers alongside you
 
 ## Prerequisites
 
-- Completion of [Tutorial 7: Event Triggers]({{< ref "/python/workflows/tutorials/07-event-triggers" >}})
+- Completion of [Tutorial 7: Event Triggers]({{< ref "/embed/tutorials/07-event-triggers" >}})
 - Familiarity with the daemon (see [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}))
 
 ## Time Estimate
@@ -198,6 +198,6 @@ key) is rejected at upload. Just make sure the decorator runs at import time.
 
 ## Next Steps
 
-- [Computation Graphs]({{< ref "/python/computation-graphs/tutorials/09-computation-graph" >}}) — reactive, event-driven processing
+- [Computation Graphs]({{< ref "/embed/tutorials/10-computation-graph" >}}) — reactive, event-driven processing
 - [Packaging Python Workflows]({{< ref "/embed/how-to/packaging-python-workflows" >}}) — the full `package.toml` format and build steps
 - [Running the Daemon]({{< ref "/embed/how-to/running-the-daemon" >}}) — deploy your package

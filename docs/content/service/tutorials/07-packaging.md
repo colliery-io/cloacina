@@ -16,7 +16,7 @@ In this tutorial you'll take a computation graph from Rust source code all the w
 
 ## Prerequisites
 
-- Completion of the library tutorial [07 - Your First Computation Graph]({{< ref "/embed/tutorials/07-computation-graph/" >}})
+- Completion of the library tutorial [07 - Your First Computation Graph]({{< ref "/embed/tutorials/10-computation-graph/" >}})
 - The Cloacina server running and reachable (see the workflow service tutorials for server setup)
 - A valid PAK token (bootstrap key or one created via `POST /auth/keys`)
 - Rust toolchain installed (`rustc`, `cargo`)

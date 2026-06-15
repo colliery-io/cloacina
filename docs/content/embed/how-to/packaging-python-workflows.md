@@ -18,7 +18,7 @@ environment.
 
 ## Prerequisites
 
-- A working Python workflow (see [Python tutorials]({{< ref "/python/workflows/tutorials/" >}}))
+- A working Python workflow (see [Python tutorials]({{< ref "/embed/tutorials" >}}))
 - `cloaca` installed (`pip install cloaca`)
 - Understanding of the daemon or server deployment model
 

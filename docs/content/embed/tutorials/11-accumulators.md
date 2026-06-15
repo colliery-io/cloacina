@@ -1,7 +1,7 @@
 ---
-title: "08 - Accumulators"
+title: "11 — Accumulators"
 description: "Implement a passthrough accumulator, wire channels, spawn a reactor, and push live events through a compiled graph"
-weight: 20
+weight: 21
 ---
 
 In this tutorial you'll move beyond calling the compiled graph by hand. You'll implement an `Accumulator`, wire up the channel plumbing between it and a `Reactor`, and watch the graph fire automatically as events arrive.
@@ -18,24 +18,37 @@ In this tutorial you'll move beyond calling the compiled graph by hand. You'll i
 
 ## Prerequisites
 
-- Completion of [Tutorial 07 — Your First Computation Graph]({{< ref "/embed/tutorials/07-computation-graph/" >}})
+- Completion of [Tutorial 10 — Your First Computation Graph]({{< ref "/embed/tutorials/10-computation-graph/" >}})
 
 ## The complete example
 
-The full source lives at [`examples/tutorials/computation-graphs/library/08-accumulators`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/computation-graphs/library/08-accumulators).
+The full source lives at:
 
-To run it:
+{{< tabs "src-accumulators" >}}
+{{< tab "Rust" >}}
+[`examples/tutorials/computation-graphs/library/08-accumulators`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/computation-graphs/library/08-accumulators)
 
 ```bash
 angreal demos tutorials rust 08
 ```
+{{< /tab >}}
+{{< tab "Python" >}}
+[`examples/tutorials/engine/computation-graphs/10_accumulators.py`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/engine/computation-graphs/10_accumulators.py)
+
+```bash
+python examples/tutorials/engine/computation-graphs/10_accumulators.py
+```
+{{< /tab >}}
+{{< /tabs >}}
 
 ---
 
 ## Step 1: Boundary types and the graph
 
-The graph for this tutorial follows the same structure as Tutorial 07. A `PricingUpdate` arrives from outside, the accumulator converts it to a `PricingSignal`, and the graph processes and formats it.
+The graph for this tutorial follows the same structure as the previous one. A pricing update arrives from outside, the accumulator converts it to a pricing signal, and the graph processes and formats it.
 
+{{< tabs "step1-graph" >}}
+{{< tab "Rust" >}}
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PricingUpdate {
@@ -94,15 +107,74 @@ pub mod pricing_graph {
     }
 }
 ```
+{{< /tab >}}
+{{< tab "Python" >}}
+The graph topology is identical to the previous tutorial — only the source name changes. In Python the boundary types are plain dicts rather than declared structs.
 
-Nothing new here — you already know this pattern. The interesting part starts below.
+```python
+# Declare the reactor that fires the graph (CLOACI-I-0101 split — the
+# bundled `react={...}` kwarg was removed in favour of first-class
+# `@cloaca.reactor` classes).
+@cloaca.reactor(
+    name="pricing_graph_reactor",
+    accumulators=["pricing"],
+    mode="when_any",
+)
+class PricingGraphReactor:
+    pass
+
+
+with cloaca.ComputationGraphBuilder(
+    "pricing_graph",
+    reactor=PricingGraphReactor,
+    graph={
+        "ingest": {
+            "inputs": ["pricing"],
+            "next": "analyze",
+        },
+        "analyze": {
+            "next": "format_signal",
+        },
+        "format_signal": {},
+    },
+) as builder:
+
+    @cloaca.node
+    def ingest(pricing):
+        """Entry node: receive pricing data from accumulator."""
+        if pricing is None:
+            return {"price": 0.0, "change_pct": 0.0}
+        return pricing  # accumulator already shaped the data
+
+    @cloaca.node
+    def analyze(input_data):
+        """Analyze pricing for large moves."""
+        price = input_data["price"]
+        change_pct = ((price - 100.0) / 100.0) * 100.0 if price > 100.0 else 0.0
+        return {"price": price, "change_pct": change_pct}
+
+    @cloaca.node
+    def format_signal(input_data):
+        """Terminal node: format the signal."""
+        return {
+            "message": f"Price: {input_data['price']:.2f}, Change: {input_data['change_pct']:.2f}%",
+        }
+```
+
+Notice that `ingest` simply passes its input through — the accumulator already did the heavy lifting of shaping `mid_price` into the `{price, change_pct}` structure. This separation keeps nodes focused: accumulators transform raw external data, nodes process structured graph data.
+{{< /tab >}}
+{{< /tabs >}}
+
+Nothing new in the graph itself — you already know this pattern. The interesting part starts below.
 
 ---
 
 ## Step 2: Implement a passthrough accumulator
 
-An accumulator sits between an external data source and the reactor. It receives raw events, optionally transforms or filters them, and emits typed outputs that the reactor can cache.
+An accumulator sits between an external data source and the reactor. It receives raw events, optionally transforms or filters them, and emits outputs that the reactor can cache.
 
+{{< tabs "step2-accumulator" >}}
+{{< tab "Rust" >}}
 ```rust
 use cloacina::computation_graph::accumulator::{
     accumulator_runtime, shutdown_signal, AccumulatorContext, AccumulatorRuntimeConfig,
@@ -127,12 +199,36 @@ impl Accumulator for PricingAccumulator {
     }
 }
 ```
+{{< /tab >}}
+{{< tab "Python" >}}
+A passthrough accumulator transforms one dict shape into another. Decorate a function with `@cloaca.passthrough_accumulator` and give it a name that matches the source name in your graph topology.
 
-`type Event` is the raw type you push into the socket channel. `type Output` is what the accumulator emits to the boundary channel after `process()`. Returning `None` from `process()` silently drops the event — useful for filtering or deduplication.
+```python
+import cloaca
+
+@cloaca.passthrough_accumulator
+def pricing(event):
+    """Transform a raw pricing event into a pricing signal.
+
+    Input event shape:  {"mid_price": float}
+    Output shape:       {"price": float, "change_pct": float}
+    """
+    return {"price": event["mid_price"], "change_pct": 0.0}
+```
+
+The function name (`pricing`) becomes the source name. This must match the key you use in the reactor's `accumulators` list, the graph topology, and in `builder.execute()`.
+{{< /tab >}}
+{{< /tabs >}}
+
+In Rust, `type Event` is the raw type you push into the socket channel and `type Output` is what the accumulator emits to the boundary channel after `process()`. In Python the function receives a raw event dict and returns the processed dict. In both languages, returning `None` silently drops the event — useful for filtering or deduplication.
+
+Cloacina ships four accumulator decorators in Python — `@cloaca.passthrough_accumulator`, `@cloaca.stream_accumulator`, `@cloaca.polling_accumulator`, and `@cloaca.batch_accumulator`. The Rust `Accumulator` trait additionally supports a `#[state_accumulator]` form that has no Python equivalent yet (tracked in CLOACI-T-0688).
 
 ---
 
 ## Step 3: Wire the channels
+
+> **Python note:** Steps 3 through 5 wire the live runtime — channels, the accumulator task, and the reactor — by hand. In Python this plumbing is handled by the runtime for you; for a tutorial you simply call the accumulator function directly and feed its output to `builder.execute()`. Skip ahead to [Step 6](#step-6-push-events-and-observe) for the Python flow, then read Steps 3–5 to understand what the runtime does under the hood.
 
 The runtime model uses three channels:
 
@@ -240,8 +336,10 @@ let _reactor_handle = tokio::spawn(reactor.run());
 
 ## Step 6: Push events and observe
 
-You send events through `socket_tx` as serialized bytes. The pipeline handles everything from there.
+In Rust you send events through `socket_tx` as serialized bytes and the pipeline handles everything from there. In Python — where there is no live runtime to spawn for a tutorial — you call the accumulator directly and pass its output to `builder.execute()`, making the data flow explicit.
 
+{{< tabs "step6-push" >}}
+{{< tab "Rust" >}}
 ```rust
 let events = vec![
     PricingUpdate { mid_price: 99.50, timestamp: 1 },
@@ -263,13 +361,39 @@ for (i, event) in events.iter().enumerate() {
 shutdown_tx.send(true).unwrap();
 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 ```
+{{< /tab >}}
+{{< tab "Python" >}}
+```python
+events = [
+    {"mid_price": 99.50},
+    {"mid_price": 101.25},
+    {"mid_price": 103.75},
+]
 
-Each event triggers one graph execution. After three events you'll see `fire_count` reach 3.
+for i, event in enumerate(events, 1):
+    print(f"Event {i}: {event}")
+
+    # Step 1: accumulator transforms the raw event
+    processed = pricing(event)
+    print(f"  Accumulator output: {processed}")
+
+    # Step 2: graph processes the accumulator's output
+    result = builder.execute({"pricing": processed})
+    print(f"  Graph result: {result.get('message', 'N/A')}\n")
+```
+
+Calling `pricing(event)` invokes your accumulator function and returns the transformed dict. You then pass that dict to `builder.execute()` under the same source name (`"pricing"`). In a reactive deployment the runtime handles this automatically — the accumulator feeds the boundary channel and the reactor calls `execute()` for you — but calling them manually here makes the data flow explicit.
+{{< /tab >}}
+{{< /tabs >}}
+
+Each event triggers one graph execution. In Rust, after three events you'll see `fire_count` reach 3.
 
 ---
 
 ## Expected output
 
+{{< tabs "expected-output" >}}
+{{< tab "Rust" >}}
 ```
 === Tutorial 08: Accumulators ===
 
@@ -291,6 +415,29 @@ Total graph executions: 3
 
 === Tutorial 08 Complete ===
 ```
+{{< /tab >}}
+{{< tab "Python" >}}
+```
+=== Python Tutorial 10: Accumulators ===
+
+Event 1: {'mid_price': 99.5}
+  Accumulator output: {'price': 99.5, 'change_pct': 0.0}
+  Graph result: Price: 99.50, Change: 0.00%
+
+Event 2: {'mid_price': 101.25}
+  Accumulator output: {'price': 101.25, 'change_pct': 0.0}
+  Graph result: Price: 101.25, Change: 1.25%
+
+Event 3: {'mid_price': 103.75}
+  Accumulator output: {'price': 103.75, 'change_pct': 0.0}
+  Graph result: Price: 103.75, Change: 3.75%
+
+=== Tutorial 10 Complete ===
+```
+
+Event 1 produces `Change: 0.00%` because the price is below 100. Events 2 and 3 compute the percentage above baseline.
+{{< /tab >}}
+{{< /tabs >}}
 
 ---
 
@@ -308,4 +455,4 @@ The pattern you've learned here — socket channel → accumulator → boundary 
 
 ## What's next?
 
-- [Tutorial 09 — Full Reactive Pipeline]({{< ref "/embed/tutorials/09-full-pipeline/" >}}): connect multiple accumulators to one reactor and handle optional inputs in the graph
+- [Tutorial 12 — Full Reactive Pipeline]({{< ref "/embed/tutorials/12-full-pipeline/" >}}): connect multiple accumulators to one reactor and handle optional inputs in the graph

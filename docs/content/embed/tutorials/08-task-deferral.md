@@ -1,7 +1,7 @@
 ---
-title: "10 - Task Deferral"
+title: "08 — Task Deferral"
 description: "Release concurrency slots while waiting for external conditions with TaskHandle and defer_until"
-weight: 20
+weight: 18
 ---
 
 ## Overview

@@ -105,7 +105,7 @@ pip install cloaca[sqlite]       # SQLite only
 pip install cloaca[postgres]     # PostgreSQL only
 ```
 
-See the [Python quick start]({{< ref "/python" >}}) for usage.
+See the [Python quick start]({{< ref "/embed/quick-start" >}}) for usage.
 
 ## Docker
 

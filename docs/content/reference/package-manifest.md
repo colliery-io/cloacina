@@ -27,4 +27,4 @@ The canonical manifest schema now lives with the archive format:
 Triggers are **not** declared in the manifest. They are declared in code —
 `#[trigger]` (Rust) or `@cloaca.trigger` (Python) — and registered when the
 package is compiled/imported at load time. See
-[Packaged Triggers]({{< ref "/python/workflows/tutorials/08-packaged-triggers" >}}).
+[Packaged Triggers]({{< ref "/embed/tutorials/14-packaged-triggers" >}}).

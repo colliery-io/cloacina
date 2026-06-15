@@ -420,14 +420,14 @@ You should see output showing:
 
 Congratulations! You've created and tested your first workflow package. Next, you'll learn how to work with the workflow registry for dynamic loading and execution:
 
-- [**Tutorial 08: Working with the Workflow Registry**]({{< ref "/service/tutorials/08-workflow-registry/" >}}) - Register and execute workflows dynamically
+- [**Tutorial 09: Working with the Workflow Registry**]({{< ref "/embed/tutorials/09-workflow-registry/" >}}) - Register and execute workflows dynamically
 - **Multi-tenant Deployments**: Different workflows per tenant
 - **Continuous Deployment**: CI/CD pipelines for workflow packages
 - **Advanced Packaging**: Complex dependencies and cross-compilation
 
 ## Related Resources
 
-- [Tutorial 08: Working with the Workflow Registry]({{< ref "/service/tutorials/08-workflow-registry/" >}})
+- [Tutorial 09: Working with the Workflow Registry]({{< ref "/embed/tutorials/09-workflow-registry/" >}})
 - [Explanation: Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture/" >}})
 - [API Documentation]({{< ref "/reference/" >}})
 

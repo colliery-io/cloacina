@@ -10,7 +10,7 @@ This guide explains when to use `InputStrategy::Sequential` instead of the defau
 
 ## Prerequisites
 
-- Familiarity with the reactor model (see [tutorial 09 — full pipeline]({{< ref "/embed/tutorials/09-full-pipeline" >}}))
+- Familiarity with the reactor model (see [tutorial 09 — full pipeline]({{< ref "/embed/tutorials/12-full-pipeline" >}}))
 - A working accumulator-reactor pipeline
 
 ## Latest vs Sequential

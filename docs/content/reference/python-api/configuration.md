@@ -192,7 +192,7 @@ methods.
 
 The multi-tenant admin types require PostgreSQL support; they are not importable
 from a SQLite-only wheel. Install with `pip install cloaca[postgres]` (see
-[Installation]({{< ref "/python" >}}#installation)).
+[Installation]({{< ref "/start/install" >}})).
 
 ### TenantConfig
 

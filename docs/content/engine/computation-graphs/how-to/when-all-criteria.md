@@ -10,7 +10,7 @@ This guide explains how to use `when_all` reaction criteria to hold a computatio
 
 ## Prerequisites
 
-- Familiarity with the reactor model (see [tutorial 09 — full pipeline]({{< ref "/embed/tutorials/09-full-pipeline" >}}))
+- Familiarity with the reactor model (see [tutorial 09 — full pipeline]({{< ref "/embed/tutorials/12-full-pipeline" >}}))
 - A computation graph with multiple named inputs
 
 ## when_any vs when_all

@@ -1,10 +1,18 @@
 ---
-title: "09 - Full Multi-Source Pipeline"
+title: "12 — Full Multi-Source Pipeline"
 description: "Connect two accumulators to a single reactor and handle optional multi-source inputs in a computation graph"
-weight: 30
+weight: 22
 ---
 
 In this tutorial you'll build a full event-driven multi-source pipeline with two independent data sources — an order book feed and a pricing feed — both flowing into a single reactor. The graph fires whenever either source delivers new data, combining both into a trading signal.
+
+{{< hint type=note title="Shown in Rust" >}}
+This tutorial is shown in Rust only. The same multi-source `when_any` pattern is
+fully supported in Python (`cloaca`) — compose it from the Python halves of
+[Accumulators]({{< ref "/embed/tutorials/11-accumulators/" >}}) and
+[Routing]({{< ref "/embed/tutorials/13-routing/" >}}). A dedicated Python walkthrough
+for this topic is not yet written.
+{{< /hint >}}
 
 ## What you'll learn
 
@@ -16,7 +24,7 @@ In this tutorial you'll build a full event-driven multi-source pipeline with two
 
 ## Prerequisites
 
-- Completion of [Tutorial 08 — Accumulators]({{< ref "/embed/tutorials/08-accumulators/" >}})
+- Completion of [Tutorial 11 — Accumulators]({{< ref "/embed/tutorials/11-accumulators/" >}})
 
 ## The complete example
 
@@ -327,4 +335,4 @@ You've built a full event-driven multi-source pipeline:
 
 ## What's next?
 
-- [Tutorial 10 — Routing]({{< ref "/embed/tutorials/10-routing/" >}}): add conditional branching with enum dispatch — route the graph down different paths based on the decision node's output
+- [Tutorial 10 — Routing]({{< ref "/embed/tutorials/13-routing/" >}}): add conditional branching with enum dispatch — route the graph down different paths based on the decision node's output

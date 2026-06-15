@@ -1,10 +1,10 @@
 ---
-title: "07 - Your First Computation Graph"
+title: "10 — Your First Computation Graph"
 description: "Define a computation graph, declare its topology, and execute it with a hand-built InputCache"
-weight: 10
+weight: 20
 ---
 
-In this tutorial you'll build your first computation graph — a pricing pipeline that reads an order book snapshot, computes spread in basis points, and formats the result. You'll learn how Cloacina's two macros work together: `#[reactor]` declares the firing criterion, and `#[computation_graph]` references that reactor by name and wires async functions into a compiled, callable graph.
+In this tutorial you'll build your first computation graph — a pricing pipeline that reads an order book snapshot, computes spread in basis points, and formats the result. You'll learn how Cloacina's two macros work together: `#[reactor]` declares the firing criterion, and `#[computation_graph]` references that reactor by name and wires async functions into a compiled, callable graph. In Python the same pipeline is built with `@cloaca.reactor`, `@cloaca.node`, and `cloaca.ComputationGraphBuilder`.
 
 ## What you'll learn
 
@@ -67,12 +67,16 @@ pub struct FormattedOutput {
 
 You define one struct per data boundary. `OrderBookSnapshot` enters the graph from outside, `SpreadSignal` flows between nodes internally, and `FormattedOutput` is what the graph produces.
 
+> **Python:** there are no boundary-type declarations — data flows between nodes as plain `dict`s (e.g. `{"best_bid": 100.50, "best_ask": 100.55}`), so this step has no Python equivalent.
+
 ---
 
 ## Step 2: Declare the reactor and the computation graph
 
-As of CLOACI-I-0101 a graph's firing criterion is its own top-level primitive. You declare a reactor with `#[reactor]` (giving it a `name`, an `accumulators` list, and a `criteria` expression), then point one or more `#[computation_graph]` declarations at it via `trigger = reactor("name")`. Inside the annotated `mod`, each `pub async fn` becomes a node.
+As of CLOACI-I-0101 a graph's firing criterion is its own top-level primitive. You declare a reactor with `#[reactor]` (giving it a `name`, an `accumulators` list, and a `criteria` expression), then point one or more `#[computation_graph]` declarations at it via `trigger = reactor("name")`. Inside the annotated `mod`, each `pub async fn` becomes a node. In Python the same pieces are a `@cloaca.reactor` class, a `cloaca.ComputationGraphBuilder(...)` context manager whose `graph=` kwarg is a dict-of-dicts topology (`{"node": {"inputs": [...], "next": "..."}}`), and `@cloaca.node`-decorated functions defined inside the `with` block.
 
+{{< tabs "cg10-step2" >}}
+{{< tab "Rust" >}}
 ```rust
 #[cloacina_macros::reactor(
     name = "pricing_pipeline_reactor",
@@ -121,6 +125,68 @@ pub mod pricing_pipeline {
     }
 }
 ```
+{{< /tab >}}
+{{< tab "Python" >}}
+```python
+import cloaca
+
+
+# Declare the reactor that fires the graph (CLOACI-I-0101 split — the
+# bundled `react={...}` kwarg was removed; reactors are now first-class
+# `@cloaca.reactor` classes referenced by the builder via `reactor=`).
+@cloaca.reactor(
+    name="pricing_pipeline_reactor",
+    accumulators=["orderbook"],
+    mode="when_any",
+)
+class PricingPipelineReactor:
+    pass
+
+
+with cloaca.ComputationGraphBuilder(
+    "pricing_pipeline",
+    reactor=PricingPipelineReactor,
+    graph={
+        "ingest": {
+            "inputs": ["orderbook"],   # reads from the cache by this name
+            "next": "compute_spread",  # sends output to compute_spread
+        },
+        "compute_spread": {
+            "next": "format_output",
+        },
+        "format_output": {},           # terminal node — no "next"
+    },
+) as builder:
+
+    @cloaca.node
+    def ingest(orderbook):
+        """Entry node: extract key fields from order book."""
+        if orderbook is None:
+            return {"spread": 0.0, "mid_price": 0.0}
+        spread = orderbook["best_ask"] - orderbook["best_bid"]
+        mid_price = (orderbook["best_ask"] + orderbook["best_bid"]) / 2.0
+        return {"spread": spread, "mid_price": mid_price}
+
+    @cloaca.node
+    def compute_spread(input_data):
+        """Processing node: compute spread in basis points."""
+        mid = input_data["mid_price"]
+        if mid == 0:
+            return input_data
+        spread_bps = (input_data["spread"] / mid) * 10_000
+        return {"spread_bps": spread_bps, "mid_price": mid}
+
+    @cloaca.node
+    def format_output(input_data):
+        """Terminal node: format for display."""
+        return {
+            "message": f"Mid: {input_data['mid_price']:.2f}, Spread: {input_data['spread_bps']:.1f} bps",
+            "mid_price": input_data["mid_price"],
+            "spread_bps": input_data["spread_bps"],
+        }
+```
+{{< /tab >}}
+{{< /tabs >}}
 
 **Topology breakdown:**
 
@@ -138,14 +204,18 @@ pub mod pricing_pipeline {
 - **Processing nodes** take `&T` where `T` is the return type of their upstream node.
 - **The terminal node** is whichever node has no downstream — here `format_output`. Its return value ends up in `GraphResult`.
 
-The macro generates a function called `pricing_pipeline_compiled` (the module name plus `_compiled`).
+In Python the same roles hold, but the wiring differs: entry nodes (`ingest`) receive one named argument per source listed in `"inputs"` (`None` if absent); processing nodes (`compute_spread`, `format_output`) receive a single positional argument — the dict returned by their upstream node, conventionally named `input_data`. Node-function names must match the keys in the `graph` dict exactly, and the terminal node's return dict becomes the `execute()` result.
+
+The macro generates a function called `pricing_pipeline_compiled` (the module name plus `_compiled`). In Python the `builder` object returned by the context manager plays that role and is invoked with `builder.execute(...)`.
 
 ---
 
 ## Step 3: Run the compiled graph
 
-You don't need a reactor or accumulator for the simplest case. Build an `InputCache`, serialize your input into it, and call the generated function directly.
+You don't need a reactor or accumulator for the simplest case. Build an `InputCache`, serialize your input into it, and call the generated function directly. In Python you skip the cache entirely: pass a dict of `{source_name: value}` to `builder.execute()`, which returns the terminal node's output dict.
 
+{{< tabs "cg10-step3" >}}
+{{< tab "Rust" >}}
 ```rust
 #[tokio::main]
 async fn main() {
@@ -186,6 +256,22 @@ async fn main() {
     }
 }
 ```
+{{< /tab >}}
+{{< tab "Python" >}}
+```python
+# Input data — a dict matching the structure our entry node expects
+orderbook = {"best_bid": 100.50, "best_ask": 100.55}
+print(f"Input: {orderbook}\n")
+
+result = builder.execute({"orderbook": orderbook})
+
+print(f"Result: {result}")
+print(f"  Message: {result.get('message', 'N/A')}")
+print(f"  Mid price: {result.get('mid_price', 'N/A')}")
+print(f"  Spread: {result.get('spread_bps', 'N/A')} bps")
+```
+{{< /tab >}}
+{{< /tabs >}}
 
 **Key points:**
 
@@ -193,6 +279,8 @@ async fn main() {
 - `serialize()` converts your value to `Vec<u8>` using the same codec the cache uses internally.
 - `GraphResult::Completed { outputs }` carries a `Vec<Box<dyn Any>>`. Use `downcast_ref::<T>()` to get your concrete type back.
 - `GraphResult::Error(e)` carries a string describing what went wrong.
+
+In Python `execute()` takes a dict where each key is a source name and each value is the data placed in the cache for that source; it returns the terminal node's output dict directly (no `GraphResult` wrapper or downcast).
 
 ---
 
@@ -227,4 +315,4 @@ The `_compiled` function is the building block for everything that follows. In t
 
 ## What's next?
 
-- [Tutorial 08 — Accumulators]({{< ref "/embed/tutorials/08-accumulators/" >}}): wire the compiled graph into a reactor driven by live events
+- [Tutorial 11 — Accumulators]({{< ref "/embed/tutorials/11-accumulators/" >}}): wire the compiled graph into a reactor driven by live events

@@ -654,6 +654,6 @@ except ValueError as e:
 
 ## Related
 
-- **[Computation Graph Tutorials]({{< ref "/python/computation-graphs/tutorials/" >}})** -- step-by-step tutorials covering linear graphs, accumulators, and routing
+- **[Computation Graph Tutorials]({{< ref "/embed/tutorials/10-computation-graph" >}})** -- step-by-step tutorials covering linear graphs, accumulators, and routing
 - **[WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}})** -- the task-based workflow builder (different execution model)
 - **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** -- runs task-based workflows (not computation graphs)

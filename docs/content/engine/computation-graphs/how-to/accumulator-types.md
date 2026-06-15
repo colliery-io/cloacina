@@ -376,6 +376,6 @@ Pass a health sender via `AccumulatorContext::health` to enable reporting. The r
 
 ## Related
 
-- [Computation graphs tutorial 09 — full pipeline]({{< ref "/embed/tutorials/09-full-pipeline" >}})
+- [Computation graphs tutorial 09 — full pipeline]({{< ref "/embed/tutorials/12-full-pipeline" >}})
 - [How to monitor computation graph health]({{< ref "/engine/computation-graphs/how-to/computation-graph-health" >}})
 - [How to use when_all reaction criteria]({{< ref "/engine/computation-graphs/how-to/when-all-criteria" >}})

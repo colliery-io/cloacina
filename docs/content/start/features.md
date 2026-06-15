@@ -70,7 +70,7 @@ first if those terms are new.
 - **Cron schedules** — run workflows on a schedule; see
   [Cron Scheduling]({{< ref "/engine/explanation/cron-scheduling" >}}).
 - **Event triggers** — start work from external events; see
-  [Event Triggers]({{< ref "/python/workflows/tutorials/07-event-triggers" >}}).
+  [Event Triggers]({{< ref "/embed/tutorials/07-event-triggers" >}}).
 
 ## Deployment modes
 
