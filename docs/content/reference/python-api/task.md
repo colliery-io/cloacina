@@ -346,4 +346,4 @@ The `defer_until` call will fail if there is no real `TaskHandle`, so direct cal
 - **[WorkflowBuilder]({{< ref "/reference/python-api/workflow-builder/" >}})** - Combine tasks into workflows
 - **[DefaultRunner]({{< ref "/reference/python-api/runner/" >}})** - Execute workflows containing tasks
 - **[Task Deferral Architecture]({{< ref "/engine/explanation/task-deferral" >}})** - Internal mechanics of slot tokens and defer_until
-- **[Tutorial 10 - Task Deferral]({{< ref "/workflows/tutorials/service/10-task-deferral" >}})** - Rust walkthrough of the deferred-tasks example
+- **[Tutorial 10 - Task Deferral]({{< ref "/service/tutorials/10-task-deferral" >}})** - Rust walkthrough of the deferred-tasks example

@@ -46,10 +46,10 @@ workflow in about five minutes.
 
 Embedded mode. Start here:
 
-→ [Tutorial 01 — Your First Workflow]({{< ref "/workflows/tutorials/library/01-first-workflow" >}})
+→ [Tutorial 01 — Your First Workflow]({{< ref "/embed/tutorials/01-first-workflow" >}})
 
 The full embedded-mode tutorial track is at
-[Workflows → Tutorials]({{< ref "/workflows/tutorials" >}}). It
+[Workflows → Tutorials]({{< ref "/service/tutorials" >}}). It
 covers your first workflow, context handling, complex dependency
 graphs, and error handling.
 

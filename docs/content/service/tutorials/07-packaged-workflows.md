@@ -10,7 +10,7 @@ Welcome to the workflow packages tutorial! In this guide, you'll learn how to cr
 
 ## Prerequisites
 
-- Completion of [Tutorial 1]({{< ref "/workflows/tutorials/library/01-first-workflow/" >}})
+- Completion of [Tutorial 1]({{< ref "/embed/tutorials/01-first-workflow/" >}})
 - Basic understanding of Rust and Cargo projects
 - Rust toolchain installed (rustc, cargo)
 - cloacinactl installed (for packaging commands)
@@ -420,14 +420,14 @@ You should see output showing:
 
 Congratulations! You've created and tested your first workflow package. Next, you'll learn how to work with the workflow registry for dynamic loading and execution:
 
-- [**Tutorial 08: Working with the Workflow Registry**]({{< ref "/workflows/tutorials/service/08-workflow-registry/" >}}) - Register and execute workflows dynamically
+- [**Tutorial 08: Working with the Workflow Registry**]({{< ref "/service/tutorials/08-workflow-registry/" >}}) - Register and execute workflows dynamically
 - **Multi-tenant Deployments**: Different workflows per tenant
 - **Continuous Deployment**: CI/CD pipelines for workflow packages
 - **Advanced Packaging**: Complex dependencies and cross-compilation
 
 ## Related Resources
 
-- [Tutorial 08: Working with the Workflow Registry]({{< ref "/workflows/tutorials/service/08-workflow-registry/" >}})
+- [Tutorial 08: Working with the Workflow Registry]({{< ref "/service/tutorials/08-workflow-registry/" >}})
 - [Explanation: Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture/" >}})
 - [API Documentation]({{< ref "/reference/" >}})
 

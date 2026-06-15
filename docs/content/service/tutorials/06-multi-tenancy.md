@@ -21,7 +21,7 @@ Welcome to the multi-tenancy tutorial! In this tutorial, you'll learn how to dep
 
 ## Prerequisites
 
-- Completion of [Tutorial 5]({{< ref "/workflows/tutorials/service/05-cron-scheduling/" >}})
+- Completion of [Tutorial 5]({{< ref "/service/tutorials/05-cron-scheduling/" >}})
 - Access to PostgreSQL database
 - Understanding of database schemas
 - Basic knowledge of SaaS architecture concepts

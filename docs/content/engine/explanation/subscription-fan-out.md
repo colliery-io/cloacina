@@ -113,7 +113,7 @@ If a downstream needs *both* an in-process CG (for fast routing decisions) and a
 |---|---|
 | A workflow that fires on a reactor firing, durable across restart | DB-backed subscription (this page; [recipe]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}})) |
 | A computation graph that fires on a reactor firing, minimum latency | `#[computation_graph(trigger = reactor("..."))]` ([Tutorial 07]({{< ref "/computation-graphs/tutorials/library/07-computation-graph" >}})) |
-| A workflow that fires on a non-reactor source (cron, file watch, HTTP poll) | Implement the [`Trigger` trait]({{< ref "/workflows/tutorials/service/09-event-triggers" >}}) — no reactor involved |
+| A workflow that fires on a non-reactor source (cron, file watch, HTTP poll) | Implement the [`Trigger` trait]({{< ref "/service/tutorials/09-event-triggers" >}}) — no reactor involved |
 | Both — a fast in-process CG *and* a durable downstream workflow | Both. They coexist on the same firing. |
 
 ## References

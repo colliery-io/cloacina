@@ -156,5 +156,5 @@ Use `cloaca.var_or()` if the value is truly optional.
 ## See Also
 
 - [Environment Variables Reference]({{< ref "/reference/environment-variables" >}}) — all Cloacina environment variables
-- [Per-Tenant Credentials Tutorial]({{< ref "/workflows/tutorials/service/06-multi-tenancy" >}}) — tenant-scoped configuration
+- [Per-Tenant Credentials Tutorial]({{< ref "/service/tutorials/06-multi-tenancy" >}}) — tenant-scoped configuration
 - [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}) — using variables in packaged workflows

@@ -24,7 +24,7 @@ Use Cloacina as a Rust library embedded directly in your application. Define tas
 - Microservices with internal task pipelines
 - Development and testing
 
-[Library Tutorials →]({{< ref "/workflows/tutorials/library" >}})
+[Library Tutorials →]({{< ref "/embed/tutorials" >}})
 
 ### Service (Server/Daemon)
 
@@ -34,13 +34,13 @@ Deploy Cloacina as a standalone service (`cloacinactl server start` or `cloacina
 - Centralized workflow management
 - Production deployments with monitoring
 
-[Service Tutorials →]({{< ref "/workflows/tutorials/service" >}})
+[Service Tutorials →]({{< ref "/service/tutorials" >}})
 
 ## Quick Navigation
 
 | Section | Description |
 |---------|-------------|
-| [Tutorials]({{< ref "/workflows/tutorials" >}}) | Step-by-step learning guides |
+| [Tutorials]({{< ref "/service/tutorials" >}}) | Step-by-step learning guides |
 | [How-to Guides]({{< ref "/embed/how-to" >}}) | Task-oriented recipes |
 | [Reference]({{< ref "/reference" >}}) | API and configuration lookup |
 | [Explanation]({{< ref "/engine/explanation" >}}) | Architecture and design decisions |

@@ -497,6 +497,6 @@ let runner = DefaultRunner::with_config(&database_url, config).await?;
 
 ## Related Resources
 
-- [Tutorial: Creating Your First Workflow Package]({{< ref "/workflows/tutorials/service/07-packaged-workflows/" >}})
+- [Tutorial: Creating Your First Workflow Package]({{< ref "/service/tutorials/07-packaged-workflows/" >}})
 - [Explanation: Package Format]({{< ref "/engine/explanation/package-format/" >}})
 - [Explanation: FFI System]({{< ref "/engine/explanation/ffi-system/" >}})

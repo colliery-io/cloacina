@@ -11,7 +11,7 @@ This guide walks through converting an existing embedded Rust workflow into a pa
 ## Prerequisites
 
 - An existing workflow using the library/embedded tutorials (1-4)
-- Familiarity with [Packaged Workflows]({{< ref "/workflows/tutorials/service/07-packaged-workflows" >}})
+- Familiarity with [Packaged Workflows]({{< ref "/service/tutorials/07-packaged-workflows" >}})
 
 ## What Changes
 
@@ -190,7 +190,7 @@ cargo build --release
 
 This produces a shared library at `target/release/libmy_workflow.so` (Linux) or `target/release/libmy_workflow.dylib` (macOS).
 
-To create a `.cloacina` package from the compiled library, use the packaging tools described in [Packaged Workflows Tutorial]({{< ref "/workflows/tutorials/service/07-packaged-workflows" >}}).
+To create a `.cloacina` package from the compiled library, use the packaging tools described in [Packaged Workflows Tutorial]({{< ref "/service/tutorials/07-packaged-workflows" >}}).
 
 ## Step 6: Deploy
 
@@ -244,7 +244,7 @@ mod tests {
 
 ## See Also
 
-- [Packaged Workflows Tutorial]({{< ref "/workflows/tutorials/service/07-packaged-workflows" >}}) — step-by-step packaging guide
-- [Workflow Registry Tutorial]({{< ref "/workflows/tutorials/service/08-workflow-registry" >}}) — managing packages in the registry
+- [Packaged Workflows Tutorial]({{< ref "/service/tutorials/07-packaged-workflows" >}}) — step-by-step packaging guide
+- [Workflow Registry Tutorial]({{< ref "/service/tutorials/08-workflow-registry" >}}) — managing packages in the registry
 - [FFI System]({{< ref "/engine/explanation/ffi-system" >}}) — how dynamic loading works
 - [Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture" >}}) — design rationale

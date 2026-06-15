@@ -10,7 +10,7 @@ Welcome to the workflow registry tutorial! Building on the workflow packages fro
 
 ## Prerequisites
 
-- Completion of [Tutorial 07: Packaged Workflows]({{< ref "/workflows/tutorials/service/07-packaged-workflows/" >}})
+- Completion of [Tutorial 07: Packaged Workflows]({{< ref "/service/tutorials/07-packaged-workflows/" >}})
 - Understanding of databases (SQLite or PostgreSQL)
 - Basic understanding of cron expressions
 - A code editor of your choice
@@ -358,7 +358,7 @@ Congratulations! You've successfully set up and used the workflow registry. In f
 
 ## Related Resources
 
-- [Tutorial 07: Packaged Workflows]({{< ref "/workflows/tutorials/service/07-packaged-workflows/" >}})
+- [Tutorial 07: Packaged Workflows]({{< ref "/service/tutorials/07-packaged-workflows/" >}})
 - [API Documentation]({{< ref "/reference/" >}})
 
 ## Download the Example

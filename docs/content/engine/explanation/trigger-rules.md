@@ -229,7 +229,7 @@ pub async fn cached_data(context: &mut Context<serde_json::Value>) -> Result<(),
 
 The following patterns illustrate the key use cases for trigger rules. For implementation
 details and working code, see
-[Tutorial 04: Error Handling]({{< ref "/workflows/tutorials/library/04-error-handling" >}}).
+[Tutorial 04: Error Handling]({{< ref "/embed/tutorials/04-error-handling" >}}).
 
 - **Fallback** -- Use `task_failed("primary")` to activate a backup task when the primary
   path fails after retries. Both tasks write to the same context key so downstream consumers
@@ -309,7 +309,7 @@ Trigger rule result: All -> true (all conditions passed)
 
 ## Further Reading
 
-- [Tutorial 04: Error Handling]({{< ref "/workflows/tutorials/library/04-error-handling" >}}) -- step-by-step walkthrough building a resilient pipeline with fallbacks, conditional branching, and error notification
+- [Tutorial 04: Error Handling]({{< ref "/embed/tutorials/04-error-handling" >}}) -- step-by-step walkthrough building a resilient pipeline with fallbacks, conditional branching, and error notification
 - [Macro Reference]({{< ref "/reference/macros" >}}) -- full syntax tables for `trigger_rules`, condition types, operators, and combinators
 - {{< api-link path="cloacina::execution_planner::TriggerRule" type="enum" display="TriggerRule" >}} -- Rust API docs
 - {{< api-link path="cloacina::execution_planner::TriggerCondition" type="enum" display="TriggerCondition" >}}

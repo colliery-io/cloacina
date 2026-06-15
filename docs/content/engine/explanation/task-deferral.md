@@ -175,7 +175,7 @@ The condition closure has the signature `Fn() -> impl Future<Output = bool>` and
 repeatedly at the poll interval until it returns `true`.
 
 For a complete working example, see
-[Tutorial 10: Task Deferral]({{< ref "/workflows/tutorials/service/10-task-deferral" >}}).
+[Tutorial 10: Task Deferral]({{< ref "/service/tutorials/10-task-deferral" >}}).
 
 ## When to Use Deferral
 
@@ -287,7 +287,7 @@ See the [Python TaskHandle reference]({{< ref "/reference/python-api/task" >}}) 
 
 ## See Also
 
-- [Tutorial 10 - Task Deferral]({{< ref "/workflows/tutorials/service/10-task-deferral" >}}) -- step-by-step walkthrough with the deferred-tasks example
+- [Tutorial 10 - Task Deferral]({{< ref "/service/tutorials/10-task-deferral" >}}) -- step-by-step walkthrough with the deferred-tasks example
 - [Macro Reference]({{< ref "/reference/macros" >}}) -- `#[task]` attribute reference including handle detection
 - [Task Execution Sequence]({{< ref "/engine/explanation/task-execution-sequence" >}}) -- how a task moves from scheduling through execution
 - [Dispatcher Architecture]({{< ref "/engine/explanation/dispatcher-architecture" >}}) -- how the executor receives and processes task events

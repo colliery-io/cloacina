@@ -14,7 +14,7 @@ This tutorial guides you through implementing event-driven workflow execution us
 
 Before starting this tutorial, you should:
 
-- Completion of [Tutorial 5 - Cron Scheduling]({{< ref "/workflows/tutorials/service/05-cron-scheduling/" >}})
+- Completion of [Tutorial 5 - Cron Scheduling]({{< ref "/service/tutorials/05-cron-scheduling/" >}})
 - Be familiar with creating workflows and tasks using Cloacina's macro system
 - Understand async/await patterns in Rust
 - Have Rust toolchain installed (rustc, cargo)
