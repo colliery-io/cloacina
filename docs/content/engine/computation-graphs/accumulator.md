@@ -39,8 +39,8 @@ nothing drops the event (filtering/dedup).
 ```python
 @cloaca.passthrough_accumulator
 @cloaca.stream_accumulator(type="...", topic="...", group="...")
-@cloaca.polling_accumulator(interval=...)
-@cloaca.batch_accumulator(flush_interval=..., max_buffer_size=100)
+@cloaca.polling_accumulator(interval="5s")
+@cloaca.batch_accumulator(flush_interval="1s", max_buffer_size=100)
 ```
 
 {{< hint type=warning title="Parity gap" >}}

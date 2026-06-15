@@ -29,23 +29,23 @@ decorator/macro and assembled into a named workflow.
 
 {{< tabs "workflow-define" >}}
 {{< tab "Rust" >}}
-In Rust, tasks are `#[task]` functions and the `workflow!` macro assembles them
-into a named workflow (registered in a global registry the runner reads):
+In Rust, the `#[workflow]` **module attribute** names the workflow; the `#[task]`
+functions inside the module are its tasks (registered in a global registry the
+runner reads):
 
 ```rust
 use cloacina::{task, workflow, Context, TaskError};
 
-#[task(id = "hello", dependencies = [])]
-async fn hello(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    context.insert("message", serde_json::json!("Hello World!"))?;
-    Ok(())
-}
+#[workflow(name = "greeting", description = "A one-task workflow")]
+pub mod greeting {
+    use super::*;
 
-let _workflow = workflow! {
-    name: "greeting",
-    description: "A one-task workflow",
-    tasks: [hello]
-};
+    #[task(id = "hello", dependencies = [])]
+    pub async fn hello(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        context.insert("message", serde_json::json!("Hello World!"))?;
+        Ok(())
+    }
+}
 ```
 {{< /tab >}}
 {{< tab "Python" >}}

@@ -55,9 +55,16 @@ functions inside it, and the topology is a dict:
 ```python
 import cloaca
 
+@cloaca.reactor(name="pricing_reactor", accumulators=["orderbook"], mode="when_any")
+class PricingReactor:
+    pass
+
 with cloaca.ComputationGraphBuilder(
-    "pricing", reactor="pricing_reactor",
-    graph={"ingest": ["orderbook"], "format_output": ["ingest"]},
+    "pricing", reactor=PricingReactor,
+    graph={
+        "ingest": {"inputs": ["orderbook"], "next": "format_output"},
+        "format_output": {},   # no `next` → terminal
+    },
 ) as g:
     @cloaca.node
     def ingest(orderbook):
@@ -68,9 +75,11 @@ with cloaca.ComputationGraphBuilder(
         return formatted(ingest)
 ```
 
-See the [topology dict schema]({{< ref "/python/computation-graphs/reference/topology-dict-schema" >}})
-for the exact `graph={...}` format. Python node functions receive **owned** values
-(the boundary copies them) where Rust takes references.
+`reactor=` takes a `@cloaca.reactor`-decorated **class**, and each `graph` entry
+is a **dict** (`inputs` list, plus `next` / `routes`, or empty for terminal). See
+the [topology dict schema]({{< ref "/python/computation-graphs/reference/topology-dict-schema" >}})
+for the full format. Python node functions receive **owned** values (the boundary
+copies them) where Rust takes references.
 {{< /tab >}}
 {{< /tabs >}}
 

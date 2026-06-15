@@ -4,14 +4,14 @@ level: task
 title: "Engine: grounding + Rust/Python parity pass (accuracy review, caveats, build)"
 short_code: "CLOACI-T-0696"
 created_at: 2026-06-15T14:19:44.180452+00:00
-updated_at: 2026-06-15T14:19:44.180452+00:00
+updated_at: 2026-06-15T16:01:39.399115+00:00
 parent: CLOACI-I-0122
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -26,9 +26,27 @@ initiative_id: CLOACI-I-0122
 
 [[CLOACI-I-0122]]
 
-## Objective **[REQUIRED]**
+## Objective
 
-{Clear statement of what this task accomplishes}
+Accuracy-review the whole `/engine` section against `crates/`; confirm every
+Rust + Python example traces to source; fix mismatches; confirm parity caveats.
+See [[CLOACI-I-0122]].
+
+## Findings (accuracy-reviewer, 2026-06-15) — all fixed
+
+- **BLOCKER:** `workflow.md` Rust used `workflow! { tasks: [...] }` — that bang
+  macro does **not exist**; the shipping API is the `#[workflow(name=, description=)]`
+  module attribute containing `#[task]` fns (cloacina-macros/src/lib.rs:86, workflow_attr.rs).
+  (The tutorial I grounded on is stale — verified against examples/.../01-basic-workflow.)
+- **BLOCKER:** `computation-graph.md` Python — `reactor=` takes a
+  `@cloaca.reactor` **class** (not a string), and `graph` is a **dict-of-dicts**
+  (`{"n": {"inputs": [...], "next": "m"}}`), not dict-of-lists (computation_graph.rs:365,1278).
+- **MAJOR:** `trigger.md` Python `poll_interval` is a duration **string** (`"30s"`),
+  not an int (trigger.rs:97).
+- **MINOR:** `accumulator.md` Python `interval`/`flush_interval` are strings; `_index.md`
+  said "reactive dataflow" → corrected to "event-driven" per S-0011 nomenclature.
+- **CONFIRMED parity caveats:** no Python `state_accumulator` (lib.rs:128-145); no
+  Python packaged cron-trigger decorator (trigger.rs poll-only). Both → [[CLOACI-T-0688]].
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -64,11 +82,20 @@ initiative_id: CLOACI-I-0122
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria **[REQUIRED]**
+## Acceptance Criteria
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+## Acceptance Criteria
+
+- [x] Accuracy-reviewer run over all `/engine` pages (both dialects)
+- [x] 2 blockers + 1 major + 2 minors fixed; everything else verified code-traceable
+- [x] Parity caveats confirmed against code (state accumulator; packaged cron trigger)
+- [x] `hugo` builds clean (522 pages) after fixes
+
+## Status Updates
+
+**2026-06-15** — Grounding pass complete; I-0122 (`/engine` primitives) done. Note
+for I-3: the stale `workflow!` idiom also appears in the existing Rust tutorials
+and `cloacina/src/lib.rs` doc-comment — fix when those move/are reviewed.
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 

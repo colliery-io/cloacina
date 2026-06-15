@@ -42,7 +42,7 @@ Python exposes **poll** triggers as a decorator:
 ```python
 import cloaca
 
-@cloaca.trigger(name="my_poll", poll_interval=30)
+@cloaca.trigger(name="my_poll", poll_interval="30s")
 def my_poll(context):
     return context   # return to fire; raise/None semantics per the API
 ```

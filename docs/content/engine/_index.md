@@ -16,7 +16,7 @@ The core primitives:
 - **Workflow** — a durable, database-backed DAG; the task is the unit of scheduling.
 - **Task** — a unit of work in a workflow.
 - **Context** — typed data passed between tasks, persisted and recovered.
-- **Computation Graph** — an in-process reactive dataflow; the whole traversal is the unit.
+- **Computation Graph** — an in-process, event-driven dataflow; the whole traversal is the unit.
 - **Node** — a vertex in a computation graph.
 - **Reactor** — binds accumulators to a graph and fires it when criteria are met.
 - **Accumulator** — turns a source or stream into boundary events (passthrough, stream, polling, batch, state).
