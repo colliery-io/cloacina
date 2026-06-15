@@ -201,6 +201,6 @@ Map the error to `TaskError` to propagate it through the normal task error path,
 
 ## See Also
 
-- [Task Deferral Architecture]({{< ref "/workflows/explanation/task-deferral" >}}) -- internal mechanics of slot tokens and the defer_until lifecycle
+- [Task Deferral Architecture]({{< ref "/engine/explanation/task-deferral" >}}) -- internal mechanics of slot tokens and the defer_until lifecycle
 - [Macro Reference]({{< ref "/workflows/reference/macros" >}}) -- full `#[task]` attribute reference including handle detection
 - [Python TaskHandle]({{< ref "/reference/python-api/task" >}}) -- using `TaskHandle` from Python

@@ -31,7 +31,7 @@ on unload, in reverse order:
 2. Reactor-bound CGs unbound from their reactors.
 3. Trigger-less CGs unregistered.
 4. Reactors torn down (scheduler-side + Runtime-constructor cleanup;
-   see [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}})).
+   see [Reactor Lifecycle]({{< ref "/engine/explanation/reactor-lifecycle" >}})).
 5. Custom-poll triggers unregistered.
 6. Cron schedules deleted from the database.
 
@@ -236,6 +236,6 @@ After every unload, verify clean teardown:
 ## Related
 
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — full ordering and rationale.
-- [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}}) — the dual-layer reactor teardown.
+- [Reactor Lifecycle]({{< ref "/engine/explanation/reactor-lifecycle" >}}) — the dual-layer reactor teardown.
 - [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}}) — for tenant-aware unloads.
 - [HTTP API Reference]({{< ref "/reference/http-api" >}}) — the package delete endpoint.

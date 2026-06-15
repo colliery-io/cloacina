@@ -73,7 +73,7 @@ Returns the package's primary reactor-bound computation graph metadata
 — a holdover slot from the pre-CLOACI-I-0101 1:1 reactor-per-graph model.
 As of I-0101, reactors are declared standalone via `#[reactor(...)]` and
 graphs bind to them via `trigger = reactor("name")` (see [Reactor
-Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}})),
+Lifecycle]({{< ref "/engine/explanation/reactor-lifecycle" >}})),
 so the "synthesized-reactor" form this method historically described no
 longer exists. The metadata still carries name, reaction mode (`when_any`
 / `when_all`), input strategy (`latest` / `sequential`), and accumulator

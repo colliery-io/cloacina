@@ -56,4 +56,4 @@ raw = ctx.get("raw")
 ## See also
 
 - [Task]({{< ref "/engine/workflows/task" >}}) · [Workflow]({{< ref "/engine/workflows/workflow" >}}) · [Runner]({{< ref "/engine/workflows/runner" >}})
-- [Context management]({{< ref "/workflows/explanation/context-management" >}}) (design)
+- [Context management]({{< ref "/engine/explanation/context-management" >}}) (design)

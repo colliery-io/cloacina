@@ -20,11 +20,11 @@ problem, see [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}).
   [conditional retries]({{< ref "/workflows/how-to-guides/conditional-retries" >}}).
 - **Content-versioned workflows** — a workflow's version is derived from its task
   code and structure, so changes are explicit and safe. See
-  [Workflow Versioning]({{< ref "/workflows/explanation/workflow-versioning" >}}).
+  [Workflow Versioning]({{< ref "/engine/explanation/workflow-versioning" >}}).
 - **Async-first** — built on Tokio; blocking work is offloaded explicitly.
 - **Conditional task execution** — per-task trigger rules (`all` / `any` / `none`
   over upstream task states) enable branching and conditional fan-in. See
-  [Trigger Rules]({{< ref "/workflows/explanation/trigger-rules" >}}).
+  [Trigger Rules]({{< ref "/engine/explanation/trigger-rules" >}}).
 - **External config & secrets** — reference connections, secrets, and config by
   name and resolve them from `CLOACINA_VAR_*` environment variables at runtime
   (`cloaca.var()` / `var_or()`). See
@@ -68,7 +68,7 @@ first if those terms are new.
 ## Scheduling & triggers
 
 - **Cron schedules** — run workflows on a schedule; see
-  [Cron Scheduling]({{< ref "/workflows/explanation/cron-scheduling" >}}).
+  [Cron Scheduling]({{< ref "/engine/explanation/cron-scheduling" >}}).
 - **Event triggers** — start work from external events; see
   [Event Triggers]({{< ref "/python/workflows/tutorials/07-event-triggers" >}}).
 

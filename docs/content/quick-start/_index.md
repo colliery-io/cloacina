@@ -32,7 +32,7 @@ Get oriented first:
 - [When to Use Cloacina]({{< ref "when-to-use" >}}) — does it fit your problem, and which mode/primitive?
 - [Features Overview]({{< ref "features" >}}) — the full capability catalog.
 - [Concepts]({{< ref "concepts" >}}) — the core primitives, defined.
-- [Architecture Overview]({{< ref "/workflows/explanation/architecture-overview" >}}) — the design rationale.
+- [Architecture Overview]({{< ref "/engine/explanation/architecture-overview" >}}) — the design rationale.
 
 **Just want to see it run?** The fastest "watch real executions" path is to
 [deploy a server]({{< ref "/service/tutorials/01-deploy-a-server" >}}) and open

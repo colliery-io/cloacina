@@ -533,5 +533,5 @@ The `~/.cloacina/` directory (configurable via `--home`) holds:
 - [HTTP API Reference]({{< ref "/reference/http-api" >}}) — endpoints exposed by `cloacinactl server start`.
 - [Configuration Reference]({{< ref "/reference/configuration" >}}) — `DefaultRunnerConfig` builder details.
 - [Environment Variables Reference]({{< ref "/reference/environment-variables" >}}) — full env var list.
-- [Cron Scheduling Architecture]({{< ref "/workflows/explanation/cron-scheduling" >}}) — how the daemon processes cron schedules.
+- [Cron Scheduling Architecture]({{< ref "/engine/explanation/cron-scheduling" >}}) — how the daemon processes cron schedules.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — what the daemon's reconciler does after detecting a new package.

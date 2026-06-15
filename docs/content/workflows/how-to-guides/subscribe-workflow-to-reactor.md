@@ -23,13 +23,13 @@ The two paths coexist:
 
 Both paths are dispatched off the same reactor firing — the in-process fast path fires synchronously inside the reactor's loop; the DB path writes a row into `reactor_firings` and a separate poll loop dispatches the workflow subscribers. The reactor itself doesn't know who its subscribers are; subscribers declare the reactor as their upstream by name. This is the **upstream-declaration pattern**.
 
-For the conceptual rationale — why DB-backed, what at-least-once means, how it composes with the in-process path — see [Subscription fan-out]({{< ref "/computation-graphs/explanation/subscription-fan-out" >}}).
+For the conceptual rationale — why DB-backed, what at-least-once means, how it composes with the in-process path — see [Subscription fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}}).
 
 ## Prerequisites
 
 - A reactor exists somewhere in your deployment (declared in a packaged or embedded `#[reactor(...)]`). You'll reference it by string name.
 - A workflow you want to fire on the reactor's firings.
-- The reactor must be loaded by the time the workflow trigger registers — the subscription registers eagerly and will error if the reactor name doesn't resolve at startup. (For cross-package deployments, package load order matters; see [reactor-lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}}).)
+- The reactor must be loaded by the time the workflow trigger registers — the subscription registers eagerly and will error if the reactor name doesn't resolve at startup. (For cross-package deployments, package load order matters; see [reactor-lifecycle]({{< ref "/engine/explanation/reactor-lifecycle" >}}).)
 
 ## Steps
 
@@ -144,7 +144,7 @@ For the workflow execution side, the existing `cloacina_workflows_total{status, 
 
 ## See also
 
-- [Subscription fan-out]({{< ref "/computation-graphs/explanation/subscription-fan-out" >}}) — conceptual model (deferred from DOC-F; may be a stub at time of reading).
+- [Subscription fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}}) — conceptual model (deferred from DOC-F; may be a stub at time of reading).
 - [Filter reactor firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}) — focused recipe for the predicate side (DOC-F deliverable).
 - [Reactor-triggered workflows]({{< ref "/computation-graphs/how-to-guides/reactor-triggered-workflows" >}}) — the existing CG-side how-to with the dual-path topology overview.
 - [Tutorial 09 — Event Triggers]({{< ref "/workflows/tutorials/service/09-event-triggers" >}}) — the in-process `Trigger` trait alternative.

@@ -17,7 +17,7 @@ over the same Rust engine the [`cloacina` crate]({{< ref "/workflows" >}}) uses,
 with full surface parity. The same primitives, packaging format, and database
 model apply; where the Python ergonomics differ (decorators + a builder vs.
 macros, owned values vs. borrows, the GIL), the
-[Python Runtime Architecture]({{< ref "/python/workflows/explanation/python-runtime-architecture" >}})
+[Python Runtime Architecture]({{< ref "/python/engine/explanation/python-runtime-architecture" >}})
 explains why. Concepts and platform/operations docs in the Rust-side sections
 apply to Python deployments too.
 
@@ -48,14 +48,14 @@ The Python section mirrors the Rust split: workflows on one side, computation gr
 - [Workflows · Tutorials]({{< ref "/python/workflows/tutorials" >}}) — 00 — basic-workflow through 08 — packaged-triggers.
 - [Workflows · How-to Guides]({{< ref "/python/workflows/how-to-guides" >}}) — Backend selection, testing, packaging, performance.
 - [Workflows · Reference]({{< ref "/python/workflows/reference" >}}) — Python-specific reference material.
-- [Workflows · Explanation]({{< ref "/python/workflows/explanation" >}}) — Python runtime architecture, PyO3 boundary, GIL trade-offs.
+- [Workflows · Explanation]({{< ref "/python/engine/explanation" >}}) — Python runtime architecture, PyO3 boundary, GIL trade-offs.
 
 ### Computation Graphs
 
 - [Computation Graphs · Tutorials]({{< ref "/python/computation-graphs/tutorials" >}}) — Tutorials 09–11 mirroring the Rust library tutorials.
 - [Computation Graphs · How-to Guides]({{< ref "/python/computation-graphs/how-to-guides" >}}) — Packaging, reactor-subscription filtering.
 - [Computation Graphs · Reference]({{< ref "/python/computation-graphs/reference" >}}) — Topology dict schema and other Python-specific reference.
-- [Computation Graphs · Explanation]({{< ref "/python/computation-graphs/explanation" >}}) — How the Python decorators map onto the Rust macro family.
+- [Computation Graphs · Explanation]({{< ref "/python/engine/explanation" >}}) — How the Python decorators map onto the Rust macro family.
 
 ### API
 

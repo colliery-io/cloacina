@@ -175,6 +175,6 @@ The performance tests reveal that per-task overhead (scheduling, database writes
 
 ## Related Resources
 
-- [Explanation: Task Execution Sequence]({{< ref "/workflows/explanation/task-execution-sequence/" >}})
+- [Explanation: Task Execution Sequence]({{< ref "/engine/explanation/task-execution-sequence/" >}})
 - [Explanation: Database Backends]({{< ref "/service/explanation/database-backends/" >}})
 - [Examples: Performance Tests](https://github.com/colliery-io/cloacina/tree/main/examples/performance)

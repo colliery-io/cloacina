@@ -6,7 +6,7 @@ weight: 40
 
 # Python Workflow Explanation
 
-Conceptual material — the why behind the Python surface. For the underlying Rust model, the [Rust workflow explanations]({{< ref "/workflows/explanation" >}}) apply verbatim; this section adds Python-specific concerns.
+Conceptual material — the why behind the Python surface. For the underlying Rust model, the [Rust workflow explanations]({{< ref "/engine/explanation" >}}) apply verbatim; this section adds Python-specific concerns.
 
 ## In this section
 
@@ -14,4 +14,4 @@ Conceptual material — the why behind the Python surface. For the underlying Ru
 
 ## See also
 
-- [Rust · Workflow Explanation]({{< ref "/workflows/explanation" >}}) — every doc here applies to Python as well; the Python module is a thin wrapper over the same runtime.
+- [Rust · Workflow Explanation]({{< ref "/engine/explanation" >}}) — every doc here applies to Python as well; the Python module is a thin wrapper over the same runtime.

@@ -70,7 +70,7 @@ with cloaca.WorkflowBuilder("greeting") as builder:
 
 - **Naming:** the name you register is the name you pass to `run`/`execute`.
 - **Versioning:** content-derived; redefining a workflow's tasks changes its
-  version. See [Workflow Versioning]({{< ref "/workflows/explanation/workflow-versioning" >}}).
+  version. See [Workflow Versioning]({{< ref "/engine/explanation/workflow-versioning" >}}).
 - **Validation:** the DAG is validated when built — missing tasks, cycles, and
   unresolvable dependencies are rejected.
 - **Execution semantics:** at-least-once with recovery; tasks must be idempotent

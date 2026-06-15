@@ -39,8 +39,8 @@ Drift between the two surfaces is treated as a bug — a Rust capability missing
 
 ## See also
 
-- [Rust · Workflow Architecture Overview]({{< ref "/workflows/explanation/architecture-overview" >}}).
-- [Rust · Macro System]({{< ref "/workflows/explanation/macro-system" >}}).
+- [Rust · Workflow Architecture Overview]({{< ref "/engine/explanation/architecture-overview" >}}).
+- [Rust · Macro System]({{< ref "/engine/explanation/macro-system" >}}).
 - [Python · API Reference]({{< ref "/reference/python-api" >}}).
 - **CLOACI-T-0529** — Python crate split (carve PyO3 leakage out of `cloacina`).
 - **CLOACI-T-0532** — Python wheel / packaging cleanup.

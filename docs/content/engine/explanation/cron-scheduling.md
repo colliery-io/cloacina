@@ -582,4 +582,4 @@ impl CronExecutor {
 - [Cron Scheduling Tutorial]({{< ref "/workflows/tutorials/service/05-cron-scheduling/" >}}) - Practical implementation guide
 - [Python Cron Tutorial]({{< ref "/python/workflows/tutorials/05-cron-scheduling/" >}}) - Python-specific examples
 - [Multi-Tenant Setup Guide]({{< ref "/workflows/how-to-guides/multi-tenant-setup/" >}}) - Deployment best practices
-- [Guaranteed Execution Architecture]({{< ref "/workflows/explanation/guaranteed-execution-architecture/" >}}) - Overall execution guarantees
+- [Guaranteed Execution Architecture]({{< ref "/engine/explanation/guaranteed-execution-architecture/" >}}) - Overall execution guarantees

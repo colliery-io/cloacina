@@ -364,13 +364,13 @@ partial unloads — see [Safely Unload a Package]({{< ref "/service/how-to/safel
 
 ## Where to go next
 
-- [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}})
+- [Reactor Lifecycle]({{< ref "/engine/explanation/reactor-lifecycle" >}})
   — the dual-layer reactor teardown (scheduler-side + Runtime-side
   constructor cleanup) and why both arms exist.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}})
   — the six-step ordering and why step 3 (reactors) must precede
   step 5 (reactor-bound CGs).
-- [Trigger-less Computation Graphs]({{< ref "/computation-graphs/explanation/trigger-less-graphs" >}})
+- [Trigger-less Computation Graphs]({{< ref "/engine/explanation/trigger-less-graphs" >}})
   — the *other* CG model: graphs invoked by workflow tasks rather
   than by reactor events.
 - [Safely Unload a Package]({{< ref "/service/how-to/safely-unload-a-package" >}})

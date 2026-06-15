@@ -12,7 +12,7 @@ Definitions of key terms and concepts used throughout the Cloacina ecosystem.
 
 ### Accumulator
 
-A long-lived component that connects to an external data source, receives events, and buffers them for consumption by computation graphs. Accumulators transform raw events into typed boundary values and push them to the reactor. See [Accumulator Design]({{< ref "/computation-graphs/explanation/accumulator-design" >}}).
+A long-lived component that connects to an external data source, receives events, and buffers them for consumption by computation graphs. Accumulators transform raw events into typed boundary values and push them to the reactor. See [Accumulator Design]({{< ref "/engine/explanation/accumulator-design" >}}).
 
 ### ApiError
 
@@ -28,7 +28,7 @@ A data change event emitted by a detector, representing new data available for p
 
 ### Claim
 
-A database-level lock mechanism that prevents multiple runners from executing the same task simultaneously. When a runner picks up a task, it writes a claim row with its identity and a heartbeat timestamp. Stale claims from crashed runners are swept by the scheduler. See [Guaranteed Cron Scheduling]({{< ref "/workflows/explanation/guaranteed-execution-architecture" >}}).
+A database-level lock mechanism that prevents multiple runners from executing the same task simultaneously. When a runner picks up a task, it writes a claim row with its identity and a heartbeat timestamp. Stale claims from crashed runners are swept by the scheduler. See [Guaranteed Cron Scheduling]({{< ref "/engine/explanation/guaranteed-execution-architecture" >}}).
 
 ### Cloaca
 
@@ -36,7 +36,7 @@ The Python bindings package for Cloacina. Cloaca exposes Cloacina's workflow orc
 
 ### Cloacina
 
-The core Rust workflow orchestration and computation graph engine. Cloacina provides DAG-based workflow execution, computation graphs, cron scheduling, multi-tenancy, and a packaging system for distributable workflows. See [Architecture Overview]({{< ref "/workflows/explanation/architecture-overview" >}}).
+The core Rust workflow orchestration and computation graph engine. Cloacina provides DAG-based workflow execution, computation graphs, cron scheduling, multi-tenancy, and a packaging system for distributable workflows. See [Architecture Overview]({{< ref "/engine/explanation/architecture-overview" >}}).
 
 ### `cloacinactl`
 
@@ -52,7 +52,7 @@ The HTTP + WebSocket service that hosts loaded packaged workflows, tenants, and 
 
 ### `cloacina-python` / Cloaca
 
-The Rust crate (`cloacina-python`) that produces the Python `cloaca` PyPI wheel. Per CLOACI-T-0529 / CLOACI-T-0532, the Python bindings live in a dedicated crate so the core `cloacina` library does not depend on PyO3. The Python surface tracks the Rust surface 1:1 (`@cloaca.task` ↔ `#[task]`, etc.). See [Python · Workflows · Explanation · Python Runtime Architecture]({{< ref "/python/workflows/explanation/python-runtime-architecture" >}}).
+The Rust crate (`cloacina-python`) that produces the Python `cloaca` PyPI wheel. Per CLOACI-T-0529 / CLOACI-T-0532, the Python bindings live in a dedicated crate so the core `cloacina` library does not depend on PyO3. The Python surface tracks the Rust surface 1:1 (`@cloaca.task` ↔ `#[task]`, etc.). See [Python · Workflows · Explanation · Python Runtime Architecture]({{< ref "/python/engine/explanation/python-runtime-architecture" >}}).
 
 ### `complete_task_transaction`
 
@@ -64,15 +64,15 @@ A [CEL](https://github.com/google/cel-spec) expression attached to a workflow's 
 
 ### Computation Graph
 
-An event-driven, streaming computation model where nodes process data flowing through directed edges. Unlike workflows, computation graphs are in-process and compiled, firing as a single traversal when reaction criteria are met, processing correlated data from multiple sources in a single execution. See [Computation Graph Architecture]({{< ref "/computation-graphs/explanation/architecture" >}}).
+An event-driven, streaming computation model where nodes process data flowing through directed edges. Unlike workflows, computation graphs are in-process and compiled, firing as a single traversal when reaction criteria are met, processing correlated data from multiple sources in a single execution. See [Computation Graph Architecture]({{< ref "/engine/explanation/architecture" >}}).
 
 ### Context
 
-A key-value data container that flows between tasks in a workflow, accumulating results as tasks complete. Each task receives the context from its predecessors and can insert new values for downstream tasks. Context is persisted to the database between task executions. See [Context System]({{< ref "/workflows/explanation/context-management" >}}).
+A key-value data container that flows between tasks in a workflow, accumulating results as tasks complete. Each task receives the context from its predecessors and can insert new values for downstream tasks. Context is persisted to the database between task executions. See [Context System]({{< ref "/engine/explanation/context-management" >}}).
 
 ### Cron Schedule
 
-A time-based trigger using cron expressions to execute workflows on a recurring basis. Cloacina's cron system supports guaranteed execution semantics, ensuring missed schedules are caught up after outages. See [Cron Scheduling Architecture]({{< ref "/workflows/explanation/cron-scheduling" >}}).
+A time-based trigger using cron expressions to execute workflows on a recurring basis. Cloacina's cron system supports guaranteed execution semantics, ensuring missed schedules are caught up after outages. See [Cron Scheduling Architecture]({{< ref "/engine/explanation/cron-scheduling" >}}).
 
 ### DAG
 
@@ -96,7 +96,7 @@ A component that monitors data sources and emits boundaries when new data arrive
 
 ### Dispatcher
 
-The component that routes ready tasks from the scheduler to executor slots. The dispatcher bridges scheduling decisions and actual execution, ensuring tasks are only dispatched when concurrency permits are available. See [Dispatcher Architecture]({{< ref "/workflows/explanation/dispatcher-architecture" >}}).
+The component that routes ready tasks from the scheduler to executor slots. The dispatcher bridges scheduling decisions and actual execution, ensuring tasks are only dispatched when concurrency permits are available. See [Dispatcher Architecture]({{< ref "/engine/explanation/dispatcher-architecture" >}}).
 
 ### Entry Node
 
@@ -116,7 +116,7 @@ Foreign Function Interface. The mechanism for loading packaged workflows as dyna
 
 ### Filtered subscription
 
-A reactor → workflow subscription with an attached CEL predicate. Only firings where the predicate evaluates to `true` cause a workflow dispatch; filtered-out firings advance the subscription's watermark and are not re-evaluated. See [Filter Reactor Firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}) and [Subscription Fan-out]({{< ref "/computation-graphs/explanation/subscription-fan-out" >}}).
+A reactor → workflow subscription with an attached CEL predicate. Only firings where the predicate evaluates to `true` cause a workflow dispatch; filtered-out firings advance the subscription's watermark and are not re-evaluated. See [Filter Reactor Firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}) and [Subscription Fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}}).
 
 ### fidius
 
@@ -176,7 +176,7 @@ The runtime orchestrator for computation graphs. The reactor owns the InputCache
 
 ### Reconciler
 
-A background service that periodically scans the package registry, loads newly registered packages, and makes their workflows available for execution. The reconciler handles the FFI loading of dynamic libraries and wires up the packaged workflows into the runner. See [Packaging & FFI]({{< ref "/computation-graphs/explanation/packaging" >}}).
+A background service that periodically scans the package registry, loads newly registered packages, and makes their workflows available for execution. The reconciler handles the FFI loading of dynamic libraries and wires up the packaged workflows into the runner. See [Packaging & FFI]({{< ref "/engine/explanation/packaging" >}}).
 
 ### Reconciler Pipeline
 
@@ -185,7 +185,7 @@ The six-step ordered load sequence the reconciler executes per package:
 
 ### Reactor Unload
 
-The teardown half of a reactor's lifecycle. It runs at two layers: (1) scheduler-side, where the running reactor task is stopped, accumulators are torn down, and endpoint-registry keys are deregistered (`ComputationGraphScheduler::unload_reactor`); and (2) runtime-side, where the reactor *constructor* is removed from the host `Runtime` registry (`Runtime::unregister_reactor`). Without the second arm, hot-reloading the same package leaves a stale constructor entry. The bound-subscriber guard rejects unload if any cross-package CG is still subscribed, so subscribers must be unloaded first. See [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}}).
+The teardown half of a reactor's lifecycle. It runs at two layers: (1) scheduler-side, where the running reactor task is stopped, accumulators are torn down, and endpoint-registry keys are deregistered (`ComputationGraphScheduler::unload_reactor`); and (2) runtime-side, where the reactor *constructor* is removed from the host `Runtime` registry (`Runtime::unregister_reactor`). Without the second arm, hot-reloading the same package leaves a stale constructor entry. The bound-subscriber guard rejects unload if any cross-package CG is still subscribed, so subscribers must be unloaded first. See [Reactor Lifecycle]({{< ref "/engine/explanation/reactor-lifecycle" >}}).
 
 ### Recovery
 
@@ -229,7 +229,7 @@ The error type returned by task functions when execution fails. Variants include
 
 ### TaskHandle
 
-An optional second parameter on task functions that provides execution control capabilities. The primary use is `defer_until`, which releases the task's concurrency slot while waiting for an external condition, then reacquires it when ready to resume. See [Task Deferral]({{< ref "/workflows/explanation/task-deferral" >}}).
+An optional second parameter on task functions that provides execution control capabilities. The primary use is `defer_until`, which releases the task's concurrency slot while waiting for an external condition, then reacquires it when ready to resume. See [Task Deferral]({{< ref "/engine/explanation/task-deferral" >}}).
 
 ### Terminal Node
 
@@ -245,11 +245,11 @@ A polling-based mechanism that fires workflows when external conditions are met.
 
 ### Trigger Rule
 
-Conditional execution criteria for individual tasks within a workflow. Trigger rules override the default behavior (run when all dependencies succeed) with alternatives such as `task_success` (specific task succeeded), `task_failed` (run on failure), or `context_value` (run when context contains a specific key/value). See [Trigger Rules]({{< ref "/workflows/explanation/trigger-rules" >}}).
+Conditional execution criteria for individual tasks within a workflow. Trigger rules override the default behavior (run when all dependencies succeed) with alternatives such as `task_success` (specific task succeeded), `task_failed` (run on failure), or `context_value` (run when context contains a specific key/value). See [Trigger Rules]({{< ref "/engine/explanation/trigger-rules" >}}).
 
 ### Trigger-Less Computation Graph
 
-A computation graph that is *not* bound to a reactor and is not driven by accumulator boundaries. Instead of being fired by upstream events, it is invoked directly by a workflow task (via `#[task(invokes = "graph_name")]`) or by a Python task. The graph's entry nodes receive workflow context as input rather than `InputCache` boundaries, and terminal outputs are written back into the post-invocation context by name. Surfaced over the FFI vtable via `METHOD_GET_TRIGGERLESS_GRAPH_METADATA` (index 7) and `METHOD_INVOKE_TRIGGERLESS_GRAPH` (index 8). See [Trigger-less Computation Graphs]({{< ref "/computation-graphs/explanation/trigger-less-graphs" >}}).
+A computation graph that is *not* bound to a reactor and is not driven by accumulator boundaries. Instead of being fired by upstream events, it is invoked directly by a workflow task (via `#[task(invokes = "graph_name")]`) or by a Python task. The graph's entry nodes receive workflow context as input rather than `InputCache` boundaries, and terminal outputs are written back into the post-invocation context by name. Surfaced over the FFI vtable via `METHOD_GET_TRIGGERLESS_GRAPH_METADATA` (index 7) and `METHOD_INVOKE_TRIGGERLESS_GRAPH` (index 8). See [Trigger-less Computation Graphs]({{< ref "/engine/explanation/trigger-less-graphs" >}}).
 
 ### UniversalUuid
 
@@ -265,7 +265,7 @@ The trust root for package signatures. When a server is started with `--require-
 
 ### Workflow
 
-A collection of tasks with defined dependencies forming a DAG. A workflow is registered with a runner by name and can be executed multiple times concurrently. Each execution produces an independent Context and tracks its own task states. See [Architecture Overview]({{< ref "/workflows/explanation/architecture-overview" >}}).
+A collection of tasks with defined dependencies forming a DAG. A workflow is registered with a runner by name and can be executed multiple times concurrently. Each execution produces an independent Context and tracks its own task states. See [Architecture Overview]({{< ref "/engine/explanation/architecture-overview" >}}).
 
 ### WorkflowExecutor
 

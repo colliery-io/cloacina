@@ -144,7 +144,7 @@ pub async fn wait_for_file(
 | `is_slot_held` | `fn(&self) -> bool` | Whether the handle currently holds a concurrency slot |
 | `task_execution_id` | `fn(&self) -> UniversalUuid` | The task execution ID for this invocation |
 
-See [Task Deferral Architecture]({{< ref "/workflows/explanation/task-deferral" >}}) for the full lifecycle and [Tutorial 10]({{< ref "/workflows/tutorials/service/10-task-deferral" >}}) for a walkthrough.
+See [Task Deferral Architecture]({{< ref "/engine/explanation/task-deferral" >}}) for the full lifecycle and [Tutorial 10]({{< ref "/workflows/tutorials/service/10-task-deferral" >}}) for a walkthrough.
 
 ### Generated Code
 
@@ -314,6 +314,6 @@ let fp = task.code_fingerprint(); // Returns Option<String>
 
 ## See Also
 
-- [Cron Scheduling Architecture]({{< ref "/workflows/explanation/cron-scheduling" >}}) -- how cron triggers are evaluated
+- [Cron Scheduling Architecture]({{< ref "/engine/explanation/cron-scheduling" >}}) -- how cron triggers are evaluated
 - [Errors Reference]({{< ref "errors" >}}) -- `TaskError`, `TriggerError` variants
 - [cloacina-testing API]({{< ref "testing-crate" >}}) -- testing tasks without a database

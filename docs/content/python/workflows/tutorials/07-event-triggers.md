@@ -525,7 +525,7 @@ In this tutorial, you learned:
 
 ## Related Resources
 
-- [Explanation: Trigger Rules]({{< ref "/workflows/explanation/trigger-rules/" >}}) - Deep dive into trigger architecture
+- [Explanation: Trigger Rules]({{< ref "/engine/explanation/trigger-rules/" >}}) - Deep dive into trigger architecture
 - [Tutorial 05: Cron Scheduling]({{< ref "/python/workflows/tutorials/05-cron-scheduling/" >}}) - Time-based scheduling
 - [API Reference: Task Decorator]({{< ref "/reference/python-api/task/" >}}) - Complete task options
 

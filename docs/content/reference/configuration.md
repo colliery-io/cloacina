@@ -258,5 +258,5 @@ Overrides for ad-hoc/direct runs use `cloacina-server --default-executor <key>`,
 - [CLI Reference]({{< ref "cli" >}}) -- config.toml schema and `config get/set/list` commands
 - [Environment Variables]({{< ref "environment-variables" >}}) -- full env-var reference (server, compiler, daemon, install script)
 - [Metrics Catalog]({{< ref "metrics-catalog" >}}) -- `cloacina_*` metric surface emitted by configured runners
-- [Cron Scheduling Architecture]({{< ref "/workflows/explanation/cron-scheduling" >}}) -- how cron config affects scheduling behavior
+- [Cron Scheduling Architecture]({{< ref "/engine/explanation/cron-scheduling" >}}) -- how cron config affects scheduling behavior
 - [DatabaseAdmin API]({{< ref "database-admin" >}}) -- multi-tenant database setup

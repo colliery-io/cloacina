@@ -109,6 +109,6 @@ with cloaca.ComputationGraphBuilder(
 
 ## See also
 
-- [Python CG Decorator Surface]({{< ref "/python/computation-graphs/explanation/python-cg-decorator-surface" >}}) — the decorators these nodes use.
+- [Python CG Decorator Surface]({{< ref "/python/engine/explanation/python-cg-decorator-surface" >}}) — the decorators these nodes use.
 - [Computation Graph (Rust reference)]({{< ref "/computation-graphs/reference/computation-graphs" >}}) — the `graph = { ... }` macro this dict mirrors.
 - [Python · CG · Tutorial 09]({{< ref "/python/computation-graphs/tutorials/09-computation-graph" >}}) — a first concrete example.

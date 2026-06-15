@@ -69,4 +69,4 @@ for the conceptual detail.
 ## See also
 
 - [Filter Reactor Firings with CEL (Rust)]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}})
-- [Subscription Fan-out]({{< ref "/computation-graphs/explanation/subscription-fan-out" >}})
+- [Subscription Fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}})

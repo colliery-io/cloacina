@@ -135,5 +135,5 @@ component is permanently abandoned).
 ## Related
 
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — step 3 detail.
-- [Computation Graph Scheduling]({{< ref "/computation-graphs/explanation/computation-graph-scheduling" >}}) — runtime model.
+- [Computation Graph Scheduling]({{< ref "/engine/explanation/computation-graph-scheduling" >}}) — runtime model.
 - [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}) — methods 4 (`get_reactor_metadata`) and the rest.

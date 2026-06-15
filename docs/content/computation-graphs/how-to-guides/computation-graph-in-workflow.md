@@ -217,5 +217,5 @@ mod nightly_report {
 
 - [Tutorial 07 — Your First Computation Graph]({{< ref "/computation-graphs/tutorials/library/07-computation-graph" >}}) — the standalone, reactor-bound form.
 - [Tutorial 09 — Full Multi-Source Pipeline]({{< ref "/computation-graphs/tutorials/library/09-full-pipeline" >}}) — when the graph traversal is the quantum.
-- [Trigger-less Graphs (explanation)]({{< ref "/computation-graphs/explanation/trigger-less-graphs" >}}) — design notes on why trigger-less graphs are a first-class primitive.
+- [Trigger-less Graphs (explanation)]({{< ref "/engine/explanation/trigger-less-graphs" >}}) — design notes on why trigger-less graphs are a first-class primitive.
 - [CLOACI-S-0011 — Cloacina primitive nomenclature](https://github.com/colliery-io/cloacina/blob/main/.metis/specs/CLOACI-S-0011.md) — the two execution quanta and where this pattern fits.

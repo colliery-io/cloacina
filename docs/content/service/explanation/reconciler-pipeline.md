@@ -64,7 +64,7 @@ Per package, on **load**:
 - Trigger-less CGs unregistered.
 - Reactors torn down (scheduler-side `unload_reactor()` plus the
   runtime-side constructor cleanup; see [Reactor
-  Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}})).
+  Lifecycle]({{< ref "/engine/explanation/reactor-lifecycle" >}})).
 - Custom triggers unregistered from the polling scheduler.
 - Cron schedules deleted from the database.
 
@@ -140,5 +140,5 @@ vs. database-polled rows.
 ## Related
 
 - [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}) — the methods the reconciler calls in each step.
-- [Reactor Lifecycle]({{< ref "/computation-graphs/explanation/reactor-lifecycle" >}}) — step 3 detail.
+- [Reactor Lifecycle]({{< ref "/engine/explanation/reactor-lifecycle" >}}) — step 3 detail.
 - [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}) — how step 6 differs between embedded and packaged paths.

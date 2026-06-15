@@ -14,7 +14,7 @@ it through the same path as a Rust-authored graph. This how-to packages the
 
 ## Prerequisites
 
-- A Python computation graph (see [Python CG Decorator Surface]({{< ref "/python/computation-graphs/explanation/python-cg-decorator-surface" >}})).
+- A Python computation graph (see [Python CG Decorator Surface]({{< ref "/python/engine/explanation/python-cg-decorator-surface" >}})).
 - `cloacinactl` installed, and a running server to upload to.
 
 ## Step 1: Lay out the package

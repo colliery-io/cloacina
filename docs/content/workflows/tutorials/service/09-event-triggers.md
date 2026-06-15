@@ -528,5 +528,5 @@ You've learned how to:
 
 ## Next Steps
 
-- Review the [Trigger Rules]({{< ref "/workflows/explanation/trigger-rules/" >}}) explanation for deeper understanding
+- Review the [Trigger Rules]({{< ref "/engine/explanation/trigger-rules/" >}}) explanation for deeper understanding
 - Check `examples/features/event-triggers/` for a full working example

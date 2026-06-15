@@ -54,4 +54,4 @@ runner.delete_cron_schedule(schedule_id)
 
 ## See also
 
-- [Trigger]({{< ref "/engine/scheduling/trigger" >}}) · [Cron scheduling (design)]({{< ref "/workflows/explanation/cron-scheduling" >}})
+- [Trigger]({{< ref "/engine/scheduling/trigger" >}}) · [Cron scheduling (design)]({{< ref "/engine/explanation/cron-scheduling" >}})
