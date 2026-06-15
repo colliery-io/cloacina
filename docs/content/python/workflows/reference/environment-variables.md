@@ -14,10 +14,9 @@ The Python runner (`cloaca.DefaultRunner`) reads the same environment variables 
 
 ## No separate `CLOACA_*` prefix
 
-There is **no** distinct `CLOACA_*` environment-variable namespace. The Python
-module reads the same variables as the Rust runtime; the only Cloacina-defined
-convention is `CLOACINA_VAR_*` (the variable registry, below). Any `CLOACA_*`
-reference in older docs is incorrect.
+There is no distinct `CLOACA_*` environment-variable namespace. The Python module
+reads the same variables as the Rust runtime; the only Cloacina-defined
+convention is `CLOACINA_VAR_*` (the variable registry, below).
 
 ## Registry variables (`CLOACINA_VAR_*`)
 

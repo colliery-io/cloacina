@@ -48,6 +48,19 @@ to that downstream node. For example, a node with
 
 Non-routing nodes return their output value directly.
 
+## Node function arguments
+
+How a node's `@cloaca.node` function is called depends on its place in the graph:
+
+- **Entry nodes** (those with `inputs`) receive one argument **per declared input**,
+  in `inputs` order, named to match — e.g. `inputs: ["orderbook", "pricing"]` →
+  `def decision(orderbook, pricing):`. An input with no data yet is passed as
+  `None`.
+- **Downstream nodes** (reached via `next`/`routes`) receive a **single positional
+  argument**: the value the upstream node produced — for a routing edge, the dict
+  from the upstream's `(variant, value)` tuple. The parameter name is yours to
+  choose (it is positional); e.g. `def signal_handler(signal):`.
+
 ## Validation
 
 The builder validates the topology when the `with` block exits and raises if:

@@ -27,7 +27,7 @@ runner.subscribe_workflow_to_reactor("pricing", "alert_workflow")
 runner.subscribe_workflow_to_reactor(
     "pricing",
     "alert_workflow",
-    when="payload.quote.price > 100 && payload.quote.region == 'us-east'",
+    when="payload.pricing.price > 100 && payload.pricing.region == 'us-east'",
 )
 ```
 
@@ -49,7 +49,7 @@ The CEL expression evaluates against these variables:
 
 | Variable | Type | Meaning |
 |----------|------|---------|
-| `payload` | dict | The firing's boundary data, keyed by accumulator/source name |
+| `payload` | dict | The firing's boundary data. Top-level keys are accumulator/source names; nested keys are that source's fields — e.g. for a `pricing` accumulator, `payload.pricing.price`. |
 | `reactor` | str | The reactor name |
 | `tenant` | str | The tenant |
 

@@ -12,14 +12,14 @@ This page explains how the Python `cloaca` module fits onto the underlying Rust 
 
 The Python bindings live in a dedicated `cloacina-python` crate, distinct from the core `cloacina` crate. This split lets `cloacina` ship without PyO3 / maturin in its dependency closure — Python support is a build-time opt-in (`pip install cloaca`) rather than a feature flag on the base library.
 
-The wheel (`cloaca`) wraps `cloacina-python`, which depends on `cloacina` at the Rust source level. The Python surface you call (`cloaca.DefaultRunner`, `@cloaca.task`, `@cloaca.workflow`, etc.) is a PyO3 layer over the same Rust types the Rust crate exposes.
+The wheel (`cloaca`) wraps `cloacina-python`, which depends on `cloacina` at the Rust source level. The Python surface you call (`cloaca.DefaultRunner`, `@cloaca.task`, `cloaca.WorkflowBuilder`, etc.) is a PyO3 layer over the same Rust types the Rust crate exposes.
 
 ## The PyO3 boundary
 
 Every Python call crosses into Rust. Some implications:
 
 - **Tasks run in the Rust async executor**, not the Python event loop. Python `async def` tasks are still polled by the Rust runtime — the PyO3 binding wraps the coroutine and drives it on the tokio executor.
-- **Type marshalling is explicit.** Context values cross via JSON (or `serde_json::Value` equivalents in PyO3). Large/binary state should not round-trip through context for every task — use the DAL surface or pass references.
+- **Type marshalling is explicit.** Context values cross the boundary as JSON (or `serde_json::Value` equivalents in PyO3). Because that marshalling happens at every task boundary, large or binary state is expensive to round-trip through context repeatedly.
 - **The GIL is held while Python code runs.** Cloacina releases the GIL on async boundaries inside Rust (`Python::allow_threads`), but a single Python task body holds the GIL for its duration. Pure-CPU Python tasks will not parallelize across threads in the same way Rust tasks do.
 
 ## What "feature parity" means
@@ -35,7 +35,7 @@ Python is a first-class surface (see the user feedback memory: Python support is
 | `#[computation_graph(...)]` | `ComputationGraphBuilder` context manager |
 | `DefaultRunner` | `cloaca.DefaultRunner` |
 
-Drift between the two surfaces is treated as a bug. If you find a Rust capability missing in Python, file it as a parity gap.
+Drift between the two surfaces is treated as a bug — a Rust capability missing in Python is a parity gap, not an intended limitation.
 
 ## See also
 

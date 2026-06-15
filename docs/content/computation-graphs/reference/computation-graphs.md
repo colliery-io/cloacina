@@ -815,17 +815,13 @@ socket_tx.send(serialize(&my_event).unwrap()).await.unwrap();
 
 ## Runtime registration
 
-Registration is **inventory-driven**, not constructor-based. Each `#[reactor]`
-and `#[computation_graph]` macro emits an `inventory::submit!` entry at compile
-time (a `ReactorEntry` / `ComputationGraphEntry`; see
-[Registration & Discovery](#registration--discovery) above). At startup the
-runtime walks the collected inventory entries — `Runtime::seed_from_inventory()`
-in embedded mode — and registers each reactor and graph by name. In packaged
-mode the same entries are walked at FFI-load time via `cloacina::package!()`.
-
-This replaced the pre-CLOACI-I-0096 `#[ctor]`-based global registry: there is no
-`ctor` dependency and no manual `register_*`/`deregister_*` calls in user code —
-declaring the macros is sufficient for the runtime to discover them.
+Registration is inventory-driven. Each `#[reactor]` and `#[computation_graph]`
+macro emits an `inventory::submit!` entry (`ReactorEntry` /
+`ComputationGraphEntry`; see [Registration & Discovery](#registration--discovery)
+above). At startup the runtime registers each reactor and graph by name from
+those entries — `Runtime::seed_from_inventory()` in embedded mode, or walked at
+FFI-load time via `cloacina::package!()` in packaged mode. Declaring the macros
+is sufficient; no manual registration calls are required.
 
 ---
 

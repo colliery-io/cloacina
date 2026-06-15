@@ -55,9 +55,16 @@ input_strategy = "latest"      # or "sequential"
 requires_python = ">=3.10"
 ```
 
-`reaction_mode` and `input_strategy` are optional (they default to `when_any` /
-`latest`). Importing `entry_module` runs your decorators, which register the
-graph.
+Both are optional (defaults: `reaction_mode = "when_any"`, `input_strategy =
+"latest"`):
+
+- `reaction_mode` should match the `mode=` on your `@cloaca.reactor`
+  (`when_any` = fire when any accumulator has new data; `when_all` = wait for all).
+- `input_strategy` controls how queued boundaries are consumed: `latest`
+  collapses to the newest boundary (one execution on the most recent data);
+  `sequential` runs the graph once per boundary in order.
+
+Importing `entry_module` runs your decorators, which register the graph.
 
 ## Step 3: Validate and pack
 
