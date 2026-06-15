@@ -10,7 +10,7 @@ The workflow system is Cloacina's core orchestration engine. It schedules and ex
 
 **Who this is for:** developers building durable, multi-step task pipelines that
 must survive restarts and recover from failure. **Prerequisites:** the
-[Concepts]({{< ref "/quick-start/concepts" >}}) (task, workflow, context). These
+[Concepts]({{< ref "/start/concepts" >}}) (task, workflow, context). These
 docs are Rust-first; the same workflow surface is available in Python — see
 [Python · Workflows]({{< ref "/python/workflows" >}}).
 

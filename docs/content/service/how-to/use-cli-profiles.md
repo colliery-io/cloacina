@@ -10,7 +10,7 @@ weight: 82
 
 ## Prerequisites
 
-- `cloacinactl` installed (see [Installing cloacinactl]({{< ref "/quick-start/install" >}})).
+- `cloacinactl` installed (see [Installing cloacinactl]({{< ref "/start/install" >}})).
 - At least one API key for at least one server (or daemon) you want to target.
 
 ## Background

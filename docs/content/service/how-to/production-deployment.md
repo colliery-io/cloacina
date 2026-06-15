@@ -135,7 +135,7 @@ volumes:
 
 Before productionizing, confirm you're deploying the right shape — embedded
 library, local daemon, single server, or server + compiler + agent fleet. The
-[When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}#choosing-a-mode)
+[When to Use Cloacina]({{< ref "/start/is-cloacina-for-you" >}}#choosing-a-door)
 decision table maps each goal to a mode. This guide assumes the **server** shape;
 for the horizontally-scaled fleet see
 [Deploy an Execution Agent Fleet]({{< ref "/service/how-to/deploy-an-execution-agent-fleet" >}}).

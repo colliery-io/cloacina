@@ -10,7 +10,7 @@ The computation graph system is Cloacina's event-driven execution engine. It wir
 
 **Who this is for:** developers building event-driven, low-latency processing that
 reacts to a stream. **Prerequisites:** the
-[Concepts]({{< ref "/quick-start/concepts" >}}) (reactor, accumulator, computation
+[Concepts]({{< ref "/start/concepts" >}}) (reactor, accumulator, computation
 graph). These docs are Rust-first; the same surface is available in Python — see
 [Python · Computation Graphs]({{< ref "/python/computation-graphs" >}}).
 

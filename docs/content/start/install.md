@@ -1,7 +1,7 @@
 ---
 title: "Installing cloacinactl"
 description: "One-line install for the cloacinactl CLI (and bundled daemon subcommand)."
-weight: 5
+weight: 15
 ---
 
 # Installing `cloacinactl`

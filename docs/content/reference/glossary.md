@@ -40,7 +40,7 @@ The core Rust workflow orchestration and computation graph engine. Cloacina prov
 
 ### `cloacinactl`
 
-The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Install with `curl -fsSL https://get.cloacina.dev/install.sh | bash`. See [CLI Reference]({{< ref "/reference/cli" >}}) and [Installing cloacinactl]({{< ref "/quick-start/install" >}}).
+The operator + developer CLI. Provides noun-verb commands for tenants, keys, packages, executions, computation graphs, and configuration profiles, plus the daemon as a bundled subcommand (`cloacinactl daemon`). Install with `curl -fsSL https://get.cloacina.dev/install.sh | bash`. See [CLI Reference]({{< ref "/reference/cli" >}}) and [Installing cloacinactl]({{< ref "/start/install" >}}).
 
 ### `cloacina-compiler`
 
@@ -136,7 +136,7 @@ A map from SourceName to serialized bytes that feeds entry nodes in computation 
 
 ### Install script
 
-The one-line installer at `https://get.cloacina.dev/install.sh` (sourced from `install.sh` at the repo root). Downloads the latest release tarball for the host OS+arch from GitHub Releases, verifies its SHA256, and lands `cloacinactl` in `~/.cloacina/bin` (or `--prefix`). See [Installing cloacinactl]({{< ref "/quick-start/install" >}}).
+The one-line installer at `https://get.cloacina.dev/install.sh` (sourced from `install.sh` at the repo root). Downloads the latest release tarball for the host OS+arch from GitHub Releases, verifies its SHA256, and lands `cloacinactl` in `~/.cloacina/bin` (or `--prefix`). See [Installing cloacinactl]({{< ref "/start/install" >}}).
 
 ### Inventory (registration)
 

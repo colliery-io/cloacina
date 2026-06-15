@@ -1,14 +1,14 @@
 ---
 title: "Features Overview"
 description: "A catalog of what Cloacina can do, with links into the detailed docs."
-weight: 3
+weight: 14
 ---
 
 # Features Overview
 
 A single catalog of Cloacina's capabilities. Each item links to the detailed
 tutorial, how-to, reference, or explanation. For *whether* Cloacina fits your
-problem, see [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}).
+problem, see [When to Use Cloacina]({{< ref "/start/is-cloacina-for-you" >}}).
 
 ## Execution engine
 
@@ -46,7 +46,7 @@ problem, see [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}).
 
 ## Computation-graph capabilities
 
-These build on reactors and accumulators — see [Concepts]({{< ref "/quick-start/concepts" >}})
+These build on reactors and accumulators — see [Concepts]({{< ref "/start/concepts" >}})
 first if those terms are new.
 
 - **Accumulators** — adapters that turn an external stream or source into

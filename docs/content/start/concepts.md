@@ -1,7 +1,7 @@
 ---
 title: "Concepts"
 description: "The core Cloacina primitives and how they relate."
-weight: 4
+weight: 13
 ---
 
 # Concepts
@@ -52,7 +52,7 @@ what you read here matches what you see in every interface.
 
 ## Where to go next
 
-- [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}) — pick the right primitive and mode.
-- [Features Overview]({{< ref "/quick-start/features" >}}) — the full capability catalog.
+- [When to Use Cloacina]({{< ref "/start/is-cloacina-for-you" >}}) — pick the right primitive and mode.
+- [Features Overview]({{< ref "/start/features" >}}) — the full capability catalog.
 - [Workflows]({{< ref "/workflows" >}}) / [Computation Graphs]({{< ref "/computation-graphs" >}}) — the deep tracks.
 - [Glossary]({{< ref "/reference/glossary" >}}) — every term, precisely defined.
