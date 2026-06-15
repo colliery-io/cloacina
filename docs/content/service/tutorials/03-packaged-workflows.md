@@ -68,14 +68,8 @@ chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 ```
 
-{{< hint type=info title="Why cloacina-workflow?" >}}
-Workflow packages use **cloacina-workflow**, which contains only the types needed for workflow compilation:
-- `Context`, `Task`, `TaskError`, `RetryPolicy`
-- Fast compilation - no database drivers, no runtime dependencies
-- Smaller binary size
-
-The full `cloacina` crate is for host applications that load and execute workflow packages.
-{{< /hint >}}
+Packages depend on **cloacina-workflow** (compile-only workflow types), not the full
+`cloacina` crate — see [Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture" >}}).
 
 {{< hint type=warning title="Important Configuration Differences" >}}
 Workflow packages have different requirements:
@@ -210,120 +204,25 @@ pub mod data_processing {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_workflow_execution() {
-        let mut context = Context::new();
-
-        // Execute workflow steps in order
-        data_processing::collect_data(&mut context).await.unwrap();
-        data_processing::process_data(&mut context).await.unwrap();
-        data_processing::generate_report(&mut context)
-            .await
-            .unwrap();
-
-        // Verify final state
-        let report = context.get("final_report").unwrap();
-        assert!(report["report_id"].as_str().unwrap().starts_with("RPT_"));
-        assert_eq!(report["summary"]["total_processed"], 950);
-    }
-}
 ```
 
-## Understanding Workflow Package Code
+The key difference from an embedded workflow is the `package = "..."` argument on
+`#[workflow]` plus the `cdylib` crate type — together they make the macro emit the
+FFI exports a server needs to load the workflow at runtime. The task definitions
+inside the module are identical to the embedded form. See
+[Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture" >}})
+for why packages are built this way.
 
-Let's examine the key differences from embedded workflows:
+## Build and run
 
-### 1. The `#[workflow]` Macro
-
-```rust
-#[workflow(
-    name = "data_processing",
-    package = "simple_demo",
-    description = "Simple data processing workflow for demonstration",
-    author = "Cloacina Demo Team"
-)]
-```
-
-When compiled as a `cdylib` (with `features = ["packaged"]`), this macro:
-- **Generates FFI exports** for dynamic loading
-- **Creates metadata** for package identification
-- **Enables dynamic registration** with workflow registries
-- **Provides namespace isolation** for multi-tenant scenarios
-
-### 2. Module Structure
-
-```rust
-pub mod data_processing {
-    // Tasks go inside the module
-}
-```
-
-The workflow tasks must be defined inside the module created by the `#[workflow]` macro. This ensures proper namespacing and registration.
-
-### 3. Task Dependencies and Context Flow
-
-Our workflow demonstrates a typical data pipeline:
-- `collect_data` → `process_data` → `generate_report`
-- Each task receives data through context from previous tasks
-- Error handling ensures the pipeline fails gracefully if data is missing
-
-## Building and Testing Your Workflow Package
-
-Let's build and test the simple-packaged-demo:
+Build the package to a shared library, then run the end-to-end demo, which packages
+it, loads it through the registry, and executes it:
 
 ```bash
-# From the simple-packaged-demo directory
+# From the simple-packaged directory
 cargo build --release
-```
-
-This creates a shared library in your target directory:
-- **Linux**: `target/release/libsimple_packaged_demo.so`
-- **macOS**: `target/release/libsimple_packaged_demo.dylib`
-- **Windows**: `target/release/simple_packaged_demo.dll`
-
-## Running the Examples
-
-The demo includes several examples to demonstrate different aspects of workflow packages:
-
-### 1. Testing the Workflow Logic
-
-First, run the unit tests to verify the workflow logic:
-
-```bash
-cargo test
-```
-
-### 2. Package Creation Demo
-
-Run the packaging example to see how .cloacina packages are created:
-
-```bash
-cargo run --example package_workflow
-```
-
-This example:
-- Builds the workflow to a shared library
-- Creates a .cloacina package archive
-- Demonstrates the packaging lifecycle
-
-### 3. End-to-End Demo
-
-Run the complete end-to-end demo:
-
-```bash
 cargo run --example end_to_end_demo
 ```
-
-This demonstrates:
-- Building and packaging the workflow
-- Dynamic loading through the registry
-- Task execution with full context flow
-- Complete lifecycle from package to execution
 
 ## Understanding the Output
 
@@ -356,42 +255,14 @@ Step 3: Executing workflow...
 ✅ Demo completed successfully!
 ```
 
-## Creating a Package with cloacinactl
+## Variations
 
-You can also create packages manually using cloacinactl:
-
-```bash
-# Create a .cloacina package
-cloacinactl package . -o simple-demo.cloacina
-```
-
-This creates a `.cloacina` file that contains:
-- The shared library for your platform
-- Metadata about the workflow and its tasks
-- Package information for registry systems
-
-## Inspecting Your Package
-
-You can inspect the package contents:
-
-```bash
-# Inspect the package
-cloacinactl inspect simple-demo.cloacina
-```
-
-You should see output showing:
-- Package metadata (name, version, author)
-- Workflow information (data_processing)
-- Task definitions and dependencies (collect_data → process_data → generate_report)
-- Platform and architecture information
-
-## How Packages Differ from Embedded Workflows
-
-Unlike embedded workflows compiled into the application binary, packages are standalone artifacts loaded dynamically at runtime — for the full comparison see [Packaged Workflow Architecture]({{< ref "/engine/explanation/packaged-workflow-architecture" >}}).
+- **Package it by hand** instead of via the demo: `cloacinactl package . -o simple-demo.cloacina`, then `cloacinactl inspect simple-demo.cloacina` to see the bundled metadata, tasks, and platform target. See the [CLI Reference]({{< ref "/reference/cli" >}}).
+- **Run the unit tests** for the workflow logic alone: `cargo test`.
 
 ## Next Steps
 
-You've created and tested your first workflow package.
+You've built a workflow package and run it end to end.
 
 Next: [04 — Packaging a Computation Graph]({{< ref "/service/tutorials/04-packaging" >}})
 

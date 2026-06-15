@@ -12,7 +12,7 @@ In this tutorial you'll move beyond calling the compiled graph by hand. You'll i
 
 ## What you'll learn
 
-- The `Accumulator` trait: `process()`, `Event`, and `Output` associated types
+- The `Accumulator` trait: `process()` and the `Output` associated type
 - `BoundarySender` — how the accumulator hands data off to the reactor
 - `AccumulatorContext` and `AccumulatorRuntimeConfig`
 - `accumulator_runtime()` — the three-task merge-channel model
@@ -293,10 +293,9 @@ let _acc_handle = tokio::spawn(accumulator_runtime(
 
 `accumulator_runtime` is the function that drives your `Accumulator` implementation. It:
 
-1. Reads serialized bytes from `socket_rx`
-2. Deserializes them to `Event` (here `PricingUpdate`)
-3. Calls `process()` to produce `Output` (here `PricingSignal`)
-4. Serializes and sends the output via `BoundarySender` to the reactor
+1. Reads raw serialized bytes from `socket_rx`
+2. Hands those bytes to `process()`, which deserializes them itself (here to `PricingUpdate`) and returns an `Output` (here `PricingSignal`) — the runtime is format-agnostic
+3. Serializes and sends the output via `BoundarySender` to the reactor
 
 ---
 
