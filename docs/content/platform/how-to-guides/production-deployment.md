@@ -94,7 +94,7 @@ The server binds to `127.0.0.1` (localhost only) when behind a reverse proxy —
 Configure your load balancer to check:
 
 - **Liveness**: `GET /health` — returns 200 if the process is alive
-- **Readiness**: `GET /ready` — returns 200 if the database is connected and migrations are applied
+- **Readiness**: `GET /ready` — returns 200 when the database connection pool is reachable **and** no loaded computation graph has crashed; otherwise 503 with a `reason` field (`database unreachable` or `crashed computation graphs`)
 
 ## Docker Compose Example
 
@@ -111,11 +111,14 @@ services:
 
   cloacina:
     build: .
-    command: ["serve", "--database-url", "postgres://cloacina:cloacina@postgres:5432/cloacina", "--bind", "0.0.0.0:8080"]
+    # cloacina-server takes its flags directly (no subcommand). Binding
+    # 0.0.0.0 is safe here because the port is NOT published to the host —
+    # only Caddy (443) is reachable from outside the compose network.
+    command: ["--database-url", "postgres://cloacina:cloacina@postgres:5432/cloacina", "--bind", "0.0.0.0:8080"]
     depends_on:
       - postgres
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
 
   caddy:
     image: caddy:2
@@ -127,3 +130,41 @@ services:
 volumes:
   pgdata:
 ```
+
+## Choosing a deployment shape first
+
+Before productionizing, confirm you're deploying the right shape — embedded
+library, local daemon, single server, or server + compiler + agent fleet. The
+[When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}#choosing-a-mode)
+decision table maps each goal to a mode. This guide assumes the **server** shape;
+for the horizontally-scaled fleet see
+[Deploy an Execution Agent Fleet]({{< ref "/platform/how-to-guides/deploy-an-execution-agent-fleet" >}}).
+
+## Production readiness checklist
+
+Work through this before exposing a server to real traffic. Each item links to
+the guide that covers it in depth.
+
+**Network & transport**
+- [ ] TLS terminated at a reverse proxy (Caddy/nginx above); the server itself binds plain HTTP.
+- [ ] Server bound to `127.0.0.1` (or a private interface) — never `0.0.0.0` reachable from the internet without the proxy in front. Don't publish the raw `8080` port.
+- [ ] Reverse-proxy `client_max_body_size` matches the server's 100 MB package-upload limit.
+- [ ] WebSocket upgrade headers proxied (needed for live execution streams and event ingestion).
+
+**Authentication & access**
+- [ ] Bootstrap admin key captured into a secret manager on first start, then the `~/.cloacina/bootstrap-key` file removed or locked down. It is shown only once.
+- [ ] Application clients use **tenant-scoped** keys (`cloacinactl key create … --role …`), never the admin key. See [01 - Deploy a Server]({{< ref "/platform/tutorials/01-deploy-a-server" >}}).
+- [ ] CORS configured **only if** a browser UI calls the server cross-origin — via the `CLOACINA_CORS_ALLOWED_ORIGINS` env var (works with `cloacinactl server start`) or the `--cors-allowed-origins` flag on the `cloacina-server` binary. The value is the origin users load the UI from. See [Deploy the Web UI]({{< ref "/platform/how-to-guides/deploy-the-web-ui" >}}).
+
+**Data & isolation**
+- [ ] PostgreSQL (not SQLite) for any multi-tenant or multi-replica deployment. See [Database Backends]({{< ref "/platform/explanation/database-backends" >}}).
+- [ ] Multi-tenant isolation reviewed — in particular that executions actually run against the tenant's own schema (a misconfigured runner can execute against the wrong schema and break isolation). See [Configure a Multi-Tenant Deployment]({{< ref "/platform/how-to-guides/configure-multi-tenant-deployment" >}}).
+- [ ] Database backups and a restore drill in place.
+
+**Supply chain**
+- [ ] In low-trust / multi-tenant deployments, package signing required so unsigned packages are refused — otherwise a compromised or untrusted uploader could get arbitrary code compiled and run in your build sandbox. See [Require Signed Packages]({{< ref "/platform/how-to-guides/require-signed-packages" >}}).
+
+**Operations**
+- [ ] Load-balancer health checks wired to `GET /health` (liveness) and `GET /ready` (readiness — confirms the DB pool is reachable and no computation graph has crashed).
+- [ ] Metrics scraped from `/metrics` and tracing wired up. See [Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}).
+- [ ] Runner sizing tuned for your load — database connection pool size, task concurrency, and execution timeouts. See [Performance Tuning]({{< ref "/platform/how-to-guides/performance-tuning" >}}) for the server knobs and recommended values.

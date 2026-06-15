@@ -22,8 +22,11 @@ in learning it.
 - **You're in Rust or Python.** Both are first-class: the Python bindings
   (`cloaca`) expose the same engine and API as the Rust crate (`cloacina`),
   not a reduced wrapper.
-- **You want to start small and grow.** The same packaged workflow runs embedded,
-  under the local daemon, or on the multi-tenant server — without a rewrite.
+- **You want to start small and grow.** Your task and node *logic* carries across
+  all three modes — embedded, daemon, and server. A `.cloacina` package, once
+  built, runs unchanged on any of them; moving from embedded code to a deployable
+  package is a *repackaging* step (see the transition note below), not a rewrite
+  of your business logic.
 - **You're building a platform for multiple teams/tenants.** The server provides
   schema-per-tenant isolation, API-key auth, package upload, and a web UI.
 
@@ -51,6 +54,29 @@ If you simply need a standalone DAG scheduler-as-a-service with a hosted UI for
 non-developers, a dedicated orchestrator may serve you better. Cloacina's
 trade-off is the opposite: it lives in your app and your database.
 
+## How Cloacina compares
+
+If you're coming from Airflow, Temporal, or Prefect, the defining difference is
+*deployment shape*: those are standalone systems you operate alongside your
+application; Cloacina is a library that runs **inside** it. This is a genuine
+trade-off, not a strict ranking — pick the side that matches how you want to
+run things.
+
+| | **Cloacina** | **Airflow** | **Temporal** | **Prefect** |
+|---|---|---|---|---|
+| Deployment | Embedded in your app (or an optional server) | Standalone scheduler + workers + metadata DB | Standalone server cluster + workers | Control plane + agents/workers |
+| Infra dependencies | Just a database (SQLite or Postgres) | Scheduler, executor, metadata DB | Temporal service + datastore | API/cloud + worker pool |
+| Authoring | Rust or Python, in your codebase | Python DAGs | Workflow-as-code (multi-language SDKs) | Python flows |
+| Execution model | Durable DAGs (at-least-once) + in-process computation graphs | Scheduled DAGs | Durable execution / long-running workflows | Dynamic Python flows |
+| Best when | You want orchestration *in-process* with no extra service to operate | You want a dedicated scheduler with a rich authoring UI | You need long-lived, signal-driven durable executions at scale | You want flexible Python-native flows with a managed control plane |
+
+**Choose Cloacina** when you'd rather not run a separate orchestration service —
+when "a library plus the database we already have" beats "another system to
+deploy, secure, and monitor." **Choose one of the others** when a dedicated
+control plane, a hosted authoring UI for non-developers, or their specific
+execution semantics are what you're after. Cloacina deliberately does not try to
+be a hosted, click-to-build platform.
+
 ## Choosing a mode
 
 | If you want to… | Use | Backed by |
@@ -61,9 +87,27 @@ trade-off is the opposite: it lives in your app and your database.
 | Scale the server horizontally | **Server + compiler + agent fleet** | Postgres |
 
 The embedded library and the server are **not exclusive** — you can author and
-test embedded, then deploy the same package to a server. The two deployment
+test embedded, then deploy to a server. The two deployment
 postures have deliberately different trust models (high-trust single-user vs.
 low-trust multi-tenant); see [Security Model]({{< ref "/platform/explanation/security-model" >}}).
+
+### Moving from embedded to the server
+
+This is a packaging step, not a rewrite. Conceptually:
+
+- **What stays the same:** your task logic (and any computation-graph node
+  logic) — the function bodies and the dependencies between them.
+- **What changes:** the code becomes a `.cloacina` *package* with a small
+  `package.toml` and a conventional source layout. In **Python**, a packaged
+  module declares tasks with **bare `@cloaca.task` decorators** rather than the
+  `WorkflowBuilder` context manager — a builder inside a package fails to load,
+  because the package loader already supplies the workflow context.
+
+The package is portable: once built, the same artifact runs under the daemon or
+the server unchanged. For the actual procedure, see
+[Creating Your First Package]({{< ref "/platform/how-to-guides/creating-your-first-package" >}})
+and, for the Python specifics,
+[Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}).
 
 ## Choosing a primitive
 
