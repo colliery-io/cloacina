@@ -30,7 +30,7 @@ bound-subscriber guard is protecting against.
 - Completion of [07 - Packaging a Computation Graph]({{< ref "/computation-graphs/tutorials/service/07-packaging" >}}).
   You need the basic packaged-CG flow under your fingers before
   attempting cross-package binding.
-- A running `cloacina-server` from [01 - Deploy a Server]({{< ref "/platform/tutorials/01-deploy-a-server" >}}).
+- A running `cloacina-server` from [01 - Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}).
 - A tenant + tenant-scoped key configured (a profile like
   `acme-prod` from the deployment tutorial).
 

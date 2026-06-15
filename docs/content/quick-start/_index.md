@@ -35,8 +35,8 @@ Get oriented first:
 - [Architecture Overview]({{< ref "/workflows/explanation/architecture-overview" >}}) — the design rationale.
 
 **Just want to see it run?** The fastest "watch real executions" path is to
-[deploy a server]({{< ref "/platform/tutorials/01-deploy-a-server" >}}) and open
-[the web UI]({{< ref "/platform/tutorials/02-the-web-ui" >}}). For a code-only
+[deploy a server]({{< ref "/service/tutorials/01-deploy-a-server" >}}) and open
+[the web UI]({{< ref "/service/tutorials/02-the-web-ui" >}}). For a code-only
 first success, the [Python Quick Start]({{< ref "/python/quick-start" >}}) runs a
 workflow in about five minutes.
 
@@ -67,7 +67,7 @@ managers. The Python-side computation-graph tutorials (09–11) live at
 
 Service mode. Start here:
 
-→ [Tutorial 01 — Deploy a Server]({{< ref "/platform/tutorials/01-deploy-a-server" >}})
+→ [Tutorial 01 — Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}})
 
 This walks through bootstrap-key handling, tenant provisioning,
 package upload, and your first execution. Once you have a server
@@ -90,11 +90,11 @@ and the cross-package binding pattern at
 
 ### "I'm an operator standing up Cloacina in production."
 
-→ [Platform Tutorials]({{< ref "/platform/tutorials" >}}) +
+→ [Platform Tutorials]({{< ref "/service/tutorials" >}}) +
 [Platform How-To Guides]({{< ref "/platform/how-to-guides" >}})
 
 Highlights:
-- [Deploy a Server]({{< ref "/platform/tutorials/01-deploy-a-server" >}}) — first deployment, end to end.
+- [Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}) — first deployment, end to end.
 - [Configure a Multi-Tenant Deployment]({{< ref "/platform/how-to-guides/configure-multi-tenant-deployment" >}}) — multi-tenancy + the operational caveats you must know.
 - [Production Deployment]({{< ref "/platform/how-to-guides/production-deployment" >}}) — TLS, reverse proxy, observability hookup.
 - [Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}) — Prometheus + OpenTelemetry + structured logs.

@@ -33,7 +33,7 @@ in learning it.
 ## Cloacina is *not* the right tool when…
 
 - **You want a no-code / click-to-build scheduler.** Cloacina workflows are
-  authored in Rust or Python code. The [web UI]({{< ref "/platform/tutorials/02-the-web-ui" >}})
+  authored in Rust or Python code. The [web UI]({{< ref "/service/tutorials/02-the-web-ui" >}})
   is for *operating and observing* — uploading packages, running workflows,
   watching executions — not for drawing pipelines.
 - **You need multi-tenancy or horizontal scaling on SQLite.** SQLite is

@@ -153,7 +153,7 @@ the guide that covers it in depth.
 
 **Authentication & access**
 - [ ] Bootstrap admin key captured into a secret manager on first start, then the `~/.cloacina/bootstrap-key` file removed or locked down. It is shown only once.
-- [ ] Application clients use **tenant-scoped** keys (`cloacinactl key create … --role …`), never the admin key. See [01 - Deploy a Server]({{< ref "/platform/tutorials/01-deploy-a-server" >}}).
+- [ ] Application clients use **tenant-scoped** keys (`cloacinactl key create … --role …`), never the admin key. See [01 - Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}).
 - [ ] CORS configured **only if** a browser UI calls the server cross-origin — via the `CLOACINA_CORS_ALLOWED_ORIGINS` env var (works with `cloacinactl server start`) or the `--cors-allowed-origins` flag on the `cloacina-server` binary. The value is the origin users load the UI from. See [Deploy the Web UI]({{< ref "/platform/how-to-guides/deploy-the-web-ui" >}}).
 
 **Data & isolation**

@@ -17,8 +17,8 @@ and a Postgres database for multi-tenant/production deployments.
 ## Topics
 
 ### Tutorials
-- [Deploy a Server]({{< ref "/platform/tutorials/01-deploy-a-server" >}}) — first deployment, end to end
-- [The Web UI]({{< ref "/platform/tutorials/02-the-web-ui" >}}) — operate and observe a running server
+- [Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}) — first deployment, end to end
+- [The Web UI]({{< ref "/service/tutorials/02-the-web-ui" >}}) — operate and observe a running server
 
 ### Reference
 - [CLI Reference]({{< ref "/platform/reference/cli" >}}) — `cloacinactl` commands and flags

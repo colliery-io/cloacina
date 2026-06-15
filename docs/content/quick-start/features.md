@@ -78,7 +78,7 @@ first if those terms are new.
 - **Daemon** — `cloacinactl daemon` watches a directory and runs packages locally.
   See [Running the Daemon]({{< ref "/platform/how-to-guides/running-the-daemon" >}}).
 - **Server** — `cloacina-server`, an HTTP + WebSocket control plane. See
-  [Deploy a Server]({{< ref "/platform/tutorials/01-deploy-a-server" >}}).
+  [Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}).
 - **Compiler service** — `cloacina-compiler` builds uploaded packages in a
   sandbox. See [Running the Compiler]({{< ref "/platform/how-to-guides/running-the-compiler" >}}).
 - **Execution-agent fleet** — `cloacina-agent` workers run tasks off the server
@@ -111,7 +111,7 @@ first if those terms are new.
   server over HTTP/WebSocket. See [Client SDKs]({{< ref "/sdks" >}}).
 - **Web UI** — operate and observe a server: workflows, executions (with a live
   event stream), triggers, computation-graph health, package upload, and API-key
-  management. See [The Web UI]({{< ref "/platform/tutorials/02-the-web-ui" >}}).
+  management. See [The Web UI]({{< ref "/service/tutorials/02-the-web-ui" >}}).
 
 ## Operations & security
 
