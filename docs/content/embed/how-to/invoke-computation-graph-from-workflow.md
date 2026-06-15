@@ -174,7 +174,7 @@ The graph itself has no retry semantics — retry is a workflow-task concern. Co
 ## See also
 
 - [Trigger-less Graphs]({{< ref "/engine/explanation/trigger-less-graphs" >}}) — the explanation doc for the embedded-CG form.
-- [Computation Graph as Workflow Task]({{< ref "/computation-graphs/how-to-guides/computation-graph-in-workflow" >}}) — sister how-to from the CG side.
+- [Computation Graph as Workflow Task]({{< ref "/engine/computation-graphs/how-to/computation-graph-in-workflow" >}}) — sister how-to from the CG side.
 - [Macro Reference]({{< ref "/reference/macros" >}}) — full `#[task(invokes = computation_graph(...))]` syntax.
 - **CLOACI-I-0101** — Decouple computation graph from reactor; enable embedded CG workflow tasks.
 - **CLOACI-S-0011** — primitive nomenclature spec.

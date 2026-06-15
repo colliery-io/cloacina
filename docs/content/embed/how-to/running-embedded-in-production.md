@@ -75,7 +75,7 @@ production property to design for.
 
 The embedded runner emits the same execution events as the server. Wire your logs
 and metrics around workflow/task lifecycle. See
-[Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}).
+[Observe Execution State]({{< ref "/embed/how-to/observe-execution-state" >}}).
 
 ## Shut down cleanly
 

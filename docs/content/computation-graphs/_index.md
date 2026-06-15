@@ -41,6 +41,6 @@ Deploy computation graphs as packaged plugins, receive events via WebSocket or K
 | Section | Description |
 |---------|-------------|
 | [Tutorials]({{< ref "/computation-graphs/tutorials" >}}) | Step-by-step learning guides |
-| [How-to Guides]({{< ref "/computation-graphs/how-to-guides" >}}) | Task-oriented recipes |
+| [How-to Guides]({{< ref "/engine/computation-graphs/how-to" >}}) | Task-oriented recipes |
 | [Reference]({{< ref "/reference" >}}) | API and configuration lookup |
 | [Explanation]({{< ref "/engine/explanation" >}}) | Architecture and design decisions |

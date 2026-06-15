@@ -338,7 +338,7 @@ Expected:
 }
 ```
 
-If the accumulator is `"live"` and the reactor is `"live"`, your packaged computation graph is ready to receive events. (See [Monitoring Computation Graph Health]({{< ref "/computation-graphs/how-to-guides/computation-graph-health" >}}) for the full state set.)
+If the accumulator is `"live"` and the reactor is `"live"`, your packaged computation graph is ready to receive events. (See [Monitoring Computation Graph Health]({{< ref "/engine/computation-graphs/how-to/computation-graph-health" >}}) for the full state set.)
 
 ---
 

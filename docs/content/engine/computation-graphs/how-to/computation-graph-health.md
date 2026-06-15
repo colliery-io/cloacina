@@ -319,7 +319,7 @@ The reactor recovers automatically when the accumulator reconnects and returns t
 
 ## Related
 
-- [Monitoring Executions]({{< ref "/workflows/how-to-guides/monitoring-executions" >}})
+- [Monitoring Executions]({{< ref "/embed/how-to/monitoring-executions" >}})
 - [Choosing and using accumulator types]({{< ref "accumulator-types" >}})
 - [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}})
 - [Observability]({{< ref "/service/explanation/observability" >}})

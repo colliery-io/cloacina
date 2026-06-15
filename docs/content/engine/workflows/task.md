@@ -86,7 +86,7 @@ def flaky(context):
 {{< /tab >}}
 {{< /tabs >}}
 
-See [Conditional Retries]({{< ref "/workflows/how-to-guides/conditional-retries" >}})
+See [Conditional Retries]({{< ref "/embed/how-to/conditional-retries" >}})
 for retry-condition patterns.
 
 ## Key facts

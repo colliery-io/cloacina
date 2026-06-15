@@ -8,7 +8,7 @@ weight: 20
 
 When you subscribe a workflow to a reactor, every firing dispatches the workflow
 by default. Pass a **CEL predicate** to fire only on matching firings — the
-Python analog of [Filter reactor firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}).
+Python analog of [Filter reactor firings with CEL]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}}).
 
 ## Subscribe with a filter
 
@@ -63,10 +63,10 @@ The CEL expression evaluates against these variables:
 
 The predicate language, fail-closed evaluation, and idempotency behavior are
 identical to the Rust path — see the
-[Rust how-to]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}})
+[Rust how-to]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}})
 for the conceptual detail.
 
 ## See also
 
-- [Filter Reactor Firings with CEL (Rust)]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}})
+- [Filter Reactor Firings with CEL (Rust)]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}})
 - [Subscription Fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}})

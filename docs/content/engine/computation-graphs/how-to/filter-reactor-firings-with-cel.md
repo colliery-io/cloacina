@@ -13,7 +13,7 @@ This is the surgical alternative to "subscribe to the reactor, filter in the wor
 ## Prerequisites
 
 - A reactor that fires (declared as `#[reactor(...)]` or via the runtime API).
-- A workflow with a `#[trigger]` that subscribes to that reactor — see [Subscribe a workflow to a reactor]({{< ref "/workflows/how-to-guides/subscribe-workflow-to-reactor" >}}).
+- A workflow with a `#[trigger]` that subscribes to that reactor — see [Subscribe a workflow to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}}).
 - Familiarity with CEL ([cel-spec](https://github.com/google/cel-spec)). The variant Cloacina uses is [`cel-rust`](https://crates.io/crates/cel) — a subset close to the spec.
 
 ## Steps
@@ -136,13 +136,13 @@ The `reactor_firing_id` is automatically populated in the task context for react
 
 ## What this how-to does NOT cover
 
-- **Authoring the workflow trigger.** See [Subscribe a workflow to a reactor]({{< ref "/workflows/how-to-guides/subscribe-workflow-to-reactor" >}}).
+- **Authoring the workflow trigger.** See [Subscribe a workflow to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}}).
 - **CEL language semantics in depth.** See the [cel-spec](https://github.com/google/cel-spec) and [`cel-rust`](https://docs.rs/cel/) docs.
 - **Filtering on the in-process CG fast path.** Filtering is a subscription-table concept — in-process `#[computation_graph(trigger = reactor("..."))]` declarations always see every firing.
 
 ## See also
 
-- [Subscribe a workflow to a reactor]({{< ref "/workflows/how-to-guides/subscribe-workflow-to-reactor" >}}) — the subscription side without filtering.
+- [Subscribe a workflow to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}}) — the subscription side without filtering.
 - [Subscription fan-out]({{< ref "subscription-fan-out" >}}) — durability and at-least-once semantics.
 - `examples/features/computation-graphs/filtered-reactor/` — runnable end-to-end.
 - **CLOACI-T-0602** — CEL predicate filtering on subscriptions.

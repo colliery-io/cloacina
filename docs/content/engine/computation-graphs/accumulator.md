@@ -56,7 +56,7 @@ in [CLOACI-T-0688]. Until it lands, author state accumulators in Rust.
 - **`process()` returns an `Option`** — `None` silently drops the event.
 - **Named source:** an accumulator emits under a `SourceName` that must match the
   reactor's `accumulators` list and the graph's entry-node source name.
-- **Choosing one:** see [Choosing Accumulator Types]({{< ref "/computation-graphs/how-to-guides/accumulator-types" >}}).
+- **Choosing one:** see [Choosing Accumulator Types]({{< ref "/engine/computation-graphs/how-to/accumulator-types" >}}).
 
 ## See also
 

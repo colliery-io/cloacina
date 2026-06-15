@@ -23,7 +23,7 @@ most developers want for iterating on a workflow before deploying it.
   present, or stable).
 - `cloacinactl` on your `PATH`.
 - A workflow crate that follows the [packaged workflow Cargo.toml
-  layout]({{< ref "/workflows/how-to-guides/migrating-to-service-mode" >}}):
+  layout]({{< ref "/service/how-to/migrating-to-service-mode" >}}):
   `crate-type = ["cdylib", "rlib"]`, the `packaged` feature, and a
   `cloacina_build::configure()` call in `build.rs`.
 
@@ -185,7 +185,7 @@ specific reconciler step (cron triggers / custom triggers / reactors
 
 ## Related
 
-- [Migrating to Service Mode]({{< ref "/workflows/how-to-guides/migrating-to-service-mode" >}}) — full Cargo.toml + build.rs setup for packaged workflows.
+- [Migrating to Service Mode]({{< ref "/service/how-to/migrating-to-service-mode" >}}) — full Cargo.toml + build.rs setup for packaged workflows.
 - [`package!()` Macro Reference]({{< ref "/reference/package-shell-macro" >}}) — what the cdylib actually exports.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — what happens when a package is loaded.
 - [CLI Reference]({{< ref "/reference/cli" >}}) — full `cloacinactl package` flag list.

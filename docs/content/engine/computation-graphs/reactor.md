@@ -65,4 +65,4 @@ class PricingReactor:
 ## See also
 
 - [Computation Graph]({{< ref "/engine/computation-graphs/computation-graph" >}}) · [Accumulator]({{< ref "/engine/computation-graphs/accumulator" >}}) · [Boundary event]({{< ref "/engine/computation-graphs/boundary" >}})
-- [Reactor-triggered workflows]({{< ref "/computation-graphs/how-to-guides/reactor-triggered-workflows" >}})
+- [Reactor-triggered workflows]({{< ref "/engine/computation-graphs/how-to/reactor-triggered-workflows" >}})

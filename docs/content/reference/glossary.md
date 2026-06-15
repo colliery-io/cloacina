@@ -60,7 +60,7 @@ The atomic DAL operation that commits a task's terminal state, its output contex
 
 ### CEL predicate
 
-A [CEL](https://github.com/google/cel-spec) expression attached to a workflow's reactor subscription. Evaluated against each reactor firing's payload; firings where the predicate returns `true` dispatch a workflow execution, the rest advance the watermark with no dispatch. Compiled at subscribe time, evaluated per firing, fail-closed on errors. Per CLOACI-T-0602. See [Filter Reactor Firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}).
+A [CEL](https://github.com/google/cel-spec) expression attached to a workflow's reactor subscription. Evaluated against each reactor firing's payload; firings where the predicate returns `true` dispatch a workflow execution, the rest advance the watermark with no dispatch. Compiled at subscribe time, evaluated per firing, fail-closed on errors. Per CLOACI-T-0602. See [Filter Reactor Firings with CEL]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}}).
 
 ### Computation Graph
 
@@ -116,7 +116,7 @@ Foreign Function Interface. The mechanism for loading packaged workflows as dyna
 
 ### Filtered subscription
 
-A reactor → workflow subscription with an attached CEL predicate. Only firings where the predicate evaluates to `true` cause a workflow dispatch; filtered-out firings advance the subscription's watermark and are not re-evaluated. See [Filter Reactor Firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}) and [Subscription Fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}}).
+A reactor → workflow subscription with an attached CEL predicate. Only firings where the predicate evaluates to `true` cause a workflow dispatch; filtered-out firings advance the subscription's watermark and are not re-evaluated. See [Filter Reactor Firings with CEL]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}}) and [Subscription Fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}}).
 
 ### fidius
 
@@ -257,7 +257,7 @@ A cross-database UUID type that abstracts over backend differences. In PostgreSQ
 
 ### `var` / `var_or`
 
-Helper macros that resolve registry variables — typed values keyed by name and overridable at runtime via the `CLOACINA_VAR_*` environment variable namespace. `var!("key")` returns an error if the key is unset; `var_or!("key", default)` returns the default instead. Use these for tunables a task body needs to read at runtime. See [Variable Registry]({{< ref "/workflows/how-to-guides/variable-registry" >}}).
+Helper macros that resolve registry variables — typed values keyed by name and overridable at runtime via the `CLOACINA_VAR_*` environment variable namespace. `var!("key")` returns an error if the key is unset; `var_or!("key", default)` returns the default instead. Use these for tunables a task body needs to read at runtime. See [Variable Registry]({{< ref "/embed/how-to/variable-registry" >}}).
 
 ### Verification org
 

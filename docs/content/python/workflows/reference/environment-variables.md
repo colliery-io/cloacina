@@ -35,7 +35,7 @@ export CLOACINA_VAR_KAFKA_BROKER=localhost:9092
 export CLOACINA_VAR_MODEL_THRESHOLD=0.85
 ```
 
-See the [Variable Registry how-to]({{< ref "/workflows/how-to-guides/variable-registry" >}}) for details.
+See the [Variable Registry how-to]({{< ref "/embed/how-to/variable-registry" >}}) for details.
 
 ## See also
 

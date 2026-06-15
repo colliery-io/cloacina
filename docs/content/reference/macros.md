@@ -53,7 +53,7 @@ pub async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 | `trigger_rules` | expression | no | `always` | Trigger rule expression controlling when the task should execute. See [Trigger Rules](#trigger-rules). |
 | `on_success` | expression (path) | no | -- | Async callback on success. Signature: `async fn(&str, &Context<Value>) -> Result<(), E>` |
 | `on_failure` | expression (path) | no | -- | Async callback on failure. Signature: `async fn(&str, &TaskError, &Context<Value>) -> Result<(), E>` |
-| `invokes` | call-expression | no | -- | **CLOACI-I-0101.** Embed a computation graph as this task. Form: `invokes = computation_graph("name")`. The graph runs once per task invocation with the task's context as input; terminal-node outputs merge back into the context. See [Invoke a computation graph from a workflow task]({{< ref "/workflows/how-to-guides/invoke-computation-graph-from-workflow" >}}) for the full recipe. |
+| `invokes` | call-expression | no | -- | **CLOACI-I-0101.** Embed a computation graph as this task. Form: `invokes = computation_graph("name")`. The graph runs once per task invocation with the task's context as input; terminal-node outputs merge back into the context. See [Invoke a computation graph from a workflow task]({{< ref "/embed/how-to/invoke-computation-graph-from-workflow" >}}) for the full recipe. |
 | `post_invocation` | expression (path) | no | -- | **CLOACI-I-0101.** Only valid alongside `invokes`. Async callback to run after the embedded graph completes, receives the merged output context. Signature: `async fn(&mut Context<Value>) -> Result<(), TaskError>` |
 
 ### Backoff Strategies
@@ -244,7 +244,7 @@ pub async fn nightly_report() {}
 | `on` | string literal | yes (unless `upstream`) | -- | Name of the workflow to trigger. |
 | `poll_interval` | string literal | one of the firing-source attributes | -- | Poll frequency. Format: `100ms`, `5s`, `2m`, `1h`. |
 | `cron` | string literal | one of the firing-source attributes | -- | Cron expression (5-7 fields). Validated at compile time. |
-| `upstream` | call-expression | one of the firing-source attributes | -- | **CLOACI-I-0100.** Declare a reactor as this trigger's upstream. Form: `upstream = reactor("name")`. The workflow fires durably (at-least-once) on every reactor firing, via the DB-backed subscription fan-out. See [Subscribe a workflow to a reactor]({{< ref "/workflows/how-to-guides/subscribe-workflow-to-reactor" >}}) for the recipe. |
+| `upstream` | call-expression | one of the firing-source attributes | -- | **CLOACI-I-0100.** Declare a reactor as this trigger's upstream. Form: `upstream = reactor("name")`. The workflow fires durably (at-least-once) on every reactor firing, via the DB-backed subscription fan-out. See [Subscribe a workflow to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}}) for the recipe. |
 | `timezone` | string literal | no | `"UTC"` | IANA timezone for cron evaluation (e.g., `"America/New_York"`). Only applies to cron triggers. |
 | `allow_concurrent` | boolean | no | `false` | Whether multiple trigger firings can overlap. |
 | `name` | string literal | no | function name | Override the trigger name (used for registration and schedule records). |

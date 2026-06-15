@@ -37,7 +37,7 @@ The crate must:
 4. Carry a `cloacina_build::configure()` call in `build.rs` so the
    linker emits the right symbols for fidius-host to discover.
 
-See the [migration guide]({{< ref "/workflows/how-to-guides/migrating-to-service-mode" >}}) for the full Cargo.toml wiring.
+See the [migration guide]({{< ref "/service/how-to/migrating-to-service-mode" >}}) for the full Cargo.toml wiring.
 
 ## What it emits
 
@@ -99,4 +99,4 @@ builds.
 - [FFI Vtable Reference]({{< ref "/reference/ffi-vtable" >}}) — full method-by-method spec.
 - [Inventory and Runtime Seeding]({{< ref "/engine/explanation/inventory-and-runtime-seeding" >}}) — why the cdylib boundary matters.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}}) — how the host consumes what `package!()` emits.
-- [Migrating to Service Mode]({{< ref "/workflows/how-to-guides/migrating-to-service-mode" >}}) — full Cargo.toml setup.
+- [Migrating to Service Mode]({{< ref "/service/how-to/migrating-to-service-mode" >}}) — full Cargo.toml setup.

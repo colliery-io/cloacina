@@ -18,4 +18,4 @@ Recipes for problems specific to the Python CG surface.
 
 ## See also
 
-- [Rust · CG · How-to Guides]({{< ref "/computation-graphs/how-to-guides" >}}) — most operational recipes (health monitoring, sequential strategy, when-all criteria) apply to Python deployments unchanged; the CLI and HTTP surface are language-agnostic.
+- [Rust · CG · How-to Guides]({{< ref "/engine/computation-graphs/how-to" >}}) — most operational recipes (health monitoring, sequential strategy, when-all criteria) apply to Python deployments unchanged; the CLI and HTTP surface are language-agnostic.

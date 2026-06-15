@@ -166,5 +166,5 @@ the guide that covers it in depth.
 
 **Operations**
 - [ ] Load-balancer health checks wired to `GET /health` (liveness) and `GET /ready` (readiness — confirms the DB pool is reachable and no computation graph has crashed).
-- [ ] Metrics scraped from `/metrics` and tracing wired up. See [Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}).
+- [ ] Metrics scraped from `/metrics` and tracing wired up. See [Observe Execution State]({{< ref "/embed/how-to/observe-execution-state" >}}).
 - [ ] Runner sizing tuned for your load — database connection pool size, task concurrency, and execution timeouts. See [Performance Tuning]({{< ref "/service/how-to/performance-tuning" >}}) for the server knobs and recommended values.

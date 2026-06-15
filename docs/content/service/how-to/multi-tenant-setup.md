@@ -89,7 +89,7 @@ let result_b = tenant_b.execute_async("test_workflow", Context::new()).await?;
 assert_ne!(result_a.execution_id, result_b.execution_id);
 ```
 
-For full integration-testing patterns, see [Testing Workflows]({{< ref "testing-workflows" >}}).
+For full integration-testing patterns, see [Testing Workflows]({{< ref "/embed/how-to/testing-workflows" >}}).
 
 ## Alternative: SQLite file-based tenancy
 
@@ -104,5 +104,5 @@ Each file is a self-contained database, so isolation is guaranteed by the file s
 ## Related guides
 
 - [Multi-Tenant Recovery]({{< ref "multi-tenant-recovery" >}}) -- automatic recovery and migration in multi-tenant deployments
-- [Testing Workflows]({{< ref "testing-workflows" >}}) -- integration testing patterns including tenant isolation tests
+- [Testing Workflows]({{< ref "/embed/how-to/testing-workflows" >}}) -- integration testing patterns including tenant isolation tests
 - [Performance Tuning]({{< ref "performance-tuning" >}}) -- connection pool sizing, concurrency limits, and monitoring

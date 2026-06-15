@@ -285,7 +285,7 @@ export CLOACINA_VAR_DATA_SOURCE=postgres://analytics:pass@host/warehouse
 export CLOACINA_VAR_FETCH_TIMEOUT=60
 ```
 
-See [Variable Registry]({{< ref "/workflows/how-to-guides/variable-registry" >}}) for details.
+See [Variable Registry]({{< ref "/embed/how-to/variable-registry" >}}) for details.
 
 ## Troubleshooting
 

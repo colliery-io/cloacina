@@ -567,11 +567,11 @@ Congratulations! You now understand:
 With multi-tenancy mastered, you're ready to:
 
 1. **[API Reference]({{< ref "/reference/" >}})** - Explore advanced multi-tenant APIs
-2. **[How-to Guides]({{< ref "/workflows/how-to-guides/" >}})** - Deploy multi-tenant applications
+2. **[How-to Guides]({{< ref "/embed/how-to/" >}})** - Deploy multi-tenant applications
 
 ## Related Resources
 
 - [Explanation: Multi-Tenancy Architecture]({{< ref "/service/explanation/multi-tenancy/" >}}) - Deep dive into design
-- [How-to: Multi-Tenant Setup]({{< ref "/workflows/how-to-guides/multi-tenant-setup/" >}}) - Production deployment
+- [How-to: Multi-Tenant Setup]({{< ref "/service/how-to/multi-tenant-setup/" >}}) - Production deployment
 - [Database Admin API]({{< ref "/reference/database-admin/" >}}) - Complete API reference
 - [Python Multi-Tenancy Tutorial]({{< ref "/python/workflows/tutorials/06-multi-tenancy/" >}}) - Python equivalent

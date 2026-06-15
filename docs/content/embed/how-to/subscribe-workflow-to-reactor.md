@@ -145,8 +145,8 @@ For the workflow execution side, the existing `cloacina_workflows_total{status, 
 ## See also
 
 - [Subscription fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}}) — conceptual model (deferred from DOC-F; may be a stub at time of reading).
-- [Filter reactor firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}) — focused recipe for the predicate side (DOC-F deliverable).
-- [Reactor-triggered workflows]({{< ref "/computation-graphs/how-to-guides/reactor-triggered-workflows" >}}) — the existing CG-side how-to with the dual-path topology overview.
+- [Filter reactor firings with CEL]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}}) — focused recipe for the predicate side (DOC-F deliverable).
+- [Reactor-triggered workflows]({{< ref "/engine/computation-graphs/how-to/reactor-triggered-workflows" >}}) — the existing CG-side how-to with the dual-path topology overview.
 - [Tutorial 09 — Event Triggers]({{< ref "/workflows/tutorials/service/09-event-triggers" >}}) — the in-process `Trigger` trait alternative.
 - **CLOACI-I-0100** — DB-backed reactor → workflow subscription fan-out.
 - **CLOACI-T-0602** — CEL predicate filtering on subscriptions.

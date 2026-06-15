@@ -51,4 +51,4 @@ it doesn't care which language wrote it. See
 
 - [Topology Dict Schema]({{< ref "/python/computation-graphs/reference/topology-dict-schema" >}}) — the `graph={...}` format.
 - [Computation Graph (Rust reference)]({{< ref "/reference/computation-graphs" >}}) — the macro family this mirrors.
-- [Choosing Accumulator Types]({{< ref "/computation-graphs/how-to-guides/accumulator-types" >}}) — what each accumulator does.
+- [Choosing Accumulator Types]({{< ref "/engine/computation-graphs/how-to/accumulator-types" >}}) — what each accumulator does.

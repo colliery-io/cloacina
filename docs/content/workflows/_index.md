@@ -41,6 +41,6 @@ Deploy Cloacina as a standalone service (`cloacinactl server start` or `cloacina
 | Section | Description |
 |---------|-------------|
 | [Tutorials]({{< ref "/workflows/tutorials" >}}) | Step-by-step learning guides |
-| [How-to Guides]({{< ref "/workflows/how-to-guides" >}}) | Task-oriented recipes |
+| [How-to Guides]({{< ref "/embed/how-to" >}}) | Task-oriented recipes |
 | [Reference]({{< ref "/reference" >}}) | API and configuration lookup |
 | [Explanation]({{< ref "/engine/explanation" >}}) | Architecture and design decisions |

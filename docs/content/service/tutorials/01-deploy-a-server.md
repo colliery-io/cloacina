@@ -294,7 +294,7 @@ Look for lines with your `request_id` (set in the
 `execution_id`. This is how you correlate a specific API call to
 the server-side handling, including any internal failures.
 
-For more on observability, see [Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}).
+For more on observability, see [Observe Execution State]({{< ref "/embed/how-to/observe-execution-state" >}}).
 
 ## Step 11: Tear down
 
@@ -349,7 +349,7 @@ You now have:
 - [Production Deployment]({{< ref "/service/how-to/production-deployment" >}})
   — add TLS termination, reverse proxy, and external secret
   management.
-- [Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}})
+- [Observe Execution State]({{< ref "/embed/how-to/observe-execution-state" >}})
   — wire metrics into Prometheus + OpenTelemetry tracing.
 - [Reconciler Pipeline]({{< ref "/service/explanation/reconciler-pipeline" >}})
   — understand what just happened during the package upload.

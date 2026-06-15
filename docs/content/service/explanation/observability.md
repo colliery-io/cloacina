@@ -125,7 +125,7 @@ A few choices Cloacina explicitly made the opposite way from common defaults:
 - [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) — every metric, type, labels, meaning, PromQL examples.
 - [Performance Characteristics]({{< ref "performance-characteristics" >}}) — what numbers to expect from the gauges and histograms.
 - [Performance Tuning]({{< ref "/service/how-to/performance-tuning" >}}) — using these metrics to drive tuning decisions.
-- [Workflows: Observability]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}) — workflow-author perspective on which metric matters when.
+- [Workflows: Observability]({{< ref "/embed/how-to/observe-execution-state" >}}) — workflow-author perspective on which metric matters when.
 - CLOACI-A-0005 — deployment-mode trust model (`/metrics` posture).
 - CLOACI-I-0099 — the initiative that defined the `cloacina_*` namespace.
 - CLOACI-I-0108 — SQL-derived gauges + persist-failure `Degraded` threshold.

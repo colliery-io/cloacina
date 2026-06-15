@@ -53,4 +53,4 @@ in your own process. To take it further:
 
 - **Going to production embedded?** → [Running embedded in production]({{< ref "/embed/how-to" >}})
 - **Event-driven, in-process?** → [Computation Graphs]({{< ref "/engine/computation-graphs/computation-graph" >}})
-- Retry patterns: [Conditional Retries]({{< ref "/workflows/how-to-guides/conditional-retries" >}})
+- Retry patterns: [Conditional Retries]({{< ref "/embed/how-to/conditional-retries" >}})

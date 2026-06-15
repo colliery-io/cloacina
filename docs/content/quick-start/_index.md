@@ -73,7 +73,7 @@ This walks through bootstrap-key handling, tenant provisioning,
 package upload, and your first execution. Once you have a server
 running, branch into:
 
-- [Migrating to Service Mode]({{< ref "/workflows/how-to-guides/migrating-to-service-mode" >}})
+- [Migrating to Service Mode]({{< ref "/service/how-to/migrating-to-service-mode" >}})
   — convert an embedded-mode workflow into a loadable `.cloacina` package.
 - [Use cloacina-compiler Locally]({{< ref "/service/how-to/use-cloacina-compiler-locally" >}})
   — build packages on your laptop without the long-running compiler
@@ -97,7 +97,7 @@ Highlights:
 - [Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}) — first deployment, end to end.
 - [Configure a Multi-Tenant Deployment]({{< ref "/service/how-to/configure-multi-tenant-deployment" >}}) — multi-tenancy + the operational caveats you must know.
 - [Production Deployment]({{< ref "/service/how-to/production-deployment" >}}) — TLS, reverse proxy, observability hookup.
-- [Observe Execution State]({{< ref "/workflows/how-to-guides/observe-execution-state" >}}) — Prometheus + OpenTelemetry + structured logs.
+- [Observe Execution State]({{< ref "/embed/how-to/observe-execution-state" >}}) — Prometheus + OpenTelemetry + structured logs.
 - [Safely Unload a Package]({{< ref "/service/how-to/safely-unload-a-package" >}}) — clean teardown for cross-package deployments.
 
 ## Reference at a glance

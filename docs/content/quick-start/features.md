@@ -17,7 +17,7 @@ problem, see [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}).
 - **At-least-once with recovery** — work is claimed atomically; failed or stalled
   work is recovered. Tasks and graph nodes must be idempotent.
 - **Automatic retries** — configurable retry policies per task, including
-  [conditional retries]({{< ref "/workflows/how-to-guides/conditional-retries" >}}).
+  [conditional retries]({{< ref "/embed/how-to/conditional-retries" >}}).
 - **Content-versioned workflows** — a workflow's version is derived from its task
   code and structure, so changes are explicit and safe. See
   [Workflow Versioning]({{< ref "/engine/explanation/workflow-versioning" >}}).
@@ -28,7 +28,7 @@ problem, see [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}).
 - **External config & secrets** — reference connections, secrets, and config by
   name and resolve them from `CLOACINA_VAR_*` environment variables at runtime
   (`cloaca.var()` / `var_or()`). See
-  [Variable Registry]({{< ref "/workflows/how-to-guides/variable-registry" >}}).
+  [Variable Registry]({{< ref "/embed/how-to/variable-registry" >}}).
 - **Two database backends, chosen at runtime** — Postgres or SQLite via the
   connection URL, no recompile. See
   [Database Backends]({{< ref "/service/explanation/database-backends" >}}).
@@ -40,9 +40,9 @@ problem, see [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}).
 - **[Computation Graphs]({{< ref "/computation-graphs" >}})** — in-process,
   deterministic, event-driven DAGs; the whole traversal is the unit.
 - **They compose** — workflows can
-  [subscribe to a reactor]({{< ref "/workflows/how-to-guides/subscribe-workflow-to-reactor" >}})
+  [subscribe to a reactor]({{< ref "/embed/how-to/subscribe-workflow-to-reactor" >}})
   and a task can
-  [invoke a computation graph]({{< ref "/workflows/how-to-guides/invoke-computation-graph-from-workflow" >}}).
+  [invoke a computation graph]({{< ref "/embed/how-to/invoke-computation-graph-from-workflow" >}}).
 
 ## Computation-graph capabilities
 
@@ -52,10 +52,10 @@ first if those terms are new.
 - **Accumulators** — adapters that turn an external stream or source into
   *boundary events* (the discrete events a graph reacts to), in several flavors
   (passthrough, stream, polling, batch, state). See
-  [Accumulator Types]({{< ref "/computation-graphs/how-to-guides/accumulator-types" >}}).
+  [Accumulator Types]({{< ref "/engine/computation-graphs/how-to/accumulator-types" >}}).
 - **Reactors** — fire a graph when their criteria are met (`when_any` /
-  [`when_all`]({{< ref "/computation-graphs/how-to-guides/when-all-criteria" >}}))
-  with a [`latest` or `sequential`]({{< ref "/computation-graphs/how-to-guides/sequential-strategy" >}})
+  [`when_all`]({{< ref "/engine/computation-graphs/how-to/when-all-criteria" >}}))
+  with a [`latest` or `sequential`]({{< ref "/engine/computation-graphs/how-to/sequential-strategy" >}})
   input strategy.
 - **Routing** — enum-variant routing propagates results conditionally between
   nodes.
@@ -63,7 +63,7 @@ first if those terms are new.
   [Kafka Stream]({{< ref "/computation-graphs/tutorials/service/09-kafka-stream" >}}).
 - **CEL firing filters** — filter reactor firings with CEL (Common Expression
   Language) expressions; see
-  [Filter Reactor Firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}).
+  [Filter Reactor Firings with CEL]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}}).
 
 ## Scheduling & triggers
 

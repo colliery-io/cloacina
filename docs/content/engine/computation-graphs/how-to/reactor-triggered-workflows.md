@@ -219,5 +219,5 @@ comfortably under the I-0099 cardinality guard.
 
 - [Computation Graph Health]({{< ref "computation-graph-health" >}}) —
   watching reactor liveness
-- [Cleaning Up Events]({{< ref "/workflows/how-to-guides/cleaning-up-events" >}}) —
+- [Cleaning Up Events]({{< ref "/embed/how-to/cleaning-up-events" >}}) —
   the equivalent retention story for the workflow execution side

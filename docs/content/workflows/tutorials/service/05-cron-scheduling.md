@@ -499,5 +499,5 @@ Cron scheduling in Cloacina provides a robust foundation for automating your wor
 
 - Explore advanced cron expressions for complex scheduling needs
 - Integrate with monitoring systems for production alerting
-- Learn about multi-tenant cron scheduling in the [Multi-Tenant Setup Guide]({{< ref "/workflows/how-to-guides/multi-tenant-setup/" >}})
+- Learn about multi-tenant cron scheduling in the [Multi-Tenant Setup Guide]({{< ref "/service/how-to/multi-tenant-setup/" >}})
 - Study the [Error Handling Tutorial]({{< ref "/workflows/tutorials/library/04-error-handling/" >}}) for robust scheduled workflows
