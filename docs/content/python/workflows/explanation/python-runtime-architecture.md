@@ -6,13 +6,7 @@ weight: 10
 
 # Python Runtime Architecture
 
-<!-- TODO(DOC-G Phase 5): full content deferred. Code sources to read before filling: -->
-<!--   - `crates/cloacina-python/Cargo.toml` (deps + features) -->
-<!--   - `crates/cloacina-python/src/lib.rs` (pymodule registration) -->
-<!--   - `crates/cloacina-python/src/bindings/{context,runner,admin,trigger}.rs` -->
-<!--   - .metis/initiatives archives for T-0529 / T-0532 (the crate split rationale) -->
-
-This page sketches how the Python `cloaca` module fits onto the underlying Rust runtime. Three points worth knowing:
+This page explains how the Python `cloaca` module fits onto the underlying Rust runtime. Three points worth knowing:
 
 ## The `cloacina-python` crate split (CLOACI-T-0529 / CLOACI-T-0532)
 
@@ -35,7 +29,7 @@ Python is a first-class surface (see the user feedback memory: Python support is
 | Rust | Python equivalent |
 |---|---|
 | `#[task(...)]` | `@cloaca.task(...)` |
-| `#[workflow(...)]` | `@cloaca.workflow(...)` or `WorkflowBuilder` context manager |
+| `#[workflow(...)]` | `cloaca.WorkflowBuilder` context manager (groups `@cloaca.task` definitions; in a packaged workflow, `workflow_name` in `package.toml` names it) |
 | `#[trigger(...)]` | `@cloaca.trigger(...)` |
 | `#[reactor(...)]` | `@cloaca.reactor(...)` |
 | `#[computation_graph(...)]` | `ComputationGraphBuilder` context manager |

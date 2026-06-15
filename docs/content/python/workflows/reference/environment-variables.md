@@ -6,24 +6,37 @@ weight: 10
 
 # Python Environment Variables
 
-<!-- TODO(DOC-G Phase 5): full content deferred. The audit found that the existing `python/api-reference/configuration.md` claims `CLOACA_*` env vars exist but they were not verified against `crates/cloacina-python/src/bindings/`. Audit before publishing. Sources to verify: -->
-<!--   - `crates/cloacina-python/src/lib.rs` -->
-<!--   - `crates/cloacina-python/src/bindings/context.rs` -->
-<!--   - `crates/cloacina-python/src/bindings/runner.rs` -->
-
-This page documents environment variables that affect Python workflows. The Python runtime inherits the full [Rust environment variable surface]({{< ref "/platform/reference/environment-variables" >}}); additional Python-specific knobs are listed here.
+This page documents environment variables that affect Python workflows. The Python runtime inherits the full [Rust environment variable surface]({{< ref "/platform/reference/environment-variables" >}}).
 
 ## Inherited from Rust
 
 The Python runner (`cloaca.DefaultRunner`) reads the same environment variables as the Rust `DefaultRunner` — DSN, log level, registry-variable namespace, multi-tenant search path. See the [Rust environment variables reference]({{< ref "/platform/reference/environment-variables" >}}) for the full inventory.
 
-## Python-specific (TBD)
+## No separate `CLOACA_*` prefix
 
-This section is intentionally empty pending verification. The earlier `python/api-reference/configuration.md` referenced a `CLOACA_*` prefix; whether such variables are observed by the Python module separately from `CLOACINA_*` is not yet documented in code. Treat any `CLOACA_*` reference as aspirational until this section is filled.
+There is **no** distinct `CLOACA_*` environment-variable namespace. The Python
+module reads the same variables as the Rust runtime; the only Cloacina-defined
+convention is `CLOACINA_VAR_*` (the variable registry, below). Any `CLOACA_*`
+reference in older docs is incorrect.
 
-## Registry variables
+## Registry variables (`CLOACINA_VAR_*`)
 
-`CLOACINA_VAR_*` env vars are exposed verbatim to Python tasks through the registry variable API — see the [Variable Registry how-to]({{< ref "/workflows/how-to-guides/variable-registry" >}}).
+The variable registry resolves named connections, secrets, and config from
+`CLOACINA_VAR_<NAME>` environment variables at runtime. From Python:
+
+```python
+import cloaca
+
+broker = cloaca.var("KAFKA_BROKER")              # reads CLOACINA_VAR_KAFKA_BROKER; raises if unset
+threshold = cloaca.var_or("MODEL_THRESHOLD", "0.5")  # reads CLOACINA_VAR_MODEL_THRESHOLD, else "0.5"
+```
+
+```bash
+export CLOACINA_VAR_KAFKA_BROKER=localhost:9092
+export CLOACINA_VAR_MODEL_THRESHOLD=0.85
+```
+
+See the [Variable Registry how-to]({{< ref "/workflows/how-to-guides/variable-registry" >}}) for details.
 
 ## See also
 

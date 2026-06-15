@@ -20,6 +20,7 @@ Practical recipes — each solves one specific problem.
 
 ## Operations
 
-<!-- TODO(DOC-G Phase 5/6): land Python-side analogs of decommission-a-tenant.md once the underlying `runner.decommission_tenant` Python surface is verified against `crates/cloacina-python/src/bindings/admin.rs`. The Rust-side how-to is at /platform/how-to-guides/decommission-a-tenant. -->
-
-> Operational recipes (multi-tenant decommission, signed-package enforcement, CLI profiles) currently live on the [Rust how-to-guides side]({{< ref "/platform/how-to-guides" >}}) — the Python runner inherits the same operational surface.
+Operational recipes (multi-tenant decommission, signed-package enforcement, CLI
+profiles) live on the [platform how-to-guides]({{< ref "/platform/how-to-guides" >}})
+— the Python runner inherits the same operational surface, so they apply
+regardless of authoring language.
