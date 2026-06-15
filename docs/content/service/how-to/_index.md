@@ -2,6 +2,9 @@
 title: "How-to Guides"
 description: "Task-focused recipes for deploying, securing, and operating a Cloacina server."
 weight: 30
+aliases:
+  - "/platform/how-to-guides/"
+
 ---
 
 # Service How-to Guides

@@ -2,6 +2,9 @@
 title: "DatabaseAdmin API Reference"
 description: "API documentation for per-tenant database credential management"
 weight: 20
+aliases:
+  - "/platform/reference/database-admin/"
+
 ---
 
 # DatabaseAdmin API Reference

@@ -2,6 +2,9 @@
 title: "08 — Task Deferral"
 description: "Release concurrency slots while waiting for external conditions with TaskHandle and defer_until"
 weight: 18
+aliases:
+  - "/workflows/tutorials/service/10-task-deferral/"
+
 ---
 
 ## Overview

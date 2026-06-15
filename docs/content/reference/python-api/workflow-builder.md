@@ -4,6 +4,9 @@ description: "WorkflowBuilder class for creating workflows"
 weight: 30
 reviewer: "automation"
 review_date: "2025-01-07"
+aliases:
+  - "/python/api-reference/workflow-builder/"
+
 ---
 
 # WorkflowBuilder

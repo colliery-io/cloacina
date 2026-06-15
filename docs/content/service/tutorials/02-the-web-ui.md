@@ -2,6 +2,9 @@
 title: "02 - The Web UI"
 description: "Connect the Cloacina web UI to a server, execute a workflow, and watch it run live."
 weight: 12
+aliases:
+  - "/platform/tutorials/02-the-web-ui/"
+
 ---
 
 In this tutorial you'll bring up the Cloacina web UI, connect it to a

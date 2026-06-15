@@ -2,6 +2,10 @@
 title: "13 — Routing and Enum Dispatch"
 description: "Route computation graph execution down conditional paths using enum variants and the => topology syntax"
 weight: 23
+aliases:
+  - "/computation-graphs/tutorials/library/10-routing/"
+  - "/python/computation-graphs/tutorials/11-routing/"
+
 ---
 
 In this tutorial you'll build a market maker that routes each market event to one of two outcomes: execute a trade or log a no-action audit record. A decision node examines market data and the runtime dispatches each case to its dedicated handler. Only one branch runs per graph invocation.

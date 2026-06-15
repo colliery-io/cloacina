@@ -2,6 +2,9 @@
 title: "Horizontal Scaling"
 description: "How Cloacina prevents duplicate task execution across multiple runner instances using atomic claiming, heartbeats, and stale claim sweeping"
 weight: 40
+aliases:
+  - "/platform/explanation/horizontal-scaling/"
+
 ---
 
 ## Introduction

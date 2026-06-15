@@ -4,6 +4,9 @@ description: "Context class for managing workflow data"
 weight: 10
 reviewer: "automation"
 review_date: "2025-01-07"
+aliases:
+  - "/python/api-reference/context/"
+
 ---
 
 # Context

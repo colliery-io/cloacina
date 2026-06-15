@@ -4,6 +4,9 @@ description: ".cloacina archive structure, package.toml schema, and how packages
 weight: 20
 reviewer: "dstorey"
 review_date: "2026-06-14"
+aliases:
+  - "/platform/explanation/package-format/"
+
 ---
 
 # Package Format

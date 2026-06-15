@@ -2,6 +2,9 @@
 title: "Python Runtime Architecture"
 description: "How the Python surface relates to the underlying Rust runtime — PyO3 boundary, the `cloacina-python` crate split, GIL trade-offs, and the FFI it sits on."
 weight: 10
+aliases:
+  - "/python/workflows/explanation/python-runtime-architecture/"
+
 ---
 
 # Python Runtime Architecture

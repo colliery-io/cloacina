@@ -2,6 +2,9 @@
 title: "Subscription fan-out"
 description: "Why reactor → workflow subscriptions are DB-backed: the durable event log, per-subscription watermarks, at-least-once delivery, and how this composes with the in-process CG fast path (CLOACI-I-0100)."
 weight: 50
+aliases:
+  - "/computation-graphs/explanation/subscription-fan-out/"
+
 ---
 
 # Subscription fan-out

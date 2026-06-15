@@ -2,6 +2,9 @@
 title: "TypeScript SDK"
 description: "@cloacina/client — typed TypeScript client for cloacina-server (Node + browser)"
 weight: 30
+aliases:
+  - "/sdks/typescript/"
+
 ---
 
 # TypeScript SDK (`@cloacina/client`)

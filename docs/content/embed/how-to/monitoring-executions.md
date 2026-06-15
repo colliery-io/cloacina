@@ -2,6 +2,9 @@
 title: "Monitoring Executions"
 description: "How to monitor and troubleshoot workflow executions using the API and Python bindings"
 weight: 60
+aliases:
+  - "/workflows/how-to-guides/monitoring-executions/"
+
 ---
 
 # Monitoring Executions

@@ -2,6 +2,9 @@
 title: "Require signed packages"
 description: "Turn on fail-closed package-signature enforcement on cloacina-server: --require-signatures + --verification-org-id, the audit trail, and recovery if you lock yourself out."
 weight: 81
+aliases:
+  - "/platform/how-to-guides/require-signed-packages/"
+
 ---
 
 # Require signed packages

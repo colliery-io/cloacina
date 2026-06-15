@@ -2,6 +2,9 @@
 title: "Task Execution"
 description: "Understanding how tasks are executed in Cloacina's workflow engine"
 weight: 30
+aliases:
+  - "/workflows/explanation/task-execution-sequence/"
+
 ---
 
 ## Overview

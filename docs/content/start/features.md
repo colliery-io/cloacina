@@ -2,6 +2,9 @@
 title: "Features Overview"
 description: "A catalog of what Cloacina can do, with links into the detailed docs."
 weight: 14
+aliases:
+  - "/quick-start/features/"
+
 ---
 
 # Features Overview

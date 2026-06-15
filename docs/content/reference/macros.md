@@ -2,6 +2,9 @@
 title: "Macro Reference"
 description: "Complete reference for #[task], #[workflow], and #[trigger] attribute macros"
 weight: 8
+aliases:
+  - "/workflows/reference/macros/"
+
 ---
 
 # Macro Reference

@@ -2,6 +2,9 @@
 title: "Reconciler Pipeline"
 description: "The six-step ordered load and unload pipeline the registry reconciler runs per package, and why the order is fixed."
 weight: 21
+aliases:
+  - "/platform/explanation/reconciler-pipeline/"
+
 ---
 
 # Reconciler Pipeline

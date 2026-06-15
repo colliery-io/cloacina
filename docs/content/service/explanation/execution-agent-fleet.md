@@ -2,6 +2,9 @@
 title: "Execution-Agent Fleet"
 description: "How Cloacina offloads task execution to a pool of DB-less remote agents — registration, dispatch, delivery, execution, and dead-agent reclaim"
 weight: 45
+aliases:
+  - "/platform/explanation/execution-agent-fleet/"
+
 ---
 
 ## Introduction

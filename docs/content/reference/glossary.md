@@ -2,6 +2,9 @@
 title: "Glossary"
 description: "Definitions of key terms and concepts in the Cloacina ecosystem"
 weight: 55
+aliases:
+  - "/glossary/"
+
 ---
 
 # Glossary

@@ -2,6 +2,10 @@
 title: "06 — Multi-Tenancy"
 description: "Give each tenant its own isolated PostgreSQL schema with one runner call."
 weight: 16
+aliases:
+  - "/python/workflows/tutorials/06-multi-tenancy/"
+  - "/workflows/tutorials/service/06-multi-tenancy/"
+
 ---
 
 # 06 — Multi-Tenancy

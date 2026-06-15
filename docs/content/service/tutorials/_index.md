@@ -2,6 +2,11 @@
 title: "Tutorials"
 description: "Learn to deploy and operate Cloacina as a service, by doing."
 weight: 20
+aliases:
+  - "/computation-graphs/tutorials/service/"
+  - "/platform/tutorials/"
+  - "/workflows/tutorials/service/"
+
 ---
 
 # Service Tutorials

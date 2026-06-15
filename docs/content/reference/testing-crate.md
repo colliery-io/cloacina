@@ -2,6 +2,9 @@
 title: "cloacina-testing API Reference"
 description: "API documentation for the cloacina-testing crate — no-database test utilities for Cloacina workflows"
 weight: 30
+aliases:
+  - "/workflows/reference/testing-crate/"
+
 ---
 
 # cloacina-testing API Reference

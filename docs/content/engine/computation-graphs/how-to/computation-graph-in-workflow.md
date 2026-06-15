@@ -2,6 +2,9 @@
 title: "Computation Graph in a Workflow Task"
 description: "Wrap a trigger-less computation graph as a workflow task with #[task(invokes = computation_graph(...))]"
 weight: 30
+aliases:
+  - "/computation-graphs/how-to-guides/computation-graph-in-workflow/"
+
 ---
 
 ## Problem

@@ -2,6 +2,9 @@
 title: "Backend Selection"
 description: "How to choose between SQLite and PostgreSQL backends for your Cloaca deployment"
 weight: 20
+aliases:
+  - "/python/workflows/how-to-guides/backend-selection/"
+
 ---
 
 # Backend Selection

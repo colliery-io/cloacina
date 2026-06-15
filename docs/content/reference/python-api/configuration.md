@@ -2,6 +2,9 @@
 title: "Configuration"
 description: "Configuration surface for Cloaca: DefaultRunnerConfig, runner construction, retry, cron, multi-tenancy, and environment variables"
 weight: 70
+aliases:
+  - "/python/api-reference/configuration/"
+
 ---
 
 # Configuration

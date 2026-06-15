@@ -2,6 +2,9 @@
 title: "Triggering Workflows from Reactor Firings"
 description: "How to fan out reactor firings into workflow executions with Cloacina's DB-backed subscription log"
 weight: 30
+aliases:
+  - "/computation-graphs/how-to-guides/reactor-triggered-workflows/"
+
 ---
 
 # Triggering Workflows from Reactor Firings

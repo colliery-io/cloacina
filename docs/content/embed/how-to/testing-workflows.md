@@ -2,6 +2,10 @@
 title: "Testing Workflows"
 description: "How to unit test Cloacina workflow logic without a database"
 weight: 10
+aliases:
+  - "/python/workflows/how-to-guides/testing-workflows/"
+  - "/workflows/how-to-guides/testing-workflows/"
+
 ---
 
 # Testing Workflows

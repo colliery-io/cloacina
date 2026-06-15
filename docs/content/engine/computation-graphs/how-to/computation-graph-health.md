@@ -2,6 +2,9 @@
 title: "Monitoring Computation Graph Health"
 description: "How to inspect accumulator and reactor health via the Cloacina API and the cloacinactl graph commands."
 weight: 20
+aliases:
+  - "/computation-graphs/how-to-guides/computation-graph-health/"
+
 ---
 
 # Monitoring Computation Graph Health

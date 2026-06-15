@@ -2,6 +2,10 @@
 title: "03 — Dependencies & parallelism"
 description: "Express a DAG with dependencies; independent tasks run in parallel."
 weight: 13
+aliases:
+  - "/python/workflows/tutorials/03-complex-workflows/"
+  - "/workflows/tutorials/library/03-complex-workflows/"
+
 ---
 
 # 03 — Dependencies & parallelism

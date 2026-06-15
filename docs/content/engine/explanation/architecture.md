@@ -1,6 +1,9 @@
 ---
 title: "Computation Graph Architecture"
 weight: 10
+aliases:
+  - "/computation-graphs/explanation/architecture/"
+
 ---
 
 # Computation Graph Architecture

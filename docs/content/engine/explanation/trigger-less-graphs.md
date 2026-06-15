@@ -2,6 +2,9 @@
 title: "Trigger-less Computation Graphs"
 description: "Computation graphs invoked directly by workflow tasks instead of being driven by reactors and accumulator boundaries."
 weight: 26
+aliases:
+  - "/computation-graphs/explanation/trigger-less-graphs/"
+
 ---
 
 # Trigger-less Computation Graphs

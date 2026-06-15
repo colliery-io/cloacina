@@ -2,6 +2,9 @@
 title: "Multi-Tenancy Architecture"
 description: "Understanding how Cloacina implements multi-tenancy, its isolation guarantees, and security implications"
 weight: 50
+aliases:
+  - "/platform/explanation/multi-tenancy/"
+
 ---
 
 # Multi-Tenancy Architecture

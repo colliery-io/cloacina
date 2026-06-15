@@ -2,6 +2,9 @@
 title: "Compiler + Server Deployment Runbook"
 description: "Long-form runbook for deploying the cloacina-server and cloacina-compiler pair across bare-metal, Docker Compose, and Kubernetes."
 weight: 60
+aliases:
+  - "/platform/how-to-guides/compiler-deployment-runbook/"
+
 ---
 
 # Compiler + Server Deployment Runbook

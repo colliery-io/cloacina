@@ -2,6 +2,9 @@
 title: "Cleaning Up Events"
 description: "How to manage execution event table growth by purging old records"
 weight: 65
+aliases:
+  - "/workflows/how-to-guides/cleaning-up-events/"
+
 ---
 
 # Cleaning Up Events

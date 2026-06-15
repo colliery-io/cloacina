@@ -2,6 +2,9 @@
 title: "01 - Deploy a Server"
 description: "Bootstrap a cloacina-server, capture the admin key, create a tenant, upload a package, and run your first execution."
 weight: 11
+aliases:
+  - "/platform/tutorials/01-deploy-a-server/"
+
 ---
 
 In this tutorial you'll stand up a `cloacina-server` from scratch,

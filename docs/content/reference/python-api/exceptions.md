@@ -2,6 +2,9 @@
 title: "Exceptions"
 description: "Exception classes for error handling in Cloaca workflows"
 weight: 90
+aliases:
+  - "/python/api-reference/exceptions/"
+
 ---
 
 # Exceptions

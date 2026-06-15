@@ -2,6 +2,9 @@
 title: "Packaging Python Workflows"
 description: "How to package Python workflows as .cloacina archives for deployment to the daemon or server"
 weight: 40
+aliases:
+  - "/python/workflows/how-to-guides/packaging-python-workflows/"
+
 ---
 
 # Packaging Python Workflows

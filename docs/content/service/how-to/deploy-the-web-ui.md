@@ -2,6 +2,9 @@
 title: "Deploy the Web UI"
 description: "Run the Cloacina web UI as a container against any server: image, runtime config, CORS, compose, and the demo profile."
 weight: 65
+aliases:
+  - "/platform/how-to-guides/deploy-the-web-ui/"
+
 ---
 
 The Cloacina web UI ships as a server-agnostic container: one image runs

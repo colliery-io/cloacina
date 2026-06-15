@@ -2,6 +2,9 @@
 title: "Trigger Decorator"
 description: "Define event-driven workflow triggers with the @trigger decorator"
 weight: 55
+aliases:
+  - "/python/api-reference/trigger/"
+
 ---
 
 # Trigger Decorator

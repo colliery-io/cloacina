@@ -2,6 +2,10 @@
 title: "10 — Your First Computation Graph"
 description: "Define a computation graph, declare its topology, and execute it with a hand-built InputCache"
 weight: 20
+aliases:
+  - "/python/computation-graphs/tutorials/09-computation-graph/"
+  - "/computation-graphs/tutorials/library/07-computation-graph/"
+
 ---
 
 In this tutorial you'll build your first computation graph — a pricing pipeline that reads an order book snapshot, computes spread in basis points, and formats the result. You'll learn how Cloacina's two macros work together: `#[reactor]` declares the firing criterion, and `#[computation_graph]` references that reactor by name and wires async functions into a compiled, callable graph. In Python the same pipeline is built with `@cloaca.reactor`, `@cloaca.node`, and `cloaca.ComputationGraphBuilder`.

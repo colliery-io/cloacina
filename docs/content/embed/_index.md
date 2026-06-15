@@ -2,6 +2,10 @@
 title: "Embed the Library"
 description: "Integrate the Cloacina engine into your own Rust or Python application as a library."
 weight: 10
+aliases:
+  - "/python/"
+  - "/python/workflows/"
+
 ---
 
 # Embed the Library

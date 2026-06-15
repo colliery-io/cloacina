@@ -2,6 +2,9 @@
 title: "Performance Tuning"
 description: "How to optimize Cloacina for high-throughput and low-latency workflow execution"
 weight: 50
+aliases:
+  - "/platform/how-to-guides/performance-tuning/"
+
 ---
 
 This guide explains how to tune Cloacina's configuration for different workload profiles. All values referenced here come from `DefaultRunnerConfig` and the scheduler internals -- nothing is fabricated.

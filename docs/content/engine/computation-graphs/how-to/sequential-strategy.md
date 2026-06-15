@@ -2,6 +2,9 @@
 title: "Using Sequential Input Strategy"
 description: "How to configure a reactor to process every boundary in order rather than collapsing to the latest"
 weight: 70
+aliases:
+  - "/computation-graphs/how-to-guides/sequential-strategy/"
+
 ---
 
 # Using Sequential Input Strategy

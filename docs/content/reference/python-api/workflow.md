@@ -2,6 +2,9 @@
 title: "Workflow"
 description: "Workflow objects represent executable task pipelines"
 weight: 60
+aliases:
+  - "/python/api-reference/workflow/"
+
 ---
 
 # Workflow

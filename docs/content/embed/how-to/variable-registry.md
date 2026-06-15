@@ -2,6 +2,9 @@
 title: "Variable Registry (var/var_or)"
 description: "How to use the CLOACINA_VAR_ environment variable system for external configuration"
 weight: 60
+aliases:
+  - "/workflows/how-to-guides/variable-registry/"
+
 ---
 
 # Variable Registry

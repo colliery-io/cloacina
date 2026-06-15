@@ -2,6 +2,9 @@
 title: "Observe Execution State"
 description: "Monitor running workflows: metrics, logs, request-id correlation, and OpenTelemetry tracing."
 weight: 28
+aliases:
+  - "/workflows/how-to-guides/observe-execution-state/"
+
 ---
 
 # How to Observe Execution State

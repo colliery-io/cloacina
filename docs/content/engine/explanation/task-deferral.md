@@ -2,6 +2,9 @@
 title: "Task Deferral"
 description: "How TaskHandle and defer_until manage concurrency slots during long-running waits"
 weight: 32
+aliases:
+  - "/workflows/explanation/task-deferral/"
+
 ---
 
 # Task Deferral

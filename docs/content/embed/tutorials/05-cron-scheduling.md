@@ -2,6 +2,10 @@
 title: "05 — Cron Scheduling"
 description: "Run a workflow automatically on a time-based cron schedule."
 weight: 15
+aliases:
+  - "/python/workflows/tutorials/05-cron-scheduling/"
+  - "/workflows/tutorials/service/05-cron-scheduling/"
+
 ---
 
 # 05 — Cron Scheduling

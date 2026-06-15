@@ -2,6 +2,9 @@
 title: "Reactor Lifecycle"
 description: "How reactors are loaded and unloaded — the dual-layer teardown, the bound-subscriber guard, and why both arms exist."
 weight: 25
+aliases:
+  - "/computation-graphs/explanation/reactor-lifecycle/"
+
 ---
 
 # Reactor Lifecycle

@@ -2,6 +2,9 @@
 title: "SDKs"
 description: "Service-client SDKs for cloacina-server — Rust, Python, and TypeScript"
 weight: 35
+aliases:
+  - "/sdks/"
+
 ---
 
 # Service SDKs

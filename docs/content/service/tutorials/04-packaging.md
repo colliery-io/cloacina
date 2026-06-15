@@ -2,6 +2,9 @@
 title: "04 — Packaging a Computation Graph"
 description: "Compile a computation graph as a cdylib plugin, upload it to the server, and watch the reconciler load it"
 weight: 14
+aliases:
+  - "/computation-graphs/tutorials/service/07-packaging/"
+
 ---
 
 In this tutorial you'll take a computation graph from Rust source code all the way to a running graph loaded inside the Cloacina server. You'll build it as a shared library, package it into a `.cloacina` source archive, upload it via the REST API, and verify that the reconciler compiles and loads it automatically.

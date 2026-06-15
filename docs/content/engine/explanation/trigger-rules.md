@@ -3,6 +3,9 @@ title: "Trigger Rules"
 description: "How trigger rules control conditional task execution based on workflow state and context data"
 date: 2024-03-19
 weight: 3
+aliases:
+  - "/workflows/explanation/trigger-rules/"
+
 ---
 
 ## What Are Trigger Rules?

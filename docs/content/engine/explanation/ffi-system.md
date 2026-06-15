@@ -4,6 +4,9 @@ description: "C FFI interface for dynamic plugin loading"
 weight: 21
 reviewer: "dstorey"
 review_date: "2025-01-17"
+aliases:
+  - "/platform/explanation/ffi-system/"
+
 ---
 
 This article describes the plugin system Cloacina uses to dynamically load and execute workflow packages. Cloacina uses [fidius](https://github.com/fidius-io/fidius), a framework that transforms a Rust trait into a stable C ABI plugin, eliminating the need for hand-written `extern "C"` functions and `#[repr(C)]` structs.

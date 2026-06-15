@@ -2,6 +2,9 @@
 title: "Task Decorator"
 description: "Define workflow tasks with the @task decorator"
 weight: 50
+aliases:
+  - "/python/api-reference/task/"
+
 ---
 
 # Task Decorator

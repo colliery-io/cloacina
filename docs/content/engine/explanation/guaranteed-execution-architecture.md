@@ -2,6 +2,9 @@
 title: "Guaranteed Cron Scheduling"
 description: "Understanding the differences between PostgreSQL and SQLite backends in Cloacina"
 weight: 25
+aliases:
+  - "/workflows/explanation/guaranteed-execution-architecture/"
+
 ---
 
 

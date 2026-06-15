@@ -2,6 +2,9 @@
 title: "Filter Reactor Subscriptions (Python)"
 description: "Attach a CEL predicate to a workflow's reactor subscription so only matching firings dispatch."
 weight: 20
+aliases:
+  - "/python/computation-graphs/how-to-guides/filter-reactor-subscriptions/"
+
 ---
 
 # Filter Reactor Subscriptions (Python)

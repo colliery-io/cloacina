@@ -2,6 +2,9 @@
 title: "Deploying the API Server"
 description: "How to deploy the Cloacina HTTP API server with PostgreSQL, authentication, and production configuration"
 weight: 55
+aliases:
+  - "/platform/how-to-guides/deploying-the-api-server/"
+
 ---
 
 # Deploying the API Server

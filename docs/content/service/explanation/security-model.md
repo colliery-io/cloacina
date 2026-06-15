@@ -2,6 +2,9 @@
 title: "Security Model"
 description: "Trust by deployment mode, auth roles, signature verification rationale, the compiler threat model, and the limits of multi-tenant isolation."
 weight: 35
+aliases:
+  - "/platform/explanation/security-model/"
+
 ---
 
 # Security Model

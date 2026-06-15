@@ -2,6 +2,9 @@
 title: "Run cloacina-compiler in Production"
 description: "Deployment posture for the cloacina-compiler service: threat model, mitigations, vendor curation, audit reading."
 weight: 28
+aliases:
+  - "/platform/how-to-guides/running-the-compiler/"
+
 ---
 
 # How to Run `cloacina-compiler` in Production

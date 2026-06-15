@@ -2,6 +2,9 @@
 title: "Deploy an Execution-Agent Fleet"
 description: "Offload tasks to a pool of DB-less cloacina-agent workers: set the default executor to the fleet, run agents, verify, tune liveness, and operate the fleet"
 weight: 58
+aliases:
+  - "/platform/how-to-guides/deploy-an-execution-agent-fleet/"
+
 ---
 
 # Deploy an Execution-Agent Fleet

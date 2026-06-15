@@ -2,6 +2,9 @@
 title: "Database Backends"
 description: "Understanding the differences between PostgreSQL and SQLite backends in Cloacina"
 weight: 25
+aliases:
+  - "/platform/explanation/database-backends/"
+
 ---
 
 # Database Backends

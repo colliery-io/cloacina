@@ -2,6 +2,9 @@
 title: "Invoke a computation graph from a workflow task"
 description: "Embed a computation graph as a single workflow task using #[task(invokes = computation_graph(\"name\"))]. The graph runs as one task in the workflow's quantum (CLOACI-I-0101)."
 weight: 19
+aliases:
+  - "/workflows/how-to-guides/invoke-computation-graph-from-workflow/"
+
 ---
 
 # Invoke a computation graph from a workflow task

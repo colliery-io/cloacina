@@ -2,6 +2,9 @@
 title: "06 — Kafka-Sourced Computation Graphs"
 description: "Declare stream accumulators that consume from Kafka topics — no external producer needed"
 weight: 16
+aliases:
+  - "/computation-graphs/tutorials/service/09-kafka-stream/"
+
 ---
 
 In the previous tutorials, events arrived via WebSocket pushed by an external process. In this tutorial you'll declare a **stream accumulator** in `package.toml`. The server reads events from a Kafka topic automatically — once the graph loads, the accumulator connects to Kafka and pulls messages without any application code changes.

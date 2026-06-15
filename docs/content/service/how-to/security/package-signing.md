@@ -1,6 +1,9 @@
 ---
 title: "Package Signing"
 weight: 10
+aliases:
+  - "/platform/how-to-guides/security/package-signing/"
+
 ---
 
 # Package Signing and Verification

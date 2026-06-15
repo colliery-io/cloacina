@@ -2,6 +2,9 @@
 title: "Migrating from Library to Service Mode"
 description: "How to convert an embedded Rust workflow into a packaged workflow for deployment to the daemon or server"
 weight: 55
+aliases:
+  - "/workflows/how-to-guides/migrating-to-service-mode/"
+
 ---
 
 # Migrating from Library to Service Mode

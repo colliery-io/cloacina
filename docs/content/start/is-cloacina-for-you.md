@@ -2,6 +2,9 @@
 title: "Is Cloacina for you?"
 description: "Where Cloacina fits, where it doesn't, how it compares, and which door to pick."
 weight: 12
+aliases:
+  - "/quick-start/when-to-use/"
+
 ---
 
 # Is Cloacina for you?

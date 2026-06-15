@@ -2,6 +2,9 @@
 title: "package! Macro Reference"
 description: "Reference for the cloacina::package!() unified plugin shell macro: where to put it, what it emits, ABI versioning."
 weight: 30
+aliases:
+  - "/platform/reference/package-shell-macro/"
+
 ---
 
 # `cloacina::package!()` Macro

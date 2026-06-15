@@ -2,6 +2,9 @@
 title: "Performance Optimization"
 description: "Optimize Cloaca workflow performance for production workloads"
 weight: 30
+aliases:
+  - "/python/workflows/how-to-guides/performance-optimization/"
+
 ---
 
 # Performance Optimization

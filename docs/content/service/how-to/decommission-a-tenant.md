@@ -2,6 +2,9 @@
 title: "Decommission a tenant"
 description: "Safely remove a tenant from a running cloacina-server using the 4-step teardown orchestration: revoke keys, drain runner, evict caches, drop schema."
 weight: 80
+aliases:
+  - "/platform/how-to-guides/decommission-a-tenant/"
+
 ---
 
 # Decommission a tenant

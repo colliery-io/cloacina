@@ -2,6 +2,13 @@
 title: "Reference"
 description: "Lookup-style reference: APIs (Rust & Python), CLI, HTTP/WebSocket, configuration, metrics, SDKs, and the glossary."
 weight: 40
+aliases:
+  - "/computation-graphs/reference/"
+  - "/platform/reference/"
+  - "/python/computation-graphs/reference/"
+  - "/python/workflows/reference/"
+  - "/workflows/reference/"
+
 ---
 
 # Reference

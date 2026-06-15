@@ -2,6 +2,9 @@
 title: "Graph Scheduling"
 description: "How the graph scheduler manages computation graph lifecycles, accumulator supervision, and health-driven execution"
 weight: 50
+aliases:
+  - "/computation-graphs/explanation/computation-graph-scheduling/"
+
 ---
 
 # Graph Scheduling Architecture

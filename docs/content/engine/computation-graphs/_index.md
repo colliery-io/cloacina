@@ -2,6 +2,10 @@
 title: "Computation Graphs"
 description: "The in-process dataflow cluster: Computation Graph, Node, Reactor, Accumulator, and Boundary events."
 weight: 20
+aliases:
+  - "/computation-graphs/"
+  - "/python/computation-graphs/"
+
 ---
 
 # Computation Graphs

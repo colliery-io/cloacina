@@ -2,6 +2,11 @@
 title: "Explanation"
 description: "How the engine works under the hood: the packaging format, FFI, and runtime seeding."
 weight: 50
+aliases:
+  - "/computation-graphs/explanation/"
+  - "/python/computation-graphs/explanation/"
+  - "/workflows/explanation/"
+
 ---
 
 # Engine Explanation

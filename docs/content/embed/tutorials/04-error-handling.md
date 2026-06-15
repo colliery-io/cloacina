@@ -2,6 +2,10 @@
 title: "04 — Error handling & retries"
 description: "Fail a task, and configure automatic retries with backoff."
 weight: 14
+aliases:
+  - "/python/workflows/tutorials/04-error-handling/"
+  - "/workflows/tutorials/library/04-error-handling/"
+
 ---
 
 # 04 — Error handling & retries

@@ -2,6 +2,9 @@
 title: "Rust SDK"
 description: "cloacina-client — typed Rust client for cloacina-server"
 weight: 10
+aliases:
+  - "/sdks/rust/"
+
 ---
 
 # Rust SDK (`cloacina-client`)

@@ -2,6 +2,10 @@
 title: "07 — Event Triggers"
 description: "Fire workflows on custom conditions with in-process triggers."
 weight: 17
+aliases:
+  - "/python/workflows/tutorials/07-event-triggers/"
+  - "/workflows/tutorials/service/09-event-triggers/"
+
 ---
 
 # 07 — Event Triggers

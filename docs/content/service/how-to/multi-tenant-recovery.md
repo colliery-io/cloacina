@@ -2,6 +2,9 @@
 title: "Multi-Tenant Recovery"
 description: "Guide for handling recovery in multi-tenant Cloacina deployments"
 weight: 30
+aliases:
+  - "/workflows/how-to-guides/multi-tenant-recovery/"
+
 ---
 
 # Multi-Tenant Recovery

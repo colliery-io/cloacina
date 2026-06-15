@@ -3,6 +3,9 @@ title: "Workflow Versioning"
 description: "A deep dive into how Cloacina handles workflow versioning and task fingerprinting"
 date: 2024-03-19
 weight: 1
+aliases:
+  - "/workflows/explanation/workflow-versioning/"
+
 ---
 
 

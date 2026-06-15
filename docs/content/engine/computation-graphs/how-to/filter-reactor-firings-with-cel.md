@@ -2,6 +2,9 @@
 title: "Filter reactor firings with CEL"
 description: "Attach a CEL predicate to a workflow's reactor subscription so only firings matching the predicate cause a workflow execution (CLOACI-T-0602)."
 weight: 60
+aliases:
+  - "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel/"
+
 ---
 
 # Filter reactor firings with CEL

@@ -2,6 +2,9 @@
 title: "Repository Structure"
 description: "Overview of the Cloacina repository organization, crate architecture, and the relationship between workspace members."
 weight: 10
+aliases:
+  - "/platform/reference/repository-structure/"
+
 ---
 
 # Repository Structure

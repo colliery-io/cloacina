@@ -2,6 +2,9 @@
 title: "Concepts"
 description: "The core Cloacina primitives and how they relate."
 weight: 13
+aliases:
+  - "/quick-start/concepts/"
+
 ---
 
 # Concepts

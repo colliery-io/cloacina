@@ -2,6 +2,9 @@
 title: "Creating Your First Package"
 description: "Scaffold, validate, pack, and upload a .cloacina package with cloacinactl package new"
 weight: 15
+aliases:
+  - "/platform/how-to-guides/creating-your-first-package/"
+
 ---
 
 # Creating Your First Package

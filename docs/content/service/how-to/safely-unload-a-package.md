@@ -2,6 +2,9 @@
 title: "Safely Unload a Package"
 description: "Step-by-step recipe for unloading a .cloacina package without leaving stale registrations or dangling subscribers."
 weight: 25
+aliases:
+  - "/platform/how-to-guides/safely-unload-a-package/"
+
 ---
 
 # How to Safely Unload a Package

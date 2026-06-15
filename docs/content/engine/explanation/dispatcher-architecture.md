@@ -2,6 +2,9 @@
 title: "Dispatcher Architecture"
 description: "Understanding the dispatcher pattern for pluggable task execution backends"
 weight: 35
+aliases:
+  - "/workflows/explanation/dispatcher-architecture/"
+
 ---
 
 ## Overview

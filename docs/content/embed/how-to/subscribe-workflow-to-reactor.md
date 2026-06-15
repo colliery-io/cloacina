@@ -2,6 +2,9 @@
 title: "Subscribe a workflow to a reactor"
 description: "Wire a workflow trigger to a reactor's firings via the DB-backed subscription fan-out (CLOACI-I-0100). Durable, at-least-once, optionally filtered with CEL."
 weight: 18
+aliases:
+  - "/workflows/how-to-guides/subscribe-workflow-to-reactor/"
+
 ---
 
 # Subscribe a workflow to a reactor

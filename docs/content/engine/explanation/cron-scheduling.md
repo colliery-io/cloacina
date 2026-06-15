@@ -2,6 +2,9 @@
 title: "Cron Scheduling Architecture"
 description: "Deep dive into Cloacina's cron scheduling system, its guarantees, and recovery mechanisms"
 weight: 70
+aliases:
+  - "/workflows/explanation/cron-scheduling/"
+
 ---
 
 # Cron Scheduling Architecture

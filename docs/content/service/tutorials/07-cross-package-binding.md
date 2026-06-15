@@ -2,6 +2,9 @@
 title: "07 — Cross-Package Reactor Binding"
 description: "Build a publisher cdylib that owns a reactor, then bind a subscriber CG from a separate cdylib to it. Cross-package, cross-tenant, hot-reloadable."
 weight: 17
+aliases:
+  - "/computation-graphs/tutorials/service/10-cross-package-binding/"
+
 ---
 
 In this tutorial you'll build two packaged crates that cooperate

@@ -2,6 +2,9 @@
 title: "05 — WebSocket Event Injection"
 description: "Push events into a running computation graph accumulator over a WebSocket connection"
 weight: 15
+aliases:
+  - "/computation-graphs/tutorials/service/08-websocket-events/"
+
 ---
 
 In this tutorial you'll push events into the `orderbook` accumulator of the `price_signal` graph deployed in [Tutorial 04]({{< ref "/service/tutorials/04-packaging/" >}}). Events travel over a WebSocket connection to the accumulator endpoint at `/v1/ws/accumulator/{name}`. When enough events arrive to satisfy the reactor's firing condition, the computation graph executes automatically.

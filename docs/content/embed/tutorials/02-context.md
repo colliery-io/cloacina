@@ -2,6 +2,10 @@
 title: "02 — Passing data with Context"
 description: "Move data between dependent tasks through the Context."
 weight: 12
+aliases:
+  - "/python/workflows/tutorials/02-context-handling/"
+  - "/workflows/tutorials/library/02-context-handling/"
+
 ---
 
 # 02 — Passing data with Context

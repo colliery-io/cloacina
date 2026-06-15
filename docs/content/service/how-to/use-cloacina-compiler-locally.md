@@ -2,6 +2,9 @@
 title: "Use cloacina-compiler Locally"
 description: "Build, pack, and inspect .cloacina packages without running the compiler service."
 weight: 27
+aliases:
+  - "/platform/how-to-guides/use-cloacina-compiler-locally/"
+
 ---
 
 # How to Use `cloacina-compiler` Locally

@@ -2,6 +2,9 @@
 title: "WebSocket Protocol"
 description: "Reference for Cloacina's WebSocket endpoints and message formats"
 weight: 36
+aliases:
+  - "/platform/reference/websocket-protocol/"
+
 ---
 
 # WebSocket Protocol Reference

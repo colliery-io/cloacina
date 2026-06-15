@@ -4,6 +4,9 @@ description: "High-level system design and integration with cloacina core"
 weight: 22
 reviewer: "dstorey"
 review_date: "2025-01-17"
+aliases:
+  - "/platform/explanation/packaged-workflow-architecture/"
+
 ---
 
 This article explains the overall architecture of workflow packages and how they integrate with the Cloacina core system. Understanding this architecture is essential for deploying workflow packages in production and designing systems that leverage both packaged and embedded workflows.

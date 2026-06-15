@@ -2,6 +2,9 @@
 title: "PipelineResult"
 description: "Results from workflow execution"
 weight: 80
+aliases:
+  - "/python/api-reference/pipeline-result/"
+
 ---
 
 # PipelineResult

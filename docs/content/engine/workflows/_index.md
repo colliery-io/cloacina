@@ -2,6 +2,9 @@
 title: "Workflows"
 description: "The durable-DAG cluster: Workflow, Task, Context, and the Runner that executes them."
 weight: 10
+aliases:
+  - "/workflows/"
+
 ---
 
 # Workflows

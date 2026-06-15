@@ -1,6 +1,9 @@
 ---
 title: "Accumulator Design"
 weight: 20
+aliases:
+  - "/computation-graphs/explanation/accumulator-design/"
+
 ---
 
 # Accumulator Design

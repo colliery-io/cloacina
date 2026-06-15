@@ -2,6 +2,10 @@
 title: "11 — Accumulators"
 description: "Implement a passthrough accumulator, wire channels, spawn a reactor, and push live events through a compiled graph"
 weight: 21
+aliases:
+  - "/python/computation-graphs/tutorials/10-accumulators/"
+  - "/computation-graphs/tutorials/library/08-accumulators/"
+
 ---
 
 In this tutorial you'll move beyond calling the compiled graph by hand. You'll implement an `Accumulator`, wire up the channel plumbing between it and a `Reactor`, and watch the graph fire automatically as events arrive.

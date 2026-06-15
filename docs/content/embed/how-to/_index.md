@@ -2,6 +2,10 @@
 title: "How-to Guides"
 description: "Task-focused recipes for running Cloacina embedded in your application."
 weight: 30
+aliases:
+  - "/python/workflows/how-to-guides/"
+  - "/workflows/how-to-guides/"
+
 ---
 
 # Embedded How-to Guides

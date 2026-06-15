@@ -2,6 +2,9 @@
 title: "Use CLI profiles"
 description: "Manage named cloacinactl profiles in ~/.cloacina/config.toml: create, switch, secret schemes (env: / file: / raw), resolution precedence, secret rotation."
 weight: 82
+aliases:
+  - "/platform/how-to-guides/use-cli-profiles/"
+
 ---
 
 # Use CLI profiles

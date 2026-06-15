@@ -2,6 +2,9 @@
 title: "Package Manifest"
 description: "The package.toml manifest — moved to the Package Format reference"
 weight: 45
+aliases:
+  - "/platform/reference/package-manifest/"
+
 ---
 
 # Package Manifest Reference

@@ -1,6 +1,9 @@
 ---
 title: "Packaging & FFI"
 weight: 30
+aliases:
+  - "/computation-graphs/explanation/packaging/"
+
 ---
 
 # Packaging & FFI — How Packaged Graphs Work

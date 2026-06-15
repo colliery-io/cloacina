@@ -2,6 +2,9 @@
 title: "Configure PostgreSQL Schema-Based Multi-Tenancy"
 description: "Set up isolated, per-tenant workflow execution using PostgreSQL schemas"
 weight: 40
+aliases:
+  - "/workflows/how-to-guides/multi-tenant-setup/"
+
 ---
 
 # Configure PostgreSQL Schema-Based Multi-Tenancy

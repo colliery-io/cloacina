@@ -4,6 +4,9 @@ description: "Create distributable workflow packages with the packaged workflow 
 weight: 13
 reviewer: "dstorey"
 review_date: "2025-01-17"
+aliases:
+  - "/workflows/tutorials/service/07-packaged-workflows/"
+
 ---
 
 Welcome to the workflow packages tutorial! In this guide, you'll learn how to create distributable workflow packages that can be compiled to shared libraries and dynamically loaded at runtime. Workflow packages enable you to distribute complex workflows as standalone packages that can be shared, version-controlled, and deployed independently from the main application.

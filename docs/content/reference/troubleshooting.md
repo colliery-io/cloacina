@@ -2,6 +2,9 @@
 title: "Troubleshooting"
 description: "Solutions to common problems when using Cloacina"
 weight: 56
+aliases:
+  - "/troubleshooting/"
+
 ---
 
 # Troubleshooting

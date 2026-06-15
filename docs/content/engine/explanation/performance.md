@@ -1,6 +1,9 @@
 ---
 title: "Performance Characteristics"
 weight: 50
+aliases:
+  - "/computation-graphs/explanation/performance/"
+
 ---
 
 # Computation Graph Performance

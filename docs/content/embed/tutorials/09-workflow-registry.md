@@ -4,6 +4,9 @@ description: "Set up and use the workflow registry for dynamic workflow executio
 weight: 19
 reviewer: "dstorey"
 review_date: "2025-01-17"
+aliases:
+  - "/workflows/tutorials/service/08-workflow-registry/"
+
 ---
 
 Welcome to the workflow registry tutorial! Building on the workflow packages from Tutorial 03, you'll now learn how to set up a workflow registry, register workflow packages, and execute them dynamically with cron scheduling. The registry system enables you to manage workflows independently from your application code.

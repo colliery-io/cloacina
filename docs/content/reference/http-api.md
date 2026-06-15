@@ -2,6 +2,9 @@
 title: "HTTP API Reference"
 description: "Complete REST API reference for the Cloacina API server (cloacinactl server start)"
 weight: 6
+aliases:
+  - "/platform/reference/http-api/"
+
 ---
 
 # HTTP API Reference

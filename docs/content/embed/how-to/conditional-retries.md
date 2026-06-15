@@ -2,6 +2,9 @@
 title: "Conditional Retries"
 description: "Use retry_condition to retry transient failures but skip non-recoverable ones"
 weight: 25
+aliases:
+  - "/workflows/how-to-guides/conditional-retries/"
+
 ---
 
 # Conditional Retries

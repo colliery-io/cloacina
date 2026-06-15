@@ -2,6 +2,9 @@
 title: "Topology Dict Schema"
 description: "The Python topology dictionary consumed by ComputationGraphBuilder — node spec, inputs, routing, and terminal nodes."
 weight: 10
+aliases:
+  - "/python/computation-graphs/reference/topology-dict-schema/"
+
 ---
 
 # Topology Dict Schema

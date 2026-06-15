@@ -5,6 +5,9 @@ date: 2024-03-19
 weight: 2
 reviewer: "dstorey"
 review_date: "2024-03-19"
+aliases:
+  - "/workflows/explanation/context-management/"
+
 ---
 
 # Mastering Cloacina's Context System

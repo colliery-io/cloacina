@@ -2,6 +2,9 @@
 title: "Python SDK"
 description: "cloacina-client — typed Python client for cloacina-server"
 weight: 20
+aliases:
+  - "/sdks/python/"
+
 ---
 
 # Python SDK (`cloacina-client`)

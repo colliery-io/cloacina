@@ -2,6 +2,9 @@
 title: "Python Environment Variables"
 description: "Environment variables visible from the Python `cloaca` module — runner configuration, registry variables, and Python-specific knobs."
 weight: 10
+aliases:
+  - "/python/workflows/reference/environment-variables/"
+
 ---
 
 # Python Environment Variables

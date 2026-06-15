@@ -2,6 +2,9 @@
 title: "Running the Daemon"
 description: "How to run the Cloacina daemon to watch for workflow packages and execute cron schedules and triggers"
 weight: 50
+aliases:
+  - "/platform/how-to-guides/running-the-daemon/"
+
 ---
 
 # Running the Daemon

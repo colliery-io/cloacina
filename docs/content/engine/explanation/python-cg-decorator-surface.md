@@ -2,6 +2,9 @@
 title: "Python CG Decorator Surface"
 description: "How cloaca's computation-graph decorators map onto the Rust macro family, and where they differ."
 weight: 10
+aliases:
+  - "/python/computation-graphs/explanation/python-cg-decorator-surface/"
+
 ---
 
 # Python CG Decorator Surface

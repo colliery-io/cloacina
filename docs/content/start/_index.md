@@ -2,6 +2,9 @@
 title: "Start Here"
 description: "What Cloacina is, whether it fits your problem, and the vocabulary — before you pick a path."
 weight: 5
+aliases:
+  - "/quick-start/"
+
 ---
 
 # Start Here

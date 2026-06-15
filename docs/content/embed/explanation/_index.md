@@ -2,6 +2,9 @@
 title: "Explanation"
 description: "How the embedded engine works: the runtime, the PyO3 boundary, and the trade-offs."
 weight: 40
+aliases:
+  - "/python/workflows/explanation/"
+
 ---
 
 # Embedded Explanation

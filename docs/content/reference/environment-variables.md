@@ -2,6 +2,9 @@
 title: "Environment Variables"
 description: "Complete reference for all environment variables used by Cloacina"
 weight: 25
+aliases:
+  - "/platform/reference/environment-variables/"
+
 ---
 
 # Environment Variables

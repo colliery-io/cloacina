@@ -4,6 +4,9 @@ description: "Python API reference for multi-tenant database administration"
 weight: 50
 reviewer: "automation"
 review_date: "2025-06-08"
+aliases:
+  - "/python/api-reference/database-admin/"
+
 ---
 
 # Database Admin API

@@ -2,6 +2,9 @@
 title: "Configure a Multi-Tenant Deployment"
 description: "Set up cloacina-server with per-tenant schema isolation, tenant-scoped API keys, and the operational caveats you need to know."
 weight: 26
+aliases:
+  - "/platform/how-to-guides/configure-multi-tenant-deployment/"
+
 ---
 
 # How to Configure a Multi-Tenant Deployment

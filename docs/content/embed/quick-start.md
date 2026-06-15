@@ -2,6 +2,9 @@
 title: "Quick Start"
 description: "Run a Cloacina workflow in-process in about five minutes — in Rust or Python."
 weight: 11
+aliases:
+  - "/python/quick-start/"
+
 ---
 
 # Quick Start (Embedded)

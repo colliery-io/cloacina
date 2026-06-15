@@ -2,6 +2,9 @@
 title: "Package a Python Computation Graph"
 description: "Build, validate, pack, and upload a .cloacina archive containing a Python computation graph."
 weight: 10
+aliases:
+  - "/python/computation-graphs/how-to-guides/package-a-python-computation-graph/"
+
 ---
 
 # Package a Python Computation Graph

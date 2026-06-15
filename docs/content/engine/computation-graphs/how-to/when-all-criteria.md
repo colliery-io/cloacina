@@ -2,6 +2,9 @@
 title: "Using when_all Reaction Criteria"
 description: "How to configure a computation graph to fire only after all input sources have emitted"
 weight: 30
+aliases:
+  - "/computation-graphs/how-to-guides/when-all-criteria/"
+
 ---
 
 # Using when_all Reaction Criteria

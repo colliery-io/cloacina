@@ -2,6 +2,11 @@
 title: "01 — Your First Workflow"
 description: "Define a task, assemble it into a workflow, and run it in-process — in Rust or Python."
 weight: 11
+aliases:
+  - "/python/workflows/tutorials/00-basic-workflow/"
+  - "/python/workflows/tutorials/01-first-python-workflow/"
+  - "/workflows/tutorials/library/01-first-workflow/"
+
 ---
 
 # 01 — Your First Workflow

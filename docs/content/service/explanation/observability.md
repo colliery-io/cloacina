@@ -2,6 +2,9 @@
 title: "Observability"
 description: "Why the cloacina_* metric namespace looks the way it does — bounded labels, SQL-derived gauges, Degraded health states, and how metrics, logs, and traces compose."
 weight: 40
+aliases:
+  - "/platform/explanation/observability/"
+
 ---
 
 # Observability

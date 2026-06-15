@@ -2,6 +2,9 @@
 title: "Installing cloacinactl"
 description: "One-line install for the cloacinactl CLI (and bundled daemon subcommand)."
 weight: 15
+aliases:
+  - "/quick-start/install/"
+
 ---
 
 # Installing `cloacinactl`

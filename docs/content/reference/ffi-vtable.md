@@ -2,6 +2,9 @@
 title: "FFI Vtable Reference"
 description: "Method-by-method specification of the CloacinaPlugin FFI vtable: indices 0-8, optional-since-v2 semantics, and wire types."
 weight: 31
+aliases:
+  - "/platform/reference/ffi-vtable/"
+
 ---
 
 # FFI Vtable Reference

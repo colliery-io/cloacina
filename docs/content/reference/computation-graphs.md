@@ -2,6 +2,9 @@
 title: "Computation Graph Reference"
 description: "Complete reference for computation graph macros, types, and APIs"
 weight: 35
+aliases:
+  - "/computation-graphs/reference/computation-graphs/"
+
 ---
 
 # Computation Graph Reference

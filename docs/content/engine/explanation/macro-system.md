@@ -5,6 +5,9 @@ date: 2024-03-19
 weight: 4
 reviewer: "dstorey"
 review_date: "2024-03-19"
+aliases:
+  - "/workflows/explanation/macro-system/"
+
 ---
 
 # Inside Cloacina's Macro System

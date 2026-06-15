@@ -2,6 +2,9 @@
 title: "Running the cloacina-server Docker image"
 description: "Pull, run, and configure the official cloacina-server container from ghcr.io"
 weight: 56
+aliases:
+  - "/platform/how-to-guides/running-the-server-image/"
+
 ---
 
 # Running the `cloacina-server` Docker image

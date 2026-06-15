@@ -2,6 +2,9 @@
 title: "Metrics Catalog"
 description: "Complete reference for every cloacina_* and cloacina_compiler_* Prometheus metric: name, type, labels, meaning, and example PromQL."
 weight: 15
+aliases:
+  - "/platform/reference/metrics-catalog/"
+
 ---
 
 # Metrics Catalog

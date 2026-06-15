@@ -2,6 +2,9 @@
 title: "Computation Graphs"
 description: "Python API reference for computation graph builders, nodes, and accumulators"
 weight: 55
+aliases:
+  - "/python/api-reference/computation-graphs/"
+
 ---
 
 # Computation Graphs

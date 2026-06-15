@@ -1,6 +1,9 @@
 ---
 title: "Production Deployment"
 weight: 30
+aliases:
+  - "/platform/how-to-guides/production-deployment/"
+
 ---
 
 # How to Deploy Cloacina in Production

@@ -2,6 +2,9 @@
 title: "Deploying to Kubernetes (Helm)"
 description: "Install cloacina-server on Kubernetes using the official Helm chart"
 weight: 57
+aliases:
+  - "/platform/how-to-guides/deploying-to-kubernetes/"
+
 ---
 
 # Deploying to Kubernetes (Helm)

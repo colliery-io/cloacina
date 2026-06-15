@@ -4,6 +4,9 @@ description: "DefaultRunner class for workflow execution"
 weight: 20
 reviewer: "automation"
 review_date: "2025-01-07"
+aliases:
+  - "/python/api-reference/runner/"
+
 ---
 
 # DefaultRunner

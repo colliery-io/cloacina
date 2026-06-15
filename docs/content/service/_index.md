@@ -2,6 +2,9 @@
 title: "Run the Service"
 description: "Operate Cloacina as a multi-tenant server with an HTTP/WebSocket API, a web UI, and horizontal scale."
 weight: 20
+aliases:
+  - "/platform/"
+
 ---
 
 # Run the Service

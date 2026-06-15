@@ -2,6 +2,9 @@
 title: "CLI Reference"
 description: "Complete reference for cloacinactl: all nouns, verbs, flags, environment variables, exit codes, and configuration."
 weight: 5
+aliases:
+  - "/platform/reference/cli/"
+
 ---
 
 # CLI Reference

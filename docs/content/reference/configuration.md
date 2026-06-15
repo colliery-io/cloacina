@@ -2,6 +2,9 @@
 title: "Configuration Reference"
 description: "Complete reference for DefaultRunnerConfig fields, builder methods, config.toml schema, and environment variables"
 weight: 7
+aliases:
+  - "/platform/reference/configuration/"
+
 ---
 
 # Configuration Reference

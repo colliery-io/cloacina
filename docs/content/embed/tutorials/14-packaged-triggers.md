@@ -2,6 +2,9 @@
 title: "14 — Packaged Triggers"
 description: "Define event-driven triggers in packaged Python workflows for deployment to the Cloacina daemon"
 weight: 24
+aliases:
+  - "/python/workflows/tutorials/08-packaged-triggers/"
+
 ---
 
 # Packaged Triggers

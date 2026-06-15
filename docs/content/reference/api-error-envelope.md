@@ -2,6 +2,9 @@
 title: "API Error Envelope"
 description: "Standardized error response shape, request-ID propagation, full code enumeration by route, and client retry guidance."
 weight: 11
+aliases:
+  - "/platform/reference/api-error-envelope/"
+
 ---
 
 # API Error Envelope

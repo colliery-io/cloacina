@@ -2,6 +2,9 @@
 title: "Choosing and Using Accumulator Types"
 description: "How to select and configure the right accumulator type for your computation graph"
 weight: 20
+aliases:
+  - "/computation-graphs/how-to-guides/accumulator-types/"
+
 ---
 
 # Choosing and Using Accumulator Types

@@ -1,6 +1,9 @@
 ---
 title: "Local Development"
 weight: 20
+aliases:
+  - "/platform/how-to-guides/security/local-development/"
+
 ---
 
 # Security in Local Development

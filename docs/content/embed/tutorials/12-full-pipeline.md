@@ -2,6 +2,9 @@
 title: "12 — Full Multi-Source Pipeline"
 description: "Connect two accumulators to a single reactor and handle optional multi-source inputs in a computation graph"
 weight: 22
+aliases:
+  - "/computation-graphs/tutorials/library/09-full-pipeline/"
+
 ---
 
 In this tutorial you'll build a full event-driven multi-source pipeline with two independent data sources — an order book feed and a pricing feed — both flowing into a single reactor. The graph fires whenever either source delivers new data, combining both into a trading signal.

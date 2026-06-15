@@ -2,6 +2,9 @@
 title: "Error Reference"
 description: "Complete reference for all error enums and variants in the Cloacina framework"
 weight: 9
+aliases:
+  - "/workflows/reference/errors/"
+
 ---
 
 # Error Reference

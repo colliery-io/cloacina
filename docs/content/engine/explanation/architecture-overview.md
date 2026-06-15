@@ -2,6 +2,9 @@
 title: "Architecture Overview"
 description: "A comprehensive guide to Cloacina's system architecture, deployment modes, component relationships, and crate structure"
 weight: 1
+aliases:
+  - "/workflows/explanation/architecture-overview/"
+
 ---
 
 ## Introduction

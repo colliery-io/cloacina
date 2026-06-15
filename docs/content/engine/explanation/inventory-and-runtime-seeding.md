@@ -2,6 +2,9 @@
 title: "Inventory and Runtime Seeding"
 description: "Why Cloacina uses the inventory crate to seed its Runtime registries, and why inventory does not cross shared-library boundaries."
 weight: 20
+aliases:
+  - "/platform/explanation/inventory-and-runtime-seeding/"
+
 ---
 
 # Inventory and Runtime Seeding

@@ -4,6 +4,9 @@ description: "Understanding Cloacina's performance test suite and how to run ben
 weight: 55
 reviewer: "dstorey"
 review_date: "2026-04-02"
+aliases:
+  - "/platform/explanation/performance-characteristics/"
+
 ---
 
 This article describes Cloacina's performance test suite, what the tests measure, how to interpret results, and guidance for tuning your deployment.
