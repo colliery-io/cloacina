@@ -39,6 +39,8 @@ To run it:
 angreal demos tutorials rust 09
 ```
 
+> The on-disk example keeps its original number (`09`); these tutorials were renumbered, so the command number won't match the tutorial number — that's expected.
+
 ---
 
 ## Step 1: Define boundary types for two sources

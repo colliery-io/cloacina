@@ -35,6 +35,8 @@ To run it:
 angreal demos tutorials rust 07
 ```
 
+> The on-disk example keeps its original number (`07`); these tutorials were renumbered, so the command number won't match the tutorial number — that's expected.
+
 ---
 
 ## Step 1: Define your boundary types

@@ -35,6 +35,8 @@ The full source lives at:
 ```bash
 angreal demos tutorials rust 08
 ```
+
+> The on-disk example keeps its original number (`08`); these tutorials were renumbered, so the command number won't match the tutorial number — that's expected.
 {{< /tab >}}
 {{< tab "Python" >}}
 [`examples/tutorials/engine/computation-graphs/10_accumulators.py`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/engine/computation-graphs/10_accumulators.py)

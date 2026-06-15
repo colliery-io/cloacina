@@ -14,6 +14,14 @@ On PostgreSQL, Cloacina isolates tenants by **schema**: each tenant gets its own
 schema, so there is no cross-tenant access and no tenant filtering in your code.
 You opt in with a single runner constructor — the workflow code is unchanged.
 
+{{< hint type=note title="Prerequisite: a running PostgreSQL" >}}
+Schema-based multi-tenancy is PostgreSQL-only — the earlier tutorials' SQLite
+backend has no schemas. This tutorial assumes a reachable Postgres instance and uses
+`postgresql://cloacina:cloacina@localhost:5432/cloacina`; adjust the URL to yours.
+The Admin-API section additionally needs a role that can `CREATE SCHEMA`/`CREATE ROLE`.
+See [Database Backends]({{< ref "/service/explanation/database-backends" >}}).
+{{< /hint >}}
+
 ## A runner per tenant
 
 `with_schema` creates (or reuses) a tenant's schema, runs migrations inside it,
