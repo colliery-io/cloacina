@@ -333,6 +333,16 @@ You now have:
 
 ## Where to go next
 
+> **Planning to add the web UI?** The server **rejects browser requests
+> cross-origin by default.** Before you point the web UI at this server, allow
+> its origin. With `cloacinactl server start` (used above), set the environment
+> variable before starting:
+> `CLOACINA_CORS_ALLOWED_ORIGINS=https://ui.example.com` (the value is the URL
+> users load the UI from). The equivalent `--cors-allowed-origins` flag is
+> available when you run the `cloacina-server` binary directly. See
+> [Deploy the Web UI]({{< ref "/platform/how-to-guides/deploy-the-web-ui" >}})
+> for the full wiring.
+
 - [Configure a Multi-Tenant Deployment]({{< ref "/platform/how-to-guides/configure-multi-tenant-deployment" >}})
   — productionize multi-tenancy and learn the operational caveats
   (the runner-schema execution gap is critical for true isolation).

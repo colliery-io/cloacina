@@ -351,7 +351,7 @@ substring match on the package name.
 |---|---|---|
 | `execution list [--workflow <F>] [--status <S>] [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/executions?status=…&workflow=…&limit=…&offset=…` | Default limit: 100, max 1000. `--status` and `--workflow` map to the server query params of the same names (CLOACI-T-0594 / API-02). |
 | `execution status <ID>` | `GET /v1/tenants/<tenant>/executions/<id>` | Returns Pending / Running / Completed / Failed / Cancelled / Paused. |
-| `execution events <ID> [--since <DURATION>]` | `GET /v1/tenants/<tenant>/executions/<id>/events?since=<dur>` | `--follow` is **not yet implemented** — the flag exists for forward compatibility and currently returns exit 1. |
+| `execution events <ID> [--since <DURATION>] [--follow]` | `GET /v1/tenants/<tenant>/executions/<id>/events?since=<dur>` | `--follow` streams live events over the server's WebSocket delivery substrate (CLOACI-I-0115) until interrupted. `--since` cannot be combined with `--follow` (cursor support is future work); use `--since` on a non-follow call for the historical snapshot. |
 
 ## `graph`
 

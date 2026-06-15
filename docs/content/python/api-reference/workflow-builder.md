@@ -10,6 +10,20 @@ review_date: "2025-01-07"
 
 The `WorkflowBuilder` class provides a builder pattern for constructing workflows. It allows you to add tasks, set descriptions, configure dependencies, and build executable workflow objects.
 
+{{< hint info >}}
+**Which pattern, and when**
+
+Cloaca has three ways to define a workflow. They are not interchangeable — pick by how the workflow is deployed:
+
+1. **Context manager — `with cloaca.WorkflowBuilder(...) as builder:`** — for **in-process** workflows you run yourself with `DefaultRunner`. Exiting the `with` block builds the workflow and registers it into the runtime your `DefaultRunner` reads from. This is the common case and what the tutorials use.
+2. **Manual builder + `register_workflow_constructor`** — the same in-process scenario, for **dynamic or programmatic** construction (e.g. a factory that builds workflow variants from config). You call `build()` yourself and register a constructor function — see the [Complete Workflow Example](#complete-workflow-example) below.
+3. **Bare `@cloaca.task` decorators (no builder at all)** — for **packaged `.cloacina` workflows** loaded by a server or daemon. The package loader supplies the workflow context, so a packaged module declares tasks with `@cloaca.task` and does **not** construct a `WorkflowBuilder`.
+
+**Pitfall:** a `WorkflowBuilder` inside a packaged workflow module fails to load (the loader has already supplied the workflow context). Packaged modules use bare decorators only — see [Packaging Python Workflows]({{< ref "/python/workflows/how-to-guides/packaging-python-workflows" >}}).
+{{< /hint >}}
+
+This page documents patterns 1 and 2 (in-process). For pattern 3, see the packaging guides.
+
 ## Constructor
 
 ### `WorkflowBuilder(name)`
@@ -114,8 +128,7 @@ Build the workflow and validate its structure.
 **Returns:** Workflow object ready for execution
 
 **Raises:**
-- `ValueError`: If workflow has structural problems
-- `KeyError`: If referenced tasks don't exist
+- `ValueError`: if the workflow has structural problems or references a task that doesn't exist (all builder failures surface as `ValueError`)
 
 **Example:**
 ```python
@@ -411,12 +424,12 @@ def inspect_workflow(workflow):
     for i, level in enumerate(levels):
         print(f"  Level {i}: {level}")
 
-    # Check parallelism opportunities
+    # Tasks within the same execution level have no dependency between them
+    # and therefore run in parallel.
     print("\nParallelism analysis:")
-    for i, task1 in enumerate(topo_order):
-        for task2 in topo_order[i+1:]:
-            if workflow.can_run_parallel(task1, task2):
-                print(f"  {task1} can run parallel with {task2}")
+    for i, level in enumerate(levels):
+        if len(level) > 1:
+            print(f"  Level {i} runs in parallel: {level}")
 ```
 
 ## Error Handling

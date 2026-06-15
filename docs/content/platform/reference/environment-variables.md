@@ -43,6 +43,9 @@ If none of these are set, the command exits with an error message listing all th
 | `CLOACINA_VERIFICATION_ORG_ID` | Trusted organization UUID used to verify package signatures. **Required when `CLOACINA_REQUIRE_SIGNATURES` is set**. CLOACI-I-0103 / T-0567. | None | `12345678-1234-1234-1234-123456789abc` | Server | Conditional |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB pool. Bump for high-cardinality SaaS; drop for memory-tight deployments. CLOACI-T-0580. | `256` | `1024` | Server | No |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; tasks ignoring cooperative cancellation will error on next DB write. CLOACI-T-0581. | `30` | `60` | Server | No |
+| `CLOACINA_CORS_ALLOWED_ORIGINS` | Comma-separated CORS allowed origins. **CORS is disabled by default** — set this to opt in (REQ-009). Use `*` to allow any origin. Needed when a browser app (e.g. the web UI on a different origin) calls the API. | None (CORS off) | `http://localhost:8082,https://app.example.com` | Server | No |
+| `CLOACINA_CORS_ALLOWED_METHODS` | Comma-separated CORS allowed methods. Only applies once origins are set. | `GET,POST,DELETE,OPTIONS` | `GET,POST` | Server | No |
+| `CLOACINA_CORS_ALLOWED_HEADERS` | Comma-separated CORS allowed request headers. Only applies once origins are set. | `authorization,content-type` | `authorization,content-type,x-tenant` | Server | No |
 
 ### Server CLI Flags (also accept env vars)
 
@@ -59,6 +62,9 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to (CLOACI-T-0640). `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet]({{< ref "/platform/explanation/execution-agent-fleet" >}}). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. CLOACI-T-0639. |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | `--agent-liveness-misses` | `3` | Consecutive missed heartbeats before the server marks a fleet agent dead and reclaims its in-flight work. Effective dead-after = interval × misses (default 15s × 3 = 45s). CLOACI-T-0639. |
+| `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
+| `CLOACINA_CORS_ALLOWED_METHODS` | `--cors-allowed-methods` | `GET,POST,DELETE,OPTIONS` | Comma-separated allowed methods. |
+| `CLOACINA_CORS_ALLOWED_HEADERS` | `--cors-allowed-headers` | `authorization,content-type` | Comma-separated allowed request headers. |
 
 `CLOACINA_DEFAULT_EXECUTOR` / `--default-executor` is forwarded by the
 `cloacinactl server start` wrapper (preferably set via

@@ -1,47 +1,124 @@
 ---
 title: "Cloacina"
-description: "Documentation for the Cloacina project"
+description: "Embedded-first workflow orchestration for Rust and Python — what it is, when to use it, and how to start."
 ---
 
 # Cloacina Documentation
 
-Welcome to the Cloacina documentation. This documentation is organized to help you find the information you need quickly and efficiently.
+Cloacina is a **workflow orchestration engine you embed in your application** —
+or run as a standalone multi-tenant server when you outgrow embedding. It runs
+durable, database-backed task pipelines with automatic retries and recovery, and
+ships first-class bindings for both **Rust** and **Python**.
 
-## About Cloacina
+New here? Jump to **[Get started](#get-started)** below, or read on to see whether
+Cloacina fits your problem.
 
-Cloacina is a workflow orchestration engine that helps you build resilient task pipelines directly within your applications. Unlike standalone orchestration services, Cloacina embeds into your existing applications to manage complex multi-step workflows with:
+## What Cloacina is for
 
-- Automatic retries and failure recovery
-- State persistence
-- Type-safe workflows
-- Database-backed execution
-- Async-first design
-- Content versioning
+Use Cloacina when you have multi-step work that must run **reliably** — survive
+process restarts, retry on failure, and never silently drop a step — and you'd
+rather keep that orchestration **inside your app and your database** than stand
+up a separate orchestration service with its own brokers and workers.
 
-Whether you're building data processing applications, background job systems, or complex integration workflows, Cloacina provides the tools you need to make your task pipelines reliable, maintainable, and scalable.
+Typical fits:
+
+- Data processing / ETL pipelines with ordered, dependent steps.
+- Background job systems and integration workflows that need durable state.
+- Event-driven, in-process pipelines that react to a stream and run a fixed
+  sequence of steps.
+- Teams that start embedded in one app and later graduate to a shared server.
+
+## Why Cloacina
+
+- **Embedded-first.** Add a library (`cloacina` for Rust, `cloaca` for Python) and
+  run workflows in-process — no separate scheduler, workers, or message broker.
+- **The database is the only dependency.** State and coordination live in
+  Postgres or SQLite; there is no Redis/queue/Zookeeper to operate.
+- **Guaranteed execution.** Task state is persisted and claimed atomically; failed
+  or stalled work is recovered. Execution is **at-least-once** — steps should be
+  safe to run more than once.
+- **Rust *and* Python, the same engine.** The Python bindings are full parity, not
+  a thin wrapper — the same API and runtime, proven against the Rust crate.
+- **Grows with you.** The same packaged workflow runs embedded, under a local
+  background process, or on the multi-tenant `cloacina-server` — without a rewrite.
+
+## When *not* to use Cloacina
+
+A few honest edges (full guide:
+[When to use Cloacina]({{< ref "/quick-start/when-to-use" >}})):
+
+- **You want a no-code, click-to-build scheduler.** Workflows are written in Rust
+  or Python; the web UI operates and observes, it doesn't author pipelines.
+- **You need multi-tenant isolation or horizontal scaling.** Those require the
+  Postgres-backed server (SQLite is single-process), and the hardened multi-tenant
+  server targets Linux.
+- **You need exactly-once execution, or a synchronous (non-`async`) task model.**
+  Cloacina is at-least-once and async-first.
 
 ## Two execution primitives
 
-Cloacina exposes two complementary execution primitives — pick the one that matches the work:
+Cloacina exposes two complementary primitives — pick the one that matches the work:
 
-- **[Workflows]({{< ref "/workflows" >}})** — Durable, DB-backed DAGs. Tasks with dependencies, retries, multi-tenancy, packaging. Pick this when work needs to survive process restart and recover from failures.
-- **[Computation Graphs]({{< ref "/computation-graphs" >}})** — In-process, deterministic, event-driven DAGs. Reactors fire compiled graph functions on accumulator boundaries. Pick this when work is event-driven and latency-sensitive.
+- **[Workflows]({{< ref "/workflows" >}})** — durable, database-backed pipelines of
+  dependent steps (tasks). Each step is scheduled and recorded individually, so
+  work survives a process restart and recovers from failure. Pick this for ETL,
+  background jobs, and integrations.
+- **[Computation Graphs]({{< ref "/computation-graphs" >}})** — fast, in-memory
+  pipelines that run as a single unit in response to incoming events. Pick this for
+  event-driven, latency-sensitive processing.
 
-Both surfaces share the runtime, the multi-tenant model, the packaging format, and the operational surface — and they compose: workflows can subscribe to reactor firings ([Subscribe a workflow to a reactor]({{< ref "/workflows/how-to-guides/subscribe-workflow-to-reactor" >}})), and workflow tasks can invoke embedded computation graphs ([Invoke a computation graph from a workflow task]({{< ref "/workflows/how-to-guides/invoke-computation-graph-from-workflow" >}})).
+The two share the same engine, packaging, and multi-tenant model, and they
+compose. New to the vocabulary? Start with
+**[Concepts]({{< ref "/quick-start/concepts" >}})**. For the full capability list,
+see the **[Features overview]({{< ref "/quick-start/features" >}})**.
 
-## Available Libraries
+## Ways to run it
 
-Cloacina provides libraries for multiple programming languages:
+| Mode | What it is | Backed by |
+|------|-----------|-----------|
+| **Embedded library** | `cloacina` (Rust) / `cloaca` (Python) in your process | SQLite or Postgres |
+| **Daemon** | a local background process that watches a directory and runs packages | SQLite |
+| **Server** | `cloacina-server` — HTTP + WebSocket control plane, multi-tenant, web UI | Postgres |
+| **Compiler + agent fleet** | build packages and run tasks across workers to scale the server out | Postgres |
 
-- **[Cloacina]({{< ref "/workflows/tutorials/" >}})** — Native Rust library for maximum performance and type safety.
-- **[Cloaca]({{< ref "/python/" >}})** — Python bindings providing the same workflow + computation graph surface with Pythonic ergonomics. First-class parity (CLOACI-T-0529 / CLOACI-T-0532), not a feature flag.
-- **[`cloacinactl`]({{< ref "/quick-start/install" >}})** — The operator + developer CLI; bundles the daemon as `cloacinactl daemon`. Install with one line: `curl -fsSL https://get.cloacina.dev/install.sh | bash`.
+The embedded library and the server share the same engine, packaging format, and
+multi-tenant model — start embedded and graduate without a rewrite. For *which* to
+choose, see [When to use Cloacina]({{< ref "/quick-start/when-to-use" >}}); the two
+deployment postures also have deliberately different trust models, covered in the
+[Security Model]({{< ref "/platform/explanation/security-model" >}}).
 
-Both libraries share the same core engine and can even share the same database, allowing you to use the best tool for each part of your system.
+## Get started
+
+Pick the shortest path to a working result:
+
+- **Python — code-only, ~5 minutes.** Install `cloaca` and run a workflow
+  in-process. → [Python Quick Start]({{< ref "/python/quick-start" >}})
+- **Rust — embedded.** Add the `cloacina` crate and run the first tutorial.
+  → [Your First Workflow]({{< ref "/workflows/tutorials/library/01-first-workflow" >}})
+- **See it running with a web UI (more setup).** The fastest way to *watch*
+  workflows execute live — stand up a server and open the UI.
+  → [Deploy a Server]({{< ref "/platform/tutorials/01-deploy-a-server" >}}) then
+  [The Web UI]({{< ref "/platform/tutorials/02-the-web-ui" >}})
+- **Install the CLI to operate it.**
+  → [Installing cloacinactl]({{< ref "/quick-start/install" >}})
+
+Not sure which? The **[Quick Start]({{< ref "/quick-start" >}})** routes you by goal.
+
+## Libraries & tools
+
+- **[Cloacina]({{< ref "/workflows/tutorials/" >}})** — native Rust library.
+- **[Cloaca]({{< ref "/python/" >}})** — Python bindings, full parity with Rust.
+- **[`cloacinactl`]({{< ref "/quick-start/install" >}})** — operator + developer
+  CLI (bundles the daemon).
+- **[Client SDKs]({{< ref "/sdks" >}})** — Rust, Python, and TypeScript clients for
+  calling a running `cloacina-server` over HTTP/WebSocket.
 
 ## See also
 
-- [Quick Start]({{< ref "/quick-start" >}}) — Pick the right tutorial track for your goal.
-- [Installing `cloacinactl`]({{< ref "/quick-start/install" >}}) — CLI one-liner + Docker + Helm.
-- [Glossary]({{< ref "/glossary" >}}) — Every term used in these docs.
-- [Troubleshooting]({{< ref "/troubleshooting" >}}) — Common problems and resolutions.
+- [When to Use Cloacina]({{< ref "/quick-start/when-to-use" >}}) — does it fit your problem?
+- [Features Overview]({{< ref "/quick-start/features" >}}) — the full capability catalog.
+- [Concepts]({{< ref "/quick-start/concepts" >}}) — the core primitives.
+- [Quick Start]({{< ref "/quick-start" >}}) — pick the right tutorial track.
+- [Platform]({{< ref "/platform" >}}) — deploy and operate the server, compiler, and fleet.
+- [Glossary]({{< ref "/glossary" >}}) — every term used in these docs.
+- [Troubleshooting]({{< ref "/troubleshooting" >}}) — common problems and resolutions.

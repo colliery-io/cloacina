@@ -19,6 +19,8 @@ Both surfaces share the runtime and compose: workflows can subscribe to reactor 
 
 **Cloaca** is the Python wheel that ships full parity with the Rust surface for both primitives — first-class, not a feature flag.
 
+New here? Start with [When to use Cloacina (and when not)](https://colliery-io.github.io/cloacina/quick-start/when-to-use/), then the [Features overview](https://colliery-io.github.io/cloacina/quick-start/features/).
+
 > Why "Cloacina" and "Cloaca" ? Named after the Roman goddess of sewers and drainage systems, Cloacina reflects the library's purpose: efficiently moving data through processing pipelines, just as ancient Roman infrastructure managed the flow of sewage out of the city. Cloaca is the latin noun for the drain, the Cloaca Maxima is the system Cloacina presided over. (Don't read too much into it, apparently there aren't many deities of "plumbing"!)
 
 ## Features
@@ -29,8 +31,11 @@ Both surfaces share the runtime and compose: workflows can subscribe to reactor 
 - **Type-safe workflows** — Compile-time validation of task dependencies and data flow via the `#[task]` / `workflow!` macros.
 - **Database-backed** — PostgreSQL or SQLite, selected at runtime by connection URL.
 - **Multi-tenant** — PostgreSQL schema-based isolation; fail-closed `search_path` enforcement; 4-step decommission orchestration on the server.
-- **Packaged workflows** — Build `.cloacina` cdylib archives with the `cloacina::package!()` macro; load via HTTP API, signed (optional `--require-signatures`) or unsigned.
+- **Packaged workflows** — Ship `.cloacina` packages (Rust compiled to a cdylib on load, Python as a source module tree); scaffold/validate/pack with `cloacinactl package`; load via HTTP API, signed (optional `--require-signatures`) or unsigned.
 - **First-class Python** — `cloaca` PyPI wheel exposes the full surface; not a feature flag.
+- **Client SDKs** — Rust, Python, and TypeScript clients for calling a running server over HTTP/WebSocket.
+- **Web UI** — Operate and observe a server: workflows, executions (live event stream), triggers, computation-graph health, package upload, and API-key management.
+- **Horizontal scaling** — A `cloacina-compiler` build service and a `cloacina-agent` execution fleet scale the server out; stateless schedulers coordinate through the database.
 - **Observability** — Prometheus `/metrics` endpoint with the `cloacina_*` namespace, plus structured logs.
 - **Async-first** — Built on tokio for high-performance concurrent execution.
 - **Content-versioned** — Automatic workflow versioning based on task code and structure.

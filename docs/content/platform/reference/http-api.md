@@ -49,15 +49,17 @@ only identifier that ties a client-observed failure to the server's
 logs. If the client supplies an inbound `x-request-id` header the
 middleware honours it (enables end-to-end trace propagation).
 
-### SSE / live-follow (NOT in v1)
+### Live event streaming (WebSocket)
 
-The CLI's `execution events --follow` flag exists for forward
-compatibility but is **not implemented in v1**. There is no SSE
-endpoint, no WebSocket subscription for execution events, and no
-long-poll alternative. Clients that need live event streaming should
-poll `GET /v1/tenants/{tenant_id}/executions/{exec_id}/events?since=…`
-on an interval until the upstream SSE work lands. (Planned but
-unscheduled; tracked outside CLOACI-I-0107.)
+Live execution-event streaming is delivered over the WebSocket delivery
+substrate (CLOACI-I-0115), not SSE. The CLI's `execution events --follow` mints a
+single-use WebSocket ticket (`POST /v1/auth/ws-ticket`), connects to the
+delivery endpoint addressed at `exec_events:<execution_id>`, and tails events
+live until interrupted. For a historical snapshot, poll
+`GET /v1/tenants/{tenant_id}/executions/{exec_id}/events?since=…`; `--since` and
+`--follow` cannot be combined yet (cursor support is future work). See the
+[WebSocket Protocol]({{< ref "/platform/reference/websocket-protocol" >}}) for the
+envelope and ticket flow.
 
 ## Authentication
 

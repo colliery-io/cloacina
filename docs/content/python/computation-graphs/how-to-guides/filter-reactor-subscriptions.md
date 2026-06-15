@@ -1,22 +1,72 @@
 ---
 title: "Filter Reactor Subscriptions (Python)"
-description: "Python equivalent of the CEL-filter recipe — attach a predicate to a workflow's reactor subscription so only matching firings dispatch (CLOACI-T-0602)."
+description: "Attach a CEL predicate to a workflow's reactor subscription so only matching firings dispatch."
 weight: 20
 ---
 
 # Filter Reactor Subscriptions (Python)
 
-<!-- TODO(DOC-G Phase 5): full content deferred until the Python subscribe-with-predicate surface is verified. Sources to check: -->
-<!--   - crates/cloacina-python/src/bindings/runner.rs (look for subscribe_workflow_to_reactor) -->
-<!--   - examples/features/computation-graphs/python-packaged-graph/ (Python example) -->
-<!--   - The Rust counterpart at /computation-graphs/how-to-guides/filter-reactor-firings-with-cel for reference -->
+When you subscribe a workflow to a reactor, every firing dispatches the workflow
+by default. Pass a **CEL predicate** to fire only on matching firings — the
+Python analog of [Filter reactor firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}).
 
-This page is the Python analog of [Filter reactor firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}). The underlying mechanism (a CEL predicate on the `reactor_subscriptions` row) is the same — what's not yet verified is the exact Python API surface (`runner.subscribe_workflow_to_reactor(...)` signature).
+## Subscribe with a filter
 
-In the meantime, use the [Rust how-to]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}) as the conceptual reference; the predicate language, the fail-closed evaluation semantics, and the idempotency-key recipe are language-agnostic.
+`DefaultRunner.subscribe_workflow_to_reactor` takes an optional keyword-only
+`when` argument — a CEL expression evaluated against each firing:
+
+```python
+import cloaca
+
+runner = cloaca.DefaultRunner("sqlite:///app.db")
+
+# Unfiltered — fires on every reactor firing:
+runner.subscribe_workflow_to_reactor("pricing", "alert_workflow")
+
+# Filtered — fires only when the predicate is true:
+runner.subscribe_workflow_to_reactor(
+    "pricing",
+    "alert_workflow",
+    when="payload.pricing.price > 100 && payload.pricing.region == 'us-east'",
+)
+```
+
+Signature:
+
+```python
+subscribe_workflow_to_reactor(
+    reactor: str,
+    workflow: str,
+    tenant: str | None = None,
+    *,
+    when: str | None = None,
+) -> str
+```
+
+## What the predicate sees
+
+The CEL expression evaluates against these variables:
+
+| Variable | Type | Meaning |
+|----------|------|---------|
+| `payload` | dict | The firing's boundary data. Top-level keys are accumulator/source names; nested keys are that source's fields — e.g. for a `pricing` accumulator, `payload.pricing.price`. |
+| `reactor` | str | The reactor name |
+| `tenant` | str | The tenant |
+
+## Semantics
+
+- When the predicate evaluates **false**, the workflow is **not** dispatched, but
+  the subscription's watermark still advances (the firing is consumed, not
+  re-delivered).
+- An invalid CEL expression is rejected immediately with a `ValueError` at
+  subscribe time.
+
+The predicate language, fail-closed evaluation, and idempotency behavior are
+identical to the Rust path — see the
+[Rust how-to]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}})
+for the conceptual detail.
 
 ## See also
 
-- [Rust · Filter Reactor Firings with CEL]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}}).
-- [Subscription Fan-out]({{< ref "/computation-graphs/explanation/subscription-fan-out" >}}).
-- **CLOACI-T-0602** — CEL predicate filtering on subscriptions.
+- [Filter Reactor Firings with CEL (Rust)]({{< ref "/computation-graphs/how-to-guides/filter-reactor-firings-with-cel" >}})
+- [Subscription Fan-out]({{< ref "/computation-graphs/explanation/subscription-fan-out" >}})

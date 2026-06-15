@@ -813,10 +813,15 @@ socket_tx.send(serialize(&my_event).unwrap()).await.unwrap();
 
 ---
 
-## Global Registry
+## Runtime registration
 
-<!-- TODO(DOC-F): rewrite this section. I-0096 removed the `#[ctor]`-based global registration path (see the "Registration & Discovery" section above at line ~200 for the current inventory-based story). The `register_computation_graph_constructor`, `global_computation_graph_registry`, `deregister_computation_graph` symbols may have been renamed or made internal. Verify against `crates/cloacina/src/computation_graph/global_registry.rs` and `crates/cloacina/src/runtime.rs:80-152`. Document the inventory-driven path: `inventory::submit!(ComputationGraphEntry { ... })` at compile time, walked by `Runtime::seed_from_inventory()` at startup. -->
-
+Registration is inventory-driven. Each `#[reactor]` and `#[computation_graph]`
+macro emits an `inventory::submit!` entry (`ReactorEntry` /
+`ComputationGraphEntry`; see [Registration & Discovery](#registration--discovery)
+above). At startup the runtime registers each reactor and graph by name from
+those entries — `Runtime::seed_from_inventory()` in embedded mode, or walked at
+FFI-load time via `cloacina::package!()` in packaged mode. Declaring the macros
+is sufficient; no manual registration calls are required.
 
 ---
 

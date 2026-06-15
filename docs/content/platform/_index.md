@@ -8,7 +8,17 @@ weight: 30
 
 Platform documentation covers cross-cutting concerns that apply regardless of whether you're using workflows, computation graphs, or both — and regardless of whether you're in library or service mode.
 
+**Who this is for:** operators and developers deploying and running Cloacina as a
+service (the `cloacina-server`, compiler, and agent fleet) — applies to both
+Rust- and Python-authored packages. **Prerequisites:** a working package (see
+[Creating Your First Package]({{< ref "/platform/how-to-guides/creating-your-first-package" >}}))
+and a Postgres database for multi-tenant/production deployments.
+
 ## Topics
+
+### Tutorials
+- [Deploy a Server]({{< ref "/platform/tutorials/01-deploy-a-server" >}}) — first deployment, end to end
+- [The Web UI]({{< ref "/platform/tutorials/02-the-web-ui" >}}) — operate and observe a running server
 
 ### Reference
 - [CLI Reference]({{< ref "/platform/reference/cli" >}}) — `cloacinactl` commands and flags

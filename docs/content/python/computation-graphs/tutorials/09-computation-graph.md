@@ -15,7 +15,7 @@ In this tutorial you'll build your first computation graph in Python — the sam
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.9+
 - `cloaca` installed: `pip install cloaca`
 
 ## The complete example
@@ -114,7 +114,7 @@ Inside the `with` block, decorate each node function with `@cloaca.node`. Node n
 **Node function signatures:**
 
 - **Entry nodes** (`ingest`) receive arguments named after each source listed in `"inputs"`. The value is `None` if that source hasn't been populated yet.
-- **Processing nodes** (`compute_spread`, `format_output`) receive a single `input_data` argument — the dict returned by the upstream node.
+- **Processing nodes** (`compute_spread`, `format_output`) receive a single argument — the dict returned by the upstream node. It's positional, so the name is yours to choose; this tutorial calls it `input_data`.
 - **Return values** are plain Python dicts. The terminal node's return dict becomes the `execute()` result.
 
 ---
