@@ -11,7 +11,7 @@ This guide walks you through starting and configuring the Cloacina daemon, a lig
 ## Prerequisites
 
 - `cloacinactl` binary installed and on your PATH
-- One or more `.cloacina` workflow packages built (see [Tutorial 07 - Packaged Workflows]({{< ref "/service/tutorials/07-packaged-workflows" >}}) for building packages)
+- One or more `.cloacina` workflow packages built (see [Tutorial 03 - Packaged Workflows]({{< ref "/service/tutorials/03-packaged-workflows" >}}) for building packages)
 
 ## Starting the Daemon
 

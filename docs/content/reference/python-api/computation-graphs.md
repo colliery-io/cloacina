@@ -448,7 +448,7 @@ In a packaged deployment, computation graphs run inside the graph scheduler. The
 4. Executes the graph when criteria are met
 5. Delivers terminal node output to downstream consumers
 
-No manual `execute()` call is needed -- the runtime drives the graph automatically. See the [Packaging guide]({{< ref "/service/tutorials/07-packaging/" >}}) for details on deploying computation graphs.
+No manual `execute()` call is needed -- the runtime drives the graph automatically. See the [Packaging guide]({{< ref "/service/tutorials/04-packaging/" >}}) for details on deploying computation graphs.
 
 ---
 

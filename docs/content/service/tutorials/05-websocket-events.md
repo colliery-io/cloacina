@@ -1,10 +1,10 @@
 ---
-title: "08 - WebSocket Event Injection"
+title: "05 — WebSocket Event Injection"
 description: "Push events into a running computation graph accumulator over a WebSocket connection"
-weight: 20
+weight: 15
 ---
 
-In this tutorial you'll push events into the `orderbook` accumulator of the `price_signal` graph deployed in [Tutorial 07]({{< ref "/service/tutorials/07-packaging/" >}}). Events travel over a WebSocket connection to the accumulator endpoint at `/v1/ws/accumulator/{name}`. When enough events arrive to satisfy the reactor's firing condition, the computation graph executes automatically.
+In this tutorial you'll push events into the `orderbook` accumulator of the `price_signal` graph deployed in [Tutorial 04]({{< ref "/service/tutorials/04-packaging/" >}}). Events travel over a WebSocket connection to the accumulator endpoint at `/v1/ws/accumulator/{name}`. When enough events arrive to satisfy the reactor's firing condition, the computation graph executes automatically.
 
 ## What you'll learn
 
@@ -16,7 +16,7 @@ In this tutorial you'll push events into the `orderbook` accumulator of the `pri
 
 ## Prerequisites
 
-- Tutorial 07 complete — the `price_signal` graph must be loaded and accumulators healthy
+- Tutorial 04 complete — the `price_signal` graph must be loaded and accumulators healthy
 - Your PAK token exported as `TOKEN`
 - Python 3.9+ available (no third-party packages needed)
 - `curl` available for quick health checks
@@ -73,7 +73,7 @@ You should see:
 }
 ```
 
-If the accumulator is not listed or shows `"unhealthy"`, revisit Tutorial 07 before continuing.
+If the accumulator is not listed or shows `"unhealthy"`, revisit Tutorial 04 before continuing.
 
 ---
 
@@ -240,7 +240,7 @@ The response includes the reactor's live state:
 The `/v1/health/graphs/{name}` endpoint reports the reactor's overall state — it does not currently surface per-firing counters. To verify the event reached the reactor and the graph fired, scrape `/metrics` and inspect `cloacina_reactor_fires_total{graph="price_signal"}` (the counter increments on every successful firing); if it stays at zero, the event did not reach the reactor — check the server logs for deserialization errors. See [Metrics Catalog]({{< ref "/reference/metrics-catalog" >}}) for the full reactor metric set.
 
 {{< hint type=warning title="Type mismatch errors" >}}
-The accumulator deserializes the payload into the boundary type declared in your graph (`OrderBook` in Tutorial 07). If the JSON keys don't match the struct fields exactly, deserialization fails silently and the reactor does not fire. Double-check field names: `best_bid` and `best_ask`.
+The accumulator deserializes the payload into the boundary type declared in your graph (`OrderBook` in Tutorial 04). If the JSON keys don't match the struct fields exactly, deserialization fails silently and the reactor does not fire. Double-check field names: `best_bid` and `best_ask`.
 {{< /hint >}}
 
 ---
@@ -461,4 +461,4 @@ Expected response:
 
 ## Next steps
 
-- [**Tutorial 09: Kafka-Sourced Computation Graphs**]({{< ref "/service/tutorials/09-kafka-stream/" >}}) — declare a `stream` accumulator in `package.toml` so the server reads events from a Kafka topic automatically, without an external producer
+- [**Tutorial 06: Kafka-Sourced Computation Graphs**]({{< ref "/service/tutorials/06-kafka-stream/" >}}) — declare a `stream` accumulator in `package.toml` so the server reads events from a Kafka topic automatically, without an external producer

@@ -1,7 +1,7 @@
 ---
-title: "10 - Cross-Package Reactor Binding"
+title: "07 — Cross-Package Reactor Binding"
 description: "Build a publisher cdylib that owns a reactor, then bind a subscriber CG from a separate cdylib to it. Cross-package, cross-tenant, hot-reloadable."
-weight: 13
+weight: 17
 ---
 
 In this tutorial you'll build two packaged crates that cooperate
@@ -27,7 +27,7 @@ bound-subscriber guard is protecting against.
 
 ## Prerequisites
 
-- Completion of [07 - Packaging a Computation Graph]({{< ref "/service/tutorials/07-packaging" >}}).
+- Completion of [07 - Packaging a Computation Graph]({{< ref "/service/tutorials/04-packaging" >}}).
   You need the basic packaged-CG flow under your fingers before
   attempting cross-package binding.
 - A running `cloacina-server` from [01 - Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}).
@@ -282,7 +282,7 @@ cloacinactl graph status PriceReactor --tenant acme
 ## Step 3: Drive an event through
 
 The accumulators are passthrough; you can push events via the
-WebSocket interface (see [Tutorial 08]({{< ref "/service/tutorials/08-websocket-events" >}})
+WebSocket interface (see [Tutorial 05]({{< ref "/service/tutorials/05-websocket-events" >}})
 for the full WS protocol).
 
 The recipe below uses

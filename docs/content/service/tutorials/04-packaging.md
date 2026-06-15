@@ -1,7 +1,7 @@
 ---
-title: "07 - Packaging a Computation Graph"
+title: "04 — Packaging a Computation Graph"
 description: "Compile a computation graph as a cdylib plugin, upload it to the server, and watch the reconciler load it"
-weight: 10
+weight: 14
 ---
 
 In this tutorial you'll take a computation graph from Rust source code all the way to a running graph loaded inside the Cloacina server. You'll build it as a shared library, package it into a `.cloacina` source archive, upload it via the REST API, and verify that the reconciler compiles and loads it automatically.
@@ -370,5 +370,5 @@ The FFI boundary uses JSON (debug builds) or bincode (release builds) for the `I
 
 Now that your graph is deployed and running, the next step is to push events into it:
 
-- [**Tutorial 08: WebSocket Event Injection**]({{< ref "/service/tutorials/08-websocket-events/" >}}) — push events to the `orderbook` accumulator over a WebSocket connection
-- [**Tutorial 09: Kafka-Sourced Computation Graphs**]({{< ref "/service/tutorials/09-kafka-stream/" >}}) — drive accumulators from a Kafka topic instead of WebSocket
+- [**Tutorial 05: WebSocket Event Injection**]({{< ref "/service/tutorials/05-websocket-events/" >}}) — push events to the `orderbook` accumulator over a WebSocket connection
+- [**Tutorial 06: Kafka-Sourced Computation Graphs**]({{< ref "/service/tutorials/06-kafka-stream/" >}}) — drive accumulators from a Kafka topic instead of WebSocket

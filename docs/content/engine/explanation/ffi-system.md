@@ -119,7 +119,7 @@ The fidius approach provides several safety properties that the previous hand-wr
 
 ## Related Resources
 
-- [Tutorial: Creating Your First Workflow Package]({{< ref "/service/tutorials/07-packaged-workflows" >}})
+- [Tutorial: Creating Your First Workflow Package]({{< ref "/service/tutorials/03-packaged-workflows" >}})
 - [Explanation: Package Format]({{< ref "package-format" >}})
 - [Explanation: Packaged Workflow Architecture]({{< ref "packaged-workflow-architecture" >}})
 - [Explanation: Inventory and Runtime Seeding]({{< ref "inventory-and-runtime-seeding" >}}) — how the post-I-0096 inventory feeds the `package!()` macro.

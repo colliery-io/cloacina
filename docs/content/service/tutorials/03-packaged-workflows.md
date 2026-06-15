@@ -1,7 +1,7 @@
 ---
-title: "07 - Packaged Workflows"
+title: "03 — Packaged Workflows"
 description: "Create distributable workflow packages with the packaged workflow system"
-weight: 17
+weight: 13
 reviewer: "dstorey"
 review_date: "2025-01-17"
 ---

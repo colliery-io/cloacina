@@ -1,7 +1,7 @@
 ---
-title: "09 - Kafka-Sourced Computation Graphs"
+title: "06 — Kafka-Sourced Computation Graphs"
 description: "Declare stream accumulators that consume from Kafka topics — no external producer needed"
-weight: 30
+weight: 16
 ---
 
 In the previous tutorials, events arrived via WebSocket pushed by an external process. In this tutorial you'll declare a **stream accumulator** in `package.toml`. The server reads events from a Kafka topic automatically — once the graph loads, the accumulator connects to Kafka and pulls messages without any application code changes.
@@ -17,7 +17,7 @@ In the previous tutorials, events arrived via WebSocket pushed by an external pr
 
 ## Prerequisites
 
-- Tutorial 07 complete (you know how to package and upload a CG)
+- Tutorial 04 complete (you know how to package and upload a CG)
 - Docker and Docker Compose available
 - Your Cloacina server built with the `kafka` feature flag enabled
 - `curl` and `python3` available
@@ -609,8 +609,8 @@ cargo build -p cloacina-server --features kafka
 
 You've now seen all three deployment modes for computation graphs on the Cloacina server:
 
-1. [Tutorial 07]({{< ref "/service/tutorials/07-packaging/" >}}) — packaging and uploading a computation graph
-2. [Tutorial 08]({{< ref "/service/tutorials/08-websocket-events/" >}}) — pushing events via WebSocket
-3. Tutorial 09 (this page) — Kafka-sourced stream accumulators
+1. [Tutorial 04]({{< ref "/service/tutorials/04-packaging/" >}}) — packaging and uploading a computation graph
+2. [Tutorial 05]({{< ref "/service/tutorials/05-websocket-events/" >}}) — pushing events via WebSocket
+3. Tutorial 06 (this page) — Kafka-sourced stream accumulators
 
 For production deployments, see the reference documentation for PAK-scoped authorization on accumulator and reactor endpoints, and the explanation pages covering the `ComputationGraphScheduler` architecture and offset management.

@@ -6,11 +6,11 @@ reviewer: "dstorey"
 review_date: "2025-01-17"
 ---
 
-Welcome to the workflow registry tutorial! Building on the workflow packages from Tutorial 07, you'll now learn how to set up a workflow registry, register workflow packages, and execute them dynamically with cron scheduling. The registry system enables you to manage workflows independently from your application code.
+Welcome to the workflow registry tutorial! Building on the workflow packages from Tutorial 03, you'll now learn how to set up a workflow registry, register workflow packages, and execute them dynamically with cron scheduling. The registry system enables you to manage workflows independently from your application code.
 
 ## Prerequisites
 
-- Completion of [Tutorial 07: Packaged Workflows]({{< ref "/service/tutorials/07-packaged-workflows/" >}})
+- Completion of [Tutorial 03: Packaged Workflows]({{< ref "/service/tutorials/03-packaged-workflows/" >}})
 - Understanding of databases (SQLite or PostgreSQL)
 - Basic understanding of cron expressions
 - A code editor of your choice
@@ -29,7 +29,7 @@ The workflow registry is a system that allows you to:
 - **Isolate workflows** per tenant in multi-tenant scenarios
 
 {{< hint type=info title="Registry vs Direct Execution" >}}
-**Without Registry** (Tutorial 07):
+**Without Registry** (Tutorial 03):
 - Workflows are part of your application binary
 - Updates require recompilation and deployment
 - All tenants share the same workflows
@@ -358,7 +358,7 @@ Congratulations! You've successfully set up and used the workflow registry. In f
 
 ## Related Resources
 
-- [Tutorial 07: Packaged Workflows]({{< ref "/service/tutorials/07-packaged-workflows/" >}})
+- [Tutorial 03: Packaged Workflows]({{< ref "/service/tutorials/03-packaged-workflows/" >}})
 - [API Documentation]({{< ref "/reference/" >}})
 
 ## Download the Example
