@@ -57,18 +57,23 @@ and carries forward.
 
 ## Goals & Non-Goals
 
+Scope refined for the **one-big-PR** model (all three initiatives on one branch,
+merged once after I-3). I-0121 is **purely additive structure** — it stands up the
+new tree without disturbing existing content or nav, so every intermediate branch
+state still builds. The **cutover** (home rewrite, nav flip, applied redirects,
+old-section removal) is concentrated in I-3.
+
 **Goals (this initiative):**
-- Author the new top-level **IA section tree** and a page-by-page **mapping** from every current doc to its new home.
-- Build the **home page** with two co-equal doors (no "recommended" badge) and a thin **`/start` orientation hub**.
-- Stand up **section skeletons + landing (`_index`) pages** for the new sections (embed, service, primitives area, consolidated reference).
-- Update **global navigation** (hugo-geekdoc menu) to the new IA.
-- Produce a **redirect map** and add Hugo `aliases` front matter on every page whose URL moves, verified by a clean build + link-check.
+- Author the new top-level **IA section tree** and a page-by-page **mapping** (→ [[CLOACI-T-0689]], done).
+- Stand up **section skeletons + landing (`_index`) pages** for the new sections (`/start`, `/embed` + sub-sections, `/service` + sub-sections, `/engine`, `/reference`) — additive, empty of bodies.
+- Add **orientation-hub child shells** under `/start` and **door entry shells** (quick-start landings) so the full target tree exists and `hugo` builds green.
 
 **Non-Goals (deferred):**
-- Rewriting or relocating page **bodies** (→ I-3).
-- Authoring **primitive** content (→ I-2).
-- Net-new **embedded-in-production** / embedded-first-principle pages (→ I-3).
-- Closing the **Rust↔Python parity gaps** (→ [[CLOACI-T-0688]]).
+- **Home page** dual-door rewrite, **nav** (`hugo.toml`) cutover, applying **`aliases`** redirects, and **removing old sections** — all → I-3 (cutover).
+- Relocating/reframing page **bodies**, renumbering tutorials → I-3.
+- Authoring **primitive** content in `/engine` → I-2.
+- Net-new **embedded-in-production** / embedded-first-principle pages → I-3.
+- Closing the **Rust↔Python parity gaps** → [[CLOACI-T-0688]].
 
 ## Requirements **[CONDITIONAL: Requirements-Heavy Initiative]**
 
@@ -214,15 +219,13 @@ pages.
 
 ## Implementation Plan
 
-Tasks (decomposed below as Metis tasks):
+Tasks (decomposed as Metis tasks):
 
-1. **Finalize the IA tree + old→new page map** — authoritative section structure and a row for every existing doc → its new path (or "stays"). The design artifact everything else follows.
-2. **Home page (dual doors) + `/start` orientation hub** — the two co-equal entry cards and the orientation landings (what-is / is-it-for-you / concepts / features / install), reusing existing orientation content by reference.
-3. **Section skeletons + landing `_index` pages** — create `/embed`, `/service`, the shared primitives area, and `/reference` with `_index` + `{{< toc-tree >}}`; empty of bodies (filled by I-2/I-3).
-4. **Redirect map (Hugo `aliases`)** — apply old→new aliases from task 1's map to every moved/new landing; this initiative covers the landings it creates, with the bulk of body-level redirects applied alongside the moves in I-3.
-5. **Global navigation** — update the hugo-geekdoc menu to the new IA.
-6. **Verify** — `hugo` clean build, internal link-check (all `{{< ref >}}` resolve), old-URL redirect spot-check, no orphaned/again-duplicated landings.
+1. **IA tree + old→new page map** ([[CLOACI-T-0689]], done) — the design artifact everything follows.
+2. **Section skeleton landings** (done in commit `46f3667`) — `/start`, `/embed` (+tutorials/how-to/explanation), `/service` (+same), `/engine`, `/reference`, additive, `hugo` green.
+3. **Orientation-hub + door entry shells** — `/start` child shells (what-is-cloacina, is-cloacina-for-you, concepts, features, install) and per-door `quick-start` landing shells, so the full target tree exists. Empty/placeholder bodies; content authored in I-3.
 
-Branch: `docs/i0121-ia-spine`. One PR for the initiative. The 4-reviewer
-adversarial gate runs at the end of I-3 (full content); this initiative's bar is
-a clean build + link-check + the IA map reviewed by the user.
+Branch: `docs/audience-first-restructure` (shared by all three initiatives; one PR
+at the very end of I-3). I-0121's bar: the full new tree exists and `hugo` builds
+clean. The 4-reviewer adversarial gate + full link/redirect check run at the end
+of I-3 against the complete content.
