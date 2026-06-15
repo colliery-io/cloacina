@@ -8,6 +8,12 @@ weight: 20
 
 The computation graph system is Cloacina's event-driven execution engine. It wires data sources through accumulators into compiled graph functions that fire automatically when new data arrives.
 
+**Who this is for:** developers building event-driven, low-latency processing that
+reacts to a stream. **Prerequisites:** the
+[Concepts]({{< ref "/quick-start/concepts" >}}) (reactor, accumulator, computation
+graph). These docs are Rust-first; the same surface is available in Python — see
+[Python · Computation Graphs]({{< ref "/python/computation-graphs" >}}).
+
 ## Run Modes
 
 ### Library (Embedded)

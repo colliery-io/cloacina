@@ -8,6 +8,19 @@ weight: 15
 
 **Cloaca** is the Python package that provides full access to Cloacina's workflow and computation graph engines. Built with PyO3, it offers native performance with Pythonic ergonomics.
 
+**Who this is for:** Python developers building task pipelines or event-driven
+graphs. **Prerequisites:** Python 3.9+ and a database (SQLite needs nothing
+extra; Postgres for multi-tenancy/scale).
+
+**Relationship to Rust:** Cloaca is *not* a reimplementation — it's a PyO3 layer
+over the same Rust engine the [`cloacina` crate]({{< ref "/workflows" >}}) uses,
+with full surface parity. The same primitives, packaging format, and database
+model apply; where the Python ergonomics differ (decorators + a builder vs.
+macros, owned values vs. borrows, the GIL), the
+[Python Runtime Architecture]({{< ref "/python/workflows/explanation/python-runtime-architecture" >}})
+explains why. Concepts and platform/operations docs in the Rust-side sections
+apply to Python deployments too.
+
 ## Installation
 
 ```bash
@@ -19,11 +32,11 @@ pip install cloaca[postgres]    # PostgreSQL only
 ## Features
 
 - **Workflow orchestration** — Define tasks with `@cloaca.task`, build workflows with the `WorkflowBuilder` context manager, execute with `DefaultRunner`.
-- **Computation graphs** — Author event-driven graphs with `ComputationGraphBuilder` + `@cloaca.reactor` + `@cloaca.accumulator`; embed them as workflow tasks (CLOACI-I-0101) or run them standalone.
-- **Multi-tenancy** — PostgreSQL schema isolation via `DatabaseAdmin` (CLOACI-I-0106: fail-closed `search_path`, decommission flow).
-- **Cron scheduling** — Time-based workflow execution with `CatchupPolicy::Skip` / `RunAll`.
+- **Computation graphs** — Author event-driven graphs with `ComputationGraphBuilder` + `@cloaca.reactor` + the accumulator decorators (`@cloaca.passthrough_accumulator`, `@cloaca.stream_accumulator`, `@cloaca.polling_accumulator`, `@cloaca.batch_accumulator`) + `@cloaca.node`.
+- **Multi-tenancy** — PostgreSQL schema isolation via `DatabaseAdmin` (fail-closed `search_path`, decommission flow).
+- **Cron scheduling** — Time-based workflow execution with skip / run-all catch-up policies.
 - **Event triggers** — `@cloaca.trigger` for external or reactor-sourced workflow firing.
-- **First-class parity** — Python tracks the Rust surface 1:1; the `cloacina-python` crate (CLOACI-T-0529 / CLOACI-T-0532) keeps the PyO3 dependency out of the core library.
+- **First-class parity** — Python tracks the Rust surface 1:1; the PyO3 layer is kept out of the core library so `cloacina` can ship without it.
 
 ## Two surfaces, Diataxis-aligned
 

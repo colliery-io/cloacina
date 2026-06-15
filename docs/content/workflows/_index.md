@@ -8,6 +8,12 @@ weight: 10
 
 The workflow system is Cloacina's core orchestration engine. It schedules and executes directed acyclic graphs (DAGs) of tasks with automatic retry, conditional execution, cron scheduling, and persistent state.
 
+**Who this is for:** developers building durable, multi-step task pipelines that
+must survive restarts and recover from failure. **Prerequisites:** the
+[Concepts]({{< ref "/quick-start/concepts" >}}) (task, workflow, context). These
+docs are Rust-first; the same workflow surface is available in Python — see
+[Python · Workflows]({{< ref "/python/workflows" >}}).
+
 ## Run Modes
 
 ### Library (Embedded)

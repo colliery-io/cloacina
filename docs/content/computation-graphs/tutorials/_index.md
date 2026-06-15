@@ -8,6 +8,12 @@ weight: 10
 
 Learn Cloacina's computation graph system through progressive, hands-on tutorials.
 
+> **About the numbering:** the computation-graph tutorials are a self-contained
+> track — read them in the order listed below. The file numbers (Library 07–10,
+> Service 07–09) are historical and do **not** imply a continuation of the
+> [workflow tutorials]({{< ref "/workflows/tutorials" >}}); treat this list's
+> order as authoritative.
+
 ## Library (Embedded)
 
 Start here. These tutorials teach you to define and run computation graphs directly in your Rust application.
