@@ -4,14 +4,14 @@ level: task
 title: "/embed door — quick-start + tabbed tutorial track"
 short_code: "CLOACI-T-0699"
 created_at: 2026-06-15T18:19:25.615322+00:00
-updated_at: 2026-06-15T18:20:16.257060+00:00
+updated_at: 2026-06-15T18:41:15.484300+00:00
 parent: CLOACI-I-0123
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0123
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

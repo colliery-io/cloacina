@@ -209,3 +209,52 @@ cutover (7) and gate (8) are strictly last and in order.
 Definition of done (whole 3-initiative arc): the new IA is live, every old URL
 redirects, every reference claim is code-traceable, no quadrant violations, no
 "graduate" framing, both dialects shown, `hugo` builds clean.
+
+---
+
+## CONTINUATION STATE (post-compaction handoff, 2026-06-15)
+
+**Branch:** `docs/audience-first-restructure`. ONE big PR to `main` at the very
+end (after the review gate). Live site untouched until then. Every commit so far
+is build-green (latest ~`9002203d` + a checkpoint commit).
+
+**Build + commit discipline (follow exactly):**
+- Verify before committing: `hugo --source docs --destination /tmp/cloacina-docs-build --logLevel error 2>&1 | grep -iE "error|REF_NOT_FOUND"` must be EMPTY.
+- Pre-commit hook fixes whitespace/EOF and ABORTS the first `git commit`; just `git add -A docs/content .metis/...` and commit again (second succeeds).
+- Hugo `{{< ref >}}`/`relref` ERROR on broken links by default — that's the link-check.
+
+**sed ref-rewrite technique (MUST anchor the leading quote):**
+- Use `"/workflows/explanation` NOT `/workflows/explanation` — bare form over-matches `/python/workflows/...` (bit us once, fixed in 2c12d06d).
+- Form (run from `docs/content`): `grep -rl 'PAT' . | xargs -I{} sed -i '' 's#PAT#REPL#g' {}` (`-I{}` guards empty-input xargs hang; macOS sed needs `-i ''`).
+- Relative refs like `{{< ref "testing-workflows" >}}` go AMBIGUOUS when duplicate basenames exist — make absolute.
+
+**DONE (relocated, green, committed):**
+- `platform/tutorials`→`/service/tutorials`; `platform/how-to-guides`→`/service/how-to` (+`running-the-daemon`→`/embed/how-to`); `platform/explanation`→ split `/engine/explanation` (package-format, packaged-workflow-architecture, ffi-system, inventory-and-runtime-seeding) + `/service/explanation` (rest); `platform/reference`→`/reference`.
+- `sdks`+`glossary`+`troubleshooting`+`python/api-reference`→`/reference` (python-api/, sdks/).
+- `workflows/explanation`+`computation-graphs/explanation`→`/engine/explanation`; `workflows/reference`+`computation-graphs/reference`→`/reference`.
+- `workflows/how-to-guides`→`/embed/how-to` (3 multi-tenant/migration→`/service/how-to`); `computation-graphs/how-to-guides`→`/engine/computation-graphs/how-to`.
+- workflow tutorials: `library/*` SUPERSEDED by `/embed/tutorials/01-04` (refs repointed, removed); `service/*`→`/service/tutorials`. CG tutorials: `library/*`→`/embed/tutorials` (07-10); `service/*`→`/service/tutorials`.
+- NEW: `/start/{what-is-cloacina,is-cloacina-for-you}`, dual-door home `/_index.md`, all of `/engine` (12 primitives + landings, accuracy-reviewed in T-0696), `/embed/{quick-start, tutorials 01-04, how-to/running-embedded-in-production}`, section skeletons.
+
+**REMAINING WORK (in order):**
+1. **`/quick-start` (STILL PRESENT — missed earlier):** `when-to-use`→ superseded by `/start/is-cloacina-for-you` (repoint+alias); move `concepts`,`features`,`install`→`/start/`; remove `quick-start/_index` (`/start/_index` exists); repoint `"/quick-start` refs.
+2. **`python/` migration** (Model A = Python = tabs in merged pages):
+   - `python/quick-start`→ superseded by `/embed/quick-start`; `python/workflows/tutorials/*`→ superseded by `/embed/tutorials` (already dual-language); python service-topic tutorials (cron/multi-tenancy/event-triggers/packaged)→ `/service/tutorials` equivalents.
+   - `python/workflows/how-to-guides/*`→`/embed/how-to` — COLLISION `testing-workflows.md` exists (Rust) → drop python dup + repoint to `/embed/how-to/testing-workflows`. `backend-selection`,`performance-optimization`,`packaging-python-workflows` move clean (packaging-python-workflows is heavily referenced — keep path stable).
+   - `python/workflows/explanation/python-runtime-architecture`→`/embed/explanation/`.
+   - `python/workflows/reference/environment-variables`→ COLLISION with `/reference/environment-variables.md` → rename `/reference/python-environment-variables.md`.
+   - `python/computation-graphs/*`: tutorials→`/embed/tutorials` (or superseded); how-to (`filter-reactor-subscriptions`,`package-a-python-computation-graph`)→`/engine/computation-graphs/how-to`; explanation (`python-cg-decorator-surface`)→`/engine/explanation`; reference (`topology-dict-schema`)→`/reference`.
+   - Remove `python/_index`, `python/workflows/_index`, `python/computation-graphs/_index`; repoint bare `"/python` refs.
+3. **Concept landings:** remove `workflows/_index.md` (repoint bare `"/workflows"`→`"/engine/workflows"`) and `computation-graphs/_index.md` (→`"/engine/computation-graphs"`). Check no `"/workflows/X"`/`"/computation-graphs/X"` refs remain first.
+4. **Nav flip:** `docs/hugo.toml` `[menu.main]` → Start(/start,5), Embed the Library(/embed,10), Run the Service(/service,20), Engine & Primitives(/engine,30), Reference(/reference,40), Contributing(/contributing,60). Remove old entries.
+5. **Remove emptied old sections:** `platform/_index.md` (+ any now-empty dirs).
+6. **Aliases batch:** add `aliases: ["/old/path/"]` front matter to every moved page so old URLs redirect (large pass; script per old→new pair).
+7. **Graduate-framing sweep:** `grep -rin "graduate\|grow out of\|grows with you\|start small and\|without a rewrite" docs/content` → rewrite to co-equal on surviving pages.
+8. **4-reviewer gate** (docs-diataxis loop): accuracy/completeness/clarity/diataxis-compliance over the new IA; fix blockers+majors; re-run to zero. Final clean build + old-URL redirect spot-check. THEN open the single PR to main.
+
+**GOTCHAS:**
+- Stale `workflow!` macro: old Rust tutorials + `cloacina/src/lib.rs` doc-comment show `workflow! { tasks: [...] }` which DOES NOT EXIST. Correct = `#[workflow(name=,description=)] pub mod {...}` (my `/embed` tutorials are correct). Use module-attr form in any Rust workflow example.
+- Rust↔Python parity gaps in [[CLOACI-T-0688]] (no Python state-accumulator; no Python packaged cron-trigger decorator) — keep the caveats in `/engine` pages.
+- Metis `edit_document` often rejects "modified externally" (auto-indexer) → re-read then retry immediately. Task docs need create→read→edit.
+
+**Task docs:** T-0689/T-0690/T-0697/T-0698/T-0699 completed. Create JIT task docs for the remaining steps (quick-start move, python-migration, concept-landings, cutover, graduate-sweep, review-gate) as executed.
