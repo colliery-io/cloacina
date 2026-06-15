@@ -4,15 +4,15 @@ level: task
 title: "cloacinactl list commands read pre-T-0594 envelope keys (package list broken; workflow --package filter dropped)"
 short_code: "CLOACI-T-0681"
 created_at: 2026-06-14T23:49:58.449798+00:00
-updated_at: 2026-06-14T23:49:58.449798+00:00
+updated_at: 2026-06-15T00:13:42.867952+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -76,6 +76,12 @@ Commands already correct (use `render::list`): `tenant list`, `execution list`,
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
