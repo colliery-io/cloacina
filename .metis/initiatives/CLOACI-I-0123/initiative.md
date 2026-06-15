@@ -236,7 +236,31 @@ is build-green (latest ~`9002203d` + a checkpoint commit).
 - workflow tutorials: `library/*` SUPERSEDED by `/embed/tutorials/01-04` (refs repointed, removed); `service/*`→`/service/tutorials`. CG tutorials: `library/*`→`/embed/tutorials` (07-10); `service/*`→`/service/tutorials`.
 - NEW: `/start/{what-is-cloacina,is-cloacina-for-you}`, dual-door home `/_index.md`, all of `/engine` (12 primitives + landings, accuracy-reviewed in T-0696), `/embed/{quick-start, tutorials 01-04, how-to/running-embedded-in-production}`, section skeletons.
 
-**REMAINING WORK (in order):**
+**PROGRESS (2026-06-15 session):** Steps 1–7 DONE + committed (build-green each). HEAD now well past 189d08d7.
+- Step 1 ✅ `/quick-start`→`/start` (concepts/features/install moved; when-to-use superseded by is-cloacina-for-you).
+- Step 2 ✅ `python/` migration + **tutorial reclassification** (see [[CLOACI-T-0700]], completed). Discovered the earlier bulk move misfiled embedded (`DefaultRunner`) tutorials under `/service`; user ratified "full Model A merge". Result: `/embed/tutorials` now 01-14 (01-04 basics, 05 cron, 06 multi-tenancy, 07 event-triggers, 08 task-deferral, 09 workflow-registry, 10-13 CG, 14 packaged-triggers), dual-language tabs (6 merges via parallel agents, stale `workflow!` macro converted). `/service/tutorials` renumbered clean 01-07 (server-only). `python/` dir removed entirely.
+- Step 3 ✅ removed orphan `/workflows` + `/computation-graphs` concept landings → `/engine`.
+- Step 4 ✅ nav flipped to Start/Embed/Service/Engine/Reference/Contributing; generated API ref surfaced under `/reference/_index`.
+- Step 5 ✅ `platform/_index` orphan removed; tree top-level now only new IA.
+- Step 6 ✅ aliases batch — 127 rename-derived + 27 superseded-page successors = 151 files; redirect HTML verified (e.g. /quick-start→/start/).
+- Step 7 ✅ graduate-framing sweep — already clean (only the correct negation in what-is-cloacina; migration doc is neutral).
+
+**STEP 8 — GATE RUN 1 done (4 reviewers, 2026-06-15). Findings being remediated.**
+ACCURACY blockers/majors (real code errors in merged/relocated tutorials):
+- 05-cron: Python `CronSchedule`/`add_cron_schedule` DON'T EXIST → `runner.register_cron_workflow(name,cron,tz)`; `DefaultRunnerConfig` fields private/non_exhaustive → use `::builder()...build()?`; remove per-schedule "context" (false both langs).
+- 07-triggers: Rust `cloacina::trigger::register_trigger` + `dal.trigger_schedule()`/`NewTriggerSchedule` DON'T EXIST → `#[trigger(name=,on=)]` + `runner.unified_scheduler()` + `runner.runtime().get_trigger()` + `scheduler.register_trigger(t,wf)` (per examples/features/workflows/event-triggers). Python `@cloaca.trigger(workflow=...)` kwarg invalid → drop it.
+- 11/12: `Accumulator` trait has NO `type Event`; `process(&mut self, event: Vec<u8>)` (deserialize inside). Fix impls.
+- 09-registry (M6): use DAL flow `dal.workflow_registry(storage).register_workflow_package(...)` (per examples/features/workflows/registry-execution).
+COMPLETENESS blockers: api-reference/_index links missing `cloacina-computation-graph` crate page; service/02 `../how-to-guides/` broken relative link; embed/how-to/conditional-retries `../reference/` broken. + nav-chain gaps (01-03 "Next" link text→index not page; 04→05, 08→09, 09→10, svc 01→02/03→04/06→07 missing).
+CLARITY: blocker 09 prereq points cross-door to /service/03 w/ ambiguous "Tutorial 03"; 08/09 Rust-only w/o note + stray reviewer front-matter + incomplete `//...` code; minors (10-13 run-cmd offset, 06 postgres prereq, 07 tab mismatch, 14 next loops back).
+DIATAXIS: blocker 09 is explanation/reference walkthrough not tutorial (split); majors 08 (how-to+expl, elided code), svc-03 (comparison tables), svc-06 (Pattern 2/3 cataloging) → trim+link.
+Remediation: 6 fix-agents (05,07,08,09,svc-03,svc-06 grounded on cited examples) + I do 11/12 trait fix, nav links, completeness link blockers, 14/concepts minors. Then rebuild + re-run accuracy+diataxis to zero blockers/majors → PR.
+
+**GATE PASSED (2026-06-15).** 3 review rounds. Run 2 cleared all accuracy except 2 stale-`Event`-trait PROSE lines in 11 (code already correct) + 1 residual diataxis major in svc/03 (explanation dissection + command cataloging); Run 3 confirmed both fixed ("11-accumulators: clear"; "03-packaged-workflows: compliant"). FINAL: accuracy/completeness/diataxis = zero blockers+majors; clarity blocker fixed; clarity minors addressed (06 postgres prereq, 10-13 example-number-offset notes) or waived. `hugo` clean; redirects spot-checked.
+
+**PR OPENED → https://github.com/colliery-io/cloacina/pull/127** (base `main`, branch `docs/audience-first-restructure`, 35 commits, ready for review). **Squash-merge is the user's to click** (standing constraint). Live site unchanged until merge. Initiative phase→`completed` left for user review (human-in-the-loop). Follow-ups → [[CLOACI-T-0688]] (parity: Python state_accumulator; 12-full-pipeline & 14-packaged-triggers single-language).
+
+**(historical) remaining-work list, now ALL done:**
 1. **`/quick-start` (STILL PRESENT — missed earlier):** `when-to-use`→ superseded by `/start/is-cloacina-for-you` (repoint+alias); move `concepts`,`features`,`install`→`/start/`; remove `quick-start/_index` (`/start/_index` exists); repoint `"/quick-start` refs.
 2. **`python/` migration** (Model A = Python = tabs in merged pages):
    - `python/quick-start`→ superseded by `/embed/quick-start`; `python/workflows/tutorials/*`→ superseded by `/embed/tutorials` (already dual-language); python service-topic tutorials (cron/multi-tenancy/event-triggers/packaged)→ `/service/tutorials` equivalents.
