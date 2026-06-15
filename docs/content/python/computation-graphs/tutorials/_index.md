@@ -6,7 +6,7 @@ weight: 10
 
 # Python Computation Graph Tutorials
 
-These tutorials mirror the [Rust library tutorials 07–10]({{< ref "/computation-graphs/tutorials/library" >}}) on the Python side. They build on the Python workflow tutorials (01–08) — start there if you are new to Cloacina.
+These tutorials mirror the [Rust library tutorials 07–10]({{< ref "/embed/tutorials" >}}) on the Python side. They build on the Python workflow tutorials (01–08) — start there if you are new to Cloacina.
 
 ## Sequence
 
@@ -19,4 +19,4 @@ Each tutorial is a working program; run with `angreal demos tutorials python NN`
 ## See also
 
 - [Python · Workflows · Tutorials]({{< ref "/python/workflows/tutorials" >}}) — tutorials 00–08 (workflow-side).
-- [Rust · Computation Graphs · Tutorials]({{< ref "/computation-graphs/tutorials" >}}) — the Rust counterparts.
+- [Rust · Computation Graphs · Tutorials]({{< ref "/embed/tutorials" >}}) — the Rust counterparts.

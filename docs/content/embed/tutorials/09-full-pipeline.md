@@ -16,7 +16,7 @@ In this tutorial you'll build a full event-driven multi-source pipeline with two
 
 ## Prerequisites
 
-- Completion of [Tutorial 08 — Accumulators]({{< ref "/computation-graphs/tutorials/library/08-accumulators/" >}})
+- Completion of [Tutorial 08 — Accumulators]({{< ref "/embed/tutorials/08-accumulators/" >}})
 
 ## The complete example
 
@@ -327,4 +327,4 @@ You've built a full event-driven multi-source pipeline:
 
 ## What's next?
 
-- [Tutorial 10 — Routing]({{< ref "/computation-graphs/tutorials/library/10-routing/" >}}): add conditional branching with enum dispatch — route the graph down different paths based on the decision node's output
+- [Tutorial 10 — Routing]({{< ref "/embed/tutorials/10-routing/" >}}): add conditional branching with enum dispatch — route the graph down different paths based on the decision node's output

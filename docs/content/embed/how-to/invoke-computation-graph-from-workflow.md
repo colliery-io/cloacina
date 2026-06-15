@@ -162,12 +162,12 @@ The graph itself has no retry semantics — retry is a workflow-task concern. Co
 | You want | Reach for |
 |---|---|
 | The graph as one deterministic step inside a larger workflow | This recipe (embedded `invokes = computation_graph(...)`) |
-| The graph to fire on every accumulator boundary, in-process minimum-latency | Standalone with `#[computation_graph(trigger = reactor("name"))]` — see [Tutorial 07]({{< ref "/computation-graphs/tutorials/library/07-computation-graph" >}}) |
+| The graph to fire on every accumulator boundary, in-process minimum-latency | Standalone with `#[computation_graph(trigger = reactor("name"))]` — see [Tutorial 07]({{< ref "/embed/tutorials/07-computation-graph" >}}) |
 | A workflow to fire on a reactor firing (durable, not in-process) | [Subscribe a workflow to a reactor]({{< ref "subscribe-workflow-to-reactor" >}}) |
 
 ## What this how-to does NOT cover
 
-- **Authoring the graph itself.** See [Tutorial 07 — Your First Computation Graph]({{< ref "/computation-graphs/tutorials/library/07-computation-graph" >}}).
+- **Authoring the graph itself.** See [Tutorial 07 — Your First Computation Graph]({{< ref "/embed/tutorials/07-computation-graph" >}}).
 - **Hand-calling the compiled graph function.** That's the library-API path; this recipe is about the macro-driven embedded form.
 - **Packaged-CG-from-workflow.** Loading a packaged CG and invoking it from a workflow is the same recipe, but the package must be loaded by the runner before the workflow registers.
 

@@ -609,8 +609,8 @@ cargo build -p cloacina-server --features kafka
 
 You've now seen all three deployment modes for computation graphs on the Cloacina server:
 
-1. [Tutorial 07]({{< ref "/computation-graphs/tutorials/service/07-packaging/" >}}) — packaging and uploading a computation graph
-2. [Tutorial 08]({{< ref "/computation-graphs/tutorials/service/08-websocket-events/" >}}) — pushing events via WebSocket
+1. [Tutorial 07]({{< ref "/service/tutorials/07-packaging/" >}}) — packaging and uploading a computation graph
+2. [Tutorial 08]({{< ref "/service/tutorials/08-websocket-events/" >}}) — pushing events via WebSocket
 3. Tutorial 09 (this page) — Kafka-sourced stream accumulators
 
 For production deployments, see the reference documentation for PAK-scoped authorization on accumulator and reactor endpoints, and the explanation pages covering the `ComputationGraphScheduler` architecture and offset management.

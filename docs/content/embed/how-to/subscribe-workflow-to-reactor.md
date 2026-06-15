@@ -133,12 +133,12 @@ For the workflow execution side, the existing `cloacina_workflows_total{status, 
 | You want | Reach for |
 |---|---|
 | A workflow that fires on a reactor firing, durable across restart | This recipe (`upstream = reactor("name")` on `#[trigger]`) |
-| A computation graph that fires on a reactor firing, in-process minimum-latency | `#[computation_graph(trigger = reactor("name"))]` (see [Tutorial 07]({{< ref "/computation-graphs/tutorials/library/07-computation-graph" >}})) |
+| A computation graph that fires on a reactor firing, in-process minimum-latency | `#[computation_graph(trigger = reactor("name"))]` (see [Tutorial 07]({{< ref "/embed/tutorials/07-computation-graph" >}})) |
 | A workflow that fires on a custom poll / event / file watch | Implement the [Trigger trait]({{< ref "/service/tutorials/09-event-triggers" >}}) — no reactor involved |
 
 ## What this how-to does NOT cover
 
-- **Reactor authoring.** This recipe assumes the reactor exists. See [Tutorial 07 — Your First Computation Graph]({{< ref "/computation-graphs/tutorials/library/07-computation-graph" >}}) for the reactor side.
+- **Reactor authoring.** This recipe assumes the reactor exists. See [Tutorial 07 — Your First Computation Graph]({{< ref "/embed/tutorials/07-computation-graph" >}}) for the reactor side.
 - **Tearing down a subscription.** Removing the `#[trigger]` from the workflow and re-deploying the package unregisters the subscription. There is no separate CLI for it today.
 - **Replaying past firings.** The `reactor_firings` log is forward-looking; replay would require a separate mechanism (not currently shipped).
 

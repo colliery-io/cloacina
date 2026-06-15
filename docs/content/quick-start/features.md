@@ -60,7 +60,7 @@ first if those terms are new.
 - **Routing** — enum-variant routing propagates results conditionally between
   nodes.
 - **Kafka stream accumulators** — consume topics via the `kafka` feature; see
-  [Kafka Stream]({{< ref "/computation-graphs/tutorials/service/09-kafka-stream" >}}).
+  [Kafka Stream]({{< ref "/service/tutorials/09-kafka-stream" >}}).
 - **CEL firing filters** — filter reactor firings with CEL (Common Expression
   Language) expressions; see
   [Filter Reactor Firings with CEL]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}}).

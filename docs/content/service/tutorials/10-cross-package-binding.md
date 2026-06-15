@@ -27,7 +27,7 @@ bound-subscriber guard is protecting against.
 
 ## Prerequisites
 
-- Completion of [07 - Packaging a Computation Graph]({{< ref "/computation-graphs/tutorials/service/07-packaging" >}}).
+- Completion of [07 - Packaging a Computation Graph]({{< ref "/service/tutorials/07-packaging" >}}).
   You need the basic packaged-CG flow under your fingers before
   attempting cross-package binding.
 - A running `cloacina-server` from [01 - Deploy a Server]({{< ref "/service/tutorials/01-deploy-a-server" >}}).
@@ -282,7 +282,7 @@ cloacinactl graph status PriceReactor --tenant acme
 ## Step 3: Drive an event through
 
 The accumulators are passthrough; you can push events via the
-WebSocket interface (see [Tutorial 08]({{< ref "/computation-graphs/tutorials/service/08-websocket-events" >}})
+WebSocket interface (see [Tutorial 08]({{< ref "/service/tutorials/08-websocket-events" >}})
 for the full WS protocol).
 
 The recipe below uses

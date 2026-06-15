@@ -19,7 +19,7 @@ This is the **embedded computation graph** pattern. The graph is declared trigge
 | **Lifecycle** | Subsumed by the workflow — retries, timeouts, completion all flow through workflow machinery | Long-running scheduler-supervised primitive |
 | **Use when** | The graph is one deterministic step in a larger pipeline | The graph traversal is the quantum of execution |
 
-If you find yourself reaching for "I want this graph to run once when an upstream task completes," you want this pattern. If you find yourself reaching for "I want this graph to run every time three accumulator inputs all see new data within a window," you want the standalone reactor-bound form from [Tutorial 09]({{< ref "/computation-graphs/tutorials/library/09-full-pipeline" >}}).
+If you find yourself reaching for "I want this graph to run once when an upstream task completes," you want this pattern. If you find yourself reaching for "I want this graph to run every time three accumulator inputs all see new data within a window," you want the standalone reactor-bound form from [Tutorial 09]({{< ref "/embed/tutorials/09-full-pipeline" >}}).
 
 ## Declaration shape
 
@@ -215,7 +215,7 @@ mod nightly_report {
 
 ## Related
 
-- [Tutorial 07 — Your First Computation Graph]({{< ref "/computation-graphs/tutorials/library/07-computation-graph" >}}) — the standalone, reactor-bound form.
-- [Tutorial 09 — Full Multi-Source Pipeline]({{< ref "/computation-graphs/tutorials/library/09-full-pipeline" >}}) — when the graph traversal is the quantum.
+- [Tutorial 07 — Your First Computation Graph]({{< ref "/embed/tutorials/07-computation-graph" >}}) — the standalone, reactor-bound form.
+- [Tutorial 09 — Full Multi-Source Pipeline]({{< ref "/embed/tutorials/09-full-pipeline" >}}) — when the graph traversal is the quantum.
 - [Trigger-less Graphs (explanation)]({{< ref "/engine/explanation/trigger-less-graphs" >}}) — design notes on why trigger-less graphs are a first-class primitive.
 - [CLOACI-S-0011 — Cloacina primitive nomenclature](https://github.com/colliery-io/cloacina/blob/main/.metis/specs/CLOACI-S-0011.md) — the two execution quanta and where this pattern fits.

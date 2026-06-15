@@ -16,7 +16,7 @@ In this tutorial you'll take a computation graph from Rust source code all the w
 
 ## Prerequisites
 
-- Completion of the library tutorial [07 - Your First Computation Graph]({{< ref "/computation-graphs/tutorials/library/07-computation-graph/" >}})
+- Completion of the library tutorial [07 - Your First Computation Graph]({{< ref "/embed/tutorials/07-computation-graph/" >}})
 - The Cloacina server running and reachable (see the workflow service tutorials for server setup)
 - A valid PAK token (bootstrap key or one created via `POST /auth/keys`)
 - Rust toolchain installed (`rustc`, `cargo`)
@@ -370,5 +370,5 @@ The FFI boundary uses JSON (debug builds) or bincode (release builds) for the `I
 
 Now that your graph is deployed and running, the next step is to push events into it:
 
-- [**Tutorial 08: WebSocket Event Injection**]({{< ref "/computation-graphs/tutorials/service/08-websocket-events/" >}}) — push events to the `orderbook` accumulator over a WebSocket connection
-- [**Tutorial 09: Kafka-Sourced Computation Graphs**]({{< ref "/computation-graphs/tutorials/service/09-kafka-stream/" >}}) — drive accumulators from a Kafka topic instead of WebSocket
+- [**Tutorial 08: WebSocket Event Injection**]({{< ref "/service/tutorials/08-websocket-events/" >}}) — push events to the `orderbook` accumulator over a WebSocket connection
+- [**Tutorial 09: Kafka-Sourced Computation Graphs**]({{< ref "/service/tutorials/09-kafka-stream/" >}}) — drive accumulators from a Kafka topic instead of WebSocket

@@ -4,7 +4,7 @@ description: "Define a Python computation graph with ComputationGraphBuilder and
 weight: 10
 ---
 
-In this tutorial you'll build your first computation graph in Python — the same pricing pipeline from [Rust Tutorial 07]({{< ref "/computation-graphs/tutorials/library/07-computation-graph/" >}}), using Cloacina's `cloaca` Python bindings. You'll define nodes with a decorator, declare the topology in a `with` block, and execute the graph against live input data.
+In this tutorial you'll build your first computation graph in Python — the same pricing pipeline from [Rust Tutorial 07]({{< ref "/embed/tutorials/07-computation-graph/" >}}), using Cloacina's `cloaca` Python bindings. You'll define nodes with a decorator, declare the topology in a `with` block, and execute the graph against live input data.
 
 ## What you'll learn
 

@@ -81,12 +81,12 @@ running, branch into:
 
 ### "I want to build a computation graph (event-driven, low-latency)."
 
-→ [Computation Graphs Tutorials]({{< ref "/computation-graphs/tutorials" >}})
+→ [Computation Graphs Tutorials]({{< ref "/embed/tutorials" >}})
 
 The CG track has its own progression: a single-graph embedded-mode
 tutorial, accumulator patterns, full reactor pipelines, routing,
 and the cross-package binding pattern at
-[Tutorial 10 — Cross-Package Reactor Binding]({{< ref "/computation-graphs/tutorials/service/10-cross-package-binding" >}}).
+[Tutorial 10 — Cross-Package Reactor Binding]({{< ref "/service/tutorials/10-cross-package-binding" >}}).
 
 ### "I'm an operator standing up Cloacina in production."
 

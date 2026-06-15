@@ -16,7 +16,7 @@ In this tutorial you'll build a market maker that routes each market event to on
 
 ## Prerequisites
 
-- Completion of [Tutorial 09 — Full Multi-Source Pipeline]({{< ref "/computation-graphs/tutorials/library/09-full-pipeline/" >}})
+- Completion of [Tutorial 09 — Full Multi-Source Pipeline]({{< ref "/embed/tutorials/09-full-pipeline/" >}})
 
 ## The complete example
 

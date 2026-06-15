@@ -227,4 +227,4 @@ The `_compiled` function is the building block for everything that follows. In t
 
 ## What's next?
 
-- [Tutorial 08 — Accumulators]({{< ref "/computation-graphs/tutorials/library/08-accumulators/" >}}): wire the compiled graph into a reactor driven by live events
+- [Tutorial 08 — Accumulators]({{< ref "/embed/tutorials/08-accumulators/" >}}): wire the compiled graph into a reactor driven by live events

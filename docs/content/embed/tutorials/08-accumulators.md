@@ -18,7 +18,7 @@ In this tutorial you'll move beyond calling the compiled graph by hand. You'll i
 
 ## Prerequisites
 
-- Completion of [Tutorial 07 — Your First Computation Graph]({{< ref "/computation-graphs/tutorials/library/07-computation-graph/" >}})
+- Completion of [Tutorial 07 — Your First Computation Graph]({{< ref "/embed/tutorials/07-computation-graph/" >}})
 
 ## The complete example
 
@@ -308,4 +308,4 @@ The pattern you've learned here — socket channel → accumulator → boundary 
 
 ## What's next?
 
-- [Tutorial 09 — Full Reactive Pipeline]({{< ref "/computation-graphs/tutorials/library/09-full-pipeline/" >}}): connect multiple accumulators to one reactor and handle optional inputs in the graph
+- [Tutorial 09 — Full Reactive Pipeline]({{< ref "/embed/tutorials/09-full-pipeline/" >}}): connect multiple accumulators to one reactor and handle optional inputs in the graph

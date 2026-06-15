@@ -24,7 +24,7 @@ Define computation graphs with the `#[computation_graph]` macro, wire accumulato
 - Market data and signal processing
 - Applications needing event-driven computation
 
-[Library Tutorials →]({{< ref "/computation-graphs/tutorials/library" >}})
+[Library Tutorials →]({{< ref "/embed/tutorials" >}})
 
 ### Service (Server/Daemon)
 
@@ -34,13 +34,13 @@ Deploy computation graphs as packaged plugins, receive events via WebSocket or K
 - External event ingestion
 - Multi-tenant event-driven workloads
 
-[Service Tutorials →]({{< ref "/computation-graphs/tutorials/service" >}})
+[Service Tutorials →]({{< ref "/service/tutorials" >}})
 
 ## Quick Navigation
 
 | Section | Description |
 |---------|-------------|
-| [Tutorials]({{< ref "/computation-graphs/tutorials" >}}) | Step-by-step learning guides |
+| [Tutorials]({{< ref "/embed/tutorials" >}}) | Step-by-step learning guides |
 | [How-to Guides]({{< ref "/engine/computation-graphs/how-to" >}}) | Task-oriented recipes |
 | [Reference]({{< ref "/reference" >}}) | API and configuration lookup |
 | [Explanation]({{< ref "/engine/explanation" >}}) | Architecture and design decisions |

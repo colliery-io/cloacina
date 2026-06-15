@@ -4,7 +4,7 @@ description: "Push events into a running computation graph accumulator over a We
 weight: 20
 ---
 
-In this tutorial you'll push events into the `orderbook` accumulator of the `price_signal` graph deployed in [Tutorial 07]({{< ref "/computation-graphs/tutorials/service/07-packaging/" >}}). Events travel over a WebSocket connection to the accumulator endpoint at `/v1/ws/accumulator/{name}`. When enough events arrive to satisfy the reactor's firing condition, the computation graph executes automatically.
+In this tutorial you'll push events into the `orderbook` accumulator of the `price_signal` graph deployed in [Tutorial 07]({{< ref "/service/tutorials/07-packaging/" >}}). Events travel over a WebSocket connection to the accumulator endpoint at `/v1/ws/accumulator/{name}`. When enough events arrive to satisfy the reactor's firing condition, the computation graph executes automatically.
 
 ## What you'll learn
 
@@ -461,4 +461,4 @@ Expected response:
 
 ## Next steps
 
-- [**Tutorial 09: Kafka-Sourced Computation Graphs**]({{< ref "/computation-graphs/tutorials/service/09-kafka-stream/" >}}) — declare a `stream` accumulator in `package.toml` so the server reads events from a Kafka topic automatically, without an external producer
+- [**Tutorial 09: Kafka-Sourced Computation Graphs**]({{< ref "/service/tutorials/09-kafka-stream/" >}}) — declare a `stream` accumulator in `package.toml` so the server reads events from a Kafka topic automatically, without an external producer

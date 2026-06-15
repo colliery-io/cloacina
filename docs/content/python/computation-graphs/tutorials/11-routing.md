@@ -4,7 +4,7 @@ description: "Route graph execution down conditional branches using tuple return
 weight: 30
 ---
 
-In this tutorial you'll add routing to your computation graph. A decision node examines market data and returns a tuple — `("Trade", data)` or `("NoAction", data)` — and the runtime dispatches each case to its dedicated handler. This mirrors [Rust Tutorial 10]({{< ref "/computation-graphs/tutorials/library/10-routing/" >}}) but uses Python's tuple-based dispatch instead of Rust enums.
+In this tutorial you'll add routing to your computation graph. A decision node examines market data and returns a tuple — `("Trade", data)` or `("NoAction", data)` — and the runtime dispatches each case to its dedicated handler. This mirrors [Rust Tutorial 10]({{< ref "/embed/tutorials/10-routing/" >}}) but uses Python's tuple-based dispatch instead of Rust enums.
 
 ## What you'll learn
 
@@ -231,6 +231,6 @@ This completes the Python computation graph tutorial series. You've gone from a 
 
 ## Related resources
 
-- [Rust Tutorial 10 — Routing]({{< ref "/computation-graphs/tutorials/library/10-routing/" >}}): the same pattern in Rust using enum dispatch
+- [Rust Tutorial 10 — Routing]({{< ref "/embed/tutorials/10-routing/" >}}): the same pattern in Rust using enum dispatch
 - [Python Tutorial 09 — Your First Computation Graph]({{< ref "/python/computation-graphs/tutorials/09-computation-graph/" >}})
 - [Python Tutorial 10 — Accumulators]({{< ref "/python/computation-graphs/tutorials/10-accumulators/" >}})
