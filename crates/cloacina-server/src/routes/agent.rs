@@ -31,7 +31,7 @@ use std::time::Instant;
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http::{header, StatusCode};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use cloacina::fleet::{
     host_target_triple, AgentHeartbeatRequest, AgentHeartbeatResponse, AgentRegisterRequest,
@@ -223,6 +223,46 @@ pub async fn fetch_artifact(
         .body(Body::from(bytes))
         .map_err(|e| ApiError::internal(format!("build artifact response: {}", e)))?;
     Ok(resp)
+}
+
+/// `GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
+/// roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
+/// registered against *this* server instance.
+#[utoipa::path(
+    get,
+    path = "/v1/agents",
+    tag = "fleet",
+    responses(
+        (status = 200, description = "Fleet roster", body = cloacina_api_types::common::ListResponse<cloacina_api_types::AgentInfo>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Admin required", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn list_agents(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+) -> impl IntoResponse {
+    if !auth.is_admin {
+        return AuthenticatedKey::admin_required_response().into_response();
+    }
+    let now = Instant::now();
+    let agents: Vec<cloacina_api_types::AgentInfo> = state
+        .agent_registry
+        .snapshot()
+        .into_iter()
+        .map(|r| cloacina_api_types::AgentInfo {
+            agent_id: r.agent_id,
+            target_triple: r.target_triple,
+            max_concurrency: r.max_concurrency,
+            in_flight: r.in_flight,
+            available_capacity: r.available_capacity,
+            seconds_since_heartbeat: now.duration_since(r.last_heartbeat).as_secs(),
+            capabilities: r.capabilities,
+            tenant_id: r.tenant_id,
+        })
+        .collect();
+    Json(cloacina_api_types::common::ListResponse::new(agents)).into_response()
 }
 
 #[cfg(test)]

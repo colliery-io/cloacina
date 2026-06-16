@@ -1097,6 +1097,13 @@ fn build_router(state: AppState) -> Router {
             "/auth/ws-ticket",
             post(crate::routes::keys::create_ws_ticket),
         )
+        // Execution-agent fleet roster (admin, operator-facing) — CLOACI-I-0124
+        .route("/agents", get(crate::routes::agent::list_agents))
+        // Compiler / build-pipeline status (admin) — CLOACI-I-0124
+        .route(
+            "/compiler/status",
+            get(crate::routes::compiler::compiler_status),
+        )
         // Tenant management
         .route("/tenants", post(crate::routes::tenants::create_tenant))
         .route("/tenants", get(crate::routes::tenants::list_tenants))

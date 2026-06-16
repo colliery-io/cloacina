@@ -29,14 +29,14 @@
 //! OpenAPI cannot describe WS message flows.
 
 use cloacina_api_types::{
-    AccumulatorStatus, CreateKeyRequest, CreateTenantRequest, ErrorBody, ExecuteRequest,
-    ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse, ExecutionSummary,
-    ExecutionTasksResponse, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
-    KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse, TaskExecutionDetail,
-    TenantCreatedResponse, TenantListResponse, TenantRemovedResponse, TenantSummary,
-    TriggerDetailResponse, TriggerExecution, TriggerScheduleInfo, TriggerScheduleSummary,
-    WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowTaskNode,
-    WorkflowUploadedResponse, WsTicketResponse,
+    AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateTenantRequest, ErrorBody,
+    ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
+    ExecutionSummary, ExecutionTasksResponse, GraphStatus, GraphTopology, GraphTopologyEdge,
+    GraphTopologyNode, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse,
+    TaskExecutionDetail, TenantCreatedResponse, TenantListResponse, TenantRemovedResponse,
+    TenantSummary, TriggerDetailResponse, TriggerExecution, TriggerScheduleInfo,
+    TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary,
+    WorkflowTaskNode, WorkflowUploadedResponse, WsTicketResponse,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -107,6 +107,8 @@ impl Modify for SecurityAddon {
         crate::routes::executions::get_execution,
         crate::routes::executions::get_execution_events,
         crate::routes::executions::get_execution_tasks,
+        crate::routes::agent::list_agents,
+        crate::routes::compiler::compiler_status,
         crate::routes::health_graphs::list_accumulators,
         crate::routes::health_graphs::list_graphs,
         crate::routes::health_graphs::get_graph,
@@ -146,6 +148,9 @@ impl Modify for SecurityAddon {
         TaskExecutionDetail,
         ExecutionTasksResponse,
         TenantListResponse<ExecutionSummary>,
+        AgentInfo,
+        ListResponse<AgentInfo>,
+        CompilerStatus,
         AccumulatorStatus,
         GraphStatus,
         GraphTopology,
@@ -162,6 +167,8 @@ impl Modify for SecurityAddon {
         (name = "workflows", description = "Workflow package registry"),
         (name = "triggers", description = "Cron + trigger schedules (read-only)"),
         (name = "executions", description = "Workflow execution + event log"),
+        (name = "fleet", description = "Execution-agent fleet roster (admin)"),
+        (name = "compiler", description = "Compiler / build-pipeline status (admin)"),
         (name = "graph-health", description = "Computation-graph health"),
     )
 )]
