@@ -59,6 +59,9 @@ const cfg = {
   produceIntervalMs: intEnv("HARNESS_PRODUCE_INTERVAL_MS", 2000),
   kafkaBroker: env.HARNESS_KAFKA_BROKER ?? "",
   kafkaTopic: env.HARNESS_KAFKA_TOPIC ?? "demo.kafka.stream",
+  // Socket accumulators to feed over WS (comma list). Default orderbook,pricing
+  // (the host demo's CGs); set empty for Kafka-only stacks (the compose demo).
+  wsAccumulators: (env.HARNESS_WS_ACCUMULATORS ?? "orderbook,pricing").split(","),
 };
 
 function intEnv(name, dflt) {
@@ -270,6 +273,7 @@ async function main() {
       intervalMs: cfg.produceIntervalMs,
       kafkaBroker: cfg.kafkaBroker,
       kafkaTopic: cfg.kafkaTopic,
+      wsAccumulators: cfg.wsAccumulators,
     });
     return;
   }

@@ -4,14 +4,14 @@ level: task
 title: "WS-11 — Richer demo load: live CG data feed (WS + Kafka) + example/how-to packages"
 short_code: "CLOACI-T-0714"
 created_at: 2026-06-16T17:17:10.658280+00:00
-updated_at: 2026-06-16T17:17:10.658280+00:00
+updated_at: 2026-06-16T18:47:28.956246+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,7 +28,25 @@ initiative_id: CLOACI-I-0124
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+Make the demo load richer for testing: a live data feed so the computation
+graphs actually fire (WS for socket accumulators + Kafka for the stream
+accumulator), and seed the real example/how-to packages alongside the demo-*
+fixtures. Stack-agnostic (host `ui up` + docker-compose demo).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria (real)
+
+- [x] Continuous WS producer feeds `orderbook`/`pricing` so market_pipeline +
+      market_maker fire (verified: reactor "fires" count climbs on the host).
+- [x] Kafka producer feeds `kafka_alpha` when a broker is set (gated; wired into
+      the compose demo as a `producer` service).
+- [x] Example/how-to packages (`simple-packaged`, `packaged-workflows`,
+      `packaged-triggers`, `complex-dag`, `packaged-graph`,
+      `python-packaged-graph`) build to success + appear in the catalog.
+- [x] Runs via `angreal ui produce` (host) and the compose `producer` service.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -133,4 +151,40 @@ initiative_id: CLOACI-I-0124
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-16 — DONE (3 parts; one known gap + compose-Kafka not end-to-end run)
+
+**Part 1 — live data producer (commit `44393c0a`):** new harness `produce` mode
+(`ui/harness/src/produce.mjs`) + `angreal ui produce`. Pushes market data into
+the CG accumulators: `orderbook`/`pricing` over the server WS producer endpoint
+(`/v1/ws/accumulator/{name}`, authed via `/v1/auth/ws-ticket`, **binary** frames)
+and `kafka_alpha` via kafkajs to `demo.kafka.stream` when `HARNESS_KAFKA_BROKER`
+is set (skipped on host). Resilient reconnect. **Verified on host `ui up`:**
+server logs show `market_pipeline_reactor` / `market_maker_reactor` "graph
+execution completed fires=N" climbing — the graphs fire live.
+
+**Part 2 — example/how-to packages (commit `3a7287f2`):** generic stager
+(`_stage_and_pack_example` + `_normalize_cargo`) that rewrites relative
+`../crates/` deps → absolute and handles Python source trees, so the docs'
+packages seed alongside the fixtures. **Verified:** all six
+(`simple-packaged` / `packaged-workflows` / `packaged-triggers` / `complex-dag`
+/ `packaged-graph` / `python-packaged-graph`) pack and build to
+`build_status=success`; the workflow ones (incl. `complex-dag-example`, 20 tasks)
+render in the Workflows list with run circles.
+
+**Part 3 — compose producer service (commit `6eb44dc6`):** added a `producer`
+service to `docker-compose.demo.yml` (produce mode, `HARNESS_KAFKA_BROKER=
+kafka:9092`, after seed + kafka-healthy). `docker compose config` validates.
+
+**Known gaps / honest caveats:**
+- The two **CG example packages are triggerless** computation graphs, which the
+  platform does not register in `/v1/health/graphs` (cross-cdylib triggerless-CG
+  limitation, T-0553 follow-up). So they're task-less workflows with no graph →
+  currently **invisible in the UI** (filtered from Workflows, absent from
+  Graphs). Needs the triggerless-CG registration gap closed, or a UI surface for
+  "CG packages." Backlog follow-up.
+- The compose **Kafka path is wired + config-validates but was not run
+  end-to-end** (would need a full `docker compose` bring-up). The Kafka producer
+  code path itself is exercised via kafkajs; the WS path is fully verified.
+- CG accumulators report a steady `socket_only` status even while receiving data
+  and firing — the firing count is the real liveness signal (a throughput tile,
+  WS-10 deferred, would surface it).

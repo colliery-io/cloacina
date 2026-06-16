@@ -401,10 +401,22 @@ impl super::accumulator::EventSource for KafkaEventSource {
         events: mpsc::Sender<Vec<u8>>,
         mut shutdown: watch::Receiver<bool>,
     ) -> Result<(), super::accumulator::AccumulatorError> {
-        let broker_url = crate::var(&self.broker_var).map_err(|e| {
+        // The broker config may be a `{{ VAR }}` template (e.g.
+        // `{{ KAFKA_BROKER }}` → CLOACINA_VAR_KAFKA_BROKER) or a literal
+        // (`kafka:9092`). `resolve_template` handles both — it strips the
+        // braces/whitespace and resolves the var, and passes plain values
+        // through unchanged. (Previously this passed the raw `{{ KAFKA_BROKER }}`
+        // string to `var()`, so the Kafka accumulator never initialized —
+        // CLOACI-I-0124 / WS-11.)
+        let broker_url = crate::var::resolve_template(&self.broker_var).map_err(|missing| {
+            let names = missing
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
             super::accumulator::AccumulatorError::Init(format!(
                 "cannot resolve broker var '{}': {}",
-                self.broker_var, e
+                self.broker_var, names
             ))
         })?;
 

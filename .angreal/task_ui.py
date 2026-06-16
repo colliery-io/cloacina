@@ -61,12 +61,12 @@ DEMO_FIXTURES = [
     # view shows a `trigger`-type schedule alongside the cron one — poll/event
     # triggers were invisible in the demo because every seeded schedule was cron.
     "demo-poll-rust",
-    # WS-8: richer computation graphs so the Graphs view renders real structure —
-    # demo-pipeline-rust = two sources fan in (when_any) → 3-node pipeline;
-    # demo-routing-rust = a decision node with enum `=>` dispatch to two branches.
-    # Ported from tutorials 09-full-pipeline / 10-routing.
+    # WS-8: a richer computation graph so the Graphs view renders real structure —
+    # demo-pipeline-rust = two sources fan in (when_any) → 3-node pipeline.
+    # (The routing graph is covered by the canonical `packaged-graph` example
+    # loaded via EXAMPLE_PACKAGES below — WS-11 — so the ad-hoc demo-routing port
+    # was dropped to avoid a duplicate `market_maker` graph-name collision.)
     "demo-pipeline-rust",
-    "demo-routing-rust",
 ]
 
 EXAMPLES_DIR = PROJECT_ROOT / "examples"

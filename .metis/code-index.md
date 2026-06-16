@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T12:43:42Z | 709 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T18:47:41Z | 710 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -889,7 +889,8 @@
     ├── eslint.config.js
     ├── harness/
     │   └── src/
-    │       └── main.mjs
+    │       ├── main.mjs
+    │       └── produce.mjs
     ├── playwright.config.ts
     ├── postcss.config.cjs
     ├── src/
@@ -12731,19 +12732,33 @@
 
 #### ui/harness/src/main.mjs
 
--  `intEnv` function L57-62 — `function intEnv(name, dflt)`
--  `log` function L64 — `const log = (...args)`
--  `sleep` function L65 — `const sleep = (ms)`
--  `makeClient` function L67-74 — `function makeClient()`
--  `waitForHealth` function L76-89 — `function waitForHealth(client)`
--  `ensureTenant` function L92-110 — `function ensureTenant(client)`
--  `uploadPackages` function L114-138 — `function uploadPackages(client)`
--  `execute` function L140-144 — `function execute(client, workflow, context)`
--  `executeReady` function L150-166 — `function executeReady(client, workflow, context)`
--  `waitForTerminal` function L169-179 — `function waitForTerminal(client, execId)`
--  `seed` function L181-217 — `function seed(client)`
--  `loop` function L219-250 — `function loop(client)`
--  `main` function L252-266 — `function main()`
+-  `intEnv` function L64-69 — `function intEnv(name, dflt)`
+-  `log` function L71 — `const log = (...args)`
+-  `sleep` function L72 — `const sleep = (ms)`
+-  `makeClient` function L74-81 — `function makeClient()`
+-  `waitForHealth` function L83-96 — `function waitForHealth(client)`
+-  `ensureTenant` function L99-117 — `function ensureTenant(client)`
+-  `uploadPackages` function L121-145 — `function uploadPackages(client)`
+-  `execute` function L147-151 — `function execute(client, workflow, context)`
+-  `executeReady` function L157-173 — `function executeReady(client, workflow, context)`
+-  `waitForTerminal` function L176-186 — `function waitForTerminal(client, execId)`
+-  `seed` function L188-224 — `function seed(client)`
+-  `loop` function L226-257 — `function loop(client)`
+-  `main` function L259-287 — `function main()`
+
+#### ui/harness/src/produce.mjs
+
+- pub `produce` function L145-163 — `function produce(cfg)`
+-  `log` function L23 — `const log = (...a)`
+-  `sleep` function L24 — `const sleep = (ms)`
+-  `orderbookEvent` function L28-35 — `function orderbookEvent(t)`
+-  `pricingEvent` function L36-38 — `function pricingEvent(t)`
+-  `kafkaEvent` function L40-42 — `function kafkaEvent(t)`
+-  `fetchTicket` function L49-58 — `function fetchTicket(serverUrl, apiKey)`
+-  `wsUrl` function L60-63 — `function wsUrl(serverUrl, accumulator, ticket)`
+-  `runSocketFeed` function L67-98 — `function runSocketFeed({ accumulator, gen }, cfg, state)`
+-  `runKafkaFeed` function L101-140 — `function runKafkaFeed(cfg, state)`
+-  `onStop` function L147-149 — `const onStop = ()`
 
 ### ui/src
 

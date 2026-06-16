@@ -41,10 +41,21 @@ function kafkaEvent(t) {
   return { value: Number((50 + Math.sin(t / 4) * 10).toFixed(4)) };
 }
 
-const SOCKET_FEEDS = [
-  { accumulator: "orderbook", gen: orderbookEvent },
-  { accumulator: "pricing", gen: pricingEvent },
-];
+// Generators per known socket accumulator; unknown names get a generic {value}.
+const GENERATORS = { orderbook: orderbookEvent, pricing: pricingEvent };
+
+/** Socket accumulators to feed over WS, from `cfg.wsAccumulators` (a comma list;
+ *  default orderbook,pricing). Empty list → Kafka-only (e.g. the compose demo,
+ *  which has no socket accumulators — avoids 403 reconnect spam). */
+function socketFeeds(cfg) {
+  return (cfg.wsAccumulators ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((accumulator) => ({
+      accumulator,
+      gen: GENERATORS[accumulator] ?? ((t) => ({ value: Number((t % 100).toFixed(4)) })),
+    }));
+}
 
 async function fetchTicket(serverUrl, apiKey) {
   const res = await fetch(`${serverUrl}/v1/auth/ws-ticket`, {
@@ -150,13 +161,14 @@ export async function produce(cfg) {
   process.on("SIGINT", onStop);
   process.on("SIGTERM", onStop);
 
+  const feeds = socketFeeds(cfg);
   log(
-    `feeding ${SOCKET_FEEDS.map((f) => f.accumulator).join(", ")} over WS every ${cfg.intervalMs}ms` +
+    `feeding [${feeds.map((f) => f.accumulator).join(", ") || "none"}] over WS every ${cfg.intervalMs}ms` +
       (cfg.kafkaBroker ? ` + kafka '${cfg.kafkaTopic}'` : " (no kafka)"),
   );
 
   await Promise.all([
-    ...SOCKET_FEEDS.map((f) => runSocketFeed(f, cfg, state)),
+    ...feeds.map((f) => runSocketFeed(f, cfg, state)),
     runKafkaFeed(cfg, state),
   ]);
   log("producer stopped");

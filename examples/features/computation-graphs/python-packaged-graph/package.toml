@@ -6,7 +6,7 @@ interface_version = 1
 extension = "cloacina"
 
 [metadata]
-graph_name = "market_maker"
+graph_name = "market_maker_py"
 language = "python"
 description = "Python market maker computation graph package"
 entry_module = "market_maker.graph"
