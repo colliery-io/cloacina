@@ -27,8 +27,8 @@ import { describeTriggerKind, formatPollInterval } from "../util/triggers";
 
 const PAGE_SIZE = 50;
 
-/** Humanize a cron expression ("*/15 * * * * *" → "Every 15 seconds"); falls
- *  back to the raw expression if it can't be parsed. */
+// Humanize a cron expression (e.g. a 6-field "seconds" cron → "Every 15
+// seconds"); falls back to the raw expression if it can't be parsed.
 function humanizeCron(expr: string): string {
   try {
     return cronstrue.toString(expr, { verbose: false });
