@@ -1,0 +1,18 @@
+# Demo routing computation-graph fixture (CLOACI-I-0124 / WS-8). A reactor-
+# bound CG whose decision node uses enum dispatch (`=>` routing) to send data
+# down one of two conditional branches: a trade signal handler or an audit
+# logger. Ported from examples/tutorials/computation-graphs/library/10-routing
+# so the Graphs view has real branching structure to render. Plain (socket)
+# accumulators — no external infrastructure needed in the demo.
+[package]
+name = "demo-routing-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "market_maker"
+language = "rust"
+description = "demo routing graph — decision node dispatches to trade vs audit branches"
+author = "Cloacina Test Fixtures"

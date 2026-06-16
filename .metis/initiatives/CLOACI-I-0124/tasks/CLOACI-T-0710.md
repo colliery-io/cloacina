@@ -4,14 +4,14 @@ level: task
 title: "WS-8 — Expand demo fixtures to richer example graphs"
 short_code: "CLOACI-T-0710"
 created_at: 2026-06-16T01:50:20.786945+00:00
-updated_at: 2026-06-16T01:50:20.786945+00:00
+updated_at: 2026-06-16T04:19:20.420395+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -31,6 +31,8 @@ initiative_id: CLOACI-I-0124
 (P2, **demo-stack — not UI code**) Expand the demo fixtures so the UI has rich
 structure to render. Today's seed packs thin graphs (2–3 nodes); the example library
 has much richer ones.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria (real)
 

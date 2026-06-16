@@ -60,6 +60,12 @@ DEMO_FIXTURES = [
     # view shows a `trigger`-type schedule alongside the cron one — poll/event
     # triggers were invisible in the demo because every seeded schedule was cron.
     "demo-poll-rust",
+    # WS-8: richer computation graphs so the Graphs view renders real structure —
+    # demo-pipeline-rust = two sources fan in (when_any) → 3-node pipeline;
+    # demo-routing-rust = a decision node with enum `=>` dispatch to two branches.
+    # Ported from tutorials 09-full-pipeline / 10-routing.
+    "demo-pipeline-rust",
+    "demo-routing-rust",
 ]
 HARNESS_DIR = PROJECT_ROOT / "ui" / "harness"
 

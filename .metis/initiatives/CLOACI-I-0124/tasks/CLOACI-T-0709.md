@@ -4,14 +4,14 @@ level: task
 title: "WS-7 — Naive-user polish (status vocab, placeholder leak, Tasks:0)"
 short_code: "CLOACI-T-0709"
 created_at: 2026-06-16T01:50:20.066720+00:00
-updated_at: 2026-06-16T04:13:51.209713+00:00
+updated_at: 2026-06-16T04:19:09.684359+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0124
 ## Objective
 
 (P2) Fix the naive-user confusion bugs the audit found — small, high-clarity wins.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -146,4 +148,25 @@ Coordinate the "type vs Tasks: 0" column with [[CLOACI-T-0705]].
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-16 — DONE (all three confusion bugs fixed + verified)
+
+1. **Status vocabulary** — new `ui/src/util/vocab.ts` (`explainToken`) maps the
+   internal enum tokens to a friendly label + one-line tooltip. Key bug:
+   `GraphHealth` only understood `{state: …}` objects, so a bare-string
+   accumulator `status` (`"socket_only"`) fell through to `JSON.stringify` and
+   rendered as a **raw quoted string**. Now it handles bare strings and badges
+   `live` / `warming` / `socket_only` / `connecting` / `running` / `stopped`
+   with explanations. `GraphDetail`'s `reaction_mode` (`when_any` → "when any")
+   and `input_strategy` (`latest`) badges + the node drawer's reactor rows use
+   the same map. No raw quoted enum strings remain in the CG views.
+2. **Settings placeholder** — `Placeholder` no longer prints an internal task
+   code (`"Built in T-0651."` → `"This area isn't available yet — coming
+   soon."`); dropped the unused `task` prop and its call site.
+3. **CG "Tasks: 0"** — a package with zero workflow tasks is a computation-
+   graph package; Workflows + Overview now show a **`graph`** badge (with a
+   tooltip pointing at the Graphs view) instead of a `0` that reads as broken.
+
+Verified live (`ui/e2e/ws7.spec.ts`, screenshots in `/tmp/cloacina-ui-uat/ws7/`):
+`demo-kafka-stream-rust` shows the GRAPH badge; Graphs shows **LIVE** + **SOCKET
+ONLY**; graph detail shows **WHEN ANY** / **LATEST**; Settings shows "coming
+soon". `tsc --noEmit` clean. UI-only change, committed `ce486f08`.
