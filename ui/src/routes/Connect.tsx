@@ -26,7 +26,7 @@ import {
   Title,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
@@ -46,8 +46,10 @@ export function Connect() {
   const form = useForm({
     initialValues: {
       serverUrl: runtimeConfig.defaultServerUrl,
-      apiKey: "",
-      tenant: "public",
+      // Dev convenience: prefill the demo key/tenant so the local stack connects
+      // without re-typing (empty in production builds). See config.ts.
+      apiKey: runtimeConfig.demoApiKey,
+      tenant: runtimeConfig.demoTenant || "public",
     },
     validate: {
       serverUrl: (v) => (/^https?:\/\//.test(v) ? null : "Must start with http:// or https://"),
@@ -55,9 +57,6 @@ export function Connect() {
       tenant: (v) => (v.trim() ? null : "Required"),
     },
   });
-
-  // Already connected → don't show the gate.
-  if (connection) return <Navigate to="/" replace />;
 
   async function onSubmit(values: typeof form.values) {
     setSubmitting(true);
@@ -75,6 +74,27 @@ export function Connect() {
       setSubmitting(false);
     }
   }
+
+  // Dev-only: auto-connect once with the prefilled demo credentials so the gate
+  // is skipped on the local stack. No-op in production (demoAutoConnect=false)
+  // and once connected. If the server is down it surfaces the error and leaves
+  // the (prefilled) form for a manual retry.
+  const autoTried = useRef(false);
+  useEffect(() => {
+    if (
+      runtimeConfig.demoAutoConnect &&
+      !autoTried.current &&
+      !connection &&
+      form.values.apiKey.trim()
+    ) {
+      autoTried.current = true;
+      void onSubmit(form.values);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Already connected → don't show the gate.
+  if (connection) return <Navigate to="/" replace />;
 
   return (
     <Center mih="100vh" p="md">

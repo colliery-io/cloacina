@@ -20,7 +20,25 @@
  * server; the bundle itself is server-agnostic. The full mechanism is
  * finalized in T-0659 — this is just the read side.
  */
+// Dev convenience (CLOACI-I-0124): when served by `vite dev` (i.e. the local
+// `angreal ui up` demo stack), prefill — and auto-connect — the localhost demo
+// credentials so the connect gate doesn't have to be filled in by hand every
+// session. `import.meta.env.DEV` is false in any production build, so these
+// defaults never ship. The key matches the dev `--bootstrap-key` the harness
+// passes to the server (.angreal/task_ui.py `DEV_BOOTSTRAP_KEY`).
+const DEV = import.meta.env.DEV;
+
 export const runtimeConfig = {
-  /** Prefill for the /connect form; empty means "ask the user". */
-  defaultServerUrl: window.__CLOACINA_CONFIG__?.defaultServerUrl ?? "",
+  /** Prefill for the /connect form; empty means "ask the user". The deploy
+   *  container may inject an empty string, so fall through (||, not ??) to the
+   *  dev default when it's blank. */
+  defaultServerUrl:
+    (window.__CLOACINA_CONFIG__?.defaultServerUrl || "") ||
+    (DEV ? "http://localhost:8080" : ""),
+  /** Dev-only demo API key prefill (empty in production). */
+  demoApiKey: DEV ? "clk_dev_ui_bootstrap_key_0001" : "",
+  /** Dev-only demo tenant prefill. */
+  demoTenant: DEV ? "public" : "",
+  /** Whether to auto-submit the prefilled demo connection on the connect gate. */
+  demoAutoConnect: DEV,
 };

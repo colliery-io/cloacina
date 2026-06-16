@@ -4,14 +4,14 @@ level: task
 title: "WS-10 — At-a-glance health on list pages (workflow run circles + CG health)"
 short_code: "CLOACI-T-0713"
 created_at: 2026-06-16T12:30:10.143342+00:00
-updated_at: 2026-06-16T12:30:10.143342+00:00
+updated_at: 2026-06-16T12:39:59.216606+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,7 +28,24 @@ initiative_id: CLOACI-I-0124
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+Add Airflow-style at-a-glance health to the list pages so an operator can read
+"what's going on" without drilling in: per-workflow recent-run status circles,
+and per-CG health. (CG **throughput** — msgs/5s — deferred: needs a runtime
+message counter; see follow-up.)
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria (real)
+
+- [x] Workflows list + Overview: recent-run **status circles** per workflow
+      (color by status, newest-rightmost, tooltip with status+time).
+- [x] Graphs list: per-accumulator **health dots** + count alongside the graph
+      health badge.
+- [x] **Taxonomy fix:** pure computation-graph packages no longer appear in the
+      Workflows list — they belong to the Graphs view.
+- [ ] (Deferred) CG recent throughput — needs runtime instrumentation.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -133,4 +150,26 @@ initiative_id: CLOACI-I-0124
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-16 — DONE (throughput deferred)
+
+- `components/RunCircles.tsx` — recent-run status dots (reuses
+  `executionStatusColor`); oldest→newest, status+time tooltip. Workflows list &
+  Overview tile bucket one `useExecutions({limit:200})` query by `workflow_name`
+  (no per-row fetch, no server change).
+- `Graphs.tsx` — per-accumulator health dots (`stateColor`: green=live,
+  yellow=warming/socket_only, orange=degraded, red=crashed) + count, beside the
+  graph health badge (`useAccumulators` name→status map).
+- **Taxonomy fix (from user review):** pure CG packages (`tasks.length === 0`)
+  filtered out of the Workflows list + Overview workflows tile — they're
+  computation graphs (shown in Graphs as `market_pipeline` / `market_maker` /
+  `demo_kafka_graph`), not workflows. A CG wrapped in `#[workflow]`+trigger has a
+  task and still lists. This reverses WS-7's "graph" badge in the workflow list.
+- **Deferred:** CG recent throughput (msgs/5s) — only `accumulator_buffer_depth`
+  (gauge, 0 for passthrough) + `component_health` exist; no message counter. User
+  chose to defer; needs a `cloacina_*_messages_total` counter on the boundary
+  path + an endpoint. (Backlog follow-up.)
+
+Verified live (`/tmp/cloacina-ui-uat/glance/`): Workflows = demo-fail/slow/cron/
+poll with run circles, CGs absent; Overview tiles split correctly; Graphs shows
+accumulator health dots. `tsc` clean. Committed `bcc9c96e` on
+`feat/ui-0124-server-read-endpoints`.
