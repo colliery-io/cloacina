@@ -14,13 +14,15 @@
  *  limitations under the License.
  */
 
-import { Anchor, Badge, Card, Group, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { Anchor, Card, Group, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
 import { useGraphs } from "../api/health";
 import { useWorkflows } from "../api/workflows";
 import { GraphHealth } from "../components/GraphHealth";
+import { RunCircles, type RunDot } from "../components/RunCircles";
 import { StatusBadge } from "../components/StatusBadge";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatTimestamp } from "../util/format";
@@ -38,10 +40,25 @@ export function Overview() {
   const navigate = useNavigate();
   const workflows = useWorkflows();
   const graphs = useGraphs();
-  const recent = useExecutions({ limit: 5, offset: 0 });
+  // One executions query feeds both the recent-runs preview and the per-workflow
+  // run circles (CLOACI-I-0124 / WS-10).
+  const recent = useExecutions({ limit: 200, offset: 0 });
 
-  const wfItems = workflows.data?.items ?? [];
+  // Workflows tile lists real workflows only; pure computation-graph packages
+  // (no workflow tasks) appear in the Computation graphs tile instead (WS-10).
+  const wfItems = (workflows.data?.items ?? []).filter((w) => w.tasks.length > 0);
   const graphItems = graphs.data?.items ?? [];
+  const recentItems = recent.data?.items ?? [];
+
+  const runsByWorkflow = useMemo(() => {
+    const m = new Map<string, RunDot[]>();
+    for (const e of recentItems) {
+      const arr = m.get(e.workflow_name) ?? [];
+      arr.push({ id: e.id, status: e.status, started_at: e.started_at });
+      m.set(e.workflow_name, arr);
+    }
+    return m;
+  }, [recentItems]);
 
   return (
     <Stack>
@@ -67,8 +84,8 @@ export function Overview() {
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Package</Table.Th>
-                  <Table.Th>Version</Table.Th>
                   <Table.Th>Tasks</Table.Th>
+                  <Table.Th>Recent runs</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -82,21 +99,15 @@ export function Overview() {
                       <Text size="sm" fw={500}>
                         {w.package_name}
                       </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm" c="dimmed">
+                      <Text size="xs" c="dimmed">
                         {w.version}
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      {w.tasks.length > 0 ? (
-                        <Text size="sm">{w.tasks.length}</Text>
-                      ) : (
-                        // CG package (no workflow tasks) — see Workflows/WS-7.
-                        <Badge variant="light" color="grape" size="sm">
-                          graph
-                        </Badge>
-                      )}
+                      <Text size="sm">{w.tasks.length}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} max={6} />
                     </Table.Td>
                   </Table.Tr>
                 ))}
@@ -166,12 +177,12 @@ export function Overview() {
           <Loading label="Loading…" />
         ) : recent.isError ? (
           <ErrorState error={recent.error} onRetry={recent.refetch} />
-        ) : recent.data.items.length === 0 ? (
+        ) : recentItems.length === 0 ? (
           <Empty message="No executions yet." />
         ) : (
           <Table highlightOnHover>
             <Table.Tbody>
-              {recent.data.items.map((e) => (
+              {recentItems.slice(0, 5).map((e) => (
                 <Table.Tr
                   key={e.id}
                   style={{ cursor: "pointer" }}

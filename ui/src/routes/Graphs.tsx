@@ -14,12 +14,52 @@
  *  limitations under the License.
  */
 
-import { Badge, Card, Stack, Table, Text, Title } from "@mantine/core";
+import { Badge, Card, Group, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAccumulators, useGraphs } from "../api/health";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
+import { explainToken } from "../util/vocab";
+
+/** Color a graph/accumulator state for an at-a-glance dot (CLOACI-I-0124 / WS-10). */
+function stateColor(state: string | undefined): string {
+  switch ((state ?? "").toLowerCase()) {
+    case "live":
+    case "running":
+    case "healthy":
+      return "green";
+    case "warming":
+    case "connecting":
+    case "starting":
+    case "socket_only":
+      return "yellow";
+    case "degraded":
+      return "orange";
+    case "crashed":
+    case "stopped":
+    case "failed":
+      return "red";
+    default:
+      return "gray";
+  }
+}
+
+function StateDot({ state }: { state: string }) {
+  return (
+    <span
+      style={{
+        width: 10,
+        height: 10,
+        borderRadius: "50%",
+        background: `var(--mantine-color-${stateColor(state)}-6)`,
+        display: "inline-block",
+        flex: "0 0 auto",
+      }}
+    />
+  );
+}
 
 /**
  * Computation-graph health (T-0655, OQ-4 → own top-level view): graphs +
@@ -29,6 +69,13 @@ export function Graphs() {
   const navigate = useNavigate();
   const graphs = useGraphs();
   const accs = useAccumulators();
+
+  // name → status, so a graph row can show its accumulators' health at a glance.
+  const accStatus = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of accs.data?.items ?? []) m.set(a.name, String(a.status ?? ""));
+    return m;
+  }, [accs.data]);
 
   return (
     <Stack>
@@ -67,7 +114,34 @@ export function Graphs() {
                   <Table.Td>
                     <GraphHealth value={g.health} />
                   </Table.Td>
-                  <Table.Td>{g.accumulators.length}</Table.Td>
+                  <Table.Td>
+                    {g.accumulators.length === 0 ? (
+                      <Text size="sm" c="dimmed">
+                        —
+                      </Text>
+                    ) : (
+                      <Group gap={6} wrap="nowrap">
+                        {g.accumulators.map((name) => {
+                          const status = accStatus.get(name) ?? "unknown";
+                          return (
+                            <Tooltip
+                              key={name}
+                              label={`${name}: ${explainToken(status).label}`}
+                              withArrow
+                              openDelay={150}
+                            >
+                              <span style={{ display: "inline-flex" }}>
+                                <StateDot state={status} />
+                              </span>
+                            </Tooltip>
+                          );
+                        })}
+                        <Text size="xs" c="dimmed">
+                          {g.accumulators.length}
+                        </Text>
+                      </Group>
+                    )}
+                  </Table.Td>
                   <Table.Td>
                     {g.paused ? (
                       <Badge color="orange" variant="light">

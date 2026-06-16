@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T12:17:36Z | 707 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T12:26:44Z | 708 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -945,6 +945,7 @@
     │   │   ├── events.ts
     │   │   ├── format.ts
     │   │   ├── status.ts
+    │   │   ├── topo.ts
     │   │   ├── triggers.ts
     │   │   └── vocab.ts
     │   └── vite-env.d.ts
@@ -12815,10 +12816,10 @@
 #### ui/src/api/workflows.ts
 
 - pub `useWorkflows` function L23-30 — `function useWorkflows()`
-- pub `useWorkflow` function L33-40 — `function useWorkflow(name: string)`
-- pub `useUploadWorkflow` function L45-53 — `function useUploadWorkflow()`
-- pub `useExecuteWorkflow` function L56-62 — `function useExecuteWorkflow()`
-- pub `useDeleteWorkflow` function L65-74 — `function useDeleteWorkflow()`
+- pub `useWorkflow` function L34-42 — `function useWorkflow(name: string, opts?: { enabled?: boolean })`
+- pub `useUploadWorkflow` function L47-55 — `function useUploadWorkflow()`
+- pub `useExecuteWorkflow` function L58-64 — `function useExecuteWorkflow()`
+- pub `useDeleteWorkflow` function L67-76 — `function useDeleteWorkflow()`
 
 ### ui/src/auth
 
@@ -12876,9 +12877,11 @@
 
 #### ui/src/components/TaskTable.tsx
 
-- pub `TaskTable` function L46-133 — `function TaskTable({ tasks }: { tasks: TaskExecutionDetail[] })`
+- pub `TaskTable` function L51-155 — `function TaskTable({ tasks, order, }: { tasks: TaskExecutionDetail[]; /** DAG to...`
 -  `duration` function L23-34 — `function duration(started: string | null, completed: string | null): string`
 -  `fmtTime` function L36-40 — `function fmtTime(ts: string | null): string`
+-  `localId` function L47-49 — `function localId(taskName: string): string`
+-  `rankOf` function L73-74 — `const rankOf = (t: TaskExecutionDetail): number`
 
 #### ui/src/components/WorkflowGraph.tsx
 
@@ -12906,7 +12909,7 @@
 
 #### ui/src/routes/ExecutionDetail.tsx
 
-- pub `ExecutionDetail` function L45-135 — `function ExecutionDetail()`
+- pub `ExecutionDetail` function L47-147 — `function ExecutionDetail()`
 
 #### ui/src/routes/Executions.tsx
 
@@ -13002,6 +13005,11 @@
 
 - pub `executionStatusColor` function L35-37 — `function executionStatusColor(status: string): string`
 - pub `isTerminalStatus` function L44-46 — `function isTerminalStatus(status: string): boolean`
+
+#### ui/src/util/topo.ts
+
+- pub `TaskGraphNode` interface L18-21 — `{ id: : string, dependencies: : string[] | null }`
+- pub `topoRank` function L31-65 — `function topoRank(graph: TaskGraphNode[]): Map<string, number>`
 
 #### ui/src/util/triggers.ts
 
