@@ -30,6 +30,7 @@ import { Triggers } from "./routes/Triggers";
 import { TriggerDetail } from "./routes/TriggerDetail";
 import { Graphs } from "./routes/Graphs";
 import { GraphDetail } from "./routes/GraphDetail";
+import { Operations } from "./routes/Operations";
 import { Keys } from "./routes/Keys";
 
 /**
@@ -56,6 +57,7 @@ export function App() {
           <Route path="triggers/:name" element={<TriggerDetail />} />
           <Route path="graphs" element={<Graphs />} />
           <Route path="graphs/:name" element={<GraphDetail />} />
+          <Route path="operations" element={<Operations />} />
           <Route path="keys" element={<Keys />} />
           <Route path="settings" element={<Placeholder title="Settings" task="T-0651" />} />
           <Route path="*" element={<NotFound />} />

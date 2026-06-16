@@ -18,6 +18,7 @@ import { AppShell, Badge, Group, NavLink, ScrollArea, Text, Button } from "@mant
 import {
   IconActivity,
   IconGauge,
+  IconHeartbeat,
   IconKey,
   IconClock,
   IconPackage,
@@ -34,6 +35,7 @@ const NAV = [
   { to: "/executions", label: "Executions", icon: IconActivity },
   { to: "/triggers", label: "Triggers", icon: IconClock },
   { to: "/graphs", label: "Graphs", icon: IconTopologyStar3 },
+  { to: "/operations", label: "Operations", icon: IconHeartbeat },
   { to: "/keys", label: "API Keys", icon: IconKey },
   { to: "/settings", label: "Settings", icon: IconSettings },
 ];
