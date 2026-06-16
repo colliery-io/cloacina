@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T19:05:52Z | 710 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T19:40:32Z | 710 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -1820,16 +1820,16 @@
 - pub `AccumulatorRuntimeConfig` struct L311-314 — `{ merge_channel_capacity: usize }` — Configuration for the accumulator runtime.
 - pub `accumulator_runtime` function L345-352 — `( acc: A, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, config: A...` — Run an accumulator as 2-3 tokio tasks connected by a merge channel.
 - pub `accumulator_runtime_with_source` function L357-368 — `( acc: A, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, config: A...` — Run an accumulator with an active event source that pulls events from
-- pub `shutdown_signal` function L488-490 — `() -> (watch::Sender<bool>, watch::Receiver<bool>)` — Create a shutdown signal pair.
-- pub `PollingAccumulator` interface L501-511 — `{ fn poll(), fn interval() }` — A polling accumulator periodically calls an async poll function to query
-- pub `polling_accumulator_runtime` function L517-596 — `( mut poller: P, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, )` — Run a polling accumulator as a timer-based loop.
-- pub `BatchAccumulator` interface L610-618 — `{ fn process_batch() }` — A batch accumulator buffers incoming events and processes them all at once
-- pub `BatchAccumulatorConfig` struct L622-627 — `{ flush_interval: Option<std::time::Duration>, max_buffer_size: Option<usize> }` — Configuration for the batch accumulator runtime.
-- pub `flush_signal` function L633-635 — `() -> (mpsc::Sender<()>, mpsc::Receiver<()>)` — Create a flush signal pair for batch accumulators.
-- pub `batch_accumulator_runtime` function L642-722 — `( mut acc: B, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, mut f...` — Run a batch accumulator that buffers events and flushes on signal, timer, or size threshold.
-- pub `StateAccumulator` struct L880-883 — `{ buffer: std::collections::VecDeque<T>, capacity: i32 }` — A state accumulator holds a bounded VecDeque<T> that receives values from
-- pub `new` function L886-891 — `(capacity: i32) -> Self` — See CLOACI-S-0004 for the full specification.
-- pub `state_accumulator_runtime` function L898-1002 — `( mut acc: StateAccumulator<T>, ctx: AccumulatorContext, socket_rx: mpsc::Receiv...` — Run a state accumulator.
+- pub `shutdown_signal` function L497-499 — `() -> (watch::Sender<bool>, watch::Receiver<bool>)` — Create a shutdown signal pair.
+- pub `PollingAccumulator` interface L510-520 — `{ fn poll(), fn interval() }` — A polling accumulator periodically calls an async poll function to query
+- pub `polling_accumulator_runtime` function L526-605 — `( mut poller: P, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, )` — Run a polling accumulator as a timer-based loop.
+- pub `BatchAccumulator` interface L619-627 — `{ fn process_batch() }` — A batch accumulator buffers incoming events and processes them all at once
+- pub `BatchAccumulatorConfig` struct L631-636 — `{ flush_interval: Option<std::time::Duration>, max_buffer_size: Option<usize> }` — Configuration for the batch accumulator runtime.
+- pub `flush_signal` function L642-644 — `() -> (mpsc::Sender<()>, mpsc::Receiver<()>)` — Create a flush signal pair for batch accumulators.
+- pub `batch_accumulator_runtime` function L651-731 — `( mut acc: B, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, mut f...` — Run a batch accumulator that buffers events and flushes on signal, timer, or size threshold.
+- pub `StateAccumulator` struct L889-892 — `{ buffer: std::collections::VecDeque<T>, capacity: i32 }` — A state accumulator holds a bounded VecDeque<T> that receives values from
+- pub `new` function L895-900 — `(capacity: i32) -> Self` — See CLOACI-S-0004 for the full specification.
+- pub `state_accumulator_runtime` function L907-1011 — `( mut acc: StateAccumulator<T>, ctx: AccumulatorContext, socket_rx: mpsc::Receiv...` — Run a state accumulator.
 -  `AccumulatorHealth` type L55-65 — `= AccumulatorHealth` — See CLOACI-S-0004 for the full specification.
 -  `fmt` function L56-64 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0004 for the full specification.
 -  `AccumulatorHealth` type L67-80 — `= AccumulatorHealth` — See CLOACI-S-0004 for the full specification.
@@ -1841,48 +1841,48 @@
 -  `NoEventSource` struct L371 — `-` — Placeholder type for when no event source is provided.
 -  `NoEventSource` type L374-382 — `impl EventSource for NoEventSource` — See CLOACI-S-0004 for the full specification.
 -  `run` function L375-381 — `( self, _events: mpsc::Sender<Vec<u8>>, _shutdown: watch::Receiver<bool>, ) -> R...` — See CLOACI-S-0004 for the full specification.
--  `accumulator_runtime_inner` function L385-485 — `( mut acc: A, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, confi...` — Inner runtime shared by both `accumulator_runtime` and `accumulator_runtime_with_source`.
--  `persist_batch_buffer` function L725-732 — `(ctx: &AccumulatorContext, buffer: &[Vec<u8>])` — Persist batch buffer snapshot to DAL for crash resilience (best-effort).
--  `flush_batch` function L735-758 — `( acc: &mut B, buffer: &mut Vec<Vec<u8>>, ctx: &AccumulatorContext, )` — Flush the buffer through the batch accumulator and send boundary if produced.
--  `set_health` function L765-769 — `(ctx: &AccumulatorContext, health: AccumulatorHealth)` — Set health state (best-effort, no-op if health channel not configured).
--  `record_accumulator_persist_failure` function L775-783 — `(ctx: &AccumulatorContext, kind: &'static str)` — Increment `cloacina_accumulator_persist_failures_total{graph,accumulator,kind}`
--  `graph_label` function L789-794 — `(ctx: &AccumulatorContext) -> String` — Derive the bounded `graph` metric label for an accumulator.
--  `record_accumulator_event` function L799-818 — `( ctx: &AccumulatorContext, kind: &'static str, emit_started: std::time::Instant...` — Record one accumulator event and its emit duration.
--  `set_accumulator_buffer_depth` function L824-831 — `(ctx: &AccumulatorContext, depth: f64)` — Update the `cloacina_accumulator_buffer_depth` gauge.
--  `persist_boundary` function L834-865 — `(ctx: &AccumulatorContext, boundary: &T)` — Persist last-emitted boundary with sequence number to DAL (best-effort, logs on failure).
--  `tests` module L1005-1599 — `-` — See CLOACI-S-0004 for the full specification.
--  `TestEvent` struct L1010-1012 — `{ value: f64 }` — See CLOACI-S-0004 for the full specification.
--  `TestBoundary` struct L1015-1017 — `{ result: f64 }` — See CLOACI-S-0004 for the full specification.
--  `DoubleAccumulator` struct L1019 — `-` — See CLOACI-S-0004 for the full specification.
--  `DoubleAccumulator` type L1022-1031 — `impl Accumulator for DoubleAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Output` type L1023 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process` function L1025-1030 — `(&mut self, event: Vec<u8>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_boundary_sender_round_trip` function L1034-1046 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_runtime_processes_socket_events` function L1049-1087 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_runtime_multiple_events` function L1090-1126 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_shutdown` function L1129-1158 — `()` — See CLOACI-S-0004 for the full specification.
--  `CountingPoller` struct L1162-1165 — `{ count: u32, max: u32 }` — See CLOACI-S-0004 for the full specification.
--  `CountingPoller` type L1168-1185 — `impl PollingAccumulator for CountingPoller` — See CLOACI-S-0004 for the full specification.
--  `Output` type L1169 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `poll` function L1171-1180 — `(&mut self) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `interval` function L1182-1184 — `(&self) -> std::time::Duration` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_emits_on_some` function L1188-1225 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_skips_on_none` function L1228-1257 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_shutdown` function L1260-1284 — `()` — See CLOACI-S-0004 for the full specification.
--  `SumBatchAccumulator` struct L1288 — `-` — See CLOACI-S-0004 for the full specification.
--  `SumBatchAccumulator` type L1291-1302 — `impl BatchAccumulator for SumBatchAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Output` type L1292 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process_batch` function L1294-1301 — `(&mut self, events: Vec<Vec<u8>>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_flush_on_signal` function L1305-1354 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_flush_on_timer` function L1357-1403 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_empty_flush_skips` function L1406-1442 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_max_buffer_size` function L1445-1490 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_shutdown_drains` function L1493-1536 — `()` — See CLOACI-S-0004 for the full specification.
--  `FilterAccumulator` struct L1538 — `-` — See CLOACI-S-0004 for the full specification.
--  `FilterAccumulator` type L1541-1555 — `impl Accumulator for FilterAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Output` type L1542 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process` function L1544-1554 — `(&mut self, event: Vec<u8>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_process_returns_none` function L1558-1598 — `()` — See CLOACI-S-0004 for the full specification.
+-  `accumulator_runtime_inner` function L385-494 — `( mut acc: A, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, confi...` — Inner runtime shared by both `accumulator_runtime` and `accumulator_runtime_with_source`.
+-  `persist_batch_buffer` function L734-741 — `(ctx: &AccumulatorContext, buffer: &[Vec<u8>])` — Persist batch buffer snapshot to DAL for crash resilience (best-effort).
+-  `flush_batch` function L744-767 — `( acc: &mut B, buffer: &mut Vec<Vec<u8>>, ctx: &AccumulatorContext, )` — Flush the buffer through the batch accumulator and send boundary if produced.
+-  `set_health` function L774-778 — `(ctx: &AccumulatorContext, health: AccumulatorHealth)` — Set health state (best-effort, no-op if health channel not configured).
+-  `record_accumulator_persist_failure` function L784-792 — `(ctx: &AccumulatorContext, kind: &'static str)` — Increment `cloacina_accumulator_persist_failures_total{graph,accumulator,kind}`
+-  `graph_label` function L798-803 — `(ctx: &AccumulatorContext) -> String` — Derive the bounded `graph` metric label for an accumulator.
+-  `record_accumulator_event` function L808-827 — `( ctx: &AccumulatorContext, kind: &'static str, emit_started: std::time::Instant...` — Record one accumulator event and its emit duration.
+-  `set_accumulator_buffer_depth` function L833-840 — `(ctx: &AccumulatorContext, depth: f64)` — Update the `cloacina_accumulator_buffer_depth` gauge.
+-  `persist_boundary` function L843-874 — `(ctx: &AccumulatorContext, boundary: &T)` — Persist last-emitted boundary with sequence number to DAL (best-effort, logs on failure).
+-  `tests` module L1014-1608 — `-` — See CLOACI-S-0004 for the full specification.
+-  `TestEvent` struct L1019-1021 — `{ value: f64 }` — See CLOACI-S-0004 for the full specification.
+-  `TestBoundary` struct L1024-1026 — `{ result: f64 }` — See CLOACI-S-0004 for the full specification.
+-  `DoubleAccumulator` struct L1028 — `-` — See CLOACI-S-0004 for the full specification.
+-  `DoubleAccumulator` type L1031-1040 — `impl Accumulator for DoubleAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L1032 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process` function L1034-1039 — `(&mut self, event: Vec<u8>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_boundary_sender_round_trip` function L1043-1055 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_runtime_processes_socket_events` function L1058-1096 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_runtime_multiple_events` function L1099-1135 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_shutdown` function L1138-1167 — `()` — See CLOACI-S-0004 for the full specification.
+-  `CountingPoller` struct L1171-1174 — `{ count: u32, max: u32 }` — See CLOACI-S-0004 for the full specification.
+-  `CountingPoller` type L1177-1194 — `impl PollingAccumulator for CountingPoller` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L1178 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `poll` function L1180-1189 — `(&mut self) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `interval` function L1191-1193 — `(&self) -> std::time::Duration` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_emits_on_some` function L1197-1234 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_skips_on_none` function L1237-1266 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_shutdown` function L1269-1293 — `()` — See CLOACI-S-0004 for the full specification.
+-  `SumBatchAccumulator` struct L1297 — `-` — See CLOACI-S-0004 for the full specification.
+-  `SumBatchAccumulator` type L1300-1311 — `impl BatchAccumulator for SumBatchAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L1301 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process_batch` function L1303-1310 — `(&mut self, events: Vec<Vec<u8>>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_flush_on_signal` function L1314-1363 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_flush_on_timer` function L1366-1412 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_empty_flush_skips` function L1415-1451 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_max_buffer_size` function L1454-1499 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_shutdown_drains` function L1502-1545 — `()` — See CLOACI-S-0004 for the full specification.
+-  `FilterAccumulator` struct L1547 — `-` — See CLOACI-S-0004 for the full specification.
+-  `FilterAccumulator` type L1550-1564 — `impl Accumulator for FilterAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L1551 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process` function L1553-1563 — `(&mut self, event: Vec<u8>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_process_returns_none` function L1567-1607 — `()` — See CLOACI-S-0004 for the full specification.
 
 #### crates/cloacina/src/computation_graph/mod.rs
 

@@ -421,12 +421,21 @@ async fn accumulator_runtime_inner<A: Accumulator, S: EventSource>(
         let shutdown_source = ctx.shutdown.clone();
         let event_tx_source = event_tx.clone();
         let name_source = name_loop.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             match source.run(event_tx_source, shutdown_source).await {
                 Ok(()) => tracing::debug!(name = %name_source, "event source completed"),
                 Err(e) => tracing::error!(name = %name_source, "event source failed: {}", e),
             }
-        })
+        });
+        // Advance past Connecting to Live now that the source task is running.
+        // The reactor's startup gate only proceeds once every accumulator
+        // reports Live/SocketOnly; a stream accumulator that stayed Connecting
+        // gated the reactor forever, so it never consumed the boundaries the
+        // source delivered (CLOACI-T-0715). Optimistic + symmetric with the
+        // socket path below, which reports SocketOnly before any data arrives;
+        // the degraded-mode monitor downgrades health if the source later fails.
+        set_health(&ctx, AccumulatorHealth::Live);
+        handle
     } else {
         set_health(&ctx, AccumulatorHealth::SocketOnly);
         let mut shutdown_loop = ctx.shutdown.clone();
