@@ -18,28 +18,40 @@ import { Group, Text, Tooltip } from "@mantine/core";
 
 import { executionStatusColor } from "../util/status";
 
-/** Minimal recent-run shape the circles need (a slice of ExecutionSummary). */
+/** Minimal recent-run shape (a slice of ExecutionSummary). */
 export interface RunDot {
   id: string;
   status: string;
   started_at?: string | null;
 }
 
-function whenLabel(ts: string | null | undefined): string {
-  if (!ts) return "";
-  const t = Date.parse(ts);
-  return Number.isNaN(t) ? "" : ` · ${new Date(t).toLocaleString()}`;
+/** How many recent runs to summarize (Airflow's DAG-runs default cadence). */
+const WINDOW = 25;
+
+// Display order for the state circles — active first, then terminal.
+const STATE_ORDER = [
+  "running",
+  "pending",
+  "scheduled",
+  "completed",
+  "failed",
+  "cancelled",
+  "canceled",
+];
+
+function rank(status: string): number {
+  const i = STATE_ORDER.indexOf(status);
+  return i < 0 ? STATE_ORDER.length : i;
 }
 
 /**
- * Airflow-style recent-run status circles (CLOACI-I-0124 / WS-10). One dot per
- * recent execution, colored by status (green=completed, red=failed, blue=
- * running, …), oldest→newest left to right so the rightmost dot is the latest.
- * A quick visual read of "how has this workflow been doing lately" on the list
- * pages. `runs` is expected newest-first (the executions list order); we take
- * the most recent `max` and reverse for display.
+ * Airflow-style recent-run summary (CLOACI-I-0124 / WS-10). Rather than one dot
+ * per run, this shows one colored circle **per run state** with the **count** of
+ * recent runs in that state — i.e. "how many succeeded / failed / are running",
+ * mirroring Airflow's DAGs-view circles. Counts are over the most recent
+ * `WINDOW` runs. `runs` is expected newest-first (the executions list order).
  */
-export function RunCircles({ runs, max = 12 }: { runs: RunDot[]; max?: number }) {
+export function RunCircles({ runs }: { runs: RunDot[] }) {
   if (runs.length === 0) {
     return (
       <Text c="dimmed" size="xs">
@@ -47,21 +59,36 @@ export function RunCircles({ runs, max = 12 }: { runs: RunDot[]; max?: number })
       </Text>
     );
   }
-  const recent = runs.slice(0, max).reverse();
+
+  const counts = new Map<string, number>();
+  for (const r of runs.slice(0, WINDOW)) {
+    const key = r.status.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const entries = [...counts.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
+
   return (
-    <Group gap={4} wrap="nowrap">
-      {recent.map((r) => (
-        <Tooltip key={r.id} label={`${r.status}${whenLabel(r.started_at)}`} withArrow openDelay={150}>
+    <Group gap={6} wrap="nowrap">
+      {entries.map(([status, count]) => (
+        <Tooltip key={status} label={`${count} ${status}`} withArrow openDelay={150}>
           <span
             style={{
-              width: 11,
-              height: 11,
-              borderRadius: "50%",
-              background: `var(--mantine-color-${executionStatusColor(r.status)}-6)`,
+              minWidth: 20,
+              height: 20,
+              padding: "0 5px",
+              borderRadius: 10,
+              background: `var(--mantine-color-${executionStatusColor(status)}-6)`,
+              color: "var(--mantine-color-white)",
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: "20px",
+              textAlign: "center",
               display: "inline-block",
               flex: "0 0 auto",
             }}
-          />
+          >
+            {count}
+          </span>
         </Tooltip>
       ))}
     </Group>

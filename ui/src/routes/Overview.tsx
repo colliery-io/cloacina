@@ -109,7 +109,7 @@ export function Overview() {
                       <Text size="sm">{w.tasks.length}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} max={6} />
+                      <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} />
                     </Table.Td>
                   </Table.Tr>
                 ))}

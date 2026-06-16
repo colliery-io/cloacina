@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T20:16:10Z | 711 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T20:32:33Z | 711 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -12965,7 +12965,7 @@
 
 #### ui/src/routes/Graphs.tsx
 
-- pub `Graphs` function L69-217 — `function Graphs()`
+- pub `Graphs` function L69-221 — `function Graphs()`
 -  `stateColor` function L28-48 — `function stateColor(state: string | undefined): string`
 -  `StateDot` function L50-63 — `function StateDot({ state }: { state: string })`
 
@@ -12984,7 +12984,7 @@
 
 #### ui/src/routes/Overview.tsx
 
-- pub `Overview` function L39-204 — `function Overview()`
+- pub `Overview` function L40-211 — `function Overview()`
 
 #### ui/src/routes/Placeholder.tsx
 
