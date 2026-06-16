@@ -45,6 +45,52 @@
         }
       }
     },
+    "/v1/agents": {
+      "get": {
+        "tags": [
+          "fleet"
+        ],
+        "summary": "`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet\nroster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents\nregistered against *this* server instance.",
+        "operationId": "list_agents",
+        "responses": {
+          "200": {
+            "description": "Fleet roster",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_AgentInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/auth/keys": {
       "get": {
         "tags": [
@@ -264,6 +310,62 @@
           },
           "401": {
             "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/compiler/status": {
+      "get": {
+        "tags": [
+          "compiler"
+        ],
+        "summary": "`GET /v1/compiler/status` — build-pipeline status (admin only).",
+        "operationId": "compiler_status",
+        "responses": {
+          "200": {
+            "description": "Build-pipeline status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompilerStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -839,6 +941,92 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ExecutionEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid execution ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "GET /tenants/:tenant_id/executions/:id/tasks — per-task rows for an execution.",
+        "operationId": "get_execution_tasks",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "exec_id",
+            "in": "path",
+            "description": "Execution UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-task execution rows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionTasksResponse"
                 }
               }
             }
@@ -1601,6 +1789,111 @@
           }
         }
       },
+      "AgentInfo": {
+        "type": "object",
+        "description": "One registered execution agent in the in-memory fleet roster.",
+        "required": [
+          "agent_id",
+          "target_triple",
+          "max_concurrency",
+          "in_flight",
+          "available_capacity",
+          "seconds_since_heartbeat",
+          "capabilities"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "available_capacity": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "in_flight": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_concurrency": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "seconds_since_heartbeat": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds since this agent's last heartbeat — the liveness signal an\noperator reads (the underlying record stores a monotonic `Instant`,\nnot a wall-clock time).",
+            "minimum": 0
+          },
+          "target_triple": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tenant scope the agent registered under, if any."
+          }
+        }
+      },
+      "CompilerStatus": {
+        "type": "object",
+        "description": "Build-pipeline state, derived from the build queue in the database — the\nsame rows the compiler's own `/v1/status` reports. The server reads them\ndirectly, so this needs no HTTP coupling to the compiler service.",
+        "required": [
+          "status",
+          "pending",
+          "building"
+        ],
+        "properties": {
+          "building": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Packages currently building.",
+            "minimum": 0
+          },
+          "last_failure_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp of the most recent failed build, if any."
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp of the most recent successful build, if any."
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Packages awaiting compilation.",
+            "minimum": 0
+          },
+          "seconds_since_heartbeat": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Seconds since the compiler last claimed a build (its DB-visible\nheartbeat). Only meaningful while a build is in flight.",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "description": "Coarse roll-up: `\"building\"` (work in flight), `\"backlogged\"` (packages\npending but none building — the compiler may be down), or `\"idle\"`\n(nothing queued; liveness is undeterminable from the queue alone)."
+          }
+        }
+      },
       "CreateKeyRequest": {
         "type": "object",
         "description": "Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`.",
@@ -1802,6 +2095,29 @@
             "type": "string"
           },
           "workflow_name": {
+            "type": "string"
+          }
+        }
+      },
+      "ExecutionTasksResponse": {
+        "type": "object",
+        "description": "`GET /tenants/{tenant_id}/executions/{id}/tasks` response.",
+        "required": [
+          "tenant_id",
+          "execution_id",
+          "tasks"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskExecutionDetail"
+            }
+          },
+          "tenant_id": {
             "type": "string"
           }
         }
@@ -2078,6 +2394,78 @@
           }
         }
       },
+      "ListResponse_AgentInfo": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One registered execution agent in the in-memory fleet roster.",
+              "required": [
+                "agent_id",
+                "target_triple",
+                "max_concurrency",
+                "in_flight",
+                "available_capacity",
+                "seconds_since_heartbeat",
+                "capabilities"
+              ],
+              "properties": {
+                "agent_id": {
+                  "type": "string"
+                },
+                "available_capacity": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "capabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "in_flight": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "max_concurrency": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "seconds_since_heartbeat": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Seconds since this agent's last heartbeat — the liveness signal an\noperator reads (the underlying record stores a monotonic `Instant`,\nnot a wall-clock time).",
+                  "minimum": 0
+                },
+                "target_triple": {
+                  "type": "string"
+                },
+                "tenant_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Tenant scope the agent registered under, if any."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "ListResponse_GraphStatus": {
         "type": "object",
         "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
@@ -2256,6 +2644,73 @@
             "format": "binary",
             "description": "The `.cloacina` package archive.",
             "contentMediaType": "application/octet-stream"
+          }
+        }
+      },
+      "TaskExecutionDetail": {
+        "type": "object",
+        "description": "One per-task row of an execution (CLOACI-I-0124 / WS-1).",
+        "required": [
+          "id",
+          "task_name",
+          "status",
+          "attempt",
+          "max_attempts"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp; `null` while still running."
+          },
+          "error_details": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Structured error details, when present."
+          },
+          "id": {
+            "type": "string",
+            "description": "Task execution UUID."
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Last error message for the most recent failed attempt, when present."
+          },
+          "max_attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp; `null` until the task starts."
+          },
+          "status": {
+            "type": "string"
+          },
+          "sub_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`sub_status` qualifier (e.g. deferral), when present."
+          },
+          "task_name": {
+            "type": "string",
+            "description": "Task identifier within the workflow."
           }
         }
       },
@@ -2914,6 +3369,14 @@
     {
       "name": "executions",
       "description": "Workflow execution + event log"
+    },
+    {
+      "name": "fleet",
+      "description": "Execution-agent fleet roster (admin)"
+    },
+    {
+      "name": "compiler",
+      "description": "Compiler / build-pipeline status (admin)"
     },
     {
       "name": "graph-health",
