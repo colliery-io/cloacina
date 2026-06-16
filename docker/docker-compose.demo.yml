@@ -176,6 +176,33 @@ services:
     volumes:
       - fixtures-pkgs:/packages:ro
 
+  # Live computation-graph data feed (CLOACI-I-0124 / WS-11). Once the seed has
+  # loaded the packages, this pushes a continuous market-data stream into the CG
+  # accumulators so the graphs actually fire and the UI shows live activity:
+  # `orderbook`/`pricing` over the server WS producer endpoint (feeding
+  # market_pipeline + market_maker) and the `demo.kafka.stream` topic over Kafka
+  # (feeding kafka_alpha → demo_kafka_graph). Runs continuously.
+  producer:
+    build:
+      context: ..
+      dockerfile: ui/harness/Dockerfile
+    environment:
+      HARNESS_SERVER_URL: "http://server:8080"
+      HARNESS_API_KEY: *bootstrap_key
+      HARNESS_TENANT: "public"
+      HARNESS_MODE: "produce"
+      HARNESS_KAFKA_BROKER: "kafka:9092"
+      HARNESS_KAFKA_TOPIC: "demo.kafka.stream"
+      HARNESS_PRODUCE_INTERVAL_MS: "2000"
+    depends_on:
+      server:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+      harness:
+        condition: service_completed_successfully
+    restart: on-failure
+
 volumes:
   pgdata:
   fixtures-pkgs:
