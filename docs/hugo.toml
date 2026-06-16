@@ -54,3 +54,6 @@ enableRobotsTXT = true
 
 [params]
   geekdocLogo = "logo.png"
+  # Collapse sidebar sections by default — the reader sees the top-level doors
+  # and expands only the one they're in (the active page's trail auto-expands).
+  geekdocCollapseAllSections = true
