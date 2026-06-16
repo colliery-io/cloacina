@@ -78,11 +78,14 @@ export function Dag({
   edges,
   height = 420,
   testId,
+  onNodeClick,
 }: {
   nodes: DagNode[];
   edges: DagEdge[];
   height?: number;
   testId?: string;
+  /** Called with the node id when a node is clicked (CLOACI-I-0124 / WS-5). */
+  onNodeClick?: (id: string) => void;
 }) {
   const { rfNodes, rfEdges } = useMemo(() => {
     const ids = new Set(nodes.map((n) => n.id));
@@ -135,6 +138,7 @@ export function Dag({
         nodesDraggable
         proOptions={{ hideAttribution: true }}
         minZoom={0.2}
+        onNodeClick={onNodeClick ? (_, node) => onNodeClick(node.id) : undefined}
       >
         <Background />
         <Controls showInteractive={false} />

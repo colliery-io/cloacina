@@ -14,7 +14,8 @@
  *  limitations under the License.
  */
 
-import { Anchor, Badge, Card, Group, List, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Badge, Card, Divider, Drawer, Group, List, Stack, Text, Title } from "@mantine/core";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { useGraph } from "../api/health";
@@ -22,10 +23,14 @@ import { Dag, type DagEdge, type DagNode } from "../components/Dag";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 
+type TopoNode = { id: string; inputs?: string[] };
+type TopoEdge = { from: string; to: string; label?: string | null };
 type GraphData = {
   reactor?: string | null;
   accumulators: string[];
-  topology?: { nodes: { id: string }[]; edges: { from: string; to: string; label?: string | null }[] } | null;
+  reaction_mode?: string | null;
+  input_strategy?: string | null;
+  topology?: { nodes: TopoNode[]; edges: TopoEdge[] } | null;
 };
 
 /**
@@ -60,16 +65,63 @@ function buildCgGraph(data: GraphData): { nodes: DagNode[]; edges: DagEdge[] } |
   return { nodes, edges };
 }
 
+/** What to show in the node drawer (CLOACI-I-0124 / WS-5). Source code isn't
+ *  shippable from a compiled package, so we surface the available metadata —
+ *  role, inputs, upstream, and routing. */
+function describeNode(
+  id: string,
+  data: GraphData,
+): { title: string; kind: string; rows: [string, string][] } {
+  if (id.startsWith("acc:")) {
+    return {
+      title: id.slice(4),
+      kind: "Accumulator",
+      rows: [["Role", "Turns an external source into the boundary events the reactor consumes."]],
+    };
+  }
+  if (id.startsWith("reactor:")) {
+    return {
+      title: id.slice(8),
+      kind: "Reactor",
+      rows: [
+        ["Criteria", data.reaction_mode ?? "—"],
+        ["Input strategy", data.input_strategy ?? "—"],
+        ["Accumulators", data.accumulators.join(", ") || "—"],
+        ["Role", "Fires the graph when its criteria over the bound accumulators are met."],
+      ],
+    };
+  }
+  const topo = data.topology;
+  const node = topo?.nodes.find((n) => n.id === id);
+  const outgoing = (topo?.edges ?? []).filter((e) => e.from === id);
+  const incoming = (topo?.edges ?? []).filter((e) => e.to === id);
+  return {
+    title: id,
+    kind: "Node",
+    rows: [
+      ["Inputs", node?.inputs?.join(", ") || "—"],
+      ["Upstream", incoming.map((e) => e.from).join(", ") || "— (entry node)"],
+      [
+        "Routes to",
+        outgoing.map((e) => (e.label ? `${e.to} (on ${e.label})` : e.to)).join(", ") ||
+          "— (terminal)",
+      ],
+    ],
+  };
+}
+
 /**
- * Single computation-graph detail (T-0655; CLOACI-I-0124 WS-4). Renders the
- * reactor + accumulators as first-class nodes in the graph rather than as
- * side text.
+ * Single computation-graph detail (T-0655; CLOACI-I-0124 WS-4 + WS-5). Renders
+ * the reactor + accumulators as first-class nodes; clicking any node opens a
+ * detail drawer.
  */
 export function GraphDetail() {
   const { name = "" } = useParams();
   const { data, isPending, isError, error, refetch } = useGraph(name);
+  const [selected, setSelected] = useState<string | null>(null);
 
   const graph = data ? buildCgGraph(data as GraphData) : null;
+  const detail = selected && data ? describeNode(selected, data as GraphData) : null;
 
   return (
     <Stack>
@@ -118,7 +170,15 @@ export function GraphDetail() {
                     <LegendDot color="var(--mantine-color-default-border)" label="node" />
                   </Group>
                 </Group>
-                <Dag nodes={graph.nodes} edges={graph.edges} testId="graph-dag" />
+                <Dag
+                  nodes={graph.nodes}
+                  edges={graph.edges}
+                  testId="graph-dag"
+                  onNodeClick={setSelected}
+                />
+                <Text size="xs" c="dimmed" mt={4}>
+                  Click a node for details.
+                </Text>
               </div>
             ) : (
               // No topology available — fall back to the text summary.
@@ -152,6 +212,35 @@ export function GraphDetail() {
           </Stack>
         </Card>
       )}
+
+      <Drawer
+        opened={!!selected}
+        onClose={() => setSelected(null)}
+        position="right"
+        size="md"
+        title={detail ? `${detail.kind}: ${detail.title}` : ""}
+      >
+        {detail && (
+          <Stack gap="sm">
+            <Badge variant="light" w="fit-content">
+              {detail.kind}
+            </Badge>
+            {detail.rows.map(([k, v]) => (
+              <div key={k}>
+                <Text size="xs" c="dimmed">
+                  {k}
+                </Text>
+                <Text size="sm">{v}</Text>
+              </div>
+            ))}
+            <Divider />
+            <Text size="xs" c="dimmed">
+              Node source isn't shipped in compiled <code>.cloacina</code> packages, so the
+              function body isn't shown here.
+            </Text>
+          </Stack>
+        )}
+      </Drawer>
     </Stack>
   );
 }
