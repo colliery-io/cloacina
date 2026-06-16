@@ -54,6 +54,14 @@ pub struct GraphStatus {
     /// Input strategy of the bound reactor: `"latest"` | `"sequential"`.
     #[serde(default)]
     pub input_strategy: Option<String>,
+    /// Total graph fires since load — the reactor's live fire counter
+    /// (CLOACI-I-0124 / WS-10). The UI derives recent throughput from the delta
+    /// across successive polls.
+    #[serde(default)]
+    pub fires: u64,
+    /// RFC 3339 timestamp of the last graph fire; `null` if it hasn't fired yet.
+    #[serde(default)]
+    pub last_fired_at: Option<String>,
 }
 
 /// Node/edge topology of a computation graph (CLOACI-T-0673).

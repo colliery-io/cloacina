@@ -522,6 +522,7 @@ mod tests {
         ReactorHandle {
             cache: Arc::new(RwLock::new(super::super::types::InputCache::new())),
             paused: Arc::new(AtomicBool::new(false)),
+            stats: Arc::new(crate::computation_graph::reactor::ReactorStats::default()),
         }
     }
 

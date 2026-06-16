@@ -1103,7 +1103,11 @@ mod tests {
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        assert!(ok, "stream accumulator should reach Live; was {:?}", *health_rx.borrow());
+        assert!(
+            ok,
+            "stream accumulator should reach Live; was {:?}",
+            *health_rx.borrow()
+        );
 
         shutdown_tx.send(true).unwrap();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;

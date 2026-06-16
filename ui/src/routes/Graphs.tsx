@@ -22,6 +22,7 @@ import { useAccumulators, useGraphs } from "../api/health";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { explainToken } from "../util/vocab";
+import { formatAgo, useGraphThroughput } from "../util/activity";
 
 /** Color a graph/accumulator state for an at-a-glance dot (CLOACI-I-0124 / WS-10). */
 function stateColor(state: string | undefined): string {
@@ -77,6 +78,9 @@ export function Graphs() {
     return m;
   }, [accs.data]);
 
+  // Recent throughput per graph, derived from the fires counter across polls.
+  const throughput = useGraphThroughput(graphs.data?.items ?? []);
+
   return (
     <Stack>
       <Title order={2}>Computation graphs</Title>
@@ -98,11 +102,16 @@ export function Graphs() {
                 <Table.Th>Name</Table.Th>
                 <Table.Th>Health</Table.Th>
                 <Table.Th>Accumulators</Table.Th>
-                <Table.Th>Paused</Table.Th>
+                <Table.Th>Throughput</Table.Th>
+                <Table.Th>Fires / last</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {graphs.data.items.map((g) => (
+              {graphs.data.items.map((g) => {
+                const rate = throughput.get(g.name);
+                const fires = (g as { fires?: number }).fires ?? 0;
+                const lastFired = (g as { last_fired_at?: string | null }).last_fired_at ?? null;
+                return (
                 <Table.Tr
                   key={g.name}
                   style={{ cursor: "pointer" }}
@@ -111,8 +120,15 @@ export function Graphs() {
                   <Table.Td>
                     <Text fw={500}>{g.name}</Text>
                   </Table.Td>
-                  <Table.Td>
-                    <GraphHealth value={g.health} />
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>
+                    <Group gap="xs" wrap="nowrap">
+                      <GraphHealth value={g.health} />
+                      {g.paused && (
+                        <Badge color="orange" variant="light">
+                          paused
+                        </Badge>
+                      )}
+                    </Group>
                   </Table.Td>
                   <Table.Td>
                     {g.accumulators.length === 0 ? (
@@ -142,19 +158,24 @@ export function Graphs() {
                       </Group>
                     )}
                   </Table.Td>
-                  <Table.Td>
-                    {g.paused ? (
-                      <Badge color="orange" variant="light">
-                        paused
-                      </Badge>
-                    ) : (
-                      <Text c="dimmed" size="sm">
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>
+                    {rate == null ? (
+                      <Text size="sm" c="dimmed">
                         —
                       </Text>
+                    ) : (
+                      <Text size="sm">~{rate}/min</Text>
                     )}
                   </Table.Td>
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>
+                    <Text size="sm">{fires.toLocaleString()}</Text>
+                    <Text size="xs" c="dimmed">
+                      {formatAgo(lastFired)}
+                    </Text>
+                  </Table.Td>
                 </Table.Tr>
-              ))}
+                );
+              })}
             </Table.Tbody>
           </Table>
         )}

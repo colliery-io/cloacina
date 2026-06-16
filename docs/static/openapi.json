@@ -2146,6 +2146,12 @@
             },
             "description": "Names of the accumulators feeding this graph."
           },
+          "fires": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total graph fires since load — the reactor's live fire counter\n(CLOACI-I-0124 / WS-10). The UI derives recent throughput from the delta\nacross successive polls.",
+            "minimum": 0
+          },
           "health": {
             "description": "Graph health snapshot; `{\"state\": \"running\" | \"stopped\"}` when no\ndetailed health is available. Free-form JSON for now."
           },
@@ -2155,6 +2161,13 @@
               "null"
             ],
             "description": "Input strategy of the bound reactor: `\"latest\"` | `\"sequential\"`."
+          },
+          "last_fired_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp of the last graph fire; `null` if it hasn't fired yet."
           },
           "name": {
             "type": "string"
@@ -2500,6 +2513,12 @@
                   },
                   "description": "Names of the accumulators feeding this graph."
                 },
+                "fires": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Total graph fires since load — the reactor's live fire counter\n(CLOACI-I-0124 / WS-10). The UI derives recent throughput from the delta\nacross successive polls.",
+                  "minimum": 0
+                },
                 "health": {
                   "description": "Graph health snapshot; `{\"state\": \"running\" | \"stopped\"}` when no\ndetailed health is available. Free-form JSON for now."
                 },
@@ -2509,6 +2528,13 @@
                     "null"
                   ],
                   "description": "Input strategy of the bound reactor: `\"latest\"` | `\"sequential\"`."
+                },
+                "last_fired_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp of the last graph fire; `null` if it hasn't fired yet."
                 },
                 "name": {
                   "type": "string"

@@ -644,12 +644,21 @@ export interface components {
             /** @description Names of the accumulators feeding this graph. */
             accumulators: string[];
             /**
+             * Format: int64
+             * @description Total graph fires since load — the reactor's live fire counter
+             *     (CLOACI-I-0124 / WS-10). The UI derives recent throughput from the delta
+             *     across successive polls.
+             */
+            fires?: number;
+            /**
              * @description Graph health snapshot; `{"state": "running" | "stopped"}` when no
              *     detailed health is available. Free-form JSON for now.
              */
             health: unknown;
             /** @description Input strategy of the bound reactor: `"latest"` | `"sequential"`. */
             input_strategy?: string | null;
+            /** @description RFC 3339 timestamp of the last graph fire; `null` if it hasn't fired yet. */
+            last_fired_at?: string | null;
             name: string;
             /** @description Pause state of the graph's reactor. */
             paused: boolean;
@@ -777,12 +786,21 @@ export interface components {
                 /** @description Names of the accumulators feeding this graph. */
                 accumulators: string[];
                 /**
+                 * Format: int64
+                 * @description Total graph fires since load — the reactor's live fire counter
+                 *     (CLOACI-I-0124 / WS-10). The UI derives recent throughput from the delta
+                 *     across successive polls.
+                 */
+                fires?: number;
+                /**
                  * @description Graph health snapshot; `{"state": "running" | "stopped"}` when no
                  *     detailed health is available. Free-form JSON for now.
                  */
                 health: unknown;
                 /** @description Input strategy of the bound reactor: `"latest"` | `"sequential"`. */
                 input_strategy?: string | null;
+                /** @description RFC 3339 timestamp of the last graph fire; `null` if it hasn't fired yet. */
+                last_fired_at?: string | null;
                 name: string;
                 /** @description Pause state of the graph's reactor. */
                 paused: boolean;

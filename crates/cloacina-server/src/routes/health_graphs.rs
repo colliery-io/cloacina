@@ -141,6 +141,11 @@ pub async fn list_graphs(
                 reactor: g.reactor,
                 reaction_mode: Some(g.reaction_mode),
                 input_strategy: Some(g.input_strategy),
+                fires: g.fires,
+                last_fired_at: g
+                    .last_fire_unix_ms
+                    .and_then(chrono::DateTime::from_timestamp_millis)
+                    .map(|dt| dt.to_rfc3339()),
             }
         })
         .collect();
@@ -197,6 +202,11 @@ pub async fn get_graph(
             reactor: g.reactor,
             reaction_mode: Some(g.reaction_mode),
             input_strategy: Some(g.input_strategy),
+            fires: g.fires,
+            last_fired_at: g
+                .last_fire_unix_ms
+                .and_then(chrono::DateTime::from_timestamp_millis)
+                .map(|dt| dt.to_rfc3339()),
         })
         .into_response()
     } else {
