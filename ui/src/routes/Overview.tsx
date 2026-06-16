@@ -23,6 +23,7 @@ import { useGraphs } from "../api/health";
 import { useWorkflows } from "../api/workflows";
 import { GraphHealth } from "../components/GraphHealth";
 import { RunCircles, type RunDot } from "../components/RunCircles";
+import { RecentTasksCell } from "../components/RecentTasksCell";
 import { StatusBadge } from "../components/StatusBadge";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatTimestamp } from "../util/format";
@@ -86,8 +87,8 @@ export function Overview() {
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Package</Table.Th>
-                  <Table.Th>Tasks</Table.Th>
                   <Table.Th>Recent runs</Table.Th>
+                  <Table.Th>Recent tasks</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -102,14 +103,16 @@ export function Overview() {
                         {w.package_name}
                       </Text>
                       <Text size="xs" c="dimmed">
-                        {w.version}
+                        {w.tasks.length} task{w.tasks.length === 1 ? "" : "s"} · v{w.version}
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{w.tasks.length}</Text>
+                      <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} />
                     </Table.Td>
                     <Table.Td>
-                      <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} />
+                      <RecentTasksCell
+                        executionId={runsByWorkflow.get(w.workflow_name)?.[0]?.id ?? null}
+                      />
                     </Table.Td>
                   </Table.Tr>
                 ))}

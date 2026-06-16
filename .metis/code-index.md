@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T21:44:46Z | 711 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T21:50:53Z | 712 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -913,6 +913,7 @@
     │   │   ├── Dag.tsx
     │   │   ├── EventLog.tsx
     │   │   ├── GraphHealth.tsx
+    │   │   ├── RecentTasksCell.tsx
     │   │   ├── RequireAuth.tsx
     │   │   ├── RunCircles.tsx
     │   │   ├── Shell.tsx
@@ -11744,8 +11745,8 @@
 #### examples/fixtures/demo-cron-rust/src/lib.rs
 
 - pub `demo_cron_trigger` function L34 — `()`
-- pub `demo_cron_wf` module L41-49 — `-`
-- pub `demo_cron_step` function L45-48 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `demo_cron_wf` module L41-53 — `-`
+- pub `demo_cron_step` function L45-52 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 
 ### examples/fixtures/demo-fail-rust
 
@@ -12892,6 +12893,10 @@
 - pub `healthState` function L28-35 — `function healthState(value: unknown): string | null`
 - pub `GraphHealth` function L50-70 — `function GraphHealth({ value }: { value: unknown })`
 
+#### ui/src/components/RecentTasksCell.tsx
+
+- pub `RecentTasksCell` function L28-48 — `function RecentTasksCell({ executionId }: { executionId: string | null })`
+
 #### ui/src/components/RequireAuth.tsx
 
 - pub `RequireAuth` function L25-29 — `function RequireAuth()`
@@ -13019,8 +13024,8 @@
 
 #### ui/src/routes/Workflows.tsx
 
-- pub `Workflows` function L45-109 — `function Workflows()`
--  `useRecentRunsByWorkflow` function L28-39 — `function useRecentRunsByWorkflow(): Map<string, RunDot[]>`
+- pub `Workflows` function L46-116 — `function Workflows()`
+-  `useRecentRunsByWorkflow` function L29-40 — `function useRecentRunsByWorkflow(): Map<string, RunDot[]>`
 
 ### ui/src/util
 
