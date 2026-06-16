@@ -40,9 +40,27 @@ function pricingEvent(t) {
 function kafkaEvent(t) {
   return { value: Number((50 + Math.sin(t / 4) * 10).toFixed(4)) };
 }
+// mixed_graph `alpha`: AlphaIn{value}
+function alphaEvent(t) {
+  return { value: Number((50 + Math.sin(t / 4) * 10).toFixed(4)) };
+}
+// demo_py_graph `py_alpha`: a {bid, ask} order-book tick
+function bidAskEvent(t) {
+  const mid = 100 + Math.sin(t / 5) * 2;
+  const spread = 0.08 + (t % 9) * 0.02;
+  return {
+    bid: Number((mid - spread / 2).toFixed(4)),
+    ask: Number((mid + spread / 2).toFixed(4)),
+  };
+}
 
 // Generators per known socket accumulator; unknown names get a generic {value}.
-const GENERATORS = { orderbook: orderbookEvent, pricing: pricingEvent };
+const GENERATORS = {
+  orderbook: orderbookEvent,
+  pricing: pricingEvent,
+  alpha: alphaEvent,
+  py_alpha: bidAskEvent,
+};
 
 /** Socket accumulators to feed over WS, from `cfg.wsAccumulators` (a comma list;
  *  default orderbook,pricing). Empty list → Kafka-only (e.g. the compose demo,

@@ -194,9 +194,10 @@ services:
       HARNESS_KAFKA_BROKER: "kafka:9092"
       HARNESS_KAFKA_TOPIC: "demo.kafka.stream"
       HARNESS_PRODUCE_INTERVAL_MS: "2000"
-      # The compose demo's CG is Kafka-fed (demo_kafka_graph); it has no socket
-      # accumulators, so feed Kafka only (avoids WS 403 reconnect spam).
-      HARNESS_WS_ACCUMULATORS: ""
+      # Socket accumulators in the compose demo: mixed_graph's `alpha` and
+      # demo_py_graph's `py_alpha`. Fed over WS so those graphs fire too
+      # (demo_kafka_graph's kafka_alpha is fed via Kafka above).
+      HARNESS_WS_ACCUMULATORS: "alpha,py_alpha"
     depends_on:
       server:
         condition: service_started

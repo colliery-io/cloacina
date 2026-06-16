@@ -4,15 +4,15 @@ level: task
 title: "Kafka stream accumulator receives messages but never fires its reactor (E2E delivery gap)"
 short_code: "CLOACI-T-0715"
 created_at: 2026-06-16T19:17:53.917358+00:00
-updated_at: 2026-06-16T19:17:53.917358+00:00
+updated_at: 2026-06-16T19:45:33.594868+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -89,12 +89,32 @@ but doesn't drive the reactor.
 
 ## Acceptance Criteria
 
-- [ ] A Kafka stream accumulator that receives messages emits boundaries that
-      fire its bound reactor (demo: `demo_kafka_rx` fires on the
-      `demo.kafka.stream` feed in the compose demo).
-- [ ] Stream-accumulator health advances to `Live` once it's delivering.
-- [ ] A regression test exercises the Kafka stream accumulator → reactor path
-      end-to-end (the gap the soak's Kafka-skip left uncovered).
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] A Kafka stream accumulator that receives messages emits boundaries that
+      fire its bound reactor — verified: `demo_kafka_rx` fires continuously
+      (1243 fires) on the `demo.kafka.stream` feed in the compose demo.
+- [x] Stream-accumulator health advances to `Live` — `kafka_alpha` now reports
+      `component_health …state="healthy" 1`.
+- [x] Regression test `test_stream_accumulator_reaches_live` (asserts a
+      stream/event-source accumulator advances Connecting → Live).
+
+## Root cause (corrected)
+
+Not the boundary encoding. The reactor's **startup health-gate** (`reactor.rs`:
+"Wait until all accumulators are healthy") only proceeds once every bound
+accumulator reports `Live`/`SocketOnly`. The stream/event-source accumulator
+path (`accumulator_runtime_inner`) set health to `Connecting` and **never
+advanced** — so a Kafka-fed reactor gated in startup forever: the consumer
+pulled messages and the accumulator emitted boundaries (494 received, verified
+via debug logs) but the reactor never reached its boundary-processing loop → 0
+fires. Socket-fed graphs worked because the socket path reports `SocketOnly`
+immediately. Fix: advance stream accumulators `Connecting → Live` once the
+source task is spawned (commit `bc547136`); regression test `eb8fe522`.
 
 ## Status Updates **[REQUIRED]**
 
