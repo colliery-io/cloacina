@@ -1054,6 +1054,61 @@ mod tests {
         assert_eq!(decoded, boundary);
     }
 
+    // CLOACI-T-0715: a stream/event-source accumulator must advance to Live so
+    // the reactor's startup health-gate clears. It previously stuck at
+    // Connecting, gating Kafka-fed reactors forever (they received messages but
+    // never fired).
+    #[tokio::test]
+    async fn test_stream_accumulator_reaches_live() {
+        struct IdleSource;
+        #[async_trait::async_trait]
+        impl EventSource for IdleSource {
+            async fn run(
+                self,
+                _events: mpsc::Sender<Vec<u8>>,
+                mut shutdown: watch::Receiver<bool>,
+            ) -> Result<(), AccumulatorError> {
+                let _ = shutdown.changed().await;
+                Ok(())
+            }
+        }
+
+        let (boundary_tx, _boundary_rx) = mpsc::channel(10);
+        let (_socket_tx, socket_rx) = mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+        let (health_tx, health_rx) = health_channel();
+
+        let ctx = AccumulatorContext {
+            output: BoundarySender::new(boundary_tx, SourceName::new("stream_acc")),
+            name: "stream_acc".to_string(),
+            shutdown: shutdown_rx,
+            checkpoint: None,
+            health: Some(health_tx),
+        };
+
+        let handle = tokio::spawn(accumulator_runtime_with_source(
+            DoubleAccumulator,
+            ctx,
+            socket_rx,
+            AccumulatorRuntimeConfig::default(),
+            IdleSource,
+        ));
+
+        // Health must reach Live (not stay Connecting) shortly after start.
+        let mut ok = false;
+        for _ in 0..50 {
+            if matches!(*health_rx.borrow(), AccumulatorHealth::Live) {
+                ok = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(ok, "stream accumulator should reach Live; was {:?}", *health_rx.borrow());
+
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    }
+
     #[tokio::test]
     async fn test_accumulator_runtime_processes_socket_events() {
         let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
