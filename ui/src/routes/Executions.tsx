@@ -14,13 +14,16 @@
  *  limitations under the License.
  */
 
-import { Button, Group, Stack, Table, Text, TextInput, Title } from "@mantine/core";
+import { Button, Group, Select, Stack, Table, Text, TextInput, Title, Tooltip } from "@mantine/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
 import { StatusBadge } from "../components/StatusBadge";
 import { Empty, ErrorState, Loading } from "../components/states/States";
-import { formatTimestamp } from "../util/format";
+import { formatDuration, formatTimestamp } from "../util/format";
+import { formatAgo } from "../util/activity";
+
+const STATUS_OPTIONS = ["Running", "Completed", "Failed", "Pending", "Scheduled", "Cancelled"];
 
 const PAGE_SIZE = 50;
 
@@ -77,12 +80,14 @@ export function Executions() {
     <Stack>
       <Title order={2}>Executions</Title>
 
-      <Group>
-        <TextInput
+      <Group align="flex-end">
+        <Select
           label="Status"
-          placeholder="e.g. Failed"
-          value={status}
-          onChange={(e) => setParam("status", e.currentTarget.value)}
+          placeholder="All statuses"
+          data={STATUS_OPTIONS}
+          value={status || null}
+          onChange={(v) => setParam("status", v ?? "")}
+          clearable
           w={180}
         />
         <TextInput
@@ -108,7 +113,7 @@ export function Executions() {
                 <Table.Th>Workflow</Table.Th>
                 <Table.Th>Status</Table.Th>
                 <Table.Th>Started</Table.Th>
-                <Table.Th>Completed</Table.Th>
+                <Table.Th>Duration</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -127,8 +132,16 @@ export function Executions() {
                   <Table.Td>
                     <StatusBadge status={e.status} />
                   </Table.Td>
-                  <Table.Td>{formatTimestamp(e.started_at)}</Table.Td>
-                  <Table.Td>{formatTimestamp(e.completed_at)}</Table.Td>
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>
+                    <Tooltip label={formatTimestamp(e.started_at)} withArrow openDelay={300}>
+                      <Text size="sm" c="dimmed">
+                        {formatAgo(e.started_at)}
+                      </Text>
+                    </Tooltip>
+                  </Table.Td>
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>
+                    <Text size="sm">{formatDuration(e.started_at, e.completed_at)}</Text>
+                  </Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>

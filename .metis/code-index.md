@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T21:50:53Z | 712 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T22:14:54Z | 712 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -12989,7 +12989,7 @@
 
 #### ui/src/routes/Overview.tsx
 
-- pub `Overview` function L40-211 — `function Overview()`
+- pub `Overview` function L41-214 — `function Overview()`
 
 #### ui/src/routes/Placeholder.tsx
 
