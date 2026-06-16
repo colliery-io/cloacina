@@ -56,6 +56,10 @@ DEMO_FIXTURES = [
     # stages Cargo.toml/lib.rs (Python CG fixtures need a separate path).
     "demo-cron-rust",
     "demo-kafka-stream-rust",
+    # WS-6: a package with a non-cron (custom-poll) trigger, so the Triggers
+    # view shows a `trigger`-type schedule alongside the cron one — poll/event
+    # triggers were invisible in the demo because every seeded schedule was cron.
+    "demo-poll-rust",
 ]
 HARNESS_DIR = PROJECT_ROOT / "ui" / "harness"
 

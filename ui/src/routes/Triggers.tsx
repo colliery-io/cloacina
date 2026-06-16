@@ -14,12 +14,13 @@
  *  limitations under the License.
  */
 
-import { Badge, Button, Group, Stack, Table, Text, Title } from "@mantine/core";
+import { Badge, Button, Group, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useTriggers } from "../api/triggers";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatTimestamp } from "../util/format";
+import { describeTriggerKind, formatPollInterval } from "../util/triggers";
 
 const PAGE_SIZE = 50;
 
@@ -76,7 +77,14 @@ export function Triggers() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {data.items.map((t) => (
+              {data.items.map((t) => {
+                const kind = describeTriggerKind(t.schedule_type);
+                const schedule =
+                  t.cron_expression ??
+                  (t.poll_interval_ms != null
+                    ? `every ${formatPollInterval(t.poll_interval_ms)}`
+                    : (t.trigger_name ?? "—"));
+                return (
                 <Table.Tr
                   key={t.id}
                   style={{ cursor: "pointer" }}
@@ -88,12 +96,14 @@ export function Triggers() {
                     <Text fw={500}>{t.workflow_name}</Text>
                   </Table.Td>
                   <Table.Td>
-                    <Badge variant="light" color={t.schedule_type === "cron" ? "grape" : "teal"}>
-                      {t.schedule_type}
-                    </Badge>
+                    <Tooltip label={kind.tip} disabled={!kind.tip} multiline w={260} withArrow>
+                      <Badge variant="light" color={kind.color}>
+                        {kind.label}
+                      </Badge>
+                    </Tooltip>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{t.cron_expression ?? t.trigger_name ?? "—"}</Text>
+                    <Text size="sm">{schedule}</Text>
                   </Table.Td>
                   <Table.Td>
                     <Badge variant="dot" color={t.enabled ? "green" : "gray"}>
@@ -103,7 +113,8 @@ export function Triggers() {
                   <Table.Td>{formatTimestamp(t.next_run_at)}</Table.Td>
                   <Table.Td>{formatTimestamp(t.last_run_at)}</Table.Td>
                 </Table.Tr>
-              ))}
+                );
+              })}
             </Table.Tbody>
           </Table>
 

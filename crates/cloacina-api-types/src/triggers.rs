@@ -61,6 +61,10 @@ pub struct TriggerScheduleInfo {
     pub enabled: bool,
     pub cron_expression: Option<String>,
     pub trigger_name: Option<String>,
+    /// Poll interval in milliseconds for `trigger`-type schedules (the
+    /// custom-poll cadence). `None` for cron schedules. Lets the Triggers
+    /// detail view show "polls every Ns" (CLOACI-I-0124 / WS-6).
+    pub poll_interval_ms: Option<i64>,
 }
 
 /// One row in `recent_executions` of the trigger detail response.

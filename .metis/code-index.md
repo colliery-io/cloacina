@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T01:33:37Z | 683 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T03:52:30Z | 694 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -379,9 +379,11 @@
 │   ├── cloacina-api-types/
 │   │   └── src/
 │   │       ├── common.rs
+│   │       ├── compiler.rs
 │   │       ├── delivery.rs
 │   │       ├── error.rs
 │   │       ├── executions.rs
+│   │       ├── fleet.rs
 │   │       ├── health.rs
 │   │       ├── keys.rs
 │   │       ├── lib.rs
@@ -470,6 +472,7 @@
 │   │   │   ├── routes/
 │   │   │   │   ├── agent.rs
 │   │   │   │   ├── auth.rs
+│   │   │   │   ├── compiler.rs
 │   │   │   │   ├── delivery_ws.rs
 │   │   │   │   ├── error.rs
 │   │   │   │   ├── executions.rs
@@ -862,7 +865,12 @@
     │   ├── env.ts
     │   ├── scenarios.spec.ts
     │   ├── walk.spec.ts
-    │   └── walk2.spec.ts
+    │   ├── walk2.spec.ts
+    │   ├── ws1.spec.ts
+    │   ├── ws2.spec.ts
+    │   ├── ws3.spec.ts
+    │   ├── ws4.spec.ts
+    │   └── ws5.spec.ts
     ├── eslint.config.js
     ├── harness/
     │   └── src/
@@ -878,6 +886,7 @@
     │   │   ├── health.ts
     │   │   ├── hooks.ts
     │   │   ├── keys.ts
+    │   │   ├── operations.ts
     │   │   ├── queryClient.ts
     │   │   ├── triggers.ts
     │   │   └── workflows.ts
@@ -891,6 +900,7 @@
     │   │   ├── RequireAuth.tsx
     │   │   ├── Shell.tsx
     │   │   ├── StatusBadge.tsx
+    │   │   ├── TaskTable.tsx
     │   │   ├── WorkflowGraph.tsx
     │   │   └── states/
     │   │       └── States.tsx
@@ -903,6 +913,7 @@
     │   │   ├── GraphDetail.tsx
     │   │   ├── Graphs.tsx
     │   │   ├── Keys.tsx
+    │   │   ├── Operations.tsx
     │   │   ├── Overview.tsx
     │   │   ├── Placeholder.tsx
     │   │   ├── TriggerDetail.tsx
@@ -4612,9 +4623,10 @@
 - pub `mark_build_failed` function L1548-1620 — `( &self, package_id: Uuid, error: &str, ) -> Result<(), RegistryError>` — Record a failed build.
 - pub `heartbeat_build` function L1624-1675 — `(&self, package_id: Uuid) -> Result<(), RegistryError>` — Refresh `build_claimed_at` so the stale-build sweeper doesn't reset us.
 - pub `sweep_stale_builds` function L1679-1750 — `( &self, stale_threshold: std::time::Duration, ) -> Result<usize, RegistryError>` — Reset rows stuck in `building` whose last heartbeat is older than
-- pub `build_queue_stats` function L1822-1926 — `(&self) -> Result<BuildQueueStats, RegistryError>` — Summary telemetry for the compiler service's `/v1/status` endpoint.
-- pub `BuildQueueStats` struct L1931-1937 — `{ pending: u64, building: u64, last_success_at: Option<chrono::DateTime<chrono::...` — Snapshot of the build queue for the compiler's status endpoint.
-- pub `ClaimedBuild` struct L1942-1948 — `{ id: Uuid, registry_id: Uuid, package_name: String, version: String, metadata: ...` — A build row claimed by the compiler.
+- pub `build_queue_stats` function L1822-1824 — `(&self) -> Result<BuildQueueStats, RegistryError>` — Summary telemetry for the compiler service's `/v1/status` endpoint.
+- pub `build_queue_stats` function L1832-1932 — `( database: &crate::database::Database, ) -> Result<BuildQueueStats, RegistryErr...` — Build-queue telemetry over a raw [`Database`] handle, independent of the
+- pub `BuildQueueStats` struct L1936-1942 — `{ pending: u64, building: u64, last_success_at: Option<chrono::DateTime<chrono::...` — Snapshot of the build queue for the compiler's status endpoint.
+- pub `ClaimedBuild` struct L1947-1953 — `{ id: Uuid, registry_id: Uuid, package_name: String, version: String, metadata: ...` — A build row claimed by the compiler.
 -  `build_task_graph` function L38-54 — `( package_metadata: &crate::registry::loader::package_loader::PackageMetadata, )...` — Build the task dependency graph (one node per task, with its upstream
 -  `store_package_metadata` function L61-88 — `( &self, registry_id: &str, package_metadata: &crate::registry::loader::package_...` — Store package metadata in the database.
 -  `store_package_metadata_postgres` function L91-153 — `( &self, registry_uuid: Uuid, package_metadata: &crate::registry::loader::packag...` — Database operations for workflow registry metadata storage.
@@ -4641,29 +4653,29 @@
 -  `persist_task_graph_db` function L1419-1543 — `( &self, package_id: Uuid, tasks: Vec<(String, Vec<String>)>, ) -> Result<(), Re...` — Persist a task list (local ids + dependency edges) into the row's stored
 -  `MAX_ERR` variable L1556 — `: usize` — Database operations for workflow registry metadata storage.
 -  `find_success_by_hash` function L1756-1813 — `( &self, hash: &str, ) -> Result<Option<(Uuid, Vec<u8>)>, RegistryError>` — Look up the most recently-compiled artifact for `content_hash`, across
--  `ClaimedBuild` type L1950-1960 — `= ClaimedBuild` — Database operations for workflow registry metadata storage.
--  `from` function L1951-1959 — `(u: crate::dal::unified::models::UnifiedWorkflowPackage) -> Self` — Database operations for workflow registry metadata storage.
--  `tests` module L1963-2503 — `-` — Database operations for workflow registry metadata storage.
--  `create_test_registry` function L1970-1981 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
--  `sample_metadata` function L1984-2004 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
--  `test_store_and_get_package_metadata` function L2008-2035 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_not_found` function L2039-2047 — `()` — Database operations for workflow registry metadata storage.
--  `test_list_all_packages` function L2051-2081 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata` function L2085-2119 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id` function L2123-2144 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id_not_found` function L2148-2156 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata_by_id` function L2160-2180 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_nonexistent_does_not_error` function L2184-2196 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_fresh_name` function L2204-2221 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_replaces_old_active` function L2225-2286 — `()` — Database operations for workflow registry metadata storage.
--  `test_partial_unique_rejects_second_active_for_same_name` function L2290-2313 — `()` — Database operations for workflow registry metadata storage.
--  `test_claim_next_build_returns_pending_row` function L2321-2336 — `()` — Database operations for workflow registry metadata storage.
--  `test_mark_build_success_flips_state_and_writes_bytes` function L2340-2363 — `()` — Database operations for workflow registry metadata storage.
--  `test_mark_build_failed_writes_error` function L2367-2380 — `()` — Database operations for workflow registry metadata storage.
--  `test_heartbeat_updates_claim_timestamp_only_while_building` function L2384-2403 — `()` — Database operations for workflow registry metadata storage.
--  `test_sweep_stale_builds_resets_old_rows` function L2407-2427 — `()` — Database operations for workflow registry metadata storage.
--  `test_find_success_by_hash_returns_matching_artifact` function L2431-2468 — `()` — Database operations for workflow registry metadata storage.
--  `test_supersede_and_insert_with_prebuilt_skips_queue` function L2472-2502 — `()` — Database operations for workflow registry metadata storage.
+-  `ClaimedBuild` type L1955-1965 — `= ClaimedBuild` — Database operations for workflow registry metadata storage.
+-  `from` function L1956-1964 — `(u: crate::dal::unified::models::UnifiedWorkflowPackage) -> Self` — Database operations for workflow registry metadata storage.
+-  `tests` module L1968-2508 — `-` — Database operations for workflow registry metadata storage.
+-  `create_test_registry` function L1975-1986 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
+-  `sample_metadata` function L1989-2009 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
+-  `test_store_and_get_package_metadata` function L2013-2040 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_not_found` function L2044-2052 — `()` — Database operations for workflow registry metadata storage.
+-  `test_list_all_packages` function L2056-2086 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata` function L2090-2124 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id` function L2128-2149 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id_not_found` function L2153-2161 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata_by_id` function L2165-2185 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_nonexistent_does_not_error` function L2189-2201 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_fresh_name` function L2209-2226 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_replaces_old_active` function L2230-2291 — `()` — Database operations for workflow registry metadata storage.
+-  `test_partial_unique_rejects_second_active_for_same_name` function L2295-2318 — `()` — Database operations for workflow registry metadata storage.
+-  `test_claim_next_build_returns_pending_row` function L2326-2341 — `()` — Database operations for workflow registry metadata storage.
+-  `test_mark_build_success_flips_state_and_writes_bytes` function L2345-2368 — `()` — Database operations for workflow registry metadata storage.
+-  `test_mark_build_failed_writes_error` function L2372-2385 — `()` — Database operations for workflow registry metadata storage.
+-  `test_heartbeat_updates_claim_timestamp_only_while_building` function L2389-2408 — `()` — Database operations for workflow registry metadata storage.
+-  `test_sweep_stale_builds_resets_old_rows` function L2412-2432 — `()` — Database operations for workflow registry metadata storage.
+-  `test_find_success_by_hash_returns_matching_artifact` function L2436-2473 — `()` — Database operations for workflow registry metadata storage.
+-  `test_supersede_and_insert_with_prebuilt_skips_queue` function L2477-2507 — `()` — Database operations for workflow registry metadata storage.
 
 #### crates/cloacina/src/registry/workflow_registry/filesystem.rs
 
@@ -4698,30 +4710,30 @@
 #### crates/cloacina/src/registry/workflow_registry/mod.rs
 
 - pub `filesystem` module L24 — `-` — cohesive system for managing packaged workflows.
-- pub `WorkflowRegistryImpl` struct L43-56 — `{ storage: S, database: Database, loader: PackageLoader, registrar: TaskRegistra...` — Complete implementation of the workflow registry.
-- pub `new` function L70-81 — `(storage: S, database: Database) -> Result<Self, RegistryError>` — Create a new workflow registry implementation.
-- pub `loaded_package_count` function L84-86 — `(&self) -> usize` — Get the number of currently loaded packages.
-- pub `total_registered_tasks` function L89-91 — `(&self) -> usize` — Get the total number of registered tasks across all packages.
-- pub `register_workflow_package` function L101-107 — `( &mut self, package_data: Vec<u8>, ) -> Result<Uuid, RegistryError>` — Register a workflow package (alias for register_workflow via the trait).
-- pub `get_source_for_build` function L114-132 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get the source archive bytes for a package the compiler service has
-- pub `get_workflow_package_by_id` function L137-159 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get a workflow package by its UUID.
-- pub `get_workflow_package_by_name` function L164-174 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(WorkflowMetadata...` — Get a workflow package by name and version.
-- pub `exists_by_id` function L177-179 — `(&self, package_id: Uuid) -> Result<bool, RegistryError>` — Check if a package exists by ID.
-- pub `exists_by_name` function L182-191 — `( &self, package_name: &str, version: &str, ) -> Result<bool, RegistryError>` — Check if a package exists by name and version.
-- pub `list_packages` function L196-198 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
-- pub `unregister_workflow_package_by_id` function L201-226 — `( &mut self, package_id: Uuid, ) -> Result<(), RegistryError>` — Unregister a workflow package by ID.
-- pub `unregister_workflow_package_by_name` function L229-245 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Unregister a workflow package by name and version.
+- pub `WorkflowRegistryImpl` struct L45-58 — `{ storage: S, database: Database, loader: PackageLoader, registrar: TaskRegistra...` — Complete implementation of the workflow registry.
+- pub `new` function L72-83 — `(storage: S, database: Database) -> Result<Self, RegistryError>` — Create a new workflow registry implementation.
+- pub `loaded_package_count` function L86-88 — `(&self) -> usize` — Get the number of currently loaded packages.
+- pub `total_registered_tasks` function L91-93 — `(&self) -> usize` — Get the total number of registered tasks across all packages.
+- pub `register_workflow_package` function L103-109 — `( &mut self, package_data: Vec<u8>, ) -> Result<Uuid, RegistryError>` — Register a workflow package (alias for register_workflow via the trait).
+- pub `get_source_for_build` function L116-134 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get the source archive bytes for a package the compiler service has
+- pub `get_workflow_package_by_id` function L139-161 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get a workflow package by its UUID.
+- pub `get_workflow_package_by_name` function L166-176 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(WorkflowMetadata...` — Get a workflow package by name and version.
+- pub `exists_by_id` function L179-181 — `(&self, package_id: Uuid) -> Result<bool, RegistryError>` — Check if a package exists by ID.
+- pub `exists_by_name` function L184-193 — `( &self, package_name: &str, version: &str, ) -> Result<bool, RegistryError>` — Check if a package exists by name and version.
+- pub `list_packages` function L198-200 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
+- pub `unregister_workflow_package_by_id` function L203-228 — `( &mut self, package_id: Uuid, ) -> Result<(), RegistryError>` — Unregister a workflow package by ID.
+- pub `unregister_workflow_package_by_name` function L231-247 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Unregister a workflow package by name and version.
 -  `database` module L23 — `-` — Complete implementation of the workflow registry.
 -  `package` module L25 — `-` — cohesive system for managing packaged workflows.
--  `register_workflow` function L250-345 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
--  `get_workflow` function L347-398 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
--  `list_workflows` function L400-402 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
--  `persist_task_graph` function L404-410 — `( &self, package_id: crate::registry::types::WorkflowPackageId, tasks: Vec<(Stri...` — cohesive system for managing packaged workflows.
--  `unregister_workflow` function L412-443 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
--  `find_signature` function L449-459 — `(&self, package_hash: &str) -> Result<bool, RegistryError>` — Defense-in-depth signature existence check (CLOACI-T-0571).
--  `tests` module L463-486 — `-` — cohesive system for managing packaged workflows.
--  `test_registry_creation` function L468-475 — `()` — cohesive system for managing packaged workflows.
--  `test_registry_metrics` function L478-485 — `()` — cohesive system for managing packaged workflows.
+-  `register_workflow` function L252-347 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
+-  `get_workflow` function L349-400 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
+-  `list_workflows` function L402-404 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
+-  `persist_task_graph` function L406-412 — `( &self, package_id: crate::registry::types::WorkflowPackageId, tasks: Vec<(Stri...` — cohesive system for managing packaged workflows.
+-  `unregister_workflow` function L414-445 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
+-  `find_signature` function L451-461 — `(&self, package_hash: &str) -> Result<bool, RegistryError>` — Defense-in-depth signature existence check (CLOACI-T-0571).
+-  `tests` module L465-488 — `-` — cohesive system for managing packaged workflows.
+-  `test_registry_creation` function L470-477 — `()` — cohesive system for managing packaged workflows.
+-  `test_registry_metrics` function L480-487 — `()` — cohesive system for managing packaged workflows.
 
 #### crates/cloacina/src/registry/workflow_registry/package.rs
 
@@ -6538,6 +6550,10 @@
 - pub `TenantListResponse` struct L44-48 — `{ tenant_id: String, items: Vec<T>, total: usize }` — List envelope variant that retains a top-level `tenant_id`, used by
 - pub `new` function L52-59 — `(tenant_id: impl Into<String>, items: Vec<T>) -> Self` — Build the envelope with `total` set to the page size.
 
+#### crates/cloacina-api-types/src/compiler.rs
+
+- pub `CompilerStatus` struct L26-42 — `{ status: String, pending: u64, building: u64, seconds_since_heartbeat: Option<u...` — Build-pipeline state, derived from the build queue in the database — the
+
 #### crates/cloacina-api-types/src/delivery.rs
 
 - pub `DELIVERY_PROTOCOL_VERSION` variable L54 — `: u32` — Wire-protocol version for the substrate envelope.
@@ -6566,6 +6582,12 @@
 - pub `ExecutionDetail` struct L71-75 — `{ tenant_id: String, execution_id: String, status: String }` — `GET /tenants/{tenant_id}/executions/{id}` response.
 - pub `ExecutionEvent` struct L80-89 — `{ id: String, event_type: String, event_data: Option<String>, created_at: String...` — One row in the execution event log.
 - pub `ExecutionEventsResponse` struct L94-98 — `{ tenant_id: String, execution_id: String, events: Vec<ExecutionEvent> }` — `GET /tenants/{tenant_id}/executions/{id}/events` response.
+- pub `TaskExecutionDetail` struct L103-126 — `{ id: String, task_name: String, status: String, started_at: Option<String>, com...` — One per-task row of an execution (CLOACI-I-0124 / WS-1).
+- pub `ExecutionTasksResponse` struct L131-135 — `{ tenant_id: String, execution_id: String, tasks: Vec<TaskExecutionDetail> }` — `GET /tenants/{tenant_id}/executions/{id}/tasks` response.
+
+#### crates/cloacina-api-types/src/fleet.rs
+
+- pub `AgentInfo` struct L24-37 — `{ agent_id: String, target_triple: String, max_concurrency: u32, in_flight: u32,...` — One registered execution agent in the in-memory fleet roster.
 
 #### crates/cloacina-api-types/src/health.rs
 
@@ -6589,15 +6611,17 @@
 #### crates/cloacina-api-types/src/lib.rs
 
 - pub `common` module L34 — `-` — Public API contract types for `cloacina-server` (CLOACI-I-0113 / T-0642).
-- pub `delivery` module L35 — `-` — replaced.
-- pub `error` module L36 — `-` — replaced.
-- pub `executions` module L37 — `-` — replaced.
-- pub `health` module L38 — `-` — replaced.
-- pub `keys` module L39 — `-` — replaced.
-- pub `reactor` module L40 — `-` — replaced.
-- pub `tenants` module L41 — `-` — replaced.
-- pub `triggers` module L42 — `-` — replaced.
-- pub `workflows` module L43 — `-` — replaced.
+- pub `compiler` module L35 — `-` — replaced.
+- pub `delivery` module L36 — `-` — replaced.
+- pub `error` module L37 — `-` — replaced.
+- pub `executions` module L38 — `-` — replaced.
+- pub `fleet` module L39 — `-` — replaced.
+- pub `health` module L40 — `-` — replaced.
+- pub `keys` module L41 — `-` — replaced.
+- pub `reactor` module L42 — `-` — replaced.
+- pub `tenants` module L43 — `-` — replaced.
+- pub `triggers` module L44 — `-` — replaced.
+- pub `workflows` module L45 — `-` — replaced.
 
 #### crates/cloacina-api-types/src/reactor.rs
 
@@ -7933,81 +7957,81 @@
 -  `runner_config_for_tenant_cache` function L241-257 — `( reconcile_interval: Option<std::time::Duration>, default_executor: &str, ) -> ...` — CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
 -  `validate_security_args` function L265-277 — `( require_signatures: bool, verification_org_id: Option<&uuid::Uuid>, ) -> Resul...` — Validate security-related CLI args at server boot.
 -  `request_id_middleware` function L1053-1081 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L1083-1266 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
--  `api_request_metrics` function L1270-1292 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
--  `health` function L1301-1303 — `() -> impl IntoResponse` — management, workflow upload, and execution APIs.
--  `ready` function L1315-1344 — `(State(state): State<AppState>) -> impl IntoResponse` — management, workflow upload, and execution APIs.
--  `metrics` function L1347-1357 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
--  `fallback_404` function L1362-1364 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns the canonical `ApiError`
--  `shutdown_signal` function L1367-1389 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L1395-1443 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L1447-1449 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L1452-3773 — `-` — management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L1460 — `: &str` — management, workflow upload, and execution APIs.
--  `shared_test_metrics_handle` function L1471-1481 — `() -> metrics_exporter_prometheus::PrometheusHandle` — One Prometheus recorder per test process, shared by every `test_state()`.
--  `HANDLE` variable L1472-1473 — `: std::sync::OnceLock<metrics_exporter_prometheus::PrometheusHandle>` — management, workflow upload, and execution APIs.
--  `shared_test_runner` function L1492-1509 — `() -> Arc<cloacina::runner::DefaultRunner>` — One shared `DefaultRunner` (+ its connection pool) for the whole test
--  `RUNNER` variable L1493-1494 — `: tokio::sync::OnceCell<Arc<cloacina::runner::DefaultRunner>>` — management, workflow upload, and execution APIs.
--  `test_state` function L1512-1552 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `test_state_with_signature_required` function L1557-1567 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
--  `create_test_api_key` function L1570-1578 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L1581-1596 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L1602-1628 — `()` — management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L1634-1646 — `()` — management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L1650-1662 — `()` — management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L1666-1734 — `()` — management, workflow upload, and execution APIs.
--  `test_scheduler_loop_metrics_emit` function L1738-1814 — `()` — management, workflow upload, and execution APIs.
--  `test_supervisor_health_metrics_emit` function L1818-1902 — `()` — management, workflow upload, and execution APIs.
--  `test_accumulator_metrics_emit` function L1906-1982 — `()` — management, workflow upload, and execution APIs.
--  `test_reactor_metrics_emit` function L1986-2063 — `()` — management, workflow upload, and execution APIs.
--  `test_ws_metrics_emit` function L2067-2146 — `()` — management, workflow upload, and execution APIs.
--  `test_persist_failure_metrics_emit` function L2150-2220 — `()` — management, workflow upload, and execution APIs.
--  `test_i0099_cardinality_within_ceiling` function L2233-2544 — `()` — I-0099 cardinality guard — assert that every `cloacina_*` metric
--  `test_api_request_duration_histogram_emitted` function L2548-2592 — `()` — management, workflow upload, and execution APIs.
--  `test_unprefixed_auth_route_returns_404` function L2605-2620 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
--  `test_auth_no_token_returns_401` function L2626-2638 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L2642-2655 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L2659-2672 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L2676-2689 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L2695-2713 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L2717-2733 — `()` — management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L2737-2752 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L2756-2781 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L2785-2800 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L2804-2818 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L2824-2853 — `()` — management, workflow upload, and execution APIs.
--  `test_list_tenants` function L2857-2877 — `()` — management, workflow upload, and execution APIs.
--  `test_tenant_runner_cache_lru_evicts_oldest` function L2887-2977 — `()` — CLOACI-T-0580: LRU eviction.
--  `test_remove_tenant_idempotent_retry` function L2985-3039 — `()` — CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
--  `test_tenant_runners_share_inventory_arc` function L3047-3132 — `()` — CLOACI-T-0580: two per-tenant runners constructed through the
--  `test_remove_tenant_nonexistent_succeeds` function L3136-3152 — `()` — management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L3156-3192 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L3196-3211 — `()` — management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L3217-3231 — `()` — management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L3235-3248 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L3252-3276 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L3280-3304 — `()` — management, workflow upload, and execution APIs.
--  `fixture_path` function L3307-3312 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L3315-3326 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L3329-3339 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L3343-3369 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L3373-3399 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L3403-3423 — `()` — management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L3429-3443 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L3447-3460 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L3464-3478 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L3482-3495 — `()` — management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L3499-3514 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L3518-3536 — `()` — management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L3542-3556 — `()` — management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L3560-3573 — `()` — management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L3579-3591 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_unsigned_with_require_signatures_returns_403` function L3603-3636 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_signed_with_require_signatures_passes_verification` function L3640-3731 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_default_passes` function L3736-3739 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_org_without_require_passes` function L3742-3747 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_with_org_passes` function L3750-3754 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_without_org_fails` function L3757-3772 — `()` — management, workflow upload, and execution APIs.
+-  `build_router` function L1083-1277 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
+-  `api_request_metrics` function L1281-1303 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
+-  `health` function L1312-1314 — `() -> impl IntoResponse` — management, workflow upload, and execution APIs.
+-  `ready` function L1326-1355 — `(State(state): State<AppState>) -> impl IntoResponse` — management, workflow upload, and execution APIs.
+-  `metrics` function L1358-1368 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
+-  `fallback_404` function L1373-1375 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns the canonical `ApiError`
+-  `shutdown_signal` function L1378-1400 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L1406-1454 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L1458-1460 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L1463-3784 — `-` — management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L1471 — `: &str` — management, workflow upload, and execution APIs.
+-  `shared_test_metrics_handle` function L1482-1492 — `() -> metrics_exporter_prometheus::PrometheusHandle` — One Prometheus recorder per test process, shared by every `test_state()`.
+-  `HANDLE` variable L1483-1484 — `: std::sync::OnceLock<metrics_exporter_prometheus::PrometheusHandle>` — management, workflow upload, and execution APIs.
+-  `shared_test_runner` function L1503-1520 — `() -> Arc<cloacina::runner::DefaultRunner>` — One shared `DefaultRunner` (+ its connection pool) for the whole test
+-  `RUNNER` variable L1504-1505 — `: tokio::sync::OnceCell<Arc<cloacina::runner::DefaultRunner>>` — management, workflow upload, and execution APIs.
+-  `test_state` function L1523-1563 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `test_state_with_signature_required` function L1568-1578 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
+-  `create_test_api_key` function L1581-1589 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L1592-1607 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L1613-1639 — `()` — management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L1645-1657 — `()` — management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L1661-1673 — `()` — management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L1677-1745 — `()` — management, workflow upload, and execution APIs.
+-  `test_scheduler_loop_metrics_emit` function L1749-1825 — `()` — management, workflow upload, and execution APIs.
+-  `test_supervisor_health_metrics_emit` function L1829-1913 — `()` — management, workflow upload, and execution APIs.
+-  `test_accumulator_metrics_emit` function L1917-1993 — `()` — management, workflow upload, and execution APIs.
+-  `test_reactor_metrics_emit` function L1997-2074 — `()` — management, workflow upload, and execution APIs.
+-  `test_ws_metrics_emit` function L2078-2157 — `()` — management, workflow upload, and execution APIs.
+-  `test_persist_failure_metrics_emit` function L2161-2231 — `()` — management, workflow upload, and execution APIs.
+-  `test_i0099_cardinality_within_ceiling` function L2244-2555 — `()` — I-0099 cardinality guard — assert that every `cloacina_*` metric
+-  `test_api_request_duration_histogram_emitted` function L2559-2603 — `()` — management, workflow upload, and execution APIs.
+-  `test_unprefixed_auth_route_returns_404` function L2616-2631 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
+-  `test_auth_no_token_returns_401` function L2637-2649 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L2653-2666 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L2670-2683 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L2687-2700 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L2706-2724 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L2728-2744 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L2748-2763 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L2767-2792 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L2796-2811 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L2815-2829 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L2835-2864 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L2868-2888 — `()` — management, workflow upload, and execution APIs.
+-  `test_tenant_runner_cache_lru_evicts_oldest` function L2898-2988 — `()` — CLOACI-T-0580: LRU eviction.
+-  `test_remove_tenant_idempotent_retry` function L2996-3050 — `()` — CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
+-  `test_tenant_runners_share_inventory_arc` function L3058-3143 — `()` — CLOACI-T-0580: two per-tenant runners constructed through the
+-  `test_remove_tenant_nonexistent_succeeds` function L3147-3163 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L3167-3203 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L3207-3222 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L3228-3242 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L3246-3259 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L3263-3287 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L3291-3315 — `()` — management, workflow upload, and execution APIs.
+-  `fixture_path` function L3318-3323 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L3326-3337 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L3340-3350 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L3354-3380 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L3384-3410 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L3414-3434 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L3440-3454 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L3458-3471 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L3475-3489 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L3493-3506 — `()` — management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L3510-3525 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L3529-3547 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L3553-3567 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L3571-3584 — `()` — management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L3590-3602 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_unsigned_with_require_signatures_returns_403` function L3614-3647 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_signed_with_require_signatures_passes_verification` function L3651-3742 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_default_passes` function L3747-3750 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_org_without_require_passes` function L3753-3758 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_with_org_passes` function L3761-3765 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_without_org_fails` function L3768-3783 — `()` — management, workflow upload, and execution APIs.
 
 #### crates/cloacina-server/src/main.rs
 
@@ -8018,15 +8042,15 @@
 
 #### crates/cloacina-server/src/openapi.rs
 
-- pub `PackageUploadForm` struct L48-52 — `{ file: String }` — Multipart form for workflow package upload.
-- pub `ApiDoc` struct L164 — `-` — OpenAPI cannot describe WS message flows.
-- pub `openapi_json` function L169-173 — `() -> String` — Pretty-printed OpenAPI document.
--  `SecurityAddon` struct L56 — `-` — Adds the bearer API-key security scheme referenced by every
--  `SecurityAddon` type L58-75 — `impl Modify for SecurityAddon` — OpenAPI cannot describe WS message flows.
--  `modify` function L59-74 — `(&self, openapi: &mut utoipa::openapi::OpenApi)` — OpenAPI cannot describe WS message flows.
--  `tests` module L176-194 — `-` — OpenAPI cannot describe WS message flows.
--  `openapi_document_builds_and_serializes` function L180-185 — `()` — OpenAPI cannot describe WS message flows.
--  `spec_version_matches_crate_version` function L188-193 — `()` — OpenAPI cannot describe WS message flows.
+- pub `PackageUploadForm` struct L49-53 — `{ file: String }` — Multipart form for workflow package upload.
+- pub `ApiDoc` struct L175 — `-` — OpenAPI cannot describe WS message flows.
+- pub `openapi_json` function L180-184 — `() -> String` — Pretty-printed OpenAPI document.
+-  `SecurityAddon` struct L57 — `-` — Adds the bearer API-key security scheme referenced by every
+-  `SecurityAddon` type L59-76 — `impl Modify for SecurityAddon` — OpenAPI cannot describe WS message flows.
+-  `modify` function L60-75 — `(&self, openapi: &mut utoipa::openapi::OpenApi)` — OpenAPI cannot describe WS message flows.
+-  `tests` module L187-205 — `-` — OpenAPI cannot describe WS message flows.
+-  `openapi_document_builds_and_serializes` function L191-196 — `()` — OpenAPI cannot describe WS message flows.
+-  `spec_version_matches_crate_version` function L199-204 — `()` — OpenAPI cannot describe WS message flows.
 
 #### crates/cloacina-server/src/tenant_runner_cache.rs
 
@@ -8062,10 +8086,11 @@
 - pub `heartbeat_agent` function L110-129 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `POST /v1/agent/heartbeat`
 - pub `report_result` function L140-188 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `POST /v1/agent/result`
 - pub `fetch_artifact` function L197-226 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `GET /v1/agent/artifact/{digest}` — content-addressed cdylib fetch.
+- pub `list_agents` function L242-266 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — T-0631 the result endpoint accepts + logs.
 -  `require_protocol_version` function L52-64 — `(version: u32) -> Result<(), ApiError>` — T-0631 the result endpoint accepts + logs.
--  `tests` module L229-246 — `-` — T-0631 the result endpoint accepts + logs.
--  `host_target_triple_is_arch_os_format` function L233-239 — `()` — T-0631 the result endpoint accepts + logs.
--  `require_protocol_version_accepts_current` function L242-245 — `()` — T-0631 the result endpoint accepts + logs.
+-  `tests` module L269-286 — `-` — T-0631 the result endpoint accepts + logs.
+-  `host_target_triple_is_arch_os_format` function L273-279 — `()` — T-0631 the result endpoint accepts + logs.
+-  `require_protocol_version_accepts_current` function L282-285 — `()` — T-0631 the result endpoint accepts + logs.
 
 #### crates/cloacina-server/src/routes/auth.rs
 
@@ -8118,6 +8143,10 @@
 -  `record_auth_span_fields_unauth_request_leaves_empty` function L574-587 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
 -  `test_ticket_store_evicts_expired_on_issue` function L590-613 — `()` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
 
+#### crates/cloacina-server/src/routes/compiler.rs
+
+- pub `compiler_status` function L47-79 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — or compiler-URL config required.
+
 #### crates/cloacina-server/src/routes/delivery_ws.rs
 
 - pub `delivery_ws` function L48-69 — `( Path(recipient): Path<String>, Query(query): Query<WsAuthQuery>, State(state):...` — `GET /v1/ws/delivery/{recipient}` — substrate delivery subscription.
@@ -8142,12 +8171,13 @@
 
 #### crates/cloacina-server/src/routes/executions.rs
 
-- pub `execute_workflow` function L62-152 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
-- pub `list_executions` function L184-252 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
-- pub `get_execution` function L272-315 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
-- pub `get_execution_events` function L335-385 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
--  `DEFAULT_EXECUTIONS_LIMIT` variable L157 — `: i64` — Default page size for `list_executions` when the client doesn't
--  `MAX_EXECUTIONS_LIMIT` variable L160 — `: i64` — Hard ceiling on `?limit=` to keep a single response from pulling
+- pub `execute_workflow` function L63-153 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
+- pub `list_executions` function L185-253 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
+- pub `get_execution` function L273-316 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
+- pub `get_execution_events` function L336-386 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
+- pub `get_execution_tasks` function L406-467 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
+-  `DEFAULT_EXECUTIONS_LIMIT` variable L158 — `: i64` — Default page size for `list_executions` when the client doesn't
+-  `MAX_EXECUTIONS_LIMIT` variable L161 — `: i64` — Hard ceiling on `?limit=` to keep a single response from pulling
 
 #### crates/cloacina-server/src/routes/health_graphs.rs
 
@@ -8174,15 +8204,16 @@
 
 - pub `agent` module L19 — `-` — API server route handlers and middleware.
 - pub `auth` module L20 — `-` — API server route handlers and middleware.
-- pub `delivery_ws` module L21 — `-` — API server route handlers and middleware.
-- pub `error` module L22 — `-` — API server route handlers and middleware.
-- pub `executions` module L23 — `-` — API server route handlers and middleware.
-- pub `health_graphs` module L24 — `-` — API server route handlers and middleware.
-- pub `keys` module L25 — `-` — API server route handlers and middleware.
-- pub `tenants` module L26 — `-` — API server route handlers and middleware.
-- pub `triggers` module L27 — `-` — API server route handlers and middleware.
-- pub `workflows` module L28 — `-` — API server route handlers and middleware.
-- pub `ws` module L29 — `-` — API server route handlers and middleware.
+- pub `compiler` module L21 — `-` — API server route handlers and middleware.
+- pub `delivery_ws` module L22 — `-` — API server route handlers and middleware.
+- pub `error` module L23 — `-` — API server route handlers and middleware.
+- pub `executions` module L24 — `-` — API server route handlers and middleware.
+- pub `health_graphs` module L25 — `-` — API server route handlers and middleware.
+- pub `keys` module L26 — `-` — API server route handlers and middleware.
+- pub `tenants` module L27 — `-` — API server route handlers and middleware.
+- pub `triggers` module L28 — `-` — API server route handlers and middleware.
+- pub `workflows` module L29 — `-` — API server route handlers and middleware.
+- pub `ws` module L30 — `-` — API server route handlers and middleware.
 
 #### crates/cloacina-server/src/routes/tenants.rs
 
@@ -12573,6 +12604,18 @@
 -  `clickFirstRow` function L17-22 — `function clickFirstRow(page)`
 -  `tryNodeClick` function L24-29 — `function tryNodeClick(page, name: string)`
 
+#### ui/e2e/ws1.spec.ts
+
+-  `shot` function L13-18 — `function shot(page, name: string)`
+
+#### ui/e2e/ws4.spec.ts
+
+-  `shot` function L6-11 — `function shot(page, name: string)`
+
+#### ui/e2e/ws5.spec.ts
+
+-  `shot` function L6-10 — `function shot(page, name: string)`
+
 ### ui/harness/src
 
 > *Semantic summary to be generated by AI agent.*
@@ -12603,7 +12646,7 @@
 
 #### ui/src/App.tsx
 
-- pub `App` function L42-66 — `function App()`
+- pub `App` function L43-68 — `function App()`
 
 #### ui/src/vite-env.d.ts
 
@@ -12622,11 +12665,14 @@
 
 #### ui/src/api/executions.ts
 
-- pub `ExecutionsQuery` type L26-31 — `= { status?: string; workflow?: string; limit?: number; offset?: number; }`
-- pub `useExecutions` function L34-42 — `function useExecutions(query: ExecutionsQuery)`
-- pub `useExecution` function L50-60 — `function useExecution(id: string, opts: { livePoll?: boolean } = {})`
-- pub `useExecutionEvents` function L63-70 — `function useExecutionEvents(id: string)`
-- pub `useLiveExecutionEvents` function L83-114 — `function useLiveExecutionEvents(id: string, enabled: boolean): ExecutionEvent[]`
+- pub `TaskExecutionDetail` type L27-40 — `= { id: string; task_name: string; status: string; started_at: string | null; co...`
+- pub `useExecutionTasks` function L53-70 — `function useExecutionTasks(id: string, opts: { poll?: boolean } = {})`
+- pub `ExecutionsQuery` type L72-77 — `= { status?: string; workflow?: string; limit?: number; offset?: number; }`
+- pub `useExecutions` function L80-88 — `function useExecutions(query: ExecutionsQuery)`
+- pub `useExecution` function L96-106 — `function useExecution(id: string, opts: { livePoll?: boolean } = {})`
+- pub `useExecutionEvents` function L109-116 — `function useExecutionEvents(id: string)`
+- pub `useLiveExecutionEvents` function L129-160 — `function useLiveExecutionEvents(id: string, enabled: boolean): ExecutionEvent[]`
+-  `ExecutionTasksResponse` type L42-46 — `= { tenant_id: string; execution_id: string; tasks: TaskExecutionDetail[]; }`
 
 #### ui/src/api/health.ts
 
@@ -12642,6 +12688,16 @@
 - pub `useKeys` function L28-35 — `function useKeys()`
 - pub `useCreateKey` function L42-51 — `function useCreateKey()`
 - pub `useRevokeKey` function L54-62 — `function useRevokeKey()`
+
+#### ui/src/api/operations.ts
+
+- pub `AgentInfo` type L27-36 — `= { agent_id: string; target_triple: string; max_concurrency: number; in_flight:...`
+- pub `CompilerStatus` type L38-45 — `= { status: string; pending: number; building: number; seconds_since_heartbeat: ...`
+- pub `ServerHealth` type L47-54 — `= { /** `/health` reachable (process alive). */ alive: boolean; /** `/ready` ret...`
+- pub `useServerHealth` function L63-93 — `function useServerHealth()`
+- pub `useFleet` function L96-111 — `function useFleet()`
+- pub `useCompilerStatus` function L114-128 — `function useCompilerStatus()`
+-  `base` function L56-58 — `function base(serverUrl: string): string`
 
 #### ui/src/api/triggers.ts
 
@@ -12683,9 +12739,10 @@
 
 #### ui/src/components/Dag.tsx
 
-- pub `DagNode` interface L31-35 — `{ id: : string, label: : string }`
-- pub `DagEdge` interface L38-42 — `{ from: : string, to: : string, label: : string | null }`
-- pub `Dag` function L53-120 — `function Dag({ nodes, edges, height = 420, testId, }: { nodes: DagNode[]; edges:...`
+- pub `DagNodeKind` type L32 — `= "compute" | "accumulator" | "reactor" | "trigger"`
+- pub `DagNode` interface L35-41 — `{ id: : string, label: : string, kind: : DagNodeKind }`
+- pub `DagEdge` interface L61-65 — `{ from: : string, to: : string, label: : string | null }`
+- pub `Dag` function L76-148 — `function Dag({ nodes, edges, height = 420, testId, onNodeClick, }: { nodes: DagN...`
 
 #### ui/src/components/EventLog.tsx
 
@@ -12704,12 +12761,18 @@
 
 #### ui/src/components/Shell.tsx
 
-- pub `Shell` function L45-92 — `function Shell()`
--  `handleDisconnect` function L49-52 — `function handleDisconnect()`
+- pub `Shell` function L47-94 — `function Shell()`
+-  `handleDisconnect` function L51-54 — `function handleDisconnect()`
 
 #### ui/src/components/StatusBadge.tsx
 
 - pub `StatusBadge` function L22-28 — `function StatusBadge({ status }: { status: string })`
+
+#### ui/src/components/TaskTable.tsx
+
+- pub `TaskTable` function L46-133 — `function TaskTable({ tasks }: { tasks: TaskExecutionDetail[] })`
+-  `duration` function L23-34 — `function duration(started: string | null, completed: string | null): string`
+-  `fmtTime` function L36-40 — `function fmtTime(ts: string | null): string`
 
 #### ui/src/components/WorkflowGraph.tsx
 
@@ -12737,7 +12800,7 @@
 
 #### ui/src/routes/ExecutionDetail.tsx
 
-- pub `ExecutionDetail` function L39-107 — `function ExecutionDetail()`
+- pub `ExecutionDetail` function L45-135 — `function ExecutionDetail()`
 
 #### ui/src/routes/Executions.tsx
 
@@ -12747,7 +12810,13 @@
 
 #### ui/src/routes/GraphDetail.tsx
 
-- pub `GraphDetail` function L30-113 — `function GraphDetail()`
+- pub `GraphDetail` function L118-246 — `function GraphDetail()`
+-  `TopoNode` type L26 — `= { id: string; inputs?: string[] }`
+-  `TopoEdge` type L27 — `= { from: string; to: string; label?: string | null }`
+-  `GraphData` type L28-34 — `= { reactor?: string | null; accumulators: string[]; reaction_mode?: string | nu...`
+-  `buildCgGraph` function L42-66 — `function buildCgGraph(data: GraphData): { nodes: DagNode[]; edges: DagEdge[] } |...`
+-  `describeNode` function L71-111 — `function describeNode( id: string, data: GraphData, ): { title: string; kind: st...`
+-  `LegendDot` function L248-265 — `function LegendDot({ color, label }: { color: string; label: string })`
 
 #### ui/src/routes/Graphs.tsx
 
@@ -12759,9 +12828,16 @@
 -  `onCreate` function L65-77 — `function onCreate()`
 -  `onRevoke` function L79-82 — `function onRevoke()`
 
+#### ui/src/routes/Operations.tsx
+
+- pub `Operations` function L59-189 — `function Operations()`
+-  `ago` function L21-26 — `function ago(seconds: number | null): string`
+-  `fmtTime` function L28-32 — `function fmtTime(ts: string | null): string`
+-  `Stat` function L35-46 — `function Stat({ label, children }: { label: string; children: React.ReactNode })`
+
 #### ui/src/routes/Overview.tsx
 
-- pub `Overview` function L32-148 — `function Overview()`
+- pub `Overview` function L37-186 — `function Overview()`
 
 #### ui/src/routes/Placeholder.tsx
 
@@ -12807,3 +12883,4 @@
 
 - pub `executionStatusColor` function L35-37 — `function executionStatusColor(status: string): string`
 - pub `isTerminalStatus` function L44-46 — `function isTerminalStatus(status: string): boolean`
+

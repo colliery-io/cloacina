@@ -4,14 +4,14 @@ level: task
 title: "WS-0b — Server read endpoints (per-task executions, fleet roster, compiler status)"
 short_code: "CLOACI-T-0711"
 created_at: 2026-06-16T02:10:59.834257+00:00
-updated_at: 2026-06-16T02:12:43.893265+00:00
+updated_at: 2026-06-16T02:52:50.737158+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -31,6 +31,8 @@ initiative_id: CLOACI-I-0124
 The three thin **read** endpoints the WS-0 audit ([[CLOACI-T-0702]]) identified as the
 critical path for the P0 UI surfaces. All expose data the server/engine already has —
 no new engine capability. Gates [[CLOACI-T-0703]] (WS-1) and [[CLOACI-T-0704]] (WS-2).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -155,6 +157,11 @@ Implements the gaps from [[CLOACI-T-0702]]. Unblocks [[CLOACI-T-0703]], [[CLOACI
 ### Risk Considerations
 {Technical risks and mitigation strategies}
 
-## Status Updates **[REQUIRED]**
+## Status Updates
 
-*To be added during implementation*
+- 2026-06-16: **DONE** on branch `feat/ui-0124-server-read-endpoints` (commits `2c279a3d`, `baa94d5a`, `48073b0d`). All three endpoints compile clean (`angreal check crate crates/cloacina-server` → ✅, both backends).
+  - **#1 `GET /v1/tenants/{t}/executions/{id}/tasks`** — `TaskExecutionDetail`/`ExecutionTasksResponse` over `dal.task_execution().get_all_tasks_for_workflow()` (status, started/completed, attempt/max_attempts, sub_status, last_error/error_details). *(Output/context metadata deferred to the drawer task — the task rows unblock WS-1's table + status DAG now.)*
+  - **#2 `GET /v1/agents`** (admin) — fleet roster from `AgentRegistry::snapshot()` → `AgentInfo` (id, target_triple, max_concurrency, in_flight, available_capacity, **seconds_since_heartbeat**, capabilities, tenant). `last_heartbeat` is a monotonic `Instant`, so exposed as seconds-since.
+  - **#3 `GET /v1/compiler/status`** (admin) — build-pipeline + compiler liveness. **Design decision:** server↔compiler are DB-coupled (no compiler URL on the server), so rather than an HTTP proxy I extracted `registry::workflow_registry::build_queue_stats` into a `Database`-level free fn (loader-free) and the server reads the **same rows the compiler's own `/v1/status` reports** (pending/building/last_success/last_failure + the build-claim heartbeat). Status roll-up: building / backlogged / idle. True idle-liveness isn't determinable from the queue (documented in the type).
+  - `docs/static/openapi.json` regenerated (all 3 paths present); 3 new schemas + 2 tags registered.
+- **Remaining verification (user/CI):** `cargo test` for cloacina (a rust-analyzer "second test attribute" flag near database.rs:2012 is a false positive on the pre-existing `#[cfg]`+`#[tokio::test]` pattern — cargo build passed) and the SDK contract suites against a live rebuilt server. Then PR. WS-1 ([[CLOACI-T-0703]]) and WS-2 ([[CLOACI-T-0704]]) are now unblocked.

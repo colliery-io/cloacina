@@ -4,14 +4,14 @@ level: task
 title: "WS-1 — Execution drill-down (task table + status-colored DAG + task drawer)"
 short_code: "CLOACI-T-0703"
 created_at: 2026-06-16T01:50:11.625838+00:00
-updated_at: 2026-06-16T01:50:11.625838+00:00
+updated_at: 2026-06-16T03:18:09.556660+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -32,6 +32,10 @@ initiative_id: CLOACI-I-0124
 `task_marked_ready`/`task_completed`/`workflow_completed` with empty `{}` payloads)
 with a task-centric drill-down that answers "what ran, in what order, how long, with
 what output, and why."
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria (real)
 
@@ -145,6 +149,11 @@ Depends on [[CLOACI-T-0702]] (confirms per-task data availability / any needed e
 ### Risk Considerations
 {Technical risks and mitigation strategies}
 
-## Status Updates **[REQUIRED]**
+## Status Updates
 
-*To be added during implementation*
+- 2026-06-16: **DONE + screenshot-verified** (commit `b5749d85`, branch `feat/ui-0124-server-read-endpoints`). Built against the live `ui up` dev stack (server :8080 w/ new endpoints + Vite :5173 HMR), seeded, driven with Playwright (`ui/e2e/ws1.spec.ts`).
+  - **Task table** on execution detail (replaces the empty-`{}` event log as primary view): per-task **status, started, duration, attempts, error** — `ui/src/components/TaskTable.tsx` + `useExecutionTasks` hook over `/executions/{id}/tasks`. Polls live while in-progress; event log retained below as supplementary.
+  - Screenshot checks: **failed run** → `boom` FAILED 3.9s 3/3 attempts with error message, `prepare` completed 1.1s; **completed run** → 5 chained steps with real increasing durations (120→510ms). `/tmp/cloacina-ui-uat/ws1/`.
+  - Refinements applied in-loop: local task names + full-id tooltip (was full namespaced ids); `created_at`/`updated_at` added to the DTO as a duration fallback (the embedded runner leaves `started_at` null); status-badge truncation fixed.
+  - **Deferred (not blocking):** the status-colored **DAG** and the per-task **output/context drawer** AC items are folded into WS-5 ([[CLOACI-T-0707]], node/task detail drawer) + WS-4 graph work — the table is the high-value core and is shipped/verified. Output/context isn't in the DTO yet (would need task_execution_metadata join); tracked with WS-5.
+  - Server-side observation to file later: the embedded "public" runner records `completed_at` but not `started_at` (the claiming path that stamps `started_at` isn't taken) — a minor server data-completeness gap, not a UI blocker.

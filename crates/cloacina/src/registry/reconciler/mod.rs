@@ -150,12 +150,13 @@ pub(super) struct PackageState {
     /// reactor owned by another package) do NOT appear here.
     pub(super) reactor_names: Vec<String>,
 
-    /// Cron schedule IDs created when the reconciler registered this
-    /// package's `#[trigger(cron = ...)]` declarations through an
-    /// attached `CronWorkflowRegistrar`. Empty when no registrar is
-    /// attached (e.g. the standalone daemon path runs cron registration
-    /// out-of-band). Used by `unload_package` to drop the schedules
-    /// when the package is removed.
+    /// Schedule IDs created when the reconciler registered this package's
+    /// trigger declarations through an attached `CronWorkflowRegistrar` —
+    /// both `#[trigger(cron = ...)]` (cron rows) and `#[trigger(poll_interval
+    /// = ...)]` (poll rows, CLOACI-I-0124 / WS-6). Empty when no registrar is
+    /// attached (e.g. the standalone daemon path registers out-of-band). Used
+    /// by `unload_package` to drop the schedules when the package is removed
+    /// (both kinds are deleted by id).
     pub(super) cron_schedule_ids: Vec<String>,
 
     /// Trigger-less graph names registered through the FFI bridge for
@@ -189,6 +190,31 @@ pub trait CronWorkflowRegistrar: Send + Sync {
     /// Drop a cron schedule by the ID returned from
     /// [`register_cron_workflow`].
     async fn unregister_cron_workflow(&self, schedule_id: &str) -> Result<(), String>;
+
+    /// Create a `trigger`-type schedule row for a custom-poll (non-cron)
+    /// trigger. The in-memory `Trigger` impl is registered separately by
+    /// the reconciler's runtime step; this persists the row the trigger
+    /// scheduler polls (`get_enabled_triggers`) and the read API surfaces
+    /// in the Triggers view (CLOACI-I-0124 / WS-6). Returns an opaque
+    /// schedule ID dropped via [`unregister_cron_workflow`] on unload
+    /// (both schedule kinds are deleted by id). The default impl degrades
+    /// loudly so a registrar without trigger support fails visibly rather
+    /// than silently dropping poll triggers.
+    async fn register_poll_trigger(
+        &self,
+        trigger_name: &str,
+        workflow_name: &str,
+        poll_interval_ms: i32,
+        allow_concurrent: bool,
+    ) -> Result<String, String> {
+        let _ = (
+            trigger_name,
+            workflow_name,
+            poll_interval_ms,
+            allow_concurrent,
+        );
+        Err("poll-trigger scheduling not supported by this registrar".to_string())
+    }
 }
 
 /// Status information about the reconciler

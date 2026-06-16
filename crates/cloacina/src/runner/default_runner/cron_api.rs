@@ -409,4 +409,33 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
             .await
             .map_err(|e| format!("Failed to delete cron schedule: {}", e))
     }
+
+    async fn register_poll_trigger(
+        &self,
+        trigger_name: &str,
+        workflow_name: &str,
+        poll_interval_ms: i32,
+        allow_concurrent: bool,
+    ) -> Result<String, String> {
+        use crate::database::universal_types::UniversalBool;
+        use crate::models::schedule::NewSchedule;
+        use std::time::Duration;
+
+        let mut new_schedule = NewSchedule::trigger(
+            trigger_name,
+            workflow_name,
+            Duration::from_millis(poll_interval_ms.max(0) as u64),
+        );
+        new_schedule.allow_concurrent = Some(UniversalBool::new(allow_concurrent));
+
+        let dal = DAL::new(self.database.clone());
+        // Upsert so re-loading a package (same trigger name) refreshes the
+        // row instead of erroring on a duplicate.
+        let schedule = dal
+            .schedule()
+            .upsert_trigger(new_schedule)
+            .await
+            .map_err(|e| format!("Failed to create poll-trigger schedule: {}", e))?;
+        Ok(schedule.id.to_string())
+    }
 }

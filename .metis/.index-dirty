@@ -1,5 +1,12 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacina-api-types/src/executions.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-api-types/src/lib.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/executions.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/lib.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/openapi.rs
+/Users/dstorey/Desktop/cloacina/.angreal/task_ui.py
+/Users/dstorey/Desktop/cloacina/examples/fixtures/demo-poll-rust/build.rs
+/Users/dstorey/Desktop/cloacina/examples/fixtures/demo-poll-rust/src/lib.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/reconciler/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/runner/default_runner/cron_api.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/reconciler/loading.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-api-types/src/triggers.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/triggers.rs
+/Users/dstorey/Desktop/cloacina/ui/src/util/triggers.ts
+/Users/dstorey/Desktop/cloacina/ui/src/routes/Triggers.tsx
+/Users/dstorey/Desktop/cloacina/ui/src/routes/TriggerDetail.tsx
+/Users/dstorey/Desktop/cloacina/ui/e2e/ws6.spec.ts

@@ -4,14 +4,14 @@ level: task
 title: "WS-3 — Overview as paginated workflows + graphs lists"
 short_code: "CLOACI-T-0705"
 created_at: 2026-06-16T01:50:14.367320+00:00
-updated_at: 2026-06-16T01:50:14.367320+00:00
+updated_at: 2026-06-16T03:25:09.858667+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -31,6 +31,10 @@ initiative_id: CLOACI-I-0124
 (P0) Replace the Overview's summary-count cards (today "Recent status: COMPLETED 5",
 "3 loaded" — which read as totals and hide a WARMING graph) with paginated, faceted
 **workflows** and **graphs** lists.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria (real)
 
@@ -145,6 +149,9 @@ type/"Tasks: 0" column with [[CLOACI-T-0709]].
 ### Risk Considerations
 {Technical risks and mitigation strategies}
 
-## Status Updates **[REQUIRED]**
+## Status Updates
 
-*To be added during implementation*
+- 2026-06-16: **DONE + screenshot-verified** (commit after WS-2, branch `feat/ui-0124-server-read-endpoints`). Screenshot `/tmp/cloacina-ui-uat/ws3/overview.png`.
+  - Rewrote `Overview.tsx`: removed the misleading count cards ("Recent status: COMPLETED 5" / "3 loaded"); now shows a real **Workflows** list (package/version/tasks, navigable) + **Computation graphs** list (name/health via `GraphHealth`/accumulator count, navigable), each previewing the first 8 with an "All N" link to the full paginated page; Recent executions retained.
+  - Verified: workflows list shows demo-fail-rust/demo-slow-rust with task counts; graphs list shows correct empty state ("No computation graphs loaded" — this seed had no CG packages); recent executions show completed/failed with timestamps. No count can be misread as a total.
+  - **Scoping notes:** per-row **last-run** column omitted — joining executions→workflows is unreliable (executions key on `workflow_name`, packages on `package_name`, which drift). **type** (workflow vs CG) is handled by separate lists + WS-7's "Tasks:0→type" fix ([[CLOACI-T-0709]]); a CG graph-package still appears in the workflows list (data reality — CG packages are workflow packages), acceptable. Full pagination lives on `/workflows` + `/graphs`; the overview previews + links (Airflow-home pattern).

@@ -4,14 +4,14 @@ level: task
 title: "WS-4 — Triggers/reactors + accumulators as graph nodes"
 short_code: "CLOACI-T-0706"
 created_at: 2026-06-16T01:50:16.063427+00:00
-updated_at: 2026-06-16T01:50:16.063427+00:00
+updated_at: 2026-06-16T03:35:44.834050+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -32,6 +32,10 @@ initiative_id: CLOACI-I-0124
 as first-class nodes** in both workflow DAGs and computation graphs. Today they're
 text above the canvas (e.g. graph detail lists `py_alpha`/reactor separately), so the
 data flow isn't one picture.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria (real)
 
@@ -145,6 +149,9 @@ Shared renderer change; pairs with [[CLOACI-T-0707]] (node drawer) for click beh
 ### Risk Considerations
 {Technical risks and mitigation strategies}
 
-## Status Updates **[REQUIRED]**
+## Status Updates
 
-*To be added during implementation*
+- 2026-06-16: **DONE + screenshot-verified** (commit `✓ WS-4`, branch `feat/ui-0124-server-read-endpoints`). Screenshot `/tmp/cloacina-ui-uat/ws4/01-graph-detail.png`.
+  - `Dag` gained a node **`kind`** (compute/accumulator/reactor/trigger) with distinct fills; `GraphDetail` now builds the augmented graph: **accumulators → reactor → entry(root) nodes → …** with a legend. Verified on `demo_kafka_graph`: renders `kafka_alpha` (accumulator) → `demo_kafka_rx` (reactor) → `process` → `output`. Branch-edge labels preserved (logic intact for the routing graphs).
+  - **Enabling work (counts toward [[CLOACI-T-0710]] WS-8):** expanded `DEMO_FIXTURES` with `demo-cron-rust` (cron trigger) + `demo-kafka-stream-rust` (CG w/ reactor+accumulator) so CG/trigger structure is seedable on the `ui up`/seed path (was demo-slow + demo-fail only). Rust fixtures only — Python CG fixtures (demo-py-graph branching example, tutorial full-pipeline/routing) need a Python staging path in `_stage_and_pack`; left for the formal WS-8 close.
+  - **Scoping:** the **CG side** (reactor + accumulators as nodes) — the audit's primary ask (notes 4 + 6) — is done + verified. The **workflow-trigger-as-node** half is deferred: it needs WorkflowDetail to cross-reference the triggers list by workflow_name (package/workflow naming drift) — captured as a small follow-on; the `trigger` node kind + styling already exist in `Dag` for it.

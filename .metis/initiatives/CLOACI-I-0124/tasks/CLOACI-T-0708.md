@@ -4,14 +4,14 @@ level: task
 title: "WS-6 — Non-cron triggers in the Triggers view (event/poll/reactor)"
 short_code: "CLOACI-T-0708"
 created_at: 2026-06-16T01:50:18.600468+00:00
-updated_at: 2026-06-16T01:50:18.600468+00:00
+updated_at: 2026-06-16T03:53:01.418248+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -31,6 +31,8 @@ initiative_id: CLOACI-I-0124
 (P1) Surface **non-cron triggers** in the Triggers view — today only `CRON` appears,
 so event/poll/reactor triggers (e.g. the `mixed-rust` package's reactor+trigger) are
 invisible.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria (real)
 

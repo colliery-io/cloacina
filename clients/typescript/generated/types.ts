@@ -38,6 +38,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
+         *     roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
+         *     registered against *this* server instance.
+         */
+        get: operations["list_agents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/keys": {
         parameters: {
             query?: never;
@@ -99,6 +120,23 @@ export interface paths {
          *     WebSocket upgrade requests, avoiding long-lived API keys in URLs.
          */
         post: operations["create_ws_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compiler/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /v1/compiler/status` — build-pipeline status (admin only). */
+        get: operations["compiler_status"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -281,6 +319,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /tenants/:tenant_id/executions/:id/tasks — per-task rows for an execution. */
+        get: operations["get_execution_tasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/keys": {
         parameters: {
             query?: never;
@@ -434,6 +489,60 @@ export interface components {
              */
             status: unknown;
         };
+        /** @description One registered execution agent in the in-memory fleet roster. */
+        AgentInfo: {
+            agent_id: string;
+            /** Format: int32 */
+            available_capacity: number;
+            capabilities: string[];
+            /** Format: int32 */
+            in_flight: number;
+            /** Format: int32 */
+            max_concurrency: number;
+            /**
+             * Format: int64
+             * @description Seconds since this agent's last heartbeat — the liveness signal an
+             *     operator reads (the underlying record stores a monotonic `Instant`,
+             *     not a wall-clock time).
+             */
+            seconds_since_heartbeat: number;
+            target_triple: string;
+            /** @description Tenant scope the agent registered under, if any. */
+            tenant_id?: string | null;
+        };
+        /**
+         * @description Build-pipeline state, derived from the build queue in the database — the
+         *     same rows the compiler's own `/v1/status` reports. The server reads them
+         *     directly, so this needs no HTTP coupling to the compiler service.
+         */
+        CompilerStatus: {
+            /**
+             * Format: int64
+             * @description Packages currently building.
+             */
+            building: number;
+            /** @description RFC 3339 timestamp of the most recent failed build, if any. */
+            last_failure_at?: string | null;
+            /** @description RFC 3339 timestamp of the most recent successful build, if any. */
+            last_success_at?: string | null;
+            /**
+             * Format: int64
+             * @description Packages awaiting compilation.
+             */
+            pending: number;
+            /**
+             * Format: int64
+             * @description Seconds since the compiler last claimed a build (its DB-visible
+             *     heartbeat). Only meaningful while a build is in flight.
+             */
+            seconds_since_heartbeat?: number | null;
+            /**
+             * @description Coarse roll-up: `"building"` (work in flight), `"backlogged"` (packages
+             *     pending but none building — the compiler may be down), or `"idle"`
+             *     (nothing queued; liveness is undeterminable from the queue alone).
+             */
+            status: string;
+        };
         /** @description Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`. */
         CreateKeyRequest: {
             name: string;
@@ -513,6 +622,12 @@ export interface components {
             started_at: string;
             status: string;
             workflow_name: string;
+        };
+        /** @description `GET /tenants/{tenant_id}/executions/{id}/tasks` response. */
+        ExecutionTasksResponse: {
+            execution_id: string;
+            tasks: components["schemas"]["TaskExecutionDetail"][];
+            tenant_id: string;
         };
         /**
          * @description One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
@@ -622,6 +737,34 @@ export interface components {
          *     returns `{items, total}`. `total` is best-effort — it equals the
          *     returned page size when the server doesn't run a separate COUNT.
          */
+        ListResponse_AgentInfo: {
+            items: {
+                agent_id: string;
+                /** Format: int32 */
+                available_capacity: number;
+                capabilities: string[];
+                /** Format: int32 */
+                in_flight: number;
+                /** Format: int32 */
+                max_concurrency: number;
+                /**
+                 * Format: int64
+                 * @description Seconds since this agent's last heartbeat — the liveness signal an
+                 *     operator reads (the underlying record stores a monotonic `Instant`,
+                 *     not a wall-clock time).
+                 */
+                seconds_since_heartbeat: number;
+                target_triple: string;
+                /** @description Tenant scope the agent registered under, if any. */
+                tenant_id?: string | null;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
         ListResponse_GraphStatus: {
             items: {
                 /** @description Names of the accumulators feeding this graph. */
@@ -687,6 +830,35 @@ export interface components {
              * @description The `.cloacina` package archive.
              */
             file: string;
+        };
+        /** @description One per-task row of an execution (CLOACI-I-0124 / WS-1). */
+        TaskExecutionDetail: {
+            /** Format: int32 */
+            attempt: number;
+            /** @description RFC 3339 timestamp; `null` while still running. */
+            completed_at?: string | null;
+            /**
+             * @description Row-created timestamp (RFC 3339) — always present; a fallback "start"
+             *     when `started_at` is null (some runner configs don't stamp it).
+             */
+            created_at: string;
+            /** @description Structured error details, when present. */
+            error_details?: string | null;
+            /** @description Task execution UUID. */
+            id: string;
+            /** @description Last error message for the most recent failed attempt, when present. */
+            last_error?: string | null;
+            /** Format: int32 */
+            max_attempts: number;
+            /** @description RFC 3339 timestamp; `null` until the task starts. */
+            started_at?: string | null;
+            status: string;
+            /** @description `sub_status` qualifier (e.g. deferral), when present. */
+            sub_status?: string | null;
+            /** @description Task identifier within the workflow. */
+            task_name: string;
+            /** @description Row-updated timestamp (RFC 3339) — always present; a fallback "end". */
+            updated_at: string;
         };
         /**
          * @description `201 Created` body for a new tenant. Password and connection string are
@@ -807,6 +979,13 @@ export interface components {
             enabled: boolean;
             /** @description Schedule UUID. */
             id: string;
+            /**
+             * Format: int64
+             * @description Poll interval in milliseconds for `trigger`-type schedules (the
+             *     custom-poll cadence). `None` for cron schedules. Lets the Triggers
+             *     detail view show "polls every Ns" (CLOACI-I-0124 / WS-6).
+             */
+            poll_interval_ms?: number | null;
             /** @description `cron` or `trigger`. */
             schedule_type: string;
             trigger_name?: string | null;
@@ -967,6 +1146,44 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_agents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fleet roster */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_AgentInfo"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
             };
         };
     };
@@ -1147,6 +1364,53 @@ export interface operations {
             };
             /** @description Missing or invalid API key */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    compiler_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Build-pipeline status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompilerStatus"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1558,6 +1822,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExecutionEventsResponse"];
+                };
+            };
+            /** @description Invalid execution ID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_execution_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Execution UUID */
+                exec_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-task execution rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionTasksResponse"];
                 };
             };
             /** @description Invalid execution ID */

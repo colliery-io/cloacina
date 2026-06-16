@@ -4,14 +4,14 @@ level: task
 title: "WS-2 — Operations/health view (server, compiler, scheduler, fleet)"
 short_code: "CLOACI-T-0704"
 created_at: 2026-06-16T01:50:12.986401+00:00
-updated_at: 2026-06-16T01:50:12.986401+00:00
+updated_at: 2026-06-16T03:21:54.369350+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -31,6 +31,10 @@ initiative_id: CLOACI-I-0124
 (P0) Add an **Operations/Health** view — the UI has none today. Surface data the
 server already exposes so an operator can answer "is my deployment healthy" without
 leaving the control plane.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria (real)
 
@@ -144,6 +148,9 @@ Depends on [[CLOACI-T-0702]] (maps each health/metrics/fleet source to a tile).
 ### Risk Considerations
 {Technical risks and mitigation strategies}
 
-## Status Updates **[REQUIRED]**
+## Status Updates
 
-*To be added during implementation*
+- 2026-06-16: **DONE + screenshot-verified** (commit committed after `b5749d85`, branch `feat/ui-0124-server-read-endpoints`). Screenshot `/tmp/cloacina-ui-uat/ws2/operations.png`.
+  - New **Operations** nav section (`/operations`, `IconHeartbeat`) with auto-refreshing (5s) tiles: **Server** (alive via `/health`, readiness via `/ready` incl. DB-pool + crashed-graph reason), **Compiler** (status building/backlogged/idle + pending/building + last success/failure from `/v1/compiler/status`), **Execution-agent fleet** (count + roster table from `/v1/agents`; empty-state explains in-process executor). `ui/src/routes/Operations.tsx` + `ui/src/api/operations.ts`.
+  - Verified on the demo: Server ALIVE/READY, Compiler IDLE w/ last-success timestamp, Fleet 0 agents (correct — embedded demo, no fleet).
+  - **Scoping notes:** scheduler-liveness tile and reconciler-lag + fleet evicted/reassigned counters were left out — they require parsing the Prometheus `/metrics` text (no JSON endpoint), which is heavier than WS-2 warrants; readiness already covers the "is it running" signal. Fleet roster table renders when agents exist (verified-empty here). Filed as a possible P2 enrichment if metrics-derived tiles are wanted.

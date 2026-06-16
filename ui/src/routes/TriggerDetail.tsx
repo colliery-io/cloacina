@@ -14,15 +14,26 @@
  *  limitations under the License.
  */
 
-import { Anchor, Badge, Card, Group, Stack, Table, Text, Title } from "@mantine/core";
-import { Link, useParams } from "react-router-dom";
+import { Anchor, Badge, Button, Card, Group, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useTrigger } from "../api/triggers";
+import { useExecuteWorkflow } from "../api/workflows";
+import { classifyError } from "../api/errors";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatTimestamp } from "../util/format";
+import { describeTriggerKind, formatPollInterval } from "../util/triggers";
 
 /**
- * Trigger detail (T-0654 / REQ-005): schedule fields + recent executions.
+ * Trigger detail (T-0654 / REQ-005; CLOACI-I-0124 / WS-6): schedule fields +
+ * recent executions. Shows the meaningful trigger kind (cron / poll), the
+ * cron expression or poll interval, and the workflow it fires — with a
+ * **Run now** control that fires that workflow directly through the execute
+ * endpoint.
+ *
+ * Enable/disable is read-only here: the server exposes no schedule-toggle
+ * endpoint (it would be a new capability, an I-0124 non-goal), so the state
+ * is shown but not editable.
  *
  * Note: `recent_executions` rows carry only a *schedule-execution* id, not
  * the workflow-execution id `/executions/:id` needs — so they're shown
@@ -32,16 +43,41 @@ import { formatTimestamp } from "../util/format";
  */
 export function TriggerDetail() {
   const { name = "" } = useParams();
+  const navigate = useNavigate();
   const { data, isPending, isError, error, refetch } = useTrigger(name);
+  const execute = useExecuteWorkflow();
+
+  function onRunNow() {
+    const workflow = data?.schedule.workflow_name;
+    if (!workflow) return;
+    execute.mutate(
+      { name: workflow },
+      { onSuccess: (res) => navigate(`/executions/${res.execution_id}`) },
+    );
+  }
+
+  const kind = data ? describeTriggerKind(data.schedule.schedule_type) : null;
 
   return (
     <Stack>
-      <div>
-        <Anchor component={Link} to="/triggers" size="sm">
-          ← Triggers
-        </Anchor>
-        <Title order={2}>{name}</Title>
-      </div>
+      <Group justify="space-between" align="flex-start">
+        <div>
+          <Anchor component={Link} to="/triggers" size="sm">
+            ← Triggers
+          </Anchor>
+          <Title order={2}>{name}</Title>
+        </div>
+        {data && (
+          <Button
+            size="sm"
+            loading={execute.isPending}
+            onClick={onRunNow}
+            disabled={!data.schedule.workflow_name}
+          >
+            Run now
+          </Button>
+        )}
+      </Group>
 
       {isPending ? (
         <Loading label="Loading schedule…" />
@@ -51,25 +87,43 @@ export function TriggerDetail() {
         <Empty message="Trigger not found." />
       ) : (
         <>
+          {execute.isError && (
+            <Text c="red" size="sm">
+              {classifyError(execute.error).message}
+            </Text>
+          )}
           <Card withBorder padding="lg">
             <Stack gap="sm">
               <Group>
-                <Badge
-                  variant="light"
-                  color={data.schedule.schedule_type === "cron" ? "grape" : "teal"}
+                {kind && (
+                  <Tooltip label={kind.tip} disabled={!kind.tip} multiline w={260} withArrow>
+                    <Badge variant="light" color={kind.color}>
+                      {kind.label}
+                    </Badge>
+                  </Tooltip>
+                )}
+                <Tooltip
+                  label="Schedule state is managed server-side; there is no enable/disable endpoint."
+                  multiline
+                  w={260}
+                  withArrow
                 >
-                  {data.schedule.schedule_type}
-                </Badge>
-                <Badge variant="dot" color={data.schedule.enabled ? "green" : "gray"}>
-                  {data.schedule.enabled ? "enabled" : "disabled"}
-                </Badge>
+                  <Badge variant="dot" color={data.schedule.enabled ? "green" : "gray"}>
+                    {data.schedule.enabled ? "enabled" : "disabled"}
+                  </Badge>
+                </Tooltip>
               </Group>
               <Text size="sm">
-                <b>Workflow:</b> {data.schedule.workflow_name}
+                <b>Fires workflow:</b> {data.schedule.workflow_name}
               </Text>
               {data.schedule.cron_expression && (
                 <Text size="sm">
                   <b>Cron:</b> {data.schedule.cron_expression}
+                </Text>
+              )}
+              {data.schedule.poll_interval_ms != null && (
+                <Text size="sm">
+                  <b>Polls:</b> every {formatPollInterval(data.schedule.poll_interval_ms)}
                 </Text>
               )}
               {data.schedule.trigger_name && (

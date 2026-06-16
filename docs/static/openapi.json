@@ -3072,6 +3072,14 @@
             "type": "string",
             "description": "Schedule UUID."
           },
+          "poll_interval_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Poll interval in milliseconds for `trigger`-type schedules (the\ncustom-poll cadence). `None` for cron schedules. Lets the Triggers\ndetail view show \"polls every Ns\" (CLOACI-I-0124 / WS-6)."
+          },
           "schedule_type": {
             "type": "string",
             "description": "`cron` or `trigger`."
