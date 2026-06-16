@@ -19,9 +19,55 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { ExecutionEvent } from "../components/EventLog";
-import { useClient, useTenant } from "../auth/AuthContext";
+import { useAuth, useClient, useTenant } from "../auth/AuthContext";
 import { isTerminalStatus } from "../util/status";
 import { queryKeys } from "./hooks";
+
+/** One per-task row of an execution (CLOACI-I-0124 / WS-1; `/executions/{id}/tasks`). */
+export type TaskExecutionDetail = {
+  id: string;
+  task_name: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  attempt: number;
+  max_attempts: number;
+  created_at: string;
+  updated_at: string;
+  sub_status: string | null;
+  last_error: string | null;
+  error_details: string | null;
+};
+
+type ExecutionTasksResponse = {
+  tenant_id: string;
+  execution_id: string;
+  tasks: TaskExecutionDetail[];
+};
+
+/**
+ * Per-task rows for an execution (CLOACI-I-0124 / WS-1). The generated SDK
+ * doesn't expose this endpoint yet, so we call it directly off the active
+ * connection. `poll` re-fetches every 2s while the run is in progress.
+ */
+export function useExecutionTasks(id: string, opts: { poll?: boolean } = {}) {
+  const { connection } = useAuth();
+  const tenant = useTenant();
+  return useQuery({
+    queryKey: queryKeys.executionTasks(tenant, id),
+    enabled: !!connection,
+    queryFn: async (): Promise<ExecutionTasksResponse> => {
+      const base = connection!.serverUrl.replace(/\/$/, "");
+      const res = await fetch(
+        `${base}/v1/tenants/${encodeURIComponent(tenant)}/executions/${encodeURIComponent(id)}/tasks`,
+        { headers: { Authorization: `Bearer ${connection!.apiKey}` } },
+      );
+      if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
+      return res.json();
+    },
+    refetchInterval: opts.poll ? 2000 : false,
+  });
+}
 
 export type ExecutionsQuery = {
   status?: string;

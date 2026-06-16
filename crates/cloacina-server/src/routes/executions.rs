@@ -448,6 +448,8 @@ pub async fn get_execution_tasks(
                     completed_at: t.completed_at.map(|ts| ts.0.to_rfc3339()),
                     attempt: t.attempt,
                     max_attempts: t.max_attempts,
+                    created_at: t.created_at.0.to_rfc3339(),
+                    updated_at: t.updated_at.0.to_rfc3339(),
                     sub_status: t.sub_status,
                     last_error: t.last_error,
                     error_details: t.error_details,

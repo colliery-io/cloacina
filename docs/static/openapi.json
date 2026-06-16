@@ -2655,7 +2655,9 @@
           "task_name",
           "status",
           "attempt",
-          "max_attempts"
+          "max_attempts",
+          "created_at",
+          "updated_at"
         ],
         "properties": {
           "attempt": {
@@ -2668,6 +2670,10 @@
               "null"
             ],
             "description": "RFC 3339 timestamp; `null` while still running."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Row-created timestamp (RFC 3339) — always present; a fallback \"start\"\nwhen `started_at` is null (some runner configs don't stamp it)."
           },
           "error_details": {
             "type": [
@@ -2711,6 +2717,10 @@
           "task_name": {
             "type": "string",
             "description": "Task identifier within the workflow."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Row-updated timestamp (RFC 3339) — always present; a fallback \"end\"."
           }
         }
       },

@@ -112,6 +112,11 @@ pub struct TaskExecutionDetail {
     pub completed_at: Option<String>,
     pub attempt: i32,
     pub max_attempts: i32,
+    /// Row-created timestamp (RFC 3339) — always present; a fallback "start"
+    /// when `started_at` is null (some runner configs don't stamp it).
+    pub created_at: String,
+    /// Row-updated timestamp (RFC 3339) — always present; a fallback "end".
+    pub updated_at: String,
     /// `sub_status` qualifier (e.g. deferral), when present.
     pub sub_status: Option<String>,
     /// Last error message for the most recent failed attempt, when present.

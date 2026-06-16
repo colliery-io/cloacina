@@ -18,9 +18,15 @@ import { Anchor, Badge, Card, Group, Stack, Text, Title } from "@mantine/core";
 import { useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { useExecution, useExecutionEvents, useLiveExecutionEvents } from "../api/executions";
+import {
+  useExecution,
+  useExecutionEvents,
+  useExecutionTasks,
+  useLiveExecutionEvents,
+} from "../api/executions";
 import { EventLog } from "../components/EventLog";
 import { StatusBadge } from "../components/StatusBadge";
+import { TaskTable } from "../components/TaskTable";
 import { ErrorState, Loading } from "../components/states/States";
 import { mergeEvents } from "../util/events";
 import { isTerminalStatus } from "../util/status";
@@ -43,12 +49,16 @@ export function ExecutionDetail() {
 
   const terminal = detail.data ? isTerminalStatus(detail.data.status) : true;
   const liveEvents = useLiveExecutionEvents(id, !terminal);
+  const tasks = useExecutionTasks(id, { poll: !terminal });
 
-  // On the in-progress → terminal transition, refetch the REST log so the
-  // final view is the server's authoritative history (not just what the
+  // On the in-progress → terminal transition, refetch the REST log + task rows
+  // so the final view is the server's authoritative history (not just what the
   // live tail happened to catch).
   useEffect(() => {
-    if (terminal) events.refetch();
+    if (terminal) {
+      events.refetch();
+      tasks.refetch();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminal]);
 
@@ -84,6 +94,24 @@ export function ExecutionDetail() {
           </Group>
         </Card>
       )}
+
+      <Card withBorder padding="lg">
+        <Group justify="space-between" mb="sm">
+          <Title order={4}>Tasks</Title>
+          {!terminal && (
+            <Text size="xs" c="blue">
+              live
+            </Text>
+          )}
+        </Group>
+        {tasks.isPending ? (
+          <Loading label="Loading tasks…" />
+        ) : tasks.isError ? (
+          <ErrorState error={tasks.error} onRetry={tasks.refetch} />
+        ) : (
+          <TaskTable tasks={tasks.data.tasks} />
+        )}
+      </Card>
 
       <Card withBorder padding="lg">
         <Group justify="space-between" mb="sm">
