@@ -103,7 +103,7 @@ export function Graphs() {
                 <Table.Th>Health</Table.Th>
                 <Table.Th>Accumulators</Table.Th>
                 <Table.Th>Throughput</Table.Th>
-                <Table.Th>Fires / last</Table.Th>
+                <Table.Th>Last fired</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -160,18 +160,22 @@ export function Graphs() {
                   </Table.Td>
                   <Table.Td style={{ whiteSpace: "nowrap" }}>
                     {rate == null ? (
-                      <Text size="sm" c="dimmed">
-                        —
-                      </Text>
+                      <Tooltip label="Recent fire rate; computed once two polls are in." withArrow>
+                        <Text size="sm" c="dimmed">
+                          —
+                        </Text>
+                      </Tooltip>
                     ) : (
-                      <Text size="sm">~{rate}/min</Text>
+                      <Tooltip
+                        label={`Recent rate. ${fires.toLocaleString()} total fires since the graph loaded.`}
+                        withArrow
+                      >
+                        <Text size="sm">~{rate}/min</Text>
+                      </Tooltip>
                     )}
                   </Table.Td>
                   <Table.Td style={{ whiteSpace: "nowrap" }}>
-                    <Text size="sm">{fires.toLocaleString()}</Text>
-                    <Text size="xs" c="dimmed">
-                      {formatAgo(lastFired)}
-                    </Text>
+                    <Text size="sm">{formatAgo(lastFired)}</Text>
                   </Table.Td>
                 </Table.Tr>
                 );

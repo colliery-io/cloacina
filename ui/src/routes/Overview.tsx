@@ -26,6 +26,7 @@ import { RunCircles, type RunDot } from "../components/RunCircles";
 import { StatusBadge } from "../components/StatusBadge";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatTimestamp } from "../util/format";
+import { useGraphThroughput } from "../util/activity";
 
 const PREVIEW = 8;
 
@@ -48,6 +49,7 @@ export function Overview() {
   // (no workflow tasks) appear in the Computation graphs tile instead (WS-10).
   const wfItems = (workflows.data?.items ?? []).filter((w) => w.tasks.length > 0);
   const graphItems = graphs.data?.items ?? [];
+  const graphTp = useGraphThroughput(graphItems);
   const recentItems = recent.data?.items ?? [];
 
   const runsByWorkflow = useMemo(() => {
@@ -136,11 +138,13 @@ export function Overview() {
                 <Table.Tr>
                   <Table.Th>Name</Table.Th>
                   <Table.Th>Health</Table.Th>
-                  <Table.Th>Accumulators</Table.Th>
+                  <Table.Th>Throughput</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {graphItems.slice(0, PREVIEW).map((g) => (
+                {graphItems.slice(0, PREVIEW).map((g) => {
+                  const rate = graphTp.get(g.name);
+                  return (
                   <Table.Tr
                     key={g.name}
                     style={{ cursor: "pointer" }}
@@ -155,10 +159,13 @@ export function Overview() {
                       <GraphHealth value={g.health} />
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{g.accumulators?.length ?? "—"}</Text>
+                      <Text size="sm" c={rate == null ? "dimmed" : undefined}>
+                        {rate == null ? "—" : `~${rate}/min`}
+                      </Text>
                     </Table.Td>
                   </Table.Tr>
-                ))}
+                  );
+                })}
               </Table.Tbody>
             </Table>
           )}

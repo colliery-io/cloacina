@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T19:45:47Z | 710 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T20:16:10Z | 711 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -943,6 +943,7 @@
     │   │   └── setup.ts
     │   ├── theme.ts
     │   ├── util/
+    │   │   ├── activity.ts
     │   │   ├── eventLabels.ts
     │   │   ├── events.ts
     │   │   ├── format.ts
@@ -1730,9 +1731,9 @@
 
 - pub `paths` interface L6-479 — `{ "/health": : { parameters: { query?: never; header?: never; path?: never; cook...`
 - pub `webhooks` type L480 — `= Record<string, never>`
-- pub `components` interface L481-1113 — `{ schemas: : { /** @description One row in `GET /v1/health/accumulators`. */ Acc...`
-- pub `$defs` type L1114 — `= Record<string, never>`
-- pub `operations` interface L1115-2413 — `{ health: : { parameters: { query?: never; header?: never; path?: never; cookie?...`
+- pub `components` interface L481-1131 — `{ schemas: : { /** @description One row in `GET /v1/health/accumulators`. */ Acc...`
+- pub `$defs` type L1132 — `= Record<string, never>`
+- pub `operations` interface L1133-2431 — `{ health: : { parameters: { query?: never; header?: never; path?: never; cookie?...`
 
 ### clients/typescript/src
 
@@ -1850,7 +1851,7 @@
 -  `record_accumulator_event` function L808-827 — `( ctx: &AccumulatorContext, kind: &'static str, emit_started: std::time::Instant...` — Record one accumulator event and its emit duration.
 -  `set_accumulator_buffer_depth` function L833-840 — `(ctx: &AccumulatorContext, depth: f64)` — Update the `cloacina_accumulator_buffer_depth` gauge.
 -  `persist_boundary` function L843-874 — `(ctx: &AccumulatorContext, boundary: &T)` — Persist last-emitted boundary with sequence number to DAL (best-effort, logs on failure).
--  `tests` module L1014-1663 — `-` — See CLOACI-S-0004 for the full specification.
+-  `tests` module L1014-1667 — `-` — See CLOACI-S-0004 for the full specification.
 -  `TestEvent` struct L1019-1021 — `{ value: f64 }` — See CLOACI-S-0004 for the full specification.
 -  `TestBoundary` struct L1024-1026 — `{ result: f64 }` — See CLOACI-S-0004 for the full specification.
 -  `DoubleAccumulator` struct L1028 — `-` — See CLOACI-S-0004 for the full specification.
@@ -1858,35 +1859,35 @@
 -  `Output` type L1032 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
 -  `process` function L1034-1039 — `(&mut self, event: Vec<u8>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
 -  `test_boundary_sender_round_trip` function L1043-1055 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_stream_accumulator_reaches_live` function L1062-1110 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_stream_accumulator_reaches_live` function L1062-1114 — `()` — See CLOACI-S-0004 for the full specification.
 -  `IdleSource` struct L1063 — `-` — See CLOACI-S-0004 for the full specification.
 -  `IdleSource` type L1065-1074 — `impl EventSource for IdleSource` — See CLOACI-S-0004 for the full specification.
 -  `run` function L1066-1073 — `( self, _events: mpsc::Sender<Vec<u8>>, mut shutdown: watch::Receiver<bool>, ) -...` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_runtime_processes_socket_events` function L1113-1151 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_runtime_multiple_events` function L1154-1190 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_shutdown` function L1193-1222 — `()` — See CLOACI-S-0004 for the full specification.
--  `CountingPoller` struct L1226-1229 — `{ count: u32, max: u32 }` — See CLOACI-S-0004 for the full specification.
--  `CountingPoller` type L1232-1249 — `impl PollingAccumulator for CountingPoller` — See CLOACI-S-0004 for the full specification.
--  `Output` type L1233 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `poll` function L1235-1244 — `(&mut self) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `interval` function L1246-1248 — `(&self) -> std::time::Duration` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_emits_on_some` function L1252-1289 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_skips_on_none` function L1292-1321 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_shutdown` function L1324-1348 — `()` — See CLOACI-S-0004 for the full specification.
--  `SumBatchAccumulator` struct L1352 — `-` — See CLOACI-S-0004 for the full specification.
--  `SumBatchAccumulator` type L1355-1366 — `impl BatchAccumulator for SumBatchAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Output` type L1356 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process_batch` function L1358-1365 — `(&mut self, events: Vec<Vec<u8>>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_flush_on_signal` function L1369-1418 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_flush_on_timer` function L1421-1467 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_empty_flush_skips` function L1470-1506 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_max_buffer_size` function L1509-1554 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_shutdown_drains` function L1557-1600 — `()` — See CLOACI-S-0004 for the full specification.
--  `FilterAccumulator` struct L1602 — `-` — See CLOACI-S-0004 for the full specification.
--  `FilterAccumulator` type L1605-1619 — `impl Accumulator for FilterAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Output` type L1606 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process` function L1608-1618 — `(&mut self, event: Vec<u8>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_process_returns_none` function L1622-1662 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_runtime_processes_socket_events` function L1117-1155 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_runtime_multiple_events` function L1158-1194 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_shutdown` function L1197-1226 — `()` — See CLOACI-S-0004 for the full specification.
+-  `CountingPoller` struct L1230-1233 — `{ count: u32, max: u32 }` — See CLOACI-S-0004 for the full specification.
+-  `CountingPoller` type L1236-1253 — `impl PollingAccumulator for CountingPoller` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L1237 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `poll` function L1239-1248 — `(&mut self) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `interval` function L1250-1252 — `(&self) -> std::time::Duration` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_emits_on_some` function L1256-1293 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_skips_on_none` function L1296-1325 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_shutdown` function L1328-1352 — `()` — See CLOACI-S-0004 for the full specification.
+-  `SumBatchAccumulator` struct L1356 — `-` — See CLOACI-S-0004 for the full specification.
+-  `SumBatchAccumulator` type L1359-1370 — `impl BatchAccumulator for SumBatchAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L1360 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process_batch` function L1362-1369 — `(&mut self, events: Vec<Vec<u8>>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_flush_on_signal` function L1373-1422 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_flush_on_timer` function L1425-1471 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_empty_flush_skips` function L1474-1510 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_max_buffer_size` function L1513-1558 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_shutdown_drains` function L1561-1604 — `()` — See CLOACI-S-0004 for the full specification.
+-  `FilterAccumulator` struct L1606 — `-` — See CLOACI-S-0004 for the full specification.
+-  `FilterAccumulator` type L1609-1623 — `impl Accumulator for FilterAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L1610 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process` function L1612-1622 — `(&mut self, event: Vec<u8>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_process_returns_none` function L1626-1666 — `()` — See CLOACI-S-0004 for the full specification.
 
 #### crates/cloacina/src/computation_graph/mod.rs
 
@@ -1949,22 +1950,27 @@
 - pub `clear_all` function L154-158 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
 - pub `StrategySignal` enum L169-174 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
 - pub `ManualCommand` enum L178-183 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
-- pub `ReactorHandle` struct L193-198 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
-- pub `get_state` function L202-205 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
-- pub `is_paused` function L208-210 — `(&self) -> bool` — Check if the reactor is paused.
-- pub `pause` function L213-215 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
-- pub `resume` function L218-220 — `(&self)` — Resume the reactor.
-- pub `Reactor` struct L228-264 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
-- pub `new` function L267-292 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
-- pub `with_batch_flush_senders` function L295-298 — `(mut self, senders: Vec<mpsc::Sender<()>>) -> Self` — Add batch flush senders — reactor will signal these after each graph execution.
-- pub `with_graph_name` function L301-304 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
-- pub `with_dal` function L307-310 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
-- pub `with_tenant_id` function L313-316 — `(mut self, tenant_id: Option<String>) -> Self` — Set the tenant scope for reactor firings (CLOACI-I-0100 / T-0599).
-- pub `with_health` function L319-322 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
-- pub `with_expected_sources` function L328-331 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
-- pub `with_accumulator_health` function L334-343 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
-- pub `handle` function L349-354 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
-- pub `run` function L357-754 — `(mut self)` — Run the reactor.
+- pub `ReactorStats` struct L197-201 — `{ fires: std::sync::atomic::AtomicU64, last_fire_unix_ms: std::sync::atomic::Ato...` — Handle to a running reactor — exposes shared state for WebSocket queries.
+- pub `record_fire` function L205-213 — `(&self) -> u64` — Record a graph fire; returns the new total.
+- pub `fires` function L216-218 — `(&self) -> u64` — Total fires so far.
+- pub `last_fire_unix_ms` function L221-229 — `(&self) -> Option<i64>` — Unix-epoch millis of the last fire, or `None` if it hasn't fired yet.
+- pub `ReactorHandle` struct L233-240 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool>, stats: Arc<ReactorSta...` — See CLOACI-S-0005 for the full specification.
+- pub `get_state` function L244-247 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
+- pub `stats` function L250-252 — `(&self) -> (u64, Option<i64>)` — Live operational counters: `(total_fires, last_fire_unix_ms)`.
+- pub `is_paused` function L255-257 — `(&self) -> bool` — Check if the reactor is paused.
+- pub `pause` function L260-262 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
+- pub `resume` function L265-267 — `(&self)` — Resume the reactor.
+- pub `Reactor` struct L275-313 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
+- pub `new` function L316-342 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
+- pub `with_batch_flush_senders` function L345-348 — `(mut self, senders: Vec<mpsc::Sender<()>>) -> Self` — Add batch flush senders — reactor will signal these after each graph execution.
+- pub `with_graph_name` function L351-354 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
+- pub `with_dal` function L357-360 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
+- pub `with_tenant_id` function L363-366 — `(mut self, tenant_id: Option<String>) -> Self` — Set the tenant scope for reactor firings (CLOACI-I-0100 / T-0599).
+- pub `with_health` function L369-372 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
+- pub `with_expected_sources` function L378-381 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
+- pub `with_accumulator_health` function L384-393 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
+- pub `handle` function L399-405 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
+- pub `run` function L408-807 — `(mut self)` — Run the reactor.
 -  `SeqQueue` type L38 — `= Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>>` — Sequential-strategy queue: shared boundary buffer that the strategy
 -  `ReactorHealth` type L61-70 — `= ReactorHealth` — See CLOACI-S-0005 for the full specification.
 -  `fmt` function L62-69 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0005 for the full specification.
@@ -1974,20 +1980,21 @@
 -  `DirtyFlags` type L123-159 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `DirtyFlags` type L161-165 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `default` function L162-164 — `() -> Self` — See CLOACI-S-0005 for the full specification.
--  `ReactorHandle` type L200-221 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
--  `Reactor` type L266-755 — `= Reactor` — See CLOACI-S-0005 for the full specification.
--  `write_reactor_firing` function L765-817 — `( dal: &Option<crate::dal::unified::DAL>, tenant_id: &Option<String>, reactor_na...` — Write one `reactor_firings` row to the DAL on each fire.
--  `PERSIST_FAILURE_DEGRADE_THRESHOLD` variable L822 — `: u32` — Threshold for the persist-failure watchdog: a reactor whose persist
--  `persist_reactor_state` function L832-910 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
--  `record_reactor_persist_failure` function L918-944 — `( graph_name: &str, kind: &'static str, persist_streak: &Arc<std::sync::atomic::...` — Increment the bounded persist-failures counter for a reactor, bump the
--  `tests` module L947-1125 — `-` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_any` function L951-960 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_all` function L963-971 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_clear_all` function L974-982 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_empty_all_set` function L985-989 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_fires_on_boundary` function L992-1034 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_manual_force_fire` function L1037-1073 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_cache_snapshot_isolation` function L1076-1124 — `()` — See CLOACI-S-0005 for the full specification.
+-  `ReactorStats` type L203-230 — `= ReactorStats` — See CLOACI-S-0005 for the full specification.
+-  `ReactorHandle` type L242-268 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
+-  `Reactor` type L315-808 — `= Reactor` — See CLOACI-S-0005 for the full specification.
+-  `write_reactor_firing` function L818-870 — `( dal: &Option<crate::dal::unified::DAL>, tenant_id: &Option<String>, reactor_na...` — Write one `reactor_firings` row to the DAL on each fire.
+-  `PERSIST_FAILURE_DEGRADE_THRESHOLD` variable L875 — `: u32` — Threshold for the persist-failure watchdog: a reactor whose persist
+-  `persist_reactor_state` function L885-963 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
+-  `record_reactor_persist_failure` function L971-997 — `( graph_name: &str, kind: &'static str, persist_streak: &Arc<std::sync::atomic::...` — Increment the bounded persist-failures counter for a reactor, bump the
+-  `tests` module L1000-1178 — `-` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_any` function L1004-1013 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_all` function L1016-1024 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_clear_all` function L1027-1035 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_empty_all_set` function L1038-1042 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_fires_on_boundary` function L1045-1087 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_manual_force_fire` function L1090-1126 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_cache_snapshot_isolation` function L1129-1177 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/computation_graph/registry.rs
 
@@ -2030,19 +2037,19 @@
 -  `EndpointRegistry` type L211-508 — `= EndpointRegistry` — under the same name all receive the message.
 -  `EndpointRegistry` type L510-514 — `impl Default for EndpointRegistry` — under the same name all receive the message.
 -  `default` function L511-513 — `() -> Self` — under the same name all receive the message.
--  `tests` module L517-833 — `-` — under the same name all receive the message.
--  `dummy_handle` function L521-526 — `() -> ReactorHandle` — under the same name all receive the message.
--  `test_register_send_deregister_accumulator` function L529-552 — `()` — under the same name all receive the message.
--  `test_broadcast_to_multiple_accumulators` function L555-578 — `()` — under the same name all receive the message.
--  `test_send_to_unregistered_accumulator` function L581-588 — `()` — under the same name all receive the message.
--  `test_register_send_deregister_reactor` function L591-614 — `()` — under the same name all receive the message.
--  `test_send_to_unregistered_reactor` function L617-624 — `()` — under the same name all receive the message.
--  `test_closed_accumulator_channel_pruned` function L627-653 — `()` — under the same name all receive the message.
--  `test_list_accumulators_and_reactors` function L656-673 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_deny_by_default` function L676-690 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_authorized_key` function L693-731 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_tenant_scoped` function L734-788 — `()` — under the same name all receive the message.
--  `test_reactor_auth_with_operation_permissions` function L791-832 — `()` — under the same name all receive the message.
+-  `tests` module L517-834 — `-` — under the same name all receive the message.
+-  `dummy_handle` function L521-527 — `() -> ReactorHandle` — under the same name all receive the message.
+-  `test_register_send_deregister_accumulator` function L530-553 — `()` — under the same name all receive the message.
+-  `test_broadcast_to_multiple_accumulators` function L556-579 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_accumulator` function L582-589 — `()` — under the same name all receive the message.
+-  `test_register_send_deregister_reactor` function L592-615 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_reactor` function L618-625 — `()` — under the same name all receive the message.
+-  `test_closed_accumulator_channel_pruned` function L628-654 — `()` — under the same name all receive the message.
+-  `test_list_accumulators_and_reactors` function L657-674 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_deny_by_default` function L677-691 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_authorized_key` function L694-732 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_tenant_scoped` function L735-789 — `()` — under the same name all receive the message.
+-  `test_reactor_auth_with_operation_permissions` function L792-833 — `()` — under the same name all receive the message.
 
 #### crates/cloacina/src/computation_graph/scheduler.rs
 
@@ -2051,49 +2058,49 @@
 - pub `AccumulatorSpawnConfig` struct L73-80 — `{ dal: Option<crate::dal::unified::DAL>, health_tx: Option<watch::Sender<Accumul...` — Configuration passed to [`AccumulatorFactory::spawn`] for resilience wiring.
 - pub `AccumulatorFactory` interface L85-98 — `{ fn spawn() }` — Factory trait for creating accumulator instances.
 - pub `ReactorDeclaration` struct L102-109 — `{ criteria: ReactionCriteria, strategy: InputStrategy, graph_fn: CompiledGraphFn...` — Declaration for the reactor.
-- pub `GraphStatus` struct L113-134 — `{ name: String, accumulators: Vec<String>, paused: bool, running: bool, health: ...` — Status of a managed computation graph.
-- pub `ComputationGraphScheduler` struct L324-341 — `{ registry: EndpointRegistry, reactors: Arc<RwLock<HashMap<String, RunningGraph>...` — The Reactive Scheduler.
-- pub `new` function L344-352 — `(registry: EndpointRegistry) -> Self` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
-- pub `with_dal` function L355-363 — `(registry: EndpointRegistry, dal: crate::dal::unified::DAL) -> Self` — Create a scheduler with DAL support for persistence and health tracking.
-- pub `load_reactor` function L380-569 — `( &self, reactor_name: String, accumulators: Vec<AccumulatorDeclaration>, criter...` — Load and start a reactor with no subscribers.
-- pub `bind_graph_to_reactor` function L577-612 — `( &self, graph_name: String, reactor_name: String, graph_fn: CompiledGraphFn, ) ...` — Bind a graph as an additional subscriber on an already-loaded reactor.
-- pub `load_graph` function L622-693 — `(&self, decl: ComputationGraphDeclaration) -> Result<(), String>` — Load and start a computation graph.
-- pub `load_graph_split` function L711-750 — `( &self, graph_name: String, graph_fn: CompiledGraphFn, reactor: &cloacina_compu...` — Load a computation graph that references a reactor declaration by
-- pub `unbind_graph_from_reactor` function L758-790 — `(&self, name: &str) -> Result<String, String>` — Unbind a graph from its reactor without affecting the reactor itself.
-- pub `unload_reactor` function L797-853 — `(&self, reactor_name: &str) -> Result<(), String>` — Tear down a reactor and its accumulators.
-- pub `unload_graph` function L861-878 — `(&self, name: &str) -> Result<(), String>` — Backward-compat convenience: unbind the graph from its reactor and,
-- pub `reactor_accumulator_names` function L884-893 — `(&self, reactor_name: &str) -> Option<Vec<String>>` — Snapshot the accumulator names of a loaded reactor, in declaration
-- pub `list_graphs` function L898-931 — `(&self) -> Vec<GraphStatus>` — List all loaded computation graphs with status.
-- pub `check_and_restart_failed` function L938-1239 — `(&self) -> usize` — Check all graphs for crashed tasks and restart them.
-- pub `start_supervision` function L1244-1270 — `( self: &Arc<Self>, mut shutdown_rx: watch::Receiver<bool>, check_interval: std:...` — Start a background supervision loop that checks for crashed tasks.
-- pub `emit_health_metrics` function L1281-1311 — `(&self)` — Walk every loaded graph and emit the current
-- pub `shutdown_all` function L1336-1347 — `(&self)` — Graceful shutdown of all graphs.
--  `check_reactor_contract_matches` function L141-170 — `( existing: &ComputationGraphDeclaration, new: &ComputationGraphDeclaration, ) -...` — Validate that two declarations targeting the same reactor name agree on
--  `dummy_graph_fn` function L175-177 — `() -> CompiledGraphFn` — Placeholder `CompiledGraphFn` used inside the synthetic anchoring
--  `ReactorSubscribers` type L185 — `= Arc<RwLock<HashMap<String, CompiledGraphFn>>>` — Subscribers bound to a single reactor instance.
--  `make_subscriber_dispatcher` function L195-236 — `( reactor_name: String, subscribers: ReactorSubscribers, ) -> CompiledGraphFn` — Build the dispatcher [`CompiledGraphFn`] handed to [`Reactor::new`].
--  `RunningGraph` struct L239-270 — `{ shutdown_tx: watch::Sender<bool>, shutdown_rx: watch::Receiver<bool>, boundary...` — State for a running computation graph.
--  `MAX_RECOVERY_ATTEMPTS` variable L273 — `: u32` — Maximum consecutive failures before a component is permanently abandoned.
--  `COMPONENT_HEALTH_STATES` variable L280 — `: &[&str]` — All possible label values for the `state` label on
--  `emit_component_health` function L287-298 — `(graph: &str, component: &str, current: &'static str)` — Emit the `cloacina_component_health` gauge for a single component, setting
--  `classify_join_result` function L306-312 — `(result: Result<(), tokio::task::JoinError>) -> &'static str` — Classify a finished [`JoinHandle`] result into the bounded `reason`
--  `BACKOFF_BASE_SECS` variable L315 — `: u64` — Base delay for exponential backoff (doubles on each failure, capped at 60s).
--  `BACKOFF_MAX_SECS` variable L318 — `: u64` — Maximum backoff delay.
--  `SUCCESS_RESET_SECS` variable L321 — `: u64` — Duration of successful operation before failure counter resets.
--  `ComputationGraphScheduler` type L343-1348 — `= ComputationGraphScheduler` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `record_recovery_event` function L1314-1333 — `(&self, component: &str, attempt: u32, backoff_secs: u64)` — Record a recovery event in the DAL (best-effort, logs on failure).
--  `tests` module L1351-1533 — `-` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `TestEvent` struct L1362-1364 — `{ value: f64 }` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `TestAccumulatorFactory` struct L1367 — `-` — A simple passthrough accumulator for testing.
--  `TestAccumulatorFactory` type L1369-1411 — `impl AccumulatorFactory for TestAccumulatorFactory` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `spawn` function L1370-1410 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `Passthrough` struct L1379 — `-` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `Passthrough` type L1382-1387 — `impl Accumulator for Passthrough` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `Output` type L1383 — `= TestEvent` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `process` function L1384-1386 — `(&mut self, event: Vec<u8>) -> Option<TestEvent>` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `test_load_graph_push_event_fires` function L1414-1463 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `test_unload_graph_deregisters` function L1466-1504 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
--  `test_duplicate_load_rejected` function L1507-1532 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+- pub `GraphStatus` struct L113-138 — `{ name: String, accumulators: Vec<String>, paused: bool, running: bool, health: ...` — Status of a managed computation graph.
+- pub `ComputationGraphScheduler` struct L328-345 — `{ registry: EndpointRegistry, reactors: Arc<RwLock<HashMap<String, RunningGraph>...` — The Reactive Scheduler.
+- pub `new` function L348-356 — `(registry: EndpointRegistry) -> Self` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+- pub `with_dal` function L359-367 — `(registry: EndpointRegistry, dal: crate::dal::unified::DAL) -> Self` — Create a scheduler with DAL support for persistence and health tracking.
+- pub `load_reactor` function L384-573 — `( &self, reactor_name: String, accumulators: Vec<AccumulatorDeclaration>, criter...` — Load and start a reactor with no subscribers.
+- pub `bind_graph_to_reactor` function L581-616 — `( &self, graph_name: String, reactor_name: String, graph_fn: CompiledGraphFn, ) ...` — Bind a graph as an additional subscriber on an already-loaded reactor.
+- pub `load_graph` function L626-697 — `(&self, decl: ComputationGraphDeclaration) -> Result<(), String>` — Load and start a computation graph.
+- pub `load_graph_split` function L715-754 — `( &self, graph_name: String, graph_fn: CompiledGraphFn, reactor: &cloacina_compu...` — Load a computation graph that references a reactor declaration by
+- pub `unbind_graph_from_reactor` function L762-794 — `(&self, name: &str) -> Result<String, String>` — Unbind a graph from its reactor without affecting the reactor itself.
+- pub `unload_reactor` function L801-857 — `(&self, reactor_name: &str) -> Result<(), String>` — Tear down a reactor and its accumulators.
+- pub `unload_graph` function L865-882 — `(&self, name: &str) -> Result<(), String>` — Backward-compat convenience: unbind the graph from its reactor and,
+- pub `reactor_accumulator_names` function L888-897 — `(&self, reactor_name: &str) -> Option<Vec<String>>` — Snapshot the accumulator names of a loaded reactor, in declaration
+- pub `list_graphs` function L902-937 — `(&self) -> Vec<GraphStatus>` — List all loaded computation graphs with status.
+- pub `check_and_restart_failed` function L944-1245 — `(&self) -> usize` — Check all graphs for crashed tasks and restart them.
+- pub `start_supervision` function L1250-1276 — `( self: &Arc<Self>, mut shutdown_rx: watch::Receiver<bool>, check_interval: std:...` — Start a background supervision loop that checks for crashed tasks.
+- pub `emit_health_metrics` function L1287-1317 — `(&self)` — Walk every loaded graph and emit the current
+- pub `shutdown_all` function L1342-1353 — `(&self)` — Graceful shutdown of all graphs.
+-  `check_reactor_contract_matches` function L145-174 — `( existing: &ComputationGraphDeclaration, new: &ComputationGraphDeclaration, ) -...` — Validate that two declarations targeting the same reactor name agree on
+-  `dummy_graph_fn` function L179-181 — `() -> CompiledGraphFn` — Placeholder `CompiledGraphFn` used inside the synthetic anchoring
+-  `ReactorSubscribers` type L189 — `= Arc<RwLock<HashMap<String, CompiledGraphFn>>>` — Subscribers bound to a single reactor instance.
+-  `make_subscriber_dispatcher` function L199-240 — `( reactor_name: String, subscribers: ReactorSubscribers, ) -> CompiledGraphFn` — Build the dispatcher [`CompiledGraphFn`] handed to [`Reactor::new`].
+-  `RunningGraph` struct L243-274 — `{ shutdown_tx: watch::Sender<bool>, shutdown_rx: watch::Receiver<bool>, boundary...` — State for a running computation graph.
+-  `MAX_RECOVERY_ATTEMPTS` variable L277 — `: u32` — Maximum consecutive failures before a component is permanently abandoned.
+-  `COMPONENT_HEALTH_STATES` variable L284 — `: &[&str]` — All possible label values for the `state` label on
+-  `emit_component_health` function L291-302 — `(graph: &str, component: &str, current: &'static str)` — Emit the `cloacina_component_health` gauge for a single component, setting
+-  `classify_join_result` function L310-316 — `(result: Result<(), tokio::task::JoinError>) -> &'static str` — Classify a finished [`JoinHandle`] result into the bounded `reason`
+-  `BACKOFF_BASE_SECS` variable L319 — `: u64` — Base delay for exponential backoff (doubles on each failure, capped at 60s).
+-  `BACKOFF_MAX_SECS` variable L322 — `: u64` — Maximum backoff delay.
+-  `SUCCESS_RESET_SECS` variable L325 — `: u64` — Duration of successful operation before failure counter resets.
+-  `ComputationGraphScheduler` type L347-1354 — `= ComputationGraphScheduler` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `record_recovery_event` function L1320-1339 — `(&self, component: &str, attempt: u32, backoff_secs: u64)` — Record a recovery event in the DAL (best-effort, logs on failure).
+-  `tests` module L1357-1539 — `-` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `TestEvent` struct L1368-1370 — `{ value: f64 }` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `TestAccumulatorFactory` struct L1373 — `-` — A simple passthrough accumulator for testing.
+-  `TestAccumulatorFactory` type L1375-1417 — `impl AccumulatorFactory for TestAccumulatorFactory` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `spawn` function L1376-1416 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `Passthrough` struct L1385 — `-` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `Passthrough` type L1388-1393 — `impl Accumulator for Passthrough` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `Output` type L1389 — `= TestEvent` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `process` function L1390-1392 — `(&mut self, event: Vec<u8>) -> Option<TestEvent>` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `test_load_graph_push_event_fires` function L1420-1469 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `test_unload_graph_deregisters` function L1472-1510 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
+-  `test_duplicate_load_rejected` function L1513-1538 — `()` — spawns tokio tasks, registers endpoints, and restarts tasks on panic.
 
 #### crates/cloacina/src/computation_graph/stream_backend.rs
 
@@ -6625,10 +6632,10 @@
 #### crates/cloacina-api-types/src/health.rs
 
 - pub `AccumulatorStatus` struct L24-29 — `{ name: String, status: serde_json::Value }` — One row in `GET /v1/health/accumulators`.
-- pub `GraphStatus` struct L35-57 — `{ name: String, health: serde_json::Value, accumulators: Vec<String>, paused: bo...` — One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
-- pub `GraphTopology` struct L62-65 — `{ nodes: Vec<GraphTopologyNode>, edges: Vec<GraphTopologyEdge> }` — Node/edge topology of a computation graph (CLOACI-T-0673).
-- pub `GraphTopologyNode` struct L70-76 — `{ id: String, inputs: Vec<String> }` — One compute node in a computation graph (CLOACI-T-0673).
-- pub `GraphTopologyEdge` struct L81-87 — `{ from: String, to: String, label: Option<String> }` — One directed edge in a computation graph (CLOACI-T-0673).
+- pub `GraphStatus` struct L35-65 — `{ name: String, health: serde_json::Value, accumulators: Vec<String>, paused: bo...` — One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
+- pub `GraphTopology` struct L70-73 — `{ nodes: Vec<GraphTopologyNode>, edges: Vec<GraphTopologyEdge> }` — Node/edge topology of a computation graph (CLOACI-T-0673).
+- pub `GraphTopologyNode` struct L78-84 — `{ id: String, inputs: Vec<String> }` — One compute node in a computation graph (CLOACI-T-0673).
+- pub `GraphTopologyEdge` struct L89-95 — `{ from: String, to: String, label: Option<String> }` — One directed edge in a computation graph (CLOACI-T-0673).
 
 #### crates/cloacina-api-types/src/keys.rs
 
@@ -8215,15 +8222,15 @@
 #### crates/cloacina-server/src/routes/health_graphs.rs
 
 - pub `list_accumulators` function L80-100 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — registered-but-not-running graphs.
-- pub `list_graphs` function L114-150 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — registered-but-not-running graphs.
-- pub `get_graph` function L167-208 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — registered-but-not-running graphs.
+- pub `list_graphs` function L114-155 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — registered-but-not-running graphs.
+- pub `get_graph` function L172-218 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — registered-but-not-running graphs.
 -  `key_context` function L42-48 — `(auth: &'a AuthenticatedKey) -> KeyContext<'a>` — Build a `KeyContext` from the `AuthenticatedKey` for policy
 -  `graph_visible` function L54-66 — `(auth: &AuthenticatedKey, graph_tenant: Option<&str>) -> bool` — Decide whether the caller may see a graph based on its tenant scope.
--  `tests` module L211-247 — `-` — registered-but-not-running graphs.
--  `auth` function L214-222 — `(tenant: Option<&str>, is_admin: bool) -> AuthenticatedKey` — registered-but-not-running graphs.
--  `graph_visible_admin_sees_all` function L225-230 — `()` — registered-but-not-running graphs.
--  `graph_visible_tenant_scoped` function L233-239 — `()` — registered-but-not-running graphs.
--  `graph_visible_global_key_cannot_see_tenant_graphs` function L242-246 — `()` — registered-but-not-running graphs.
+-  `tests` module L221-257 — `-` — registered-but-not-running graphs.
+-  `auth` function L224-232 — `(tenant: Option<&str>, is_admin: bool) -> AuthenticatedKey` — registered-but-not-running graphs.
+-  `graph_visible_admin_sees_all` function L235-240 — `()` — registered-but-not-running graphs.
+-  `graph_visible_tenant_scoped` function L243-249 — `()` — registered-but-not-running graphs.
+-  `graph_visible_global_key_cannot_see_tenant_graphs` function L252-256 — `()` — registered-but-not-running graphs.
 
 #### crates/cloacina-server/src/routes/keys.rs
 
@@ -12752,18 +12759,20 @@
 
 #### ui/harness/src/produce.mjs
 
-- pub `produce` function L156-175 — `function produce(cfg)`
+- pub `produce` function L174-193 — `function produce(cfg)`
 -  `log` function L23 — `const log = (...a)`
 -  `sleep` function L24 — `const sleep = (ms)`
 -  `orderbookEvent` function L28-35 — `function orderbookEvent(t)`
 -  `pricingEvent` function L36-38 — `function pricingEvent(t)`
 -  `kafkaEvent` function L40-42 — `function kafkaEvent(t)`
--  `socketFeeds` function L50-58 — `function socketFeeds(cfg)`
--  `fetchTicket` function L60-69 — `function fetchTicket(serverUrl, apiKey)`
--  `wsUrl` function L71-74 — `function wsUrl(serverUrl, accumulator, ticket)`
--  `runSocketFeed` function L78-109 — `function runSocketFeed({ accumulator, gen }, cfg, state)`
--  `runKafkaFeed` function L112-151 — `function runKafkaFeed(cfg, state)`
--  `onStop` function L158-160 — `const onStop = ()`
+-  `alphaEvent` function L44-46 — `function alphaEvent(t)`
+-  `bidAskEvent` function L48-55 — `function bidAskEvent(t)`
+-  `socketFeeds` function L68-76 — `function socketFeeds(cfg)`
+-  `fetchTicket` function L78-87 — `function fetchTicket(serverUrl, apiKey)`
+-  `wsUrl` function L89-92 — `function wsUrl(serverUrl, accumulator, ticket)`
+-  `runSocketFeed` function L96-127 — `function runSocketFeed({ accumulator, gen }, cfg, state)`
+-  `runKafkaFeed` function L130-169 — `function runKafkaFeed(cfg, state)`
+-  `onStop` function L176-178 — `const onStop = ()`
 
 ### ui/src
 
@@ -12806,8 +12815,8 @@
 #### ui/src/api/health.ts
 
 - pub `useAccumulators` function L26-33 — `function useAccumulators()`
-- pub `useGraphs` function L35-42 — `function useGraphs()`
-- pub `useGraph` function L44-51 — `function useGraph(name: string)`
+- pub `useGraphs` function L35-45 — `function useGraphs()`
+- pub `useGraph` function L47-54 — `function useGraph(name: string)`
 
 #### ui/src/api/keys.ts
 
@@ -12956,9 +12965,9 @@
 
 #### ui/src/routes/Graphs.tsx
 
-- pub `Graphs` function L68-196 — `function Graphs()`
--  `stateColor` function L27-47 — `function stateColor(state: string | undefined): string`
--  `StateDot` function L49-62 — `function StateDot({ state }: { state: string })`
+- pub `Graphs` function L69-217 — `function Graphs()`
+-  `stateColor` function L28-48 — `function stateColor(state: string | undefined): string`
+-  `StateDot` function L50-63 — `function StateDot({ state }: { state: string })`
 
 #### ui/src/routes/Keys.tsx
 
@@ -13016,6 +13025,12 @@
 ### ui/src/util
 
 > *Semantic summary to be generated by AI agent.*
+
+#### ui/src/util/activity.ts
+
+- pub `formatAgo` function L20-29 — `function formatAgo(ts: string | null | undefined): string`
+- pub `useGraphThroughput` function L43-63 — `function useGraphThroughput(items: GraphFireSample[]): Map<string, number | null...`
+-  `GraphFireSample` interface L31-34 — `{ name: : string, fires: : number }`
 
 #### ui/src/util/eventLabels.ts
 
