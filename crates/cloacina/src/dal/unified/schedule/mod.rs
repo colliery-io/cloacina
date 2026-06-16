@@ -183,6 +183,22 @@ impl<'a> ScheduleDAL<'a> {
         )
     }
 
+    /// Upserts a cron schedule by its identity (workflow_name + cron_expression
+    /// + timezone). Idempotent: re-registering the same packaged cron trigger
+    /// (e.g. on every reconcile re-load) updates the existing row's next-run
+    /// time instead of inserting a duplicate (CLOACI-T-0669). Returns the
+    /// resulting schedule.
+    pub async fn upsert_cron(
+        &self,
+        new_schedule: NewSchedule,
+    ) -> Result<Schedule, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.upsert_cron_postgres(new_schedule).await,
+            self.upsert_cron_sqlite(new_schedule).await
+        )
+    }
+
     /// Retrieves a schedule by its trigger name.
     pub async fn get_by_trigger_name(
         &self,
@@ -280,6 +296,56 @@ mod tests {
         assert!(schedule.is_cron());
         assert!(!schedule.is_trigger());
         assert!(schedule.next_run_at.is_some());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_upsert_cron_is_idempotent() {
+        // CLOACI-T-0669: re-registering the same packaged cron (same workflow +
+        // cron + timezone) must update the existing row, not insert a duplicate.
+        let dal = unique_dal().await;
+        let next_run = UniversalTimestamp::now();
+
+        let first = dal
+            .schedule()
+            .upsert_cron(NewSchedule::cron("wf", "*/15 * * * * *", next_run))
+            .await
+            .unwrap();
+        // A second register (as the reconciler does on every re-load) — same id.
+        let second = dal
+            .schedule()
+            .upsert_cron(NewSchedule::cron("wf", "*/15 * * * * *", next_run))
+            .await
+            .unwrap();
+        assert_eq!(first.id, second.id, "re-register must reuse the same row");
+
+        let crons = dal
+            .schedule()
+            .list(Some("cron"), false, 100, 0)
+            .await
+            .unwrap();
+        assert_eq!(
+            crons.len(),
+            1,
+            "exactly one cron schedule after re-register"
+        );
+
+        // A different cron expression for the same workflow is a distinct
+        // schedule, so it inserts a new row rather than overwriting.
+        dal.schedule()
+            .upsert_cron(NewSchedule::cron("wf", "0 0 * * *", next_run))
+            .await
+            .unwrap();
+        let crons = dal
+            .schedule()
+            .list(Some("cron"), false, 100, 0)
+            .await
+            .unwrap();
+        assert_eq!(
+            crons.len(),
+            2,
+            "a different cron expression is a new schedule"
+        );
     }
 
     #[cfg(feature = "sqlite")]

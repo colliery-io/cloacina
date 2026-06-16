@@ -930,6 +930,221 @@ impl<'a> ScheduleDAL<'a> {
     }
 
     #[cfg(feature = "postgres")]
+    pub(super) async fn upsert_cron_postgres(
+        &self,
+        new_schedule: NewSchedule,
+    ) -> Result<Schedule, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        // Identity of a cron schedule: (workflow_name, cron_expression,
+        // timezone). Re-registering the same packaged cron on a reconcile
+        // re-load updates the existing row instead of inserting a duplicate.
+        let cron_expression =
+            new_schedule
+                .cron_expression
+                .clone()
+                .ok_or_else(|| ValidationError::DatabaseQuery {
+                    message: "cron_expression is required for upsert_cron".to_string(),
+                })?;
+        let workflow_name = new_schedule.workflow_name.clone();
+        let timezone = new_schedule.timezone.clone();
+
+        let (wf, cron, tz) = (
+            workflow_name.clone(),
+            cron_expression.clone(),
+            timezone.clone(),
+        );
+        let existing: Option<UnifiedSchedule> = conn
+            .interact(move |conn| {
+                let mut q = schedules::table
+                    .filter(schedules::schedule_type.eq("cron"))
+                    .filter(schedules::workflow_name.eq(wf))
+                    .filter(schedules::cron_expression.eq(cron))
+                    .into_boxed();
+                q = match tz {
+                    Some(t) => q.filter(schedules::timezone.eq(t)),
+                    None => q.filter(schedules::timezone.is_null()),
+                };
+                q.first(conn).optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        if let Some(existing) = existing {
+            let now = UniversalTimestamp::now();
+            let existing_id = existing.id;
+            let next_run_at = new_schedule.next_run_at;
+            let enabled = new_schedule
+                .enabled
+                .unwrap_or_else(|| UniversalBool::from(true));
+
+            conn.interact(move |conn| {
+                diesel::update(schedules::table.find(existing_id))
+                    .set((
+                        schedules::next_run_at.eq(next_run_at),
+                        schedules::enabled.eq(enabled),
+                        schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+            let result: UnifiedSchedule = conn
+                .interact(move |conn| schedules::table.find(existing_id).first(conn))
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            Ok(result.into())
+        } else {
+            let id = UniversalUuid::new_v4();
+            let now = UniversalTimestamp::now();
+            let new_unified = NewUnifiedSchedule {
+                id,
+                schedule_type: new_schedule.schedule_type,
+                workflow_name: new_schedule.workflow_name,
+                enabled: new_schedule
+                    .enabled
+                    .unwrap_or_else(|| UniversalBool::from(true)),
+                cron_expression: new_schedule.cron_expression,
+                timezone: new_schedule.timezone,
+                catchup_policy: new_schedule.catchup_policy,
+                start_date: new_schedule.start_date,
+                end_date: new_schedule.end_date,
+                trigger_name: new_schedule.trigger_name,
+                poll_interval_ms: new_schedule.poll_interval_ms,
+                allow_concurrent: new_schedule.allow_concurrent,
+                next_run_at: new_schedule.next_run_at,
+                created_at: now,
+                updated_at: now,
+            };
+            conn.interact(move |conn| {
+                diesel::insert_into(schedules::table)
+                    .values(&new_unified)
+                    .execute(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+            let result: UnifiedSchedule = conn
+                .interact(move |conn| schedules::table.find(id).first(conn))
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            Ok(result.into())
+        }
+    }
+
+    #[cfg(feature = "sqlite")]
+    pub(super) async fn upsert_cron_sqlite(
+        &self,
+        new_schedule: NewSchedule,
+    ) -> Result<Schedule, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let cron_expression =
+            new_schedule
+                .cron_expression
+                .clone()
+                .ok_or_else(|| ValidationError::DatabaseQuery {
+                    message: "cron_expression is required for upsert_cron".to_string(),
+                })?;
+        let workflow_name = new_schedule.workflow_name.clone();
+        let timezone = new_schedule.timezone.clone();
+
+        let (wf, cron, tz) = (
+            workflow_name.clone(),
+            cron_expression.clone(),
+            timezone.clone(),
+        );
+        let existing: Option<UnifiedSchedule> = conn
+            .interact(move |conn| {
+                let mut q = schedules::table
+                    .filter(schedules::schedule_type.eq("cron"))
+                    .filter(schedules::workflow_name.eq(wf))
+                    .filter(schedules::cron_expression.eq(cron))
+                    .into_boxed();
+                q = match tz {
+                    Some(t) => q.filter(schedules::timezone.eq(t)),
+                    None => q.filter(schedules::timezone.is_null()),
+                };
+                q.first(conn).optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        if let Some(existing) = existing {
+            let now = UniversalTimestamp::now();
+            let existing_id = existing.id;
+            let next_run_at = new_schedule.next_run_at;
+            let enabled = new_schedule
+                .enabled
+                .unwrap_or_else(|| UniversalBool::from(true));
+
+            conn.interact(move |conn| {
+                diesel::update(schedules::table.find(existing_id))
+                    .set((
+                        schedules::next_run_at.eq(next_run_at),
+                        schedules::enabled.eq(enabled),
+                        schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+            let result: UnifiedSchedule = conn
+                .interact(move |conn| schedules::table.find(existing_id).first(conn))
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            Ok(result.into())
+        } else {
+            let id = UniversalUuid::new_v4();
+            let now = UniversalTimestamp::now();
+            let new_unified = NewUnifiedSchedule {
+                id,
+                schedule_type: new_schedule.schedule_type,
+                workflow_name: new_schedule.workflow_name,
+                enabled: new_schedule
+                    .enabled
+                    .unwrap_or_else(|| UniversalBool::from(true)),
+                cron_expression: new_schedule.cron_expression,
+                timezone: new_schedule.timezone,
+                catchup_policy: new_schedule.catchup_policy,
+                start_date: new_schedule.start_date,
+                end_date: new_schedule.end_date,
+                trigger_name: new_schedule.trigger_name,
+                poll_interval_ms: new_schedule.poll_interval_ms,
+                allow_concurrent: new_schedule.allow_concurrent,
+                next_run_at: new_schedule.next_run_at,
+                created_at: now,
+                updated_at: now,
+            };
+            conn.interact(move |conn| {
+                diesel::insert_into(schedules::table)
+                    .values(&new_unified)
+                    .execute(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+            let result: UnifiedSchedule = conn
+                .interact(move |conn| schedules::table.find(id).first(conn))
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            Ok(result.into())
+        }
+    }
+
+    #[cfg(feature = "postgres")]
     pub(super) async fn get_by_trigger_name_postgres(
         &self,
         name: String,

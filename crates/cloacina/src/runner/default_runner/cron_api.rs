@@ -389,11 +389,15 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
         new_schedule.timezone = Some(timezone.to_string());
 
         let dal = DAL::new(self.database.clone());
+        // Idempotent on (workflow_name, cron_expression, timezone): the
+        // reconciler re-runs this on every package re-load, and a partially-
+        // failed load is retried each tick — `create` accumulated a duplicate
+        // schedule every time (CLOACI-T-0669). Upsert collapses those to one.
         let schedule = dal
             .schedule()
-            .create(new_schedule)
+            .upsert_cron(new_schedule)
             .await
-            .map_err(|e| format!("Failed to create cron schedule: {}", e))?;
+            .map_err(|e| format!("Failed to register cron schedule: {}", e))?;
 
         Ok(schedule.id.to_string())
     }

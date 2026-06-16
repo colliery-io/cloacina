@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T04:29:47Z | 705 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T10:49:19Z | 706 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -931,6 +931,7 @@
     │   │   ├── Operations.tsx
     │   │   ├── Overview.tsx
     │   │   ├── Placeholder.tsx
+    │   │   ├── Settings.tsx
     │   │   ├── TriggerDetail.tsx
     │   │   ├── Triggers.tsx
     │   │   ├── WorkflowDetail.tsx
@@ -12747,7 +12748,7 @@
 
 #### ui/src/App.tsx
 
-- pub `App` function L43-68 — `function App()`
+- pub `App` function L44-69 — `function App()`
 
 #### ui/src/vite-env.d.ts
 
@@ -12944,6 +12945,12 @@
 
 - pub `Placeholder` function L24-31 — `function Placeholder({ title }: { title: string })`
 - pub `NotFound` function L33-40 — `function NotFound()`
+
+#### ui/src/routes/Settings.tsx
+
+- pub `Settings` function L35-82 — `function Settings()`
+-  `maskKey` function L23-26 — `function maskKey(key: string): string`
+-  `Row` function L84-93 — `function Row({ label, children }: { label: string; children: React.ReactNode })`
 
 #### ui/src/routes/TriggerDetail.tsx
 
