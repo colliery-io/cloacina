@@ -20,6 +20,7 @@ open the browser and use the UI against a live server.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -66,6 +67,21 @@ DEMO_FIXTURES = [
     # Ported from tutorials 09-full-pipeline / 10-routing.
     "demo-pipeline-rust",
     "demo-routing-rust",
+]
+
+EXAMPLES_DIR = PROJECT_ROOT / "examples"
+
+# WS-11: real example/how-to packages loaded into the demo alongside the demo-*
+# fixtures, so the catalog reflects what the docs teach. Paths are relative to
+# `examples/`; mixed Rust + Python, staged generically (relative crate paths are
+# normalized to this checkout, Python source trees copied wholesale).
+EXAMPLE_PACKAGES = [
+    "features/workflows/simple-packaged",
+    "features/workflows/packaged-workflows",
+    "features/workflows/packaged-triggers",
+    "features/workflows/complex-dag",
+    "features/computation-graphs/packaged-graph",
+    "features/computation-graphs/python-packaged-graph",
 ]
 HARNESS_DIR = PROJECT_ROOT / "ui" / "harness"
 
@@ -270,6 +286,57 @@ def _stage_and_pack(fixture: str, home: Path) -> Path:
     return archive
 
 
+def _normalize_cargo(text: str) -> str:
+    """Rewrite an example's relative crate-path deps (e.g. `../../../crates/…`)
+    to absolute paths in this checkout, then resolve any `__WORKSPACE__` token —
+    so a package authored with repo-relative paths builds when staged elsewhere
+    (the compiler builds in `/workspace`). CLOACI-I-0124 / WS-11."""
+    ws = str(PROJECT_ROOT)
+    text = re.sub(r"(?:\.\./)+crates/", f"{ws}/crates/", text)
+    return text.replace("__WORKSPACE__", ws)
+
+
+def _stage_and_pack_example(rel_path: str, home: Path) -> Path:
+    """Stage + pack an example/how-to package from `examples/<rel_path>` (Rust or
+    Python). Rust: package.toml + normalized Cargo.toml + build.rs + src/; Python:
+    package.toml + the source tree(s). Packs to dist/<dirname>.cloacina."""
+    src = EXAMPLES_DIR / rel_path
+    name = src.name
+    staged = home / f"staged-{name}"
+    if staged.exists():
+        shutil.rmtree(staged)
+    staged.mkdir(parents=True)
+    ws = str(PROJECT_ROOT)
+
+    (staged / "package.toml").write_text((src / "package.toml").read_text().replace("__WORKSPACE__", ws))
+
+    if (src / "Cargo.toml").exists():
+        # Rust package.
+        (staged / "Cargo.toml").write_text(_normalize_cargo((src / "Cargo.toml").read_text()))
+        if (src / "build.rs").exists():
+            (staged / "build.rs").write_text((src / "build.rs").read_text().replace("__WORKSPACE__", ws))
+        shutil.copytree(src / "src", staged / "src")
+    else:
+        # Python package — copy every non-manifest entry (e.g. the source tree).
+        for child in src.iterdir():
+            if child.name == "package.toml":
+                continue
+            if child.is_dir():
+                shutil.copytree(child, staged / child.name)
+            else:
+                shutil.copy2(child, staged / child.name)
+
+    FIXTURES_DIST.mkdir(parents=True, exist_ok=True)
+    archive = FIXTURES_DIST / f"{name}.cloacina"
+    cloacinactl = PROJECT_ROOT / "target" / "debug" / "cloacinactl"
+    subprocess.run(
+        [str(cloacinactl), "--home", str(home),
+         "package", "pack", str(staged), "--out", str(archive)],
+        check=True, cwd=str(PROJECT_ROOT),
+    )
+    return archive
+
+
 @ui()
 @angreal.command(
     name="build-fixtures",
@@ -293,6 +360,15 @@ def build_fixtures():
         print(f"Packing {fx}…")
         archive = _stage_and_pack(fx, Path(home))
         print(f"  → {archive}")
+    # WS-11: also pack the example/how-to packages (best-effort — a malformed
+    # example shouldn't sink the whole demo build).
+    for ex in EXAMPLE_PACKAGES:
+        print(f"Packing example {ex}…")
+        try:
+            archive = _stage_and_pack_example(ex, Path(home))
+            print(f"  → {archive}")
+        except Exception as e:  # noqa: BLE001 — report + continue
+            print(f"  ! skipped {ex}: {e}")
     print(f"\nFixtures ready in {FIXTURES_DIST}")
     return 0
 
