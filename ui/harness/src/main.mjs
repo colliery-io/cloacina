@@ -38,6 +38,8 @@ import path from "node:path";
 
 import { CloacinaClient } from "@cloacina/client";
 
+import { produce } from "./produce.mjs";
+
 const env = process.env;
 const cfg = {
   serverUrl: env.HARNESS_SERVER_URL ?? "http://localhost:8080",
@@ -52,6 +54,11 @@ const cfg = {
   healthTimeoutMs: intEnv("HARNESS_HEALTH_TIMEOUT_MS", 60000),
   runTimeoutMs: intEnv("HARNESS_RUN_TIMEOUT_MS", 60000),
   registerTimeoutMs: intEnv("HARNESS_REGISTER_TIMEOUT_MS", 120000),
+  // Live CG data feed (WS-11). `produce` mode pushes boundary events on this
+  // interval; Kafka feed only runs when a broker is configured.
+  produceIntervalMs: intEnv("HARNESS_PRODUCE_INTERVAL_MS", 2000),
+  kafkaBroker: env.HARNESS_KAFKA_BROKER ?? "",
+  kafkaTopic: env.HARNESS_KAFKA_TOPIC ?? "demo.kafka.stream",
 };
 
 function intEnv(name, dflt) {
@@ -253,6 +260,20 @@ async function main() {
   log(`server=${cfg.serverUrl} tenant=${cfg.tenant} mode=${cfg.mode} packages=${cfg.packageDir}`);
   const client = makeClient();
   await waitForHealth(client);
+
+  // `produce` only feeds data into already-loaded CGs — it doesn't touch
+  // tenants/packages. seed/loop ensure the tenant + upload packages first.
+  if (cfg.mode === "produce") {
+    await produce({
+      serverUrl: cfg.serverUrl.replace(/\/+$/, ""),
+      apiKey: cfg.apiKey,
+      intervalMs: cfg.produceIntervalMs,
+      kafkaBroker: cfg.kafkaBroker,
+      kafkaTopic: cfg.kafkaTopic,
+    });
+    return;
+  }
+
   await ensureTenant(client);
   await uploadPackages(client);
 
@@ -261,7 +282,7 @@ async function main() {
   } else if (cfg.mode === "seed") {
     await seed(client);
   } else {
-    throw new Error(`unknown HARNESS_MODE '${cfg.mode}' (expected seed|loop)`);
+    throw new Error(`unknown HARNESS_MODE '${cfg.mode}' (expected seed|loop|produce)`);
   }
 }
 

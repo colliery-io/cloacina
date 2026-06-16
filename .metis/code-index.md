@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T12:26:44Z | 708 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T12:43:42Z | 709 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -913,6 +913,7 @@
     │   │   ├── EventLog.tsx
     │   │   ├── GraphHealth.tsx
     │   │   ├── RequireAuth.tsx
+    │   │   ├── RunCircles.tsx
     │   │   ├── Shell.tsx
     │   │   ├── StatusBadge.tsx
     │   │   ├── TaskTable.tsx
@@ -12866,6 +12867,12 @@
 
 - pub `RequireAuth` function L25-29 — `function RequireAuth()`
 
+#### ui/src/components/RunCircles.tsx
+
+- pub `RunDot` interface L22-26 — `{ id: : string, status: : string, started_at: : string | null }`
+- pub `RunCircles` function L42-69 — `function RunCircles({ runs, max = 12 }: { runs: RunDot[]; max?: number })`
+-  `whenLabel` function L28-32 — `function whenLabel(ts: string | null | undefined): string`
+
 #### ui/src/components/Shell.tsx
 
 - pub `Shell` function L47-94 — `function Shell()`
@@ -12904,8 +12911,8 @@
 
 #### ui/src/routes/Connect.tsx
 
-- pub `Connect` function L40-120 — `function Connect()`
--  `onSubmit` function L62-77 — `function onSubmit(values: typeof form.values)`
+- pub `Connect` function L40-140 — `function Connect()`
+-  `onSubmit` function L61-76 — `function onSubmit(values: typeof form.values)`
 
 #### ui/src/routes/ExecutionDetail.tsx
 
@@ -12929,7 +12936,9 @@
 
 #### ui/src/routes/Graphs.tsx
 
-- pub `Graphs` function L28-122 — `function Graphs()`
+- pub `Graphs` function L68-196 — `function Graphs()`
+-  `stateColor` function L27-47 — `function stateColor(state: string | undefined): string`
+-  `StateDot` function L49-62 — `function StateDot({ state }: { state: string })`
 
 #### ui/src/routes/Keys.tsx
 
@@ -12946,7 +12955,7 @@
 
 #### ui/src/routes/Overview.tsx
 
-- pub `Overview` function L37-193 — `function Overview()`
+- pub `Overview` function L39-204 — `function Overview()`
 
 #### ui/src/routes/Placeholder.tsx
 
@@ -12981,7 +12990,8 @@
 
 #### ui/src/routes/Workflows.tsx
 
-- pub `Workflows` function L28-99 — `function Workflows()`
+- pub `Workflows` function L45-109 — `function Workflows()`
+-  `useRecentRunsByWorkflow` function L28-39 — `function useRecentRunsByWorkflow(): Map<string, RunDot[]>`
 
 ### ui/src/util
 

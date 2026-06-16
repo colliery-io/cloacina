@@ -360,3 +360,53 @@ def seed(loop: bool = False, server: str = None, key: str = None, tenant: str = 
         ["node", "src/main.mjs"], cwd=str(HARNESS_DIR), env=env,
     )
     return proc.returncode
+
+
+@ui()
+@angreal.command(
+    name="produce",
+    about="stream live boundary data into the demo computation graphs (CLOACI-I-0124 / WS-11)",
+    long_about=(
+        "Pushes a continuous market-data feed into the demo CG accumulators so "
+        "the graphs actually fire and the UI shows live activity: `orderbook` + "
+        "`pricing` over the server's WebSocket producer endpoint (feeding "
+        "market_pipeline + market_maker), and `kafka_alpha` via Kafka when "
+        "--kafka-broker is given (feeding demo_kafka_graph). Runs until Ctrl-C. "
+        "Point it at a running stack (`angreal ui up` for the host, or the "
+        "docker-compose demo)."
+    ),
+    when_to_use=["making the demo CGs live for UI testing"],
+    when_not_to_use=["no server running", "production"],
+)
+@angreal.argument(
+    name="server", long="server", help=f"server URL (default {SERVER_URL})",
+    required=False, takes_value=True, is_flag=False,
+)
+@angreal.argument(
+    name="key", long="key", help="API key (default the dev bootstrap key)",
+    required=False, takes_value=True, is_flag=False,
+)
+@angreal.argument(
+    name="tenant", long="tenant", help="tenant (default public)",
+    required=False, takes_value=True, is_flag=False,
+)
+@angreal.argument(
+    name="kafka_broker", long="kafka-broker",
+    help="Kafka broker (e.g. localhost:9092) to also feed kafka_alpha; omit to skip Kafka",
+    required=False, takes_value=True, is_flag=False,
+)
+def produce(server: str = None, key: str = None, tenant: str = None, kafka_broker: str = None):
+    _ensure_harness_ready()
+    env = os.environ.copy()
+    env["HARNESS_SERVER_URL"] = server or SERVER_URL
+    env["HARNESS_API_KEY"] = key or DEV_BOOTSTRAP_KEY
+    env["HARNESS_TENANT"] = tenant or "public"
+    env["HARNESS_MODE"] = "produce"
+    if kafka_broker:
+        env["HARNESS_KAFKA_BROKER"] = kafka_broker
+
+    print(f"Producing live CG data into {env['HARNESS_SERVER_URL']} (Ctrl-C to stop)…")
+    proc = subprocess.run(
+        ["node", "src/main.mjs"], cwd=str(HARNESS_DIR), env=env,
+    )
+    return proc.returncode
