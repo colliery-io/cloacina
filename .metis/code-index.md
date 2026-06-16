@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T18:47:41Z | 710 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T19:05:52Z | 710 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -1904,8 +1904,8 @@
 - pub `PassthroughAccumulatorFactory` struct L322 — `-` — A generic passthrough accumulator factory for FFI-loaded packages.
 - pub `StreamBackendAccumulatorFactory` struct L375-378 — `{ config: std::collections::HashMap<String, String> }` — A stream-backed accumulator factory for FFI-loaded packages.
 - pub `new` function L381-383 — `(config: std::collections::HashMap<String, String>) -> Self` — `execute_graph()` via fidius FFI.
-- pub `dispatch_runtime_reactors_into_scheduler` function L549-603 — `( runtime: &crate::Runtime, scheduler: &super::scheduler::ComputationGraphSchedu...` — Dispatch every reactor registered in `runtime` into `scheduler` via
-- pub `dispatch_package_reactors_into_scheduler` function L618-681 — `( reactor_metadata: &[cloacina_workflow_plugin::ReactorPackageMetadata], schedul...` — Dispatch reactors declared by a packaged Rust cdylib (T-B / I-0102).
+- pub `dispatch_runtime_reactors_into_scheduler` function L561-615 — `( runtime: &crate::Runtime, scheduler: &super::scheduler::ComputationGraphSchedu...` — Dispatch every reactor registered in `runtime` into `scheduler` via
+- pub `dispatch_package_reactors_into_scheduler` function L630-693 — `( reactor_metadata: &[cloacina_workflow_plugin::ReactorPackageMetadata], schedul...` — Dispatch reactors declared by a packaged Rust cdylib (T-B / I-0102).
 -  `LoadedGraphPlugin` struct L46-50 — `{ handle: std::sync::Mutex<fidius_host::PluginHandle>, _temp_dir: tempfile::Temp...` — A persistent handle to a loaded FFI graph plugin.
 -  `LoadedGraphPlugin` type L54 — `impl Send for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
 -  `LoadedGraphPlugin` type L55 — `impl Sync for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
@@ -1921,13 +1921,13 @@
 -  `spawn` function L336-366 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
 -  `StreamBackendAccumulatorFactory` type L380-384 — `= StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
 -  `KafkaEventSource` struct L388-394 — `{ broker_var: String, topic: String, group: String, extra: std::collections::Has...` — EventSource that reads raw bytes from a Kafka topic.
--  `KafkaEventSource` type L398-454 — `= KafkaEventSource` — `execute_graph()` via fidius FFI.
--  `run` function L399-453 — `( self, events: mpsc::Sender<Vec<u8>>, mut shutdown: watch::Receiver<bool>, ) ->...` — `execute_graph()` via fidius FFI.
--  `StreamBackendAccumulatorFactory` type L456-529 — `impl AccumulatorFactory for StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
--  `spawn` function L457-528 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
--  `tests` module L684-757 — `-` — `execute_graph()` via fidius FFI.
--  `test_build_declaration_from_ffi_metadata` function L689-719 — `()` — `execute_graph()` via fidius FFI.
--  `test_reaction_mode_parsing` function L722-756 — `()` — `execute_graph()` via fidius FFI.
+-  `KafkaEventSource` type L398-466 — `= KafkaEventSource` — `execute_graph()` via fidius FFI.
+-  `run` function L399-465 — `( self, events: mpsc::Sender<Vec<u8>>, mut shutdown: watch::Receiver<bool>, ) ->...` — `execute_graph()` via fidius FFI.
+-  `StreamBackendAccumulatorFactory` type L468-541 — `impl AccumulatorFactory for StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
+-  `spawn` function L469-540 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
+-  `tests` module L696-769 — `-` — `execute_graph()` via fidius FFI.
+-  `test_build_declaration_from_ffi_metadata` function L701-731 — `()` — `execute_graph()` via fidius FFI.
+-  `test_reaction_mode_parsing` function L734-768 — `()` — `execute_graph()` via fidius FFI.
 
 #### crates/cloacina/src/computation_graph/reactor.rs
 
@@ -12732,33 +12732,34 @@
 
 #### ui/harness/src/main.mjs
 
--  `intEnv` function L64-69 — `function intEnv(name, dflt)`
--  `log` function L71 — `const log = (...args)`
--  `sleep` function L72 — `const sleep = (ms)`
--  `makeClient` function L74-81 — `function makeClient()`
--  `waitForHealth` function L83-96 — `function waitForHealth(client)`
--  `ensureTenant` function L99-117 — `function ensureTenant(client)`
--  `uploadPackages` function L121-145 — `function uploadPackages(client)`
--  `execute` function L147-151 — `function execute(client, workflow, context)`
--  `executeReady` function L157-173 — `function executeReady(client, workflow, context)`
--  `waitForTerminal` function L176-186 — `function waitForTerminal(client, execId)`
--  `seed` function L188-224 — `function seed(client)`
--  `loop` function L226-257 — `function loop(client)`
--  `main` function L259-287 — `function main()`
+-  `intEnv` function L67-72 — `function intEnv(name, dflt)`
+-  `log` function L74 — `const log = (...args)`
+-  `sleep` function L75 — `const sleep = (ms)`
+-  `makeClient` function L77-84 — `function makeClient()`
+-  `waitForHealth` function L86-99 — `function waitForHealth(client)`
+-  `ensureTenant` function L102-120 — `function ensureTenant(client)`
+-  `uploadPackages` function L124-148 — `function uploadPackages(client)`
+-  `execute` function L150-154 — `function execute(client, workflow, context)`
+-  `executeReady` function L160-176 — `function executeReady(client, workflow, context)`
+-  `waitForTerminal` function L179-189 — `function waitForTerminal(client, execId)`
+-  `seed` function L191-227 — `function seed(client)`
+-  `loop` function L229-260 — `function loop(client)`
+-  `main` function L262-291 — `function main()`
 
 #### ui/harness/src/produce.mjs
 
-- pub `produce` function L145-163 — `function produce(cfg)`
+- pub `produce` function L156-175 — `function produce(cfg)`
 -  `log` function L23 — `const log = (...a)`
 -  `sleep` function L24 — `const sleep = (ms)`
 -  `orderbookEvent` function L28-35 — `function orderbookEvent(t)`
 -  `pricingEvent` function L36-38 — `function pricingEvent(t)`
 -  `kafkaEvent` function L40-42 — `function kafkaEvent(t)`
--  `fetchTicket` function L49-58 — `function fetchTicket(serverUrl, apiKey)`
--  `wsUrl` function L60-63 — `function wsUrl(serverUrl, accumulator, ticket)`
--  `runSocketFeed` function L67-98 — `function runSocketFeed({ accumulator, gen }, cfg, state)`
--  `runKafkaFeed` function L101-140 — `function runKafkaFeed(cfg, state)`
--  `onStop` function L147-149 — `const onStop = ()`
+-  `socketFeeds` function L50-58 — `function socketFeeds(cfg)`
+-  `fetchTicket` function L60-69 — `function fetchTicket(serverUrl, apiKey)`
+-  `wsUrl` function L71-74 — `function wsUrl(serverUrl, accumulator, ticket)`
+-  `runSocketFeed` function L78-109 — `function runSocketFeed({ accumulator, gen }, cfg, state)`
+-  `runKafkaFeed` function L112-151 — `function runKafkaFeed(cfg, state)`
+-  `onStop` function L158-160 — `const onStop = ()`
 
 ### ui/src
 
