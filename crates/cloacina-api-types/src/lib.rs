@@ -47,7 +47,7 @@ pub use delivery::{ClientMessage, EnvelopeError, ServerMessage, DELIVERY_PROTOCO
 pub use error::ErrorBody;
 pub use executions::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
-    ExecutionSummary, ListExecutionsQuery,
+    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskExecutionDetail,
 };
 pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,

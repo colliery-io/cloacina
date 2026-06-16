@@ -31,11 +31,12 @@
 use cloacina_api_types::{
     AccumulatorStatus, CreateKeyRequest, CreateTenantRequest, ErrorBody, ExecuteRequest,
     ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse, ExecutionSummary,
-    GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode, KeyCreatedResponse, KeyInfo,
-    KeyRevokedResponse, KeyRole, ListResponse, TenantCreatedResponse, TenantListResponse,
-    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerExecution,
-    TriggerScheduleInfo, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
-    WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse, WsTicketResponse,
+    ExecutionTasksResponse, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
+    KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse, TaskExecutionDetail,
+    TenantCreatedResponse, TenantListResponse, TenantRemovedResponse, TenantSummary,
+    TriggerDetailResponse, TriggerExecution, TriggerScheduleInfo, TriggerScheduleSummary,
+    WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowTaskNode,
+    WorkflowUploadedResponse, WsTicketResponse,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -105,6 +106,7 @@ impl Modify for SecurityAddon {
         crate::routes::executions::list_executions,
         crate::routes::executions::get_execution,
         crate::routes::executions::get_execution_events,
+        crate::routes::executions::get_execution_tasks,
         crate::routes::health_graphs::list_accumulators,
         crate::routes::health_graphs::list_graphs,
         crate::routes::health_graphs::get_graph,
@@ -141,6 +143,8 @@ impl Modify for SecurityAddon {
         ExecutionDetail,
         ExecutionEvent,
         ExecutionEventsResponse,
+        TaskExecutionDetail,
+        ExecutionTasksResponse,
         TenantListResponse<ExecutionSummary>,
         AccumulatorStatus,
         GraphStatus,

@@ -28,7 +28,8 @@ use cloacina::executor::WorkflowExecutor;
 use cloacina::Context;
 use cloacina_api_types::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
-    ExecutionSummary, ListExecutionsQuery, TenantListResponse,
+    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskExecutionDetail,
+    TenantListResponse,
 };
 
 use crate::routes::auth::AuthenticatedKey;
@@ -377,6 +378,85 @@ pub async fn get_execution_events(
                 tenant_id,
                 execution_id: exec_id,
                 events: items,
+            })
+            .into_response()
+        }
+        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+    }
+}
+
+/// GET /tenants/:tenant_id/executions/:id/tasks — per-task rows for an execution.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks",
+    tag = "executions",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("exec_id" = String, Path, description = "Execution UUID"),
+    ),
+    responses(
+        (status = 200, description = "Per-task execution rows", body = ExecutionTasksResponse),
+        (status = 400, description = "Invalid execution ID", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn get_execution_tasks(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, exec_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
+    let id = match uuid::Uuid::parse_str(&exec_id) {
+        Ok(id) => id,
+        Err(_) => {
+            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response()
+        }
+    };
+
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db);
+    let universal_id = cloacina::database::universal_types::UniversalUuid(id);
+
+    match dal
+        .task_execution()
+        .get_all_tasks_for_workflow(universal_id)
+        .await
+    {
+        Ok(tasks) => {
+            let items: Vec<TaskExecutionDetail> = tasks
+                .into_iter()
+                .map(|t| TaskExecutionDetail {
+                    id: t.id.0.to_string(),
+                    task_name: t.task_name,
+                    status: t.status,
+                    started_at: t.started_at.map(|ts| ts.0.to_rfc3339()),
+                    completed_at: t.completed_at.map(|ts| ts.0.to_rfc3339()),
+                    attempt: t.attempt,
+                    max_attempts: t.max_attempts,
+                    sub_status: t.sub_status,
+                    last_error: t.last_error,
+                    error_details: t.error_details,
+                })
+                .collect();
+            Json(ExecutionTasksResponse {
+                tenant_id,
+                execution_id: exec_id,
+                tasks: items,
             })
             .into_response()
         }

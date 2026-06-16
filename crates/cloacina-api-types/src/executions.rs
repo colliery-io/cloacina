@@ -96,3 +96,35 @@ pub struct ExecutionEventsResponse {
     pub execution_id: String,
     pub events: Vec<ExecutionEvent>,
 }
+
+/// One per-task row of an execution (CLOACI-I-0124 / WS-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskExecutionDetail {
+    /// Task execution UUID.
+    pub id: String,
+    /// Task identifier within the workflow.
+    pub task_name: String,
+    pub status: String,
+    /// RFC 3339 timestamp; `null` until the task starts.
+    pub started_at: Option<String>,
+    /// RFC 3339 timestamp; `null` while still running.
+    pub completed_at: Option<String>,
+    pub attempt: i32,
+    pub max_attempts: i32,
+    /// `sub_status` qualifier (e.g. deferral), when present.
+    pub sub_status: Option<String>,
+    /// Last error message for the most recent failed attempt, when present.
+    pub last_error: Option<String>,
+    /// Structured error details, when present.
+    pub error_details: Option<String>,
+}
+
+/// `GET /tenants/{tenant_id}/executions/{id}/tasks` response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ExecutionTasksResponse {
+    pub tenant_id: String,
+    pub execution_id: String,
+    pub tasks: Vec<TaskExecutionDetail>,
+}

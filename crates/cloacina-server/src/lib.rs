@@ -1152,6 +1152,10 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/executions/{exec_id}/events",
             get(crate::routes::executions::get_execution_events),
         )
+        .route(
+            "/tenants/{tenant_id}/executions/{exec_id}/tasks",
+            get(crate::routes::executions::get_execution_tasks),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::routes::auth::require_auth,

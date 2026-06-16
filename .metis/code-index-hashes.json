@@ -635,6 +635,8 @@
     "ui/e2e/connect.spec.ts": "9f17e11818b06b7f955b1a38c4b6895604f95a0284f6497cb6f3556c6da921f5",
     "ui/e2e/env.ts": "a84cc04fd785d62a84acd0dd08f5cec3c980189a32f0bcb47c45fb1bda7cb8cc",
     "ui/e2e/scenarios.spec.ts": "3f69d39e891338000276021549c479050b89f8cc608382c840c87713d5813d87",
+    "ui/e2e/walk.spec.ts": "3904520f20d9c448e3f4247228e3119d9d97ec8c555169f129857c6d15ae585e",
+    "ui/e2e/walk2.spec.ts": "60fa55b33d99be0e668ae4788572f6089a09b35bf0a3a37af3d88c582a0319e1",
     "ui/eslint.config.js": "0c341e59420960fa0f7e45bd6ad61fd1ab8aa64248a7eeddac712afcf58d049e",
     "ui/harness/src/main.mjs": "caa585684f588325f9ac017dc9f2c8bb089aa91398cf683b2d4fafd886983ae5",
     "ui/playwright.config.ts": "6b277ab55977acc00eadf4b2c481d573395f086488fb9d4d116f713e1f78a450",
