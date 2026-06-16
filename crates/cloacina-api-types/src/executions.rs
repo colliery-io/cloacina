@@ -83,6 +83,11 @@ pub struct ExecutionEvent {
     pub event_type: String,
     /// JSON-encoded additional data for the event; `null` when absent.
     pub event_data: Option<String>,
+    /// Local name of the task this event is about, resolved from the event's
+    /// `task_execution_id`. `null` for workflow-scoped events (e.g.
+    /// `workflow_completed`) or when the task can't be resolved
+    /// (CLOACI-I-0124 / WS-9).
+    pub task_name: Option<String>,
     /// RFC 3339 timestamp.
     pub created_at: String,
     pub sequence_num: i64,

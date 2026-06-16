@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T10:49:19Z | 706 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T10:55:06Z | 706 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -3084,12 +3084,14 @@
 -  `update_last_poll_sqlite` function L689-716 — `( &self, id: UniversalUuid, last_poll_at: DateTime<Utc>, ) -> Result<(), Validat...` — CRUD operations for unified schedules.
 -  `upsert_trigger_postgres` function L719-823 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
 -  `upsert_trigger_sqlite` function L826-930 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
--  `get_by_trigger_name_postgres` function L933-956 — `( &self, name: String, ) -> Result<Option<Schedule>, ValidationError>` — CRUD operations for unified schedules.
--  `get_by_trigger_name_sqlite` function L959-982 — `( &self, name: String, ) -> Result<Option<Schedule>, ValidationError>` — CRUD operations for unified schedules.
--  `find_by_workflow_postgres` function L985-1007 — `( &self, workflow_name: String, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
--  `find_by_workflow_sqlite` function L1010-1032 — `( &self, workflow_name: String, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
--  `update_cron_expression_and_timezone_postgres` function L1035-1066 — `( &self, id: UniversalUuid, cron_expression: Option<String>, timezone: Option<St...` — CRUD operations for unified schedules.
--  `update_cron_expression_and_timezone_sqlite` function L1069-1100 — `( &self, id: UniversalUuid, cron_expression: Option<String>, timezone: Option<St...` — CRUD operations for unified schedules.
+-  `upsert_cron_postgres` function L933-1039 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
+-  `upsert_cron_sqlite` function L1042-1145 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
+-  `get_by_trigger_name_postgres` function L1148-1171 — `( &self, name: String, ) -> Result<Option<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `get_by_trigger_name_sqlite` function L1174-1197 — `( &self, name: String, ) -> Result<Option<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `find_by_workflow_postgres` function L1200-1222 — `( &self, workflow_name: String, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `find_by_workflow_sqlite` function L1225-1247 — `( &self, workflow_name: String, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `update_cron_expression_and_timezone_postgres` function L1250-1281 — `( &self, id: UniversalUuid, cron_expression: Option<String>, timezone: Option<St...` — CRUD operations for unified schedules.
+-  `update_cron_expression_and_timezone_sqlite` function L1284-1315 — `( &self, id: UniversalUuid, cron_expression: Option<String>, timezone: Option<St...` — CRUD operations for unified schedules.
 
 #### crates/cloacina/src/dal/unified/schedule/mod.rs
 
@@ -3107,32 +3109,34 @@
 - pub `get_enabled_triggers` function L153-159 — `(&self) -> Result<Vec<Schedule>, ValidationError>` — Retrieves all enabled trigger schedules.
 - pub `update_last_poll` function L162-172 — `( &self, id: UniversalUuid, last_poll_at: DateTime<Utc>, ) -> Result<(), Validat...` — Updates the last poll time for a trigger schedule.
 - pub `upsert_trigger` function L175-184 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — Upserts a trigger schedule by trigger_name.
-- pub `get_by_trigger_name` function L187-197 — `( &self, name: &str, ) -> Result<Option<Schedule>, ValidationError>` — Retrieves a schedule by its trigger name.
-- pub `find_by_workflow` function L200-210 — `( &self, workflow_name: &str, ) -> Result<Vec<Schedule>, ValidationError>` — Finds schedules by workflow name.
-- pub `update_cron_expression_and_timezone` function L213-239 — `( &self, id: UniversalUuid, cron_expression: Option<&str>, timezone: Option<&str...` — Updates the cron expression and timezone for a cron schedule.
+- pub `upsert_cron` function L191-200 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — Upserts a cron schedule by its identity (workflow_name + cron_expression
+- pub `get_by_trigger_name` function L203-213 — `( &self, name: &str, ) -> Result<Option<Schedule>, ValidationError>` — Retrieves a schedule by its trigger name.
+- pub `find_by_workflow` function L216-226 — `( &self, workflow_name: &str, ) -> Result<Vec<Schedule>, ValidationError>` — Finds schedules by workflow name.
+- pub `update_cron_expression_and_timezone` function L229-255 — `( &self, id: UniversalUuid, cron_expression: Option<&str>, timezone: Option<&str...` — Updates the cron expression and timezone for a cron schedule.
 -  `crud` module L24 — `-` — Unified Schedule DAL with runtime backend selection
--  `tests` module L243-751 — `-` — implementation at runtime based on the database connection type.
--  `unique_dal` function L251-261 — `() -> DAL` — implementation at runtime based on the database connection type.
--  `test_create_cron_schedule` function L267-283 — `()` — implementation at runtime based on the database connection type.
--  `test_create_trigger_schedule` function L287-299 — `()` — implementation at runtime based on the database connection type.
--  `test_get_by_id` function L303-316 — `()` — implementation at runtime based on the database connection type.
--  `test_get_by_id_not_found` function L320-325 — `()` — implementation at runtime based on the database connection type.
--  `test_list_all` function L331-350 — `()` — implementation at runtime based on the database connection type.
--  `test_list_by_schedule_type` function L354-386 — `()` — implementation at runtime based on the database connection type.
--  `test_list_enabled_only` function L390-410 — `()` — implementation at runtime based on the database connection type.
--  `test_list_limit_and_offset` function L414-437 — `()` — implementation at runtime based on the database connection type.
--  `test_enable_disable` function L443-460 — `()` — implementation at runtime based on the database connection type.
--  `test_delete` function L466-479 — `()` — implementation at runtime based on the database connection type.
--  `test_find_by_workflow` function L485-511 — `()` — implementation at runtime based on the database connection type.
--  `test_find_by_workflow_no_match` function L515-523 — `()` — implementation at runtime based on the database connection type.
--  `test_update_schedule_times` function L529-549 — `()` — implementation at runtime based on the database connection type.
--  `test_get_due_cron_schedules` function L555-589 — `()` — implementation at runtime based on the database connection type.
--  `test_claim_and_update_cron` function L595-620 — `()` — implementation at runtime based on the database connection type.
--  `test_get_enabled_triggers` function L626-655 — `()` — implementation at runtime based on the database connection type.
--  `test_update_last_poll` function L659-676 — `()` — implementation at runtime based on the database connection type.
--  `test_get_by_trigger_name` function L680-705 — `()` — implementation at runtime based on the database connection type.
--  `test_upsert_trigger_insert` function L709-721 — `()` — implementation at runtime based on the database connection type.
--  `test_update_cron_expression_and_timezone` function L727-750 — `()` — implementation at runtime based on the database connection type.
+-  `tests` module L259-817 — `-` — implementation at runtime based on the database connection type.
+-  `unique_dal` function L267-277 — `() -> DAL` — implementation at runtime based on the database connection type.
+-  `test_create_cron_schedule` function L283-299 — `()` — implementation at runtime based on the database connection type.
+-  `test_upsert_cron_is_idempotent` function L303-349 — `()` — implementation at runtime based on the database connection type.
+-  `test_create_trigger_schedule` function L353-365 — `()` — implementation at runtime based on the database connection type.
+-  `test_get_by_id` function L369-382 — `()` — implementation at runtime based on the database connection type.
+-  `test_get_by_id_not_found` function L386-391 — `()` — implementation at runtime based on the database connection type.
+-  `test_list_all` function L397-416 — `()` — implementation at runtime based on the database connection type.
+-  `test_list_by_schedule_type` function L420-452 — `()` — implementation at runtime based on the database connection type.
+-  `test_list_enabled_only` function L456-476 — `()` — implementation at runtime based on the database connection type.
+-  `test_list_limit_and_offset` function L480-503 — `()` — implementation at runtime based on the database connection type.
+-  `test_enable_disable` function L509-526 — `()` — implementation at runtime based on the database connection type.
+-  `test_delete` function L532-545 — `()` — implementation at runtime based on the database connection type.
+-  `test_find_by_workflow` function L551-577 — `()` — implementation at runtime based on the database connection type.
+-  `test_find_by_workflow_no_match` function L581-589 — `()` — implementation at runtime based on the database connection type.
+-  `test_update_schedule_times` function L595-615 — `()` — implementation at runtime based on the database connection type.
+-  `test_get_due_cron_schedules` function L621-655 — `()` — implementation at runtime based on the database connection type.
+-  `test_claim_and_update_cron` function L661-686 — `()` — implementation at runtime based on the database connection type.
+-  `test_get_enabled_triggers` function L692-721 — `()` — implementation at runtime based on the database connection type.
+-  `test_update_last_poll` function L725-742 — `()` — implementation at runtime based on the database connection type.
+-  `test_get_by_trigger_name` function L746-771 — `()` — implementation at runtime based on the database connection type.
+-  `test_upsert_trigger_insert` function L775-787 — `()` — implementation at runtime based on the database connection type.
+-  `test_update_cron_expression_and_timezone` function L793-816 — `()` — implementation at runtime based on the database connection type.
 
 ### crates/cloacina/src/dal/unified/schedule_execution
 
@@ -4879,10 +4883,10 @@
 - pub `new` function L361-363 — `(database: crate::database::Database) -> Self` — This module provides methods for managing cron-scheduled workflow executions.
 -  `DefaultRunner` type L30-346 — `= DefaultRunner` — This module provides methods for managing cron-scheduled workflow executions.
 -  `DalCronRegistrar` type L360-364 — `= DalCronRegistrar` — This module provides methods for managing cron-scheduled workflow executions.
--  `DalCronRegistrar` type L367-441 — `= DalCronRegistrar` — This module provides methods for managing cron-scheduled workflow executions.
--  `register_cron_workflow` function L368-399 — `( &self, workflow_name: &str, cron_expression: &str, timezone: &str, ) -> Result...` — This module provides methods for managing cron-scheduled workflow executions.
--  `unregister_cron_workflow` function L401-411 — `(&self, schedule_id: &str) -> Result<(), String>` — This module provides methods for managing cron-scheduled workflow executions.
--  `register_poll_trigger` function L413-440 — `( &self, trigger_name: &str, workflow_name: &str, poll_interval_ms: i32, allow_c...` — This module provides methods for managing cron-scheduled workflow executions.
+-  `DalCronRegistrar` type L367-445 — `= DalCronRegistrar` — This module provides methods for managing cron-scheduled workflow executions.
+-  `register_cron_workflow` function L368-403 — `( &self, workflow_name: &str, cron_expression: &str, timezone: &str, ) -> Result...` — This module provides methods for managing cron-scheduled workflow executions.
+-  `unregister_cron_workflow` function L405-415 — `(&self, schedule_id: &str) -> Result<(), String>` — This module provides methods for managing cron-scheduled workflow executions.
+-  `register_poll_trigger` function L417-444 — `( &self, trigger_name: &str, workflow_name: &str, poll_interval_ms: i32, allow_c...` — This module provides methods for managing cron-scheduled workflow executions.
 
 #### crates/cloacina/src/runner/default_runner/mod.rs
 

@@ -2040,6 +2040,13 @@
           "sequence_num": {
             "type": "integer",
             "format": "int64"
+          },
+          "task_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Local name of the task this event is about, resolved from the event's\n`task_execution_id`. `null` for workflow-scoped events (e.g.\n`workflow_completed`) or when the task can't be resolved\n(CLOACI-I-0124 / WS-9)."
           }
         }
       },

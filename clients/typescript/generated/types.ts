@@ -605,6 +605,13 @@ export interface components {
             id: string;
             /** Format: int64 */
             sequence_num: number;
+            /**
+             * @description Local name of the task this event is about, resolved from the event's
+             *     `task_execution_id`. `null` for workflow-scoped events (e.g.
+             *     `workflow_completed`) or when the task can't be resolved
+             *     (CLOACI-I-0124 / WS-9).
+             */
+            task_name?: string | null;
         };
         /** @description `GET /tenants/{tenant_id}/executions/{id}/events` response. */
         ExecutionEventsResponse: {

@@ -364,12 +364,27 @@ pub async fn get_execution_events(
 
     match dal.execution_event().list_by_workflow(universal_id).await {
         Ok(events) => {
+            // Resolve each event's `task_execution_id` to a task name so the log
+            // can say *which* task an event is about (CLOACI-I-0124 / WS-9).
+            // Workflow-scoped events (no task_execution_id) stay unnamed.
+            let task_names: std::collections::HashMap<String, String> = dal
+                .task_execution()
+                .get_all_tasks_for_workflow(universal_id)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|t| (t.id.0.to_string(), t.task_name))
+                .collect();
+
             let items: Vec<ExecutionEvent> = events
                 .into_iter()
                 .map(|e| ExecutionEvent {
                     id: e.id.0.to_string(),
                     event_type: e.event_type,
                     event_data: e.event_data,
+                    task_name: e
+                        .task_execution_id
+                        .and_then(|tid| task_names.get(&tid.0.to_string()).cloned()),
                     created_at: e.created_at.0.to_rfc3339(),
                     sequence_num: e.sequence_num,
                 })
