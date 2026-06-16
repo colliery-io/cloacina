@@ -55,7 +55,7 @@ export function useExecutionTasks(id: string, opts: { poll?: boolean } = {}) {
   const tenant = useTenant();
   return useQuery({
     queryKey: queryKeys.executionTasks(tenant, id),
-    enabled: !!connection,
+    enabled: !!connection && !!id,
     queryFn: async (): Promise<ExecutionTasksResponse> => {
       const base = connection!.serverUrl.replace(/\/$/, "");
       const res = await fetch(

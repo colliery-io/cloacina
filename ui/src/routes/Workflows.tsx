@@ -21,6 +21,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useExecutions } from "../api/executions";
 import { useWorkflows } from "../api/workflows";
 import { RunCircles, type RunDot } from "../components/RunCircles";
+import { RecentTasksCell } from "../components/RecentTasksCell";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatTimestamp } from "../util/format";
 
@@ -75,6 +76,7 @@ export function Workflows() {
               <Table.Th>Version</Table.Th>
               <Table.Th>Tasks</Table.Th>
               <Table.Th>Recent runs</Table.Th>
+              <Table.Th>Recent tasks</Table.Th>
               <Table.Th>Created</Table.Th>
             </Table.Tr>
           </Table.Thead>
@@ -97,6 +99,11 @@ export function Workflows() {
                 <Table.Td>{w.tasks.length}</Table.Td>
                 <Table.Td>
                   <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} />
+                </Table.Td>
+                <Table.Td>
+                  <RecentTasksCell
+                    executionId={runsByWorkflow.get(w.workflow_name)?.[0]?.id ?? null}
+                  />
                 </Table.Td>
                 <Table.Td>{formatTimestamp(w.created_at)}</Table.Td>
               </Table.Tr>

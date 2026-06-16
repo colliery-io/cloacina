@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T20:32:33Z | 711 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T21:44:46Z | 711 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -12899,8 +12899,8 @@
 #### ui/src/components/RunCircles.tsx
 
 - pub `RunDot` interface L22-26 — `{ id: : string, status: : string, started_at: : string | null }`
-- pub `RunCircles` function L42-69 — `function RunCircles({ runs, max = 12 }: { runs: RunDot[]; max?: number })`
--  `whenLabel` function L28-32 — `function whenLabel(ts: string | null | undefined): string`
+- pub `RunCircles` function L54-96 — `function RunCircles({ runs }: { runs: RunDot[] })`
+-  `rank` function L42-45 — `function rank(status: string): number`
 
 #### ui/src/components/Shell.tsx
 

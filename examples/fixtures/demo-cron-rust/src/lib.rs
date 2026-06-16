@@ -43,6 +43,10 @@ pub mod demo_cron_wf {
 
     #[task(id = "demo_cron_step", dependencies = [])]
     pub async fn demo_cron_step(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        // Sleep so each cron run lingers visibly in the Running state — the
+        // task was instantaneous, so the UI never showed a running (blue) run
+        // (CLOACI-I-0124 / WS-10 demo liveness).
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
         context.insert("demo_cron_ran", serde_json::json!(true))?;
         Ok(())
     }
