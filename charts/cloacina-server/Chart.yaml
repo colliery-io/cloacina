@@ -17,11 +17,11 @@ appVersion: "0.6.1"
 
 home: https://cloacina.dev
 sources:
-  - https://github.com/colliery-software/cloacina
+  - https://github.com/colliery-io/cloacina
 
 maintainers:
   - name: Colliery Software
-    url: https://github.com/colliery-software
+    url: https://github.com/colliery-io
 
 keywords:
   - workflow
