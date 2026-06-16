@@ -27,12 +27,35 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
+/** Node role — drives styling so triggers/reactors/accumulators read as
+ *  distinct from the compute nodes (CLOACI-I-0124 / WS-4). */
+export type DagNodeKind = "compute" | "accumulator" | "reactor" | "trigger";
+
 /** A node in a directed graph. */
 export interface DagNode {
   id: string;
   /** Display label (defaults to `id`). */
   label?: string;
+  /** Role of the node; defaults to `compute`. */
+  kind?: DagNodeKind;
 }
+
+/** Per-kind fill/border (Mantine light-variant CSS vars). */
+const KIND_STYLE: Record<DagNodeKind, { background?: string; border?: string }> = {
+  compute: {},
+  accumulator: {
+    background: "var(--mantine-color-blue-light)",
+    border: "1px solid var(--mantine-color-blue-4)",
+  },
+  reactor: {
+    background: "var(--mantine-color-grape-light)",
+    border: "1px solid var(--mantine-color-grape-4)",
+  },
+  trigger: {
+    background: "var(--mantine-color-orange-light)",
+    border: "1px solid var(--mantine-color-orange-4)",
+  },
+};
 
 /** A directed edge `from → to`, with an optional label (e.g. routing variant). */
 export interface DagEdge {
@@ -95,6 +118,7 @@ export function Dag({
           borderRadius: 8,
           border: "1px solid var(--mantine-color-default-border)",
           padding: "8px 10px",
+          ...KIND_STYLE[n.kind ?? "compute"],
         },
       };
     });

@@ -47,7 +47,16 @@ DB_URL = "postgres://cloacina:cloacina@localhost:5432/cloacina"
 # Seed/demo harness (T-0660). The demo fixtures compile to these packages.
 FIXTURES_DIR = PROJECT_ROOT / "examples" / "fixtures"
 FIXTURES_DIST = FIXTURES_DIR / "dist"
-DEMO_FIXTURES = ["demo-slow-rust", "demo-fail-rust"]
+DEMO_FIXTURES = [
+    "demo-slow-rust",
+    "demo-fail-rust",
+    # CLOACI-I-0124 WS-8: richer fixtures so the UI shows real structure —
+    # a cron trigger (demo-cron-rust) and a computation graph with a reactor +
+    # accumulator (demo-kafka-stream-rust). Rust-only here; `_stage_and_pack`
+    # stages Cargo.toml/lib.rs (Python CG fixtures need a separate path).
+    "demo-cron-rust",
+    "demo-kafka-stream-rust",
+]
 HARNESS_DIR = PROJECT_ROOT / "ui" / "harness"
 
 ui = angreal.command_group(name="ui", about="commands for the Cloacina web UI")

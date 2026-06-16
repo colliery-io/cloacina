@@ -22,14 +22,54 @@ import { Dag, type DagEdge, type DagNode } from "../components/Dag";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 
+type GraphData = {
+  reactor?: string | null;
+  accumulators: string[];
+  topology?: { nodes: { id: string }[]; edges: { from: string; to: string; label?: string | null }[] } | null;
+};
+
 /**
- * Single computation-graph detail (T-0655). Exercises `getGraph` — its
- * 404 (unknown graph, or one not visible to the key) renders the typed
- * not-found state.
+ * Build the augmented CG view (CLOACI-I-0124 / WS-4): the compute nodes plus
+ * the **accumulators** and the **reactor** as upstream nodes, so the full data
+ * flow — sources → reactor → graph — reads as one picture. Accumulators feed
+ * the reactor; the reactor fires the graph's entry (root) nodes.
+ */
+function buildCgGraph(data: GraphData): { nodes: DagNode[]; edges: DagEdge[] } | null {
+  const topo = data.topology;
+  if (!topo || topo.nodes.length === 0) return null;
+
+  const nodes: DagNode[] = topo.nodes.map((n) => ({ id: n.id, kind: "compute" }));
+  const edges: DagEdge[] = topo.edges.map((e) => ({ from: e.from, to: e.to, label: e.label }));
+
+  const hasIncoming = new Set(topo.edges.map((e) => e.to));
+  const roots = topo.nodes.filter((n) => !hasIncoming.has(n.id)).map((n) => n.id);
+
+  const accIds = data.accumulators.map((a) => `acc:${a}`);
+  data.accumulators.forEach((a) => nodes.push({ id: `acc:${a}`, label: a, kind: "accumulator" }));
+
+  if (data.reactor) {
+    const reactorId = `reactor:${data.reactor}`;
+    nodes.push({ id: reactorId, label: data.reactor, kind: "reactor" });
+    accIds.forEach((a) => edges.push({ from: a, to: reactorId }));
+    roots.forEach((r) => edges.push({ from: reactorId, to: r }));
+  } else {
+    // No reactor: wire accumulators straight to the entry nodes.
+    accIds.forEach((a) => roots.forEach((r) => edges.push({ from: a, to: r })));
+  }
+
+  return { nodes, edges };
+}
+
+/**
+ * Single computation-graph detail (T-0655; CLOACI-I-0124 WS-4). Renders the
+ * reactor + accumulators as first-class nodes in the graph rather than as
+ * side text.
  */
 export function GraphDetail() {
   const { name = "" } = useParams();
   const { data, isPending, isError, error, refetch } = useGraph(name);
+
+  const graph = data ? buildCgGraph(data as GraphData) : null;
 
   return (
     <Stack>
@@ -67,47 +107,70 @@ export function GraphDetail() {
                 </Badge>
               )}
             </Group>
-            {data.reactor && (
+
+            {graph ? (
               <div>
-                <Text fw={600} mb="xs">
-                  Reactor
-                </Text>
-                <Text size="sm">{data.reactor}</Text>
+                <Group justify="space-between" mb="xs">
+                  <Text fw={600}>Graph</Text>
+                  <Group gap="sm">
+                    <LegendDot color="var(--mantine-color-blue-4)" label="accumulator" />
+                    <LegendDot color="var(--mantine-color-grape-4)" label="reactor" />
+                    <LegendDot color="var(--mantine-color-default-border)" label="node" />
+                  </Group>
+                </Group>
+                <Dag nodes={graph.nodes} edges={graph.edges} testId="graph-dag" />
               </div>
-            )}
-            <div>
-              <Text fw={600} mb="xs">
-                Accumulators ({data.accumulators.length})
-              </Text>
-              {data.accumulators.length === 0 ? (
-                <Text c="dimmed" size="sm">
-                  None.
-                </Text>
-              ) : (
-                <List size="sm">
-                  {data.accumulators.map((a) => (
-                    <List.Item key={a}>{a}</List.Item>
-                  ))}
-                </List>
-              )}
-            </div>
-            {data.topology && data.topology.nodes.length > 0 && (
-              <div>
-                <Text fw={600} mb="xs">
-                  Graph ({data.topology.nodes.length} nodes)
-                </Text>
-                <Dag
-                  nodes={data.topology.nodes.map((n): DagNode => ({ id: n.id }))}
-                  edges={data.topology.edges.map(
-                    (e): DagEdge => ({ from: e.from, to: e.to, label: e.label }),
+            ) : (
+              // No topology available — fall back to the text summary.
+              <>
+                {data.reactor && (
+                  <div>
+                    <Text fw={600} mb="xs">
+                      Reactor
+                    </Text>
+                    <Text size="sm">{data.reactor}</Text>
+                  </div>
+                )}
+                <div>
+                  <Text fw={600} mb="xs">
+                    Accumulators ({data.accumulators.length})
+                  </Text>
+                  {data.accumulators.length === 0 ? (
+                    <Text c="dimmed" size="sm">
+                      None.
+                    </Text>
+                  ) : (
+                    <List size="sm">
+                      {data.accumulators.map((a) => (
+                        <List.Item key={a}>{a}</List.Item>
+                      ))}
+                    </List>
                   )}
-                  testId="graph-dag"
-                />
-              </div>
+                </div>
+              </>
             )}
           </Stack>
         </Card>
       )}
     </Stack>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <Group gap={4}>
+      <span
+        style={{
+          width: 10,
+          height: 10,
+          borderRadius: 3,
+          background: color,
+          display: "inline-block",
+        }}
+      />
+      <Text size="xs" c="dimmed">
+        {label}
+      </Text>
+    </Group>
   );
 }
