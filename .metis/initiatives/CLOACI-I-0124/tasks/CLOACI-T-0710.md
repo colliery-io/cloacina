@@ -4,14 +4,14 @@ level: task
 title: "WS-8 — Expand demo fixtures to richer example graphs"
 short_code: "CLOACI-T-0710"
 created_at: 2026-06-16T01:50:20.786945+00:00
-updated_at: 2026-06-16T04:19:20.420395+00:00
+updated_at: 2026-06-16T04:29:23.671785+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -31,6 +31,8 @@ initiative_id: CLOACI-I-0124
 (P2, **demo-stack — not UI code**) Expand the demo fixtures so the UI has rich
 structure to render. Today's seed packs thin graphs (2–3 nodes); the example library
 has much richer ones.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -148,4 +150,42 @@ Enables good UAT for the UI workstreams; supports [[CLOACI-T-0708]]. Touches
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-16 — DONE (richer CG fixtures: fan-in + routing, built + verified)
+
+Ported the two richest tutorial graphs into packable cdylib fixtures (the
+tutorials ship as `src/main.rs` binaries with no `package.toml`, so each had to
+be turned into a `package!()` cdylib modeled on demo-kafka-stream-rust, dropping
+the standalone accumulator-runtime/`main()` wiring):
+
+- **demo-pipeline-rust** (graph `market_pipeline`, from `09-full-pipeline`) —
+  TWO accumulators (`orderbook`, `pricing`) fan into one reactor on `when_any`,
+  then a three-node pipeline `combine → evaluate → signal`.
+- **demo-routing-rust** (graph `market_maker`, from `10-routing`) — a `decision`
+  node using enum `=>` dispatch to two labeled branches: `Trade → signal_handler`,
+  `NoAction → audit_logger`.
+
+Both added to `DEMO_FIXTURES`. `angreal ui build-fixtures` packs them; on seed
+the compiler builds both to **`build_status: success`** and the reconciler loads
+both — `/v1/health/graphs` now lists `market_pipeline` + `market_maker` beside
+`demo_kafka_graph`.
+
+Verified live (`ui/e2e/ws8.spec.ts`, screenshots in `/tmp/cloacina-ui-uat/ws8/`):
+`market_pipeline` renders the two-source **fan-in**; `market_maker` renders the
+**decision node branching** with `Trade` / `NoAction` edge labels — real
+structure for UAT.
+
+**Acceptance coverage:**
+- Richer CGs (multi-source `when_any` fan-in + enum routing) ✓.
+- Pack/upload/build clean (pending → success) ✓.
+- Graphs view shows branches + fan-in ✓; non-cron trigger shown via WS-6's
+  demo-poll-rust ✓; multi-task workflow already present (demo-slow-rust, 5
+  chained tasks) ✓.
+- **Deferred (with reason):** `08-accumulators` (its multi-accumulator structure
+  is already demonstrated by `market_pipeline`'s fan-in) and `mixed-rust` — the
+  latter's `Cargo.toml` uses relative `../../../crates` paths (not
+  `__WORKSPACE__`) for its integration-test usage, so it can't be demo-packed
+  without edits that would break those tests. The reactor+trigger combo it would
+  add is already covered across demo-kafka (reactor+CG) + demo-poll (poll
+  trigger).
+
+Committed `8fd6d2ff` on `feat/ui-0124-server-read-endpoints`.

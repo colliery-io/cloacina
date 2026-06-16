@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T03:52:30Z | 694 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T04:29:47Z | 705 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -713,6 +713,14 @@
 │   │   │   ├── build.rs
 │   │   │   └── src/
 │   │   │       └── lib.rs
+│   │   ├── demo-pipeline-rust/
+│   │   │   ├── build.rs
+│   │   │   └── src/
+│   │   │       └── lib.rs
+│   │   ├── demo-poll-rust/
+│   │   │   ├── build.rs
+│   │   │   └── src/
+│   │   │       └── lib.rs
 │   │   ├── demo-py-graph/
 │   │   │   └── workflow/
 │   │   │       └── demo_py_graph/
@@ -723,6 +731,10 @@
 │   │   │       └── demo_py_workflow/
 │   │   │           ├── __init__.py
 │   │   │           └── tasks.py
+│   │   ├── demo-routing-rust/
+│   │   │   ├── build.rs
+│   │   │   └── src/
+│   │   │       └── lib.rs
 │   │   ├── demo-slow-rust/
 │   │   │   ├── build.rs
 │   │   │   └── src/
@@ -870,7 +882,10 @@
     │   ├── ws2.spec.ts
     │   ├── ws3.spec.ts
     │   ├── ws4.spec.ts
-    │   └── ws5.spec.ts
+    │   ├── ws5.spec.ts
+    │   ├── ws6.spec.ts
+    │   ├── ws7.spec.ts
+    │   └── ws8.spec.ts
     ├── eslint.config.js
     ├── harness/
     │   └── src/
@@ -927,7 +942,9 @@
     │   ├── util/
     │   │   ├── events.ts
     │   │   ├── format.ts
-    │   │   └── status.ts
+    │   │   ├── status.ts
+    │   │   ├── triggers.ts
+    │   │   └── vocab.ts
     │   └── vite-env.d.ts
     └── vite.config.ts
 ```
@@ -1706,11 +1723,11 @@
 
 #### clients/typescript/generated/types.ts
 
-- pub `paths` interface L6-424 — `{ "/health": : { parameters: { query?: never; header?: never; path?: never; cook...`
-- pub `webhooks` type L425 — `= Record<string, never>`
-- pub `components` interface L426-927 — `{ schemas: : { /** @description One row in `GET /v1/health/accumulators`. */ Acc...`
-- pub `$defs` type L928 — `= Record<string, never>`
-- pub `operations` interface L929-2081 — `{ health: : { parameters: { query?: never; header?: never; path?: never; cookie?...`
+- pub `paths` interface L6-479 — `{ "/health": : { parameters: { query?: never; header?: never; path?: never; cook...`
+- pub `webhooks` type L480 — `= Record<string, never>`
+- pub `components` interface L481-1106 — `{ schemas: : { /** @description One row in `GET /v1/health/accumulators`. */ Acc...`
+- pub `$defs` type L1107 — `= Record<string, never>`
+- pub `operations` interface L1108-2406 — `{ health: : { parameters: { query?: never; header?: never; path?: never; cookie?...`
 
 ### clients/typescript/src
 
@@ -4533,43 +4550,44 @@
 
 -  `parse_humantime_duration` function L34-62 — `(s: &str) -> Option<std::time::Duration>` — Best-effort humantime parser for trigger metadata's poll_interval
 -  `load_plugin_handle_from_bytes` function L70-98 — `(library_data: &[u8]) -> Result<fidius_host::PluginHandle, String>` — Write the cdylib bytes to a temp path and dlopen via fidius.
--  `RegistryReconciler` type L100-1955 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L111-724 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L736-911 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries.
--  `register_package_tasks` function L914-972 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L975-1125 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L1128-1147 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the runtime-scoped task registry (avoiding FFI isolation).
--  `create_workflow_from_host_registry_static` function L1150-1201 — `( runtime: &Arc<Runtime>, package_name: &str, workflow_name: &str, tenant_id: &s...` — Static version of create_workflow_from_host_registry for use in closures.
--  `validate_workflow_trigger_subscriptions` function L1214-1263 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<(), Regis...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `snapshot_runtime_registries` function L1294-1310 — `( &self, ) -> ( std::collections::HashSet<String>, std::collections::HashSet<Str...` — Extract a `PackageLoadView` from a Python scoped Runtime, given
--  `build_view_python` function L1312-1441 — `( &self, package_name: &str, pre_reactor_names: &std::collections::HashSet<Strin...` — Package loading, unloading, and task/workflow registration.
--  `build_view_rust` function L1444-1473 — `( &self, library_data: &[u8], ) -> Result<PackageLoadView, RegistryError>` — Extract a `PackageLoadView` from a Rust cdylib via fidius FFI.
--  `step_load_cron_triggers` function L1485-1553 — `( &self, metadata: &WorkflowMetadata, view: &PackageLoadView, ) -> Result<Vec<St...` — Pipeline step 1: cron triggers (entries with `cron_expression.is_some()`).
--  `step_load_custom_triggers` function L1569-1656 — `( &self, metadata: &WorkflowMetadata, view: &PackageLoadView, library_data: Opti...` — Pipeline step 2: custom-poll triggers (entries with
--  `step_load_reactors` function L1660-1692 — `( &self, metadata: &WorkflowMetadata, view: &PackageLoadView, manifest: &cloacin...` — Pipeline step 3: reactors.
--  `step_load_triggerless_cgs` function L1706-1793 — `( &self, metadata: &WorkflowMetadata, _view: &PackageLoadView, library_data: Opt...` — Pipeline step 4: trigger-less CGs.
--  `step_load_reactor_bound_cgs` function L1798-1925 — `( &self, metadata: &WorkflowMetadata, view: &PackageLoadView, manifest: &cloacin...` — Pipeline step 5: reactor-bound CGs.
--  `step_load_workflows` function L1929-1954 — `( &self, metadata: &WorkflowMetadata, library_data: &[u8], ) -> Result<(Vec<Task...` — Pipeline step 6: workflows.
--  `PackageLoadView` struct L1961-1965 — `{ triggers: Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, reactors: Vec...` — T-0554 — Unified package metadata view fed into the precedence
--  `tests` module L1968-2555 — `-` — Package loading, unloading, and task/workflow registration.
--  `make_test_reconciler` function L1979-1986 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing, wired up to a scoped
--  `runtime_of` function L1988-1990 — `(r: &RegistryReconciler) -> Arc<Runtime>` — Package loading, unloading, and task/workflow registration.
--  `make_test_metadata` function L1992-2007 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata` function L2009-2022 — `() -> cloacina_workflow_plugin::CloacinaMetadata` — Package loading, unloading, and task/workflow registration.
--  `empty_pre_snapshots` function L2028-2038 — `() -> ( std::collections::HashSet<String>, std::collections::HashSet<String>, st...` — Package loading, unloading, and task/workflow registration.
--  `build_view_python_returns_empty_view_for_unloaded_runtime` function L2042-2049 — `()` — Package loading, unloading, and task/workflow registration.
--  `build_view_python_emits_wire_format_for_runtime_reactor` function L2053-2077 — `()` — Package loading, unloading, and task/workflow registration.
--  `build_view_python_skips_pre_snapshot_entries` function L2081-2100 — `()` — Package loading, unloading, and task/workflow registration.
--  `build_view_python_folds_accumulator_overrides` function L2104-2131 — `()` — Package loading, unloading, and task/workflow registration.
--  `make_test_view_with_subscriber_graph` function L2142-2169 — `( package_name: &str, upstream_reactor: &str, subscriber_accumulators: Vec<&str>...` — Package loading, unloading, and task/workflow registration.
--  `load_publishing_reactor_into_scheduler` function L2171-2195 — `( scheduler: &Arc<ComputationGraphScheduler>, reactor_name: &str, accumulators: ...` — Package loading, unloading, and task/workflow registration.
--  `make_reconciler_with_scheduler` function L2197-2207 — `( scheduler: Arc<ComputationGraphScheduler>, ) -> RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `cross_package_contract_mismatch_rejects_with_named_accumulators` function L2211-2250 — `()` — Package loading, unloading, and task/workflow registration.
--  `cross_package_subscriber_before_publisher_rejects_with_clear_error` function L2254-2290 — `()` — Package loading, unloading, and task/workflow registration.
--  `cross_package_subscriber_in_same_package_skips_validation` function L2294-2350 — `()` — Package loading, unloading, and task/workflow registration.
--  `unload_package_rejects_when_subscribers_remain_bound` function L2354-2439 — `()` — Package loading, unloading, and task/workflow registration.
--  `unload_package_succeeds_after_subscribers_unbound` function L2443-2488 — `()` — Package loading, unloading, and task/workflow registration.
--  `unload_package_drops_reactor_from_runtime_registry` function L2497-2554 — `()` — T-0564: unload_package must drop the reactor constructor from the
+-  `RegistryReconciler` type L100-2045 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L111-735 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L747-922 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries.
+-  `register_package_tasks` function L925-983 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L986-1136 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L1139-1158 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the runtime-scoped task registry (avoiding FFI isolation).
+-  `create_workflow_from_host_registry_static` function L1161-1212 — `( runtime: &Arc<Runtime>, package_name: &str, workflow_name: &str, tenant_id: &s...` — Static version of create_workflow_from_host_registry for use in closures.
+-  `validate_workflow_trigger_subscriptions` function L1225-1274 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<(), Regis...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `snapshot_runtime_registries` function L1305-1321 — `( &self, ) -> ( std::collections::HashSet<String>, std::collections::HashSet<Str...` — Extract a `PackageLoadView` from a Python scoped Runtime, given
+-  `build_view_python` function L1323-1452 — `( &self, package_name: &str, pre_reactor_names: &std::collections::HashSet<Strin...` — Package loading, unloading, and task/workflow registration.
+-  `build_view_rust` function L1455-1484 — `( &self, library_data: &[u8], ) -> Result<PackageLoadView, RegistryError>` — Extract a `PackageLoadView` from a Rust cdylib via fidius FFI.
+-  `step_load_cron_triggers` function L1496-1564 — `( &self, metadata: &WorkflowMetadata, view: &PackageLoadView, ) -> Result<Vec<St...` — Pipeline step 1: cron triggers (entries with `cron_expression.is_some()`).
+-  `step_persist_poll_schedules` function L1578-1643 — `( &self, metadata: &WorkflowMetadata, view: &PackageLoadView, ) -> Result<Vec<St...` — Pipeline step 1b: persist `trigger`-type schedule rows for custom-poll
+-  `step_load_custom_triggers` function L1659-1746 — `( &self, metadata: &WorkflowMetadata, view: &PackageLoadView, library_data: Opti...` — Pipeline step 2: custom-poll triggers (entries with
+-  `step_load_reactors` function L1750-1782 — `( &self, metadata: &WorkflowMetadata, view: &PackageLoadView, manifest: &cloacin...` — Pipeline step 3: reactors.
+-  `step_load_triggerless_cgs` function L1796-1883 — `( &self, metadata: &WorkflowMetadata, _view: &PackageLoadView, library_data: Opt...` — Pipeline step 4: trigger-less CGs.
+-  `step_load_reactor_bound_cgs` function L1888-2015 — `( &self, metadata: &WorkflowMetadata, view: &PackageLoadView, manifest: &cloacin...` — Pipeline step 5: reactor-bound CGs.
+-  `step_load_workflows` function L2019-2044 — `( &self, metadata: &WorkflowMetadata, library_data: &[u8], ) -> Result<(Vec<Task...` — Pipeline step 6: workflows.
+-  `PackageLoadView` struct L2051-2055 — `{ triggers: Vec<cloacina_workflow_plugin::TriggerPackageMetadata>, reactors: Vec...` — T-0554 — Unified package metadata view fed into the precedence
+-  `tests` module L2058-2645 — `-` — Package loading, unloading, and task/workflow registration.
+-  `make_test_reconciler` function L2069-2076 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing, wired up to a scoped
+-  `runtime_of` function L2078-2080 — `(r: &RegistryReconciler) -> Arc<Runtime>` — Package loading, unloading, and task/workflow registration.
+-  `make_test_metadata` function L2082-2097 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata` function L2099-2112 — `() -> cloacina_workflow_plugin::CloacinaMetadata` — Package loading, unloading, and task/workflow registration.
+-  `empty_pre_snapshots` function L2118-2128 — `() -> ( std::collections::HashSet<String>, std::collections::HashSet<String>, st...` — Package loading, unloading, and task/workflow registration.
+-  `build_view_python_returns_empty_view_for_unloaded_runtime` function L2132-2139 — `()` — Package loading, unloading, and task/workflow registration.
+-  `build_view_python_emits_wire_format_for_runtime_reactor` function L2143-2167 — `()` — Package loading, unloading, and task/workflow registration.
+-  `build_view_python_skips_pre_snapshot_entries` function L2171-2190 — `()` — Package loading, unloading, and task/workflow registration.
+-  `build_view_python_folds_accumulator_overrides` function L2194-2221 — `()` — Package loading, unloading, and task/workflow registration.
+-  `make_test_view_with_subscriber_graph` function L2232-2259 — `( package_name: &str, upstream_reactor: &str, subscriber_accumulators: Vec<&str>...` — Package loading, unloading, and task/workflow registration.
+-  `load_publishing_reactor_into_scheduler` function L2261-2285 — `( scheduler: &Arc<ComputationGraphScheduler>, reactor_name: &str, accumulators: ...` — Package loading, unloading, and task/workflow registration.
+-  `make_reconciler_with_scheduler` function L2287-2297 — `( scheduler: Arc<ComputationGraphScheduler>, ) -> RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `cross_package_contract_mismatch_rejects_with_named_accumulators` function L2301-2340 — `()` — Package loading, unloading, and task/workflow registration.
+-  `cross_package_subscriber_before_publisher_rejects_with_clear_error` function L2344-2380 — `()` — Package loading, unloading, and task/workflow registration.
+-  `cross_package_subscriber_in_same_package_skips_validation` function L2384-2440 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unload_package_rejects_when_subscribers_remain_bound` function L2444-2529 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unload_package_succeeds_after_subscribers_unbound` function L2533-2578 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unload_package_drops_reactor_from_runtime_registry` function L2587-2644 — `()` — T-0564: unload_package must drop the reactor constructor from the
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -4577,38 +4595,39 @@
 - pub `ReconcileResult` struct L98-113 — `{ packages_loaded: Vec<WorkflowPackageId>, packages_unloaded: Vec<WorkflowPackag...` — Result of a reconciliation operation
 - pub `has_changes` function L117-119 — `(&self) -> bool` — Check if the reconciliation had any changes
 - pub `has_failures` function L122-124 — `(&self) -> bool` — Check if the reconciliation had any failures
-- pub `CronWorkflowRegistrar` interface L178-192 — `{ fn register_cron_workflow(), fn unregister_cron_workflow() }` — Trait the reconciler uses to register and unregister cron workflow
-- pub `ReconcilerStatus` struct L196-202 — `{ packages_loaded: usize, package_details: Vec<PackageStatusDetail> }` — Status information about the reconciler
-- pub `PackageStatusDetail` struct L206-218 — `{ package_name: String, version: String, task_count: usize, has_workflow: bool }` — Detailed status information about a loaded package
-- pub `RegistryReconciler` struct L221-260 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, runtime: Option...` — Registry Reconciler for synchronizing database state with in-memory registries
-- pub `new` function L264-289 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
-- pub `with_runtime` function L294-297 — `(mut self, runtime: Arc<crate::Runtime>) -> Self` — Attach a Runtime to this reconciler.
-- pub `with_graph_scheduler` function L300-306 — `(self, scheduler: Arc<ComputationGraphScheduler>) -> Self` — Set the graph scheduler for computation graph package routing.
-- pub `set_graph_scheduler_slot` function L310-315 — `( &mut self, slot: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>...` — Replace the graph scheduler slot with a shared reference from the runner.
-- pub `with_cron_registrar` function L322-325 — `(mut self, registrar: Arc<dyn CronWorkflowRegistrar>) -> Self` — Attach a cron registrar that the reconciler will use to install
-- pub `set_cron_registrar` function L332-334 — `(&mut self, registrar: Arc<dyn CronWorkflowRegistrar>)` — Inject a cron registrar after construction (mirrors
-- pub `start_reconciliation_loop` function L337-410 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
-- pub `reconcile` function L413-553 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
-- pub `get_status` function L579-594 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
+- pub `CronWorkflowRegistrar` interface L179-218 — `{ fn register_cron_workflow(), fn unregister_cron_workflow(), fn register_poll_t...` — Trait the reconciler uses to register and unregister cron workflow
+- pub `ReconcilerStatus` struct L222-228 — `{ packages_loaded: usize, package_details: Vec<PackageStatusDetail> }` — Status information about the reconciler
+- pub `PackageStatusDetail` struct L232-244 — `{ package_name: String, version: String, task_count: usize, has_workflow: bool }` — Detailed status information about a loaded package
+- pub `RegistryReconciler` struct L247-286 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, runtime: Option...` — Registry Reconciler for synchronizing database state with in-memory registries
+- pub `new` function L290-315 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
+- pub `with_runtime` function L320-323 — `(mut self, runtime: Arc<crate::Runtime>) -> Self` — Attach a Runtime to this reconciler.
+- pub `with_graph_scheduler` function L326-332 — `(self, scheduler: Arc<ComputationGraphScheduler>) -> Self` — Set the graph scheduler for computation graph package routing.
+- pub `set_graph_scheduler_slot` function L336-341 — `( &mut self, slot: Arc<tokio::sync::RwLock<Option<Arc<ComputationGraphScheduler>...` — Replace the graph scheduler slot with a shared reference from the runner.
+- pub `with_cron_registrar` function L348-351 — `(mut self, registrar: Arc<dyn CronWorkflowRegistrar>) -> Self` — Attach a cron registrar that the reconciler will use to install
+- pub `set_cron_registrar` function L358-360 — `(&mut self, registrar: Arc<dyn CronWorkflowRegistrar>)` — Inject a cron registrar after construction (mirrors
+- pub `start_reconciliation_loop` function L363-436 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
+- pub `reconcile` function L439-579 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
+- pub `get_status` function L605-620 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
 -  `loading` module L34 — `-` — # Registry Reconciler
 -  `ReconcilerConfig` type L82-94 — `impl Default for ReconcilerConfig` — - `PackageState`: Tracking loaded package state
 -  `default` function L83-93 — `() -> Self` — - `PackageState`: Tracking loaded package state
 -  `ReconcileResult` type L115-125 — `= ReconcileResult` — - `PackageState`: Tracking loaded package state
--  `PackageState` struct L129-167 — `{ metadata: WorkflowMetadata, task_namespaces: Vec<TaskNamespace>, workflow_name...` — Tracks the state of loaded packages
--  `RegistryReconciler` type L262-595 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
--  `shutdown_cleanup` function L556-576 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
--  `tests` module L598-783 — `-` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_default` function L604-611 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_methods` function L614-636 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_status` function L639-663 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_custom_values` function L666-682 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_no_changes_no_failures` function L685-697 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_unloaded_counts_as_change` function L700-711 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_both_loaded_and_unloaded` function L714-728 — `()` — - `PackageState`: Tracking loaded package state
--  `test_package_status_detail_fields` function L731-743 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_status_empty` function L746-754 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_clone` function L757-766 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_clone` function L769-782 — `()` — - `PackageState`: Tracking loaded package state
+-  `PackageState` struct L129-168 — `{ metadata: WorkflowMetadata, task_namespaces: Vec<TaskNamespace>, workflow_name...` — Tracks the state of loaded packages
+-  `register_poll_trigger` function L203-217 — `( &self, trigger_name: &str, workflow_name: &str, poll_interval_ms: i32, allow_c...` — Create a `trigger`-type schedule row for a custom-poll (non-cron)
+-  `RegistryReconciler` type L288-621 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
+-  `shutdown_cleanup` function L582-602 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
+-  `tests` module L624-809 — `-` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_default` function L630-637 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_methods` function L640-662 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_status` function L665-689 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_custom_values` function L692-708 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_no_changes_no_failures` function L711-723 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_unloaded_counts_as_change` function L726-737 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_both_loaded_and_unloaded` function L740-754 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_package_status_detail_fields` function L757-769 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_status_empty` function L772-780 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_clone` function L783-792 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_clone` function L795-808 — `()` — - `PackageState`: Tracking loaded package state
 
 ### crates/cloacina/src/registry/workflow_registry
 
@@ -4859,9 +4878,10 @@
 - pub `new` function L361-363 — `(database: crate::database::Database) -> Self` — This module provides methods for managing cron-scheduled workflow executions.
 -  `DefaultRunner` type L30-346 — `= DefaultRunner` — This module provides methods for managing cron-scheduled workflow executions.
 -  `DalCronRegistrar` type L360-364 — `= DalCronRegistrar` — This module provides methods for managing cron-scheduled workflow executions.
--  `DalCronRegistrar` type L367-412 — `= DalCronRegistrar` — This module provides methods for managing cron-scheduled workflow executions.
+-  `DalCronRegistrar` type L367-441 — `= DalCronRegistrar` — This module provides methods for managing cron-scheduled workflow executions.
 -  `register_cron_workflow` function L368-399 — `( &self, workflow_name: &str, cron_expression: &str, timezone: &str, ) -> Result...` — This module provides methods for managing cron-scheduled workflow executions.
 -  `unregister_cron_workflow` function L401-411 — `(&self, schedule_id: &str) -> Result<(), String>` — This module provides methods for managing cron-scheduled workflow executions.
+-  `register_poll_trigger` function L413-440 — `( &self, trigger_name: &str, workflow_name: &str, poll_interval_ms: i32, allow_c...` — This module provides methods for managing cron-scheduled workflow executions.
 
 #### crates/cloacina/src/runner/default_runner/mod.rs
 
@@ -6639,9 +6659,9 @@
 
 - pub `ListTriggersQuery` struct L26-29 — `{ limit: Option<i64>, offset: Option<i64> }` — Query string for `GET /tenants/{tenant_id}/triggers`
 - pub `TriggerScheduleSummary` struct L34-50 — `{ id: String, schedule_type: String, workflow_name: String, enabled: bool, cron_...` — One row in the trigger list.
-- pub `TriggerScheduleInfo` struct L55-64 — `{ id: String, schedule_type: String, workflow_name: String, enabled: bool, cron_...` — Schedule fields in the trigger detail response.
-- pub `TriggerExecution` struct L69-78 — `{ id: String, scheduled_time: Option<String>, started_at: String, completed_at: ...` — One row in `recent_executions` of the trigger detail response.
-- pub `TriggerDetailResponse` struct L83-87 — `{ tenant_id: String, schedule: TriggerScheduleInfo, recent_executions: Vec<Trigg...` — `GET /tenants/{tenant_id}/triggers/{name}` response.
+- pub `TriggerScheduleInfo` struct L55-68 — `{ id: String, schedule_type: String, workflow_name: String, enabled: bool, cron_...` — Schedule fields in the trigger detail response.
+- pub `TriggerExecution` struct L73-82 — `{ id: String, scheduled_time: Option<String>, started_at: String, completed_at: ...` — One row in `recent_executions` of the trigger detail response.
+- pub `TriggerDetailResponse` struct L87-91 — `{ tenant_id: String, schedule: TriggerScheduleInfo, recent_executions: Vec<Trigg...` — `GET /tenants/{tenant_id}/triggers/{name}` response.
 
 #### crates/cloacina-api-types/src/workflows.rs
 
@@ -8224,7 +8244,7 @@
 #### crates/cloacina-server/src/routes/triggers.rs
 
 - pub `list_triggers` function L62-133 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Trigger schedule API — read-only listing of cron and trigger schedules.
-- pub `get_trigger` function L158-230 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Trigger schedule API — read-only listing of cron and trigger schedules.
+- pub `get_trigger` function L158-231 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Trigger schedule API — read-only listing of cron and trigger schedules.
 -  `DEFAULT_TRIGGERS_LIMIT` variable L37 — `: i64` — Trigger schedule API — read-only listing of cron and trigger schedules.
 -  `MAX_TRIGGERS_LIMIT` variable L38 — `: i64` — Trigger schedule API — read-only listing of cron and trigger schedules.
 
@@ -11746,6 +11766,48 @@
 - pub `process` function L61-65 — `(kafka_alpha: Option<&EventData>) -> OutputData` — stream accumulator fires the reactor → the graph runs.
 - pub `output` function L67-69 — `(input: &OutputData) -> OutputData` — stream accumulator fires the reactor → the graph runs.
 
+### examples/fixtures/demo-pipeline-rust
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/fixtures/demo-pipeline-rust/build.rs
+
+-  `main` function L17-19 — `()`
+
+### examples/fixtures/demo-pipeline-rust/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/fixtures/demo-pipeline-rust/src/lib.rs
+
+- pub `OrderBookUpdate` struct L33-36 — `{ best_bid: f64, best_ask: f64 }` — accumulators are declared by the macro and sourced via sockets.
+- pub `PricingUpdate` struct L39-41 — `{ mid_price: f64 }` — accumulators are declared by the macro and sourced via sockets.
+- pub `MarketView` struct L44-48 — `{ spread: f64, mid_price: f64, pricing_mid: f64 }` — accumulators are declared by the macro and sourced via sockets.
+- pub `TradingSignal` struct L51-54 — `{ action: String, confidence: f64 }` — accumulators are declared by the macro and sourced via sockets.
+- pub `MarketPipelineReactor` struct L63 — `-` — accumulators are declared by the macro and sourced via sockets.
+- pub `market_pipeline` module L72-115 — `-` — accumulators are declared by the macro and sourced via sockets.
+- pub `combine` function L77-91 — `( orderbook: Option<&OrderBookUpdate>, pricing: Option<&PricingUpdate>, ) -> Mar...` — Entry node: combines both sources.
+- pub `evaluate` function L94-109 — `(view: &MarketView) -> TradingSignal` — Evaluate the combined market view into a trading signal.
+- pub `signal` function L112-114 — `(input: &TradingSignal) -> TradingSignal` — Terminal node.
+
+### examples/fixtures/demo-poll-rust
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/fixtures/demo-poll-rust/build.rs
+
+-  `main` function L17-19 — `()`
+
+### examples/fixtures/demo-poll-rust/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/fixtures/demo-poll-rust/src/lib.rs
+
+- pub `demo_poll_trigger` function L36-38 — `() -> Result<TriggerResult, cloacina_workflow::TriggerError>`
+- pub `demo_poll_wf` module L45-53 — `-`
+- pub `demo_poll_step` function L49-52 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+
 ### examples/fixtures/demo-py-graph/workflow/demo_py_graph
 
 > *Semantic summary to be generated by AI agent.*
@@ -11753,6 +11815,33 @@
 #### examples/fixtures/demo-py-graph/workflow/demo_py_graph/graph.py
 
 -  `_DemoReactor` class L17-18 — `-`
+
+### examples/fixtures/demo-routing-rust
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/fixtures/demo-routing-rust/build.rs
+
+-  `main` function L17-19 — `()`
+
+### examples/fixtures/demo-routing-rust/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/fixtures/demo-routing-rust/src/lib.rs
+
+- pub `OrderBookData` struct L33-36 — `{ best_bid: f64, best_ask: f64 }` — tutorial's accumulator-runtime / `main()` wiring is dropped.
+- pub `PricingData` struct L39-41 — `{ mid_price: f64 }` — tutorial's accumulator-runtime / `main()` wiring is dropped.
+- pub `TradeSignal` struct L45-49 — `{ direction: String, price: f64, confidence: f64 }` — Data carried when the decision is to trade.
+- pub `NoActionReason` struct L53-55 — `{ reason: String }` — Data carried when the decision is no action.
+- pub `TradeConfirmation` struct L59-62 — `{ executed: bool, message: String }` — Terminal output from the signal handler.
+- pub `AuditRecord` struct L66-69 — `{ logged: bool, reason: String }` — Terminal output from the audit logger.
+- pub `MarketMakerReactor` struct L76 — `-` — tutorial's accumulator-runtime / `main()` wiring is dropped.
+- pub `market_maker` module L87-155 — `-` — tutorial's accumulator-runtime / `main()` wiring is dropped.
+- pub `DecisionOutcome` enum L92-95 — `Trade | NoAction` — The routing enum.
+- pub `decision` function L99-135 — `( orderbook: Option<&OrderBookData>, pricing: Option<&PricingData>, ) -> Decisio...` — Decision engine (the routing node): evaluates market data and returns
+- pub `signal_handler` function L138-146 — `(signal: &TradeSignal) -> TradeConfirmation` — Trade branch terminal: executes the trade.
+- pub `audit_logger` function L149-154 — `(reason: &NoActionReason) -> AuditRecord` — No-action branch terminal: records why no action was taken.
 
 ### examples/fixtures/demo-slow-rust
 
@@ -12616,6 +12705,18 @@
 
 -  `shot` function L6-10 — `function shot(page, name: string)`
 
+#### ui/e2e/ws6.spec.ts
+
+-  `shot` function L6-10 — `function shot(page, name: string)`
+
+#### ui/e2e/ws7.spec.ts
+
+-  `shot` function L6-10 — `function shot(page, name: string)`
+
+#### ui/e2e/ws8.spec.ts
+
+-  `shot` function L6-10 — `function shot(page, name: string)`
+
 ### ui/harness/src
 
 > *Semantic summary to be generated by AI agent.*
@@ -12752,8 +12853,8 @@
 
 #### ui/src/components/GraphHealth.tsx
 
-- pub `healthState` function L26-32 — `function healthState(value: unknown): string | null`
-- pub `GraphHealth` function L36-53 — `function GraphHealth({ value }: { value: unknown })`
+- pub `healthState` function L28-35 — `function healthState(value: unknown): string | null`
+- pub `GraphHealth` function L50-70 — `function GraphHealth({ value }: { value: unknown })`
 
 #### ui/src/components/RequireAuth.tsx
 
@@ -12810,13 +12911,13 @@
 
 #### ui/src/routes/GraphDetail.tsx
 
-- pub `GraphDetail` function L118-246 — `function GraphDetail()`
--  `TopoNode` type L26 — `= { id: string; inputs?: string[] }`
--  `TopoEdge` type L27 — `= { from: string; to: string; label?: string | null }`
--  `GraphData` type L28-34 — `= { reactor?: string | null; accumulators: string[]; reaction_mode?: string | nu...`
--  `buildCgGraph` function L42-66 — `function buildCgGraph(data: GraphData): { nodes: DagNode[]; edges: DagEdge[] } |...`
--  `describeNode` function L71-111 — `function describeNode( id: string, data: GraphData, ): { title: string; kind: st...`
--  `LegendDot` function L248-265 — `function LegendDot({ color, label }: { color: string; label: string })`
+- pub `GraphDetail` function L131-275 — `function GraphDetail()`
+-  `TopoNode` type L39 — `= { id: string; inputs?: string[] }`
+-  `TopoEdge` type L40 — `= { from: string; to: string; label?: string | null }`
+-  `GraphData` type L41-47 — `= { reactor?: string | null; accumulators: string[]; reaction_mode?: string | nu...`
+-  `buildCgGraph` function L55-79 — `function buildCgGraph(data: GraphData): { nodes: DagNode[]; edges: DagEdge[] } |...`
+-  `describeNode` function L84-124 — `function describeNode( id: string, data: GraphData, ): { title: string; kind: st...`
+-  `LegendDot` function L277-294 — `function LegendDot({ color, label }: { color: string; label: string })`
 
 #### ui/src/routes/Graphs.tsx
 
@@ -12837,21 +12938,22 @@
 
 #### ui/src/routes/Overview.tsx
 
-- pub `Overview` function L37-186 — `function Overview()`
+- pub `Overview` function L37-193 — `function Overview()`
 
 #### ui/src/routes/Placeholder.tsx
 
-- pub `Placeholder` function L23-30 — `function Placeholder({ title, task }: { title: string; task: string })`
-- pub `NotFound` function L32-39 — `function NotFound()`
+- pub `Placeholder` function L24-31 — `function Placeholder({ title }: { title: string })`
+- pub `NotFound` function L33-40 — `function NotFound()`
 
 #### ui/src/routes/TriggerDetail.tsx
 
-- pub `TriggerDetail` function L33-116 — `function TriggerDetail()`
+- pub `TriggerDetail` function L44-170 — `function TriggerDetail()`
+-  `onRunNow` function L50-57 — `function onRunNow()`
 
 #### ui/src/routes/Triggers.tsx
 
-- pub `Triggers` function L31-127 — `function Triggers()`
--  `page` function L41-52 — `function page(delta: number)`
+- pub `Triggers` function L32-138 — `function Triggers()`
+-  `page` function L42-53 — `function page(delta: number)`
 
 #### ui/src/routes/WorkflowDetail.tsx
 
@@ -12865,7 +12967,7 @@
 
 #### ui/src/routes/Workflows.tsx
 
-- pub `Workflows` function L28-81 — `function Workflows()`
+- pub `Workflows` function L28-99 — `function Workflows()`
 
 ### ui/src/util
 
@@ -12883,4 +12985,15 @@
 
 - pub `executionStatusColor` function L35-37 — `function executionStatusColor(status: string): string`
 - pub `isTerminalStatus` function L44-46 — `function isTerminalStatus(status: string): boolean`
+
+#### ui/src/util/triggers.ts
+
+- pub `TriggerKind` type L28-35 — `= { /** Short label shown on the badge. */ label: string; /** Mantine color for ...`
+- pub `describeTriggerKind` function L37-54 — `function describeTriggerKind(scheduleType: string): TriggerKind`
+- pub `formatPollInterval` function L57-66 — `function formatPollInterval(ms: number | null | undefined): string`
+
+#### ui/src/util/vocab.ts
+
+- pub `VocabEntry` type L25 — `= { label: string; tip: string }`
+- pub `explainToken` function L69-74 — `function explainToken(token: string | null | undefined): VocabEntry`
 
