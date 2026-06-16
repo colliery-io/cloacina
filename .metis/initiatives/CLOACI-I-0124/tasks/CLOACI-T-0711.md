@@ -60,7 +60,7 @@ Implements the gaps from [[CLOACI-T-0702]]. Unblocks [[CLOACI-T-0703]], [[CLOACI
 
 ### Type
 - [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement  
+- [ ] Feature - New functionality or enhancement
 - [ ] Tech Debt - Code improvement or refactoring
 - [ ] Chore - Maintenance or setup work
 
@@ -72,7 +72,7 @@ Implements the gaps from [[CLOACI-T-0702]]. Unblocks [[CLOACI-T-0703]], [[CLOACI
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**: 
+- **Reproduction Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -101,7 +101,7 @@ Implements the gaps from [[CLOACI-T-0702]]. Unblocks [[CLOACI-T-0703]], [[CLOACI
 ### Test Case 1: {Test Case Name}
 - **Test ID**: TC-001
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -112,7 +112,7 @@ Implements the gaps from [[CLOACI-T-0702]]. Unblocks [[CLOACI-T-0703]], [[CLOACI
 ### Test Case 2: {Test Case Name}
 - **Test ID**: TC-002
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
 - **Expected Results**: {What should happen}

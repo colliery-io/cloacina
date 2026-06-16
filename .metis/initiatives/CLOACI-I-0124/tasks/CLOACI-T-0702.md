@@ -55,7 +55,7 @@ Blocks [[CLOACI-T-0703]] (execution drill-down), [[CLOACI-T-0704]] (ops health),
 
 ### Type
 - [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement  
+- [ ] Feature - New functionality or enhancement
 - [ ] Tech Debt - Code improvement or refactoring
 - [ ] Chore - Maintenance or setup work
 
@@ -67,7 +67,7 @@ Blocks [[CLOACI-T-0703]] (execution drill-down), [[CLOACI-T-0704]] (ops health),
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**: 
+- **Reproduction Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -96,7 +96,7 @@ Blocks [[CLOACI-T-0703]] (execution drill-down), [[CLOACI-T-0704]] (ops health),
 ### Test Case 1: {Test Case Name}
 - **Test ID**: TC-001
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
   3. {Step 3}
@@ -107,7 +107,7 @@ Blocks [[CLOACI-T-0703]] (execution drill-down), [[CLOACI-T-0704]] (ops health),
 ### Test Case 2: {Test Case Name}
 - **Test ID**: TC-002
 - **Preconditions**: {What must be true before testing}
-- **Steps**: 
+- **Steps**:
   1. {Step 1}
   2. {Step 2}
 - **Expected Results**: {What should happen}
