@@ -29,13 +29,15 @@ export function useWorkflows() {
   });
 }
 
-/** Single workflow detail by package name (T-0652). */
-export function useWorkflow(name: string) {
+/** Single workflow detail by package name (T-0652). `enabled` lets callers
+ *  defer the fetch until the package name is known (CLOACI-I-0124 / WS-1). */
+export function useWorkflow(name: string, opts?: { enabled?: boolean }) {
   const client = useClient();
   const tenant = useTenant();
   return useQuery({
     queryKey: queryKeys.workflow(tenant, name),
     queryFn: () => client.getWorkflow(name),
+    enabled: opts?.enabled ?? true,
   });
 }
 

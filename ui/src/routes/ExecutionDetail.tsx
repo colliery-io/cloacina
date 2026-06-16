@@ -28,8 +28,10 @@ import { EventLog } from "../components/EventLog";
 import { StatusBadge } from "../components/StatusBadge";
 import { TaskTable } from "../components/TaskTable";
 import { ErrorState, Loading } from "../components/states/States";
+import { useWorkflow } from "../api/workflows";
 import { mergeEvents } from "../util/events";
 import { isTerminalStatus } from "../util/status";
+import { topoRank } from "../util/topo";
 
 /**
  * Execution detail (T-0653 + T-0656). Non-live half shows the REST event
@@ -50,6 +52,16 @@ export function ExecutionDetail() {
   const terminal = detail.data ? isTerminalStatus(detail.data.status) : true;
   const liveEvents = useLiveExecutionEvents(id, !terminal);
   const tasks = useExecutionTasks(id, { poll: !terminal });
+
+  // Fixed nominal run order for the task table: pull the workflow's task DAG and
+  // topologically rank it. The package name is the 2nd segment of a task's
+  // namespaced id (`tenant::package::workflow::task`). Fetched once the tasks
+  // load; the table falls back to created_at order until the graph arrives.
+  const pkgName = tasks.data?.tasks[0]?.task_name.split("::")[1] ?? "";
+  const workflow = useWorkflow(pkgName, { enabled: !!pkgName });
+  const taskOrder = workflow.data?.task_graph
+    ? topoRank(workflow.data.task_graph)
+    : undefined;
 
   // On the in-progress → terminal transition, refetch the REST log + task rows
   // so the final view is the server's authoritative history (not just what the
@@ -109,7 +121,7 @@ export function ExecutionDetail() {
         ) : tasks.isError ? (
           <ErrorState error={tasks.error} onRetry={tasks.refetch} />
         ) : (
-          <TaskTable tasks={tasks.data.tasks} />
+          <TaskTable tasks={tasks.data.tasks} order={taskOrder} />
         )}
       </Card>
 

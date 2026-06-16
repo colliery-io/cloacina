@@ -4,14 +4,14 @@ level: task
 title: "WS-9 — Make the execution event log meaningful (task name + humanized events)"
 short_code: "CLOACI-T-0712"
 created_at: 2026-06-16T12:13:25.339991+00:00
-updated_at: 2026-06-16T12:13:51.305651+00:00
+updated_at: 2026-06-16T12:17:24.869351+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -36,14 +36,16 @@ says **which task** the event is about (the underlying event row has a
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 ## Acceptance Criteria (real)
 
-- [ ] Server: `ExecutionEvent` DTO carries the **task name** (resolved from
+- [x] Server: `ExecutionEvent` DTO carries the **task name** (resolved from
       `task_execution_id`); OpenAPI + SDK regenerated.
-- [ ] UI: humanized event labels (not raw snake_case), a **task-name** chip when
+- [x] UI: humanized event labels (not raw snake_case), a **task-name** chip when
       the event is task-scoped, empty `{}` payloads hidden, and a per-execution
       ordinal instead of the global `sequence_num`.
-- [ ] Verified live against execution `0bf73958-…` (screenshot).
+- [x] Verified live against execution `0bf73958-…` (screenshot).
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -148,4 +150,20 @@ says **which task** the event is about (the underlying event row has a
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-16 — DONE
+
+- **Server:** `ExecutionEvent` DTO gains `task_name: Option<String>`;
+  `get_execution_events` resolves it by mapping each event's `task_execution_id`
+  against the workflow's task executions (`get_all_tasks_for_workflow`).
+  Workflow-scoped events (e.g. `workflow_completed`) stay `null`. OpenAPI +
+  `@cloacina/client` regenerated.
+- **UI:** new `util/eventLabels.ts` (`describeEvent` → friendly label + status
+  color; `meaningfulData` hides empty/`{}` payloads). `EventLog` now renders a
+  colored badge ("Task ready" / "Task completed" / "Workflow completed" …), the
+  shortened task name when task-scoped, no empty `{}`, and a per-execution
+  ordinal (1,2,3) instead of the global `sequence_num` (9080–9082).
+
+Verified live against `0bf73958-…` (`/tmp/cloacina-ui-uat/eventlog/02-fixed.png`):
+`1 · TASK READY · demo_cron_step`, `2 · TASK COMPLETED · demo_cron_step`,
+`3 · WORKFLOW COMPLETED`. `tsc --noEmit` clean. Committed `b0603d5c` on
+`feat/ui-0124-server-read-endpoints`.

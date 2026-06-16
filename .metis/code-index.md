@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T10:55:06Z | 706 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-16T12:17:36Z | 707 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -941,6 +941,7 @@
     │   │   └── setup.ts
     │   ├── theme.ts
     │   ├── util/
+    │   │   ├── eventLabels.ts
     │   │   ├── events.ts
     │   │   ├── format.ts
     │   │   ├── status.ts
@@ -1726,9 +1727,9 @@
 
 - pub `paths` interface L6-479 — `{ "/health": : { parameters: { query?: never; header?: never; path?: never; cook...`
 - pub `webhooks` type L480 — `= Record<string, never>`
-- pub `components` interface L481-1106 — `{ schemas: : { /** @description One row in `GET /v1/health/accumulators`. */ Acc...`
-- pub `$defs` type L1107 — `= Record<string, never>`
-- pub `operations` interface L1108-2406 — `{ health: : { parameters: { query?: never; header?: never; path?: never; cookie?...`
+- pub `components` interface L481-1113 — `{ schemas: : { /** @description One row in `GET /v1/health/accumulators`. */ Acc...`
+- pub `$defs` type L1114 — `= Record<string, never>`
+- pub `operations` interface L1115-2413 — `{ health: : { parameters: { query?: never; header?: never; path?: never; cookie?...`
 
 ### clients/typescript/src
 
@@ -6605,10 +6606,10 @@
 - pub `ListExecutionsQuery` struct L47-52 — `{ status: Option<String>, workflow: Option<String>, limit: Option<i64>, offset: ...` — Query string for `GET /tenants/{tenant_id}/executions`
 - pub `ExecutionSummary` struct L57-66 — `{ id: String, workflow_name: String, status: String, started_at: String, complet...` — One row in the executions list.
 - pub `ExecutionDetail` struct L71-75 — `{ tenant_id: String, execution_id: String, status: String }` — `GET /tenants/{tenant_id}/executions/{id}` response.
-- pub `ExecutionEvent` struct L80-89 — `{ id: String, event_type: String, event_data: Option<String>, created_at: String...` — One row in the execution event log.
-- pub `ExecutionEventsResponse` struct L94-98 — `{ tenant_id: String, execution_id: String, events: Vec<ExecutionEvent> }` — `GET /tenants/{tenant_id}/executions/{id}/events` response.
-- pub `TaskExecutionDetail` struct L103-126 — `{ id: String, task_name: String, status: String, started_at: Option<String>, com...` — One per-task row of an execution (CLOACI-I-0124 / WS-1).
-- pub `ExecutionTasksResponse` struct L131-135 — `{ tenant_id: String, execution_id: String, tasks: Vec<TaskExecutionDetail> }` — `GET /tenants/{tenant_id}/executions/{id}/tasks` response.
+- pub `ExecutionEvent` struct L80-94 — `{ id: String, event_type: String, event_data: Option<String>, task_name: Option<...` — One row in the execution event log.
+- pub `ExecutionEventsResponse` struct L99-103 — `{ tenant_id: String, execution_id: String, events: Vec<ExecutionEvent> }` — `GET /tenants/{tenant_id}/executions/{id}/events` response.
+- pub `TaskExecutionDetail` struct L108-131 — `{ id: String, task_name: String, status: String, started_at: Option<String>, com...` — One per-task row of an execution (CLOACI-I-0124 / WS-1).
+- pub `ExecutionTasksResponse` struct L136-140 — `{ tenant_id: String, execution_id: String, tasks: Vec<TaskExecutionDetail> }` — `GET /tenants/{tenant_id}/executions/{id}/tasks` response.
 
 #### crates/cloacina-api-types/src/fleet.rs
 
@@ -8199,8 +8200,8 @@
 - pub `execute_workflow` function L63-153 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
 - pub `list_executions` function L185-253 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
 - pub `get_execution` function L273-316 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
-- pub `get_execution_events` function L336-386 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
-- pub `get_execution_tasks` function L406-467 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
+- pub `get_execution_events` function L336-401 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
+- pub `get_execution_tasks` function L421-482 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — Execution API — trigger workflows and query execution status.
 -  `DEFAULT_EXECUTIONS_LIMIT` variable L158 — `: i64` — Default page size for `list_executions` when the client doesn't
 -  `MAX_EXECUTIONS_LIMIT` variable L161 — `: i64` — Hard ceiling on `?limit=` to keep a single response from pulling
 
@@ -12852,9 +12853,8 @@
 
 #### ui/src/components/EventLog.tsx
 
-- pub `ExecutionEvent` type L22 — `= schemas["ExecutionEvent"]`
-- pub `EventLog` function L42-94 — `function EventLog({ events }: { events: ExecutionEvent[] })`
--  `prettyData` function L33-40 — `function prettyData(raw: string | null | undefined): string | null`
+- pub `ExecutionEvent` type L23 — `= schemas["ExecutionEvent"]`
+- pub `EventLog` function L36-101 — `function EventLog({ events }: { events: ExecutionEvent[] })`
 
 #### ui/src/components/GraphHealth.tsx
 
@@ -12983,6 +12983,12 @@
 ### ui/src/util
 
 > *Semantic summary to be generated by AI agent.*
+
+#### ui/src/util/eventLabels.ts
+
+- pub `EventDescriptor` type L23 — `= { label: string; color: string }`
+- pub `describeEvent` function L37-45 — `function describeEvent(eventType: string): EventDescriptor`
+- pub `meaningfulData` function L49-59 — `function meaningfulData(raw: string | null | undefined): string | null`
 
 #### ui/src/util/events.ts
 

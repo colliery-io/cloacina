@@ -43,7 +43,19 @@ function fmtTime(ts: string | null): string {
  * Per-task breakdown of an execution (CLOACI-I-0124 / WS-1). Replaces the
  * raw event log as the primary "what ran, how long, and why it failed" view.
  */
-export function TaskTable({ tasks }: { tasks: TaskExecutionDetail[] }) {
+/** Local task id (last `::` segment) used to look the task up in the DAG rank. */
+function localId(taskName: string): string {
+  return taskName.split("::").pop() || taskName;
+}
+
+export function TaskTable({
+  tasks,
+  order,
+}: {
+  tasks: TaskExecutionDetail[];
+  /** DAG topological rank (`task id → position`) for fixed nominal run order. */
+  order?: Map<string, number>;
+}) {
   if (tasks.length === 0) {
     return (
       <Text size="sm" c="dimmed">
@@ -52,12 +64,22 @@ export function TaskTable({ tasks }: { tasks: TaskExecutionDetail[] }) {
     );
   }
 
-  // Order by start time so the table reads as the execution timeline; unstarted
-  // tasks sink to the bottom.
+  // Fixed run order that never reshuffles as statuses change during a live run
+  // — only the status/duration cells update in place. Primary key is the
+  // workflow DAG's topological rank (nominal run order: dependencies before
+  // dependents); falls back to the immutable `created_at` (then `id`) until the
+  // graph loads or for tasks not in it. (Sorting by `started_at`, the old
+  // behavior, made rows jump as each task started — CLOACI-I-0124 / WS-1.)
+  const rankOf = (t: TaskExecutionDetail): number =>
+    order?.get(localId(t.task_name)) ?? Number.MAX_SAFE_INTEGER;
   const rows = [...tasks].sort((a, b) => {
-    const as = a.started_at ? Date.parse(a.started_at) : Number.MAX_SAFE_INTEGER;
-    const bs = b.started_at ? Date.parse(b.started_at) : Number.MAX_SAFE_INTEGER;
-    return as - bs;
+    const ar = rankOf(a);
+    const br = rankOf(b);
+    if (ar !== br) return ar - br;
+    const ac = Date.parse(a.created_at);
+    const bc = Date.parse(b.created_at);
+    if (ac !== bc) return ac - bc;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
   return (

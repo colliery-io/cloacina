@@ -1,4 +1,4 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacina-api-types/src/executions.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-server/src/routes/executions.rs
-/Users/dstorey/Desktop/cloacina/ui/src/util/eventLabels.ts
-/Users/dstorey/Desktop/cloacina/ui/src/components/EventLog.tsx
+/Users/dstorey/Desktop/cloacina/ui/src/components/TaskTable.tsx
+/Users/dstorey/Desktop/cloacina/ui/src/api/workflows.ts
+/Users/dstorey/Desktop/cloacina/ui/src/util/topo.ts
+/Users/dstorey/Desktop/cloacina/ui/src/routes/ExecutionDetail.tsx
