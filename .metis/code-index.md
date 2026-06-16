@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-14T16:36:02Z | 681 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-15T19:52:21Z | 681 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -8855,11 +8855,11 @@
 
 - pub `KeyCmd` struct L27-30 — `{ verb: KeyVerb }`
 - pub `Role` enum L33-37 — `Admin | Write | Read`
-- pub `run` function L68-112 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
+- pub `run` function L68-113 — `(self, globals: &GlobalOpts) -> Result<(), CliError>`
 -  `KeyVerb` enum L40-55 — `Create | List | Revoke`
 -  `KeyVerb` type L57-65 — `= KeyVerb`
 -  `role_str` function L58-64 — `(r: Role) -> &'static str`
--  `KeyCmd` type L67-113 — `= KeyCmd`
+-  `KeyCmd` type L67-114 — `= KeyCmd`
 
 ### crates/cloacinactl/src/nouns
 
@@ -8898,27 +8898,43 @@
 
 #### crates/cloacinactl/src/nouns/package/list.rs
 
-- pub `run` function L25-55 — `(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliError>`
--  `render_list` function L57-104 — `(items: &[Value], format: OutputFormat) -> Result<(), CliError>`
--  `truncate_id` function L106-112 — `(id: &str) -> String`
+- pub `run` function L25-59 — `(globals: &GlobalOpts, filter: Option<&str>) -> Result<(), CliError>`
+-  `render_list` function L61-108 — `(items: &[Value], format: OutputFormat) -> Result<(), CliError>`
+-  `truncate_id` function L110-116 — `(id: &str) -> String`
 
 #### crates/cloacinactl/src/nouns/package/manifest.rs
 
-- pub `PackageLanguage` enum L34-37 — `Rust | Python` — The package's source language, read from `[metadata].language`.
-- pub `read_manifest` function L43-54 — `( dir: &Path, ) -> Result<fidius_core::package::PackageManifest<CloacinaMetadata...` — Read and validate `<dir>/package.toml` against the closed `CloacinaMetadata`
-- pub `read_metadata` function L57-59 — `(dir: &Path) -> Result<CloacinaMetadata, CliError>` — Read just the `[metadata]` table.
-- pub `language` function L62-70 — `(meta: &CloacinaMetadata) -> Result<PackageLanguage, CliError>` — Resolve the package language from `[metadata].language`.
-- pub `read_language` function L73-75 — `(dir: &Path) -> Result<PackageLanguage, CliError>` — Read `package.toml` and return its language in one step.
-- pub `validate_python_layout` function L82-119 — `(dir: &Path, meta: &CloacinaMetadata) -> Result<(), CliError>` — Validate that a Python package's source is laid out the way the server
-- pub `validate_rust_layout` function L125-147 — `(dir: &Path) -> Result<(), CliError>` — Validate that a Rust package's source is present: a `Cargo.toml` and a
--  `tests` module L150-234 — `-` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
--  `py_meta` function L155-168 — `(entry: Option<&str>) -> CloacinaMetadata` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
--  `language_parses_known_values` function L171-178 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
--  `python_layout_ok_when_module_file_present` function L181-189 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
--  `python_layout_ok_when_package_init_present` function L192-201 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
--  `python_layout_rejects_missing_workflow_dir` function L204-214 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
--  `python_layout_rejects_missing_entry_module` function L217-223 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
--  `python_layout_rejects_unresolvable_entry_module` function L226-233 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+- pub `PackageLanguage` enum L36-39 — `Rust | Python` — The package's source language, read from `[metadata].language`.
+- pub `read_manifest` function L45-56 — `( dir: &Path, ) -> Result<fidius_core::package::PackageManifest<CloacinaMetadata...` — Read and validate `<dir>/package.toml` against the closed `CloacinaMetadata`
+- pub `read_metadata` function L59-61 — `(dir: &Path) -> Result<CloacinaMetadata, CliError>` — Read just the `[metadata]` table.
+- pub `language` function L64-72 — `(meta: &CloacinaMetadata) -> Result<PackageLanguage, CliError>` — Resolve the package language from `[metadata].language`.
+- pub `read_language` function L75-77 — `(dir: &Path) -> Result<PackageLanguage, CliError>` — Read `package.toml` and return its language in one step.
+- pub `validate_python_layout` function L84-121 — `(dir: &Path, meta: &CloacinaMetadata) -> Result<(), CliError>` — Validate that a Python package's source is laid out the way the server
+- pub `validate_rust_layout` function L127-149 — `(dir: &Path) -> Result<(), CliError>` — Validate that a Rust package's source is present: a `Cargo.toml` and a
+- pub `lint_footguns` function L157-166 — `( dir: &Path, lang: PackageLanguage, meta: &CloacinaMetadata, ) -> Result<(), Cl...` — Author-time footgun lints (CLOACI-T-0680).
+-  `lint_rust_source` function L168-204 — `(dir: &Path, meta: &CloacinaMetadata) -> Result<(), CliError>` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `lint_python_source` function L206-234 — `(dir: &Path, meta: &CloacinaMetadata) -> Result<(), CliError>` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `cron_trigger_names` function L239-245 — `(src: &str) -> Vec<String>` — Names of triggers declared with a `cron = "..."` argument.
+-  `workflow_trigger_names` function L248-258 — `(src: &str) -> HashSet<String>` — Trigger names listed in any `#[workflow(triggers = [...])]` attribute.
+-  `attr_invocations` function L262-308 — `(src: &str, attr: &str) -> Vec<(String, Option<String>)>` — Find `#[<attr>(...)]` / `#[cloacina_macros::<attr>(...)]` invocations, returning
+-  `kv_value` function L312-336 — `(args: &str, key: &str) -> Option<String>` — Value of a `key = "..."` argument within an attribute's args, word-bounded so
+-  `array_value` function L339-346 — `(args: &str, key: &str) -> Option<String>` — The `[...]` text of a `key = [...]` argument.
+-  `quoted_strings` function L349-362 — `(s: &str) -> Vec<String>` — All double-quoted string literals in `s`.
+-  `tests` module L365-550 — `-` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `py_meta` function L370-383 — `(entry: Option<&str>) -> CloacinaMetadata` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `language_parses_known_values` function L386-393 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `python_layout_ok_when_module_file_present` function L396-404 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `python_layout_ok_when_package_init_present` function L407-416 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `python_layout_rejects_missing_workflow_dir` function L419-429 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `python_layout_rejects_missing_entry_module` function L432-438 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `python_layout_rejects_unresolvable_entry_module` function L441-448 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `meta` function L452-465 — `(lang: &str, graph_name: Option<&str>, entry: Option<&str>) -> CloacinaMetadata` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `write_rust` function L467-471 — `(dir: &Path, cargo: &str, lib: &str)` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `lint_rejects_unrewritten_workspace_placeholder` function L474-484 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `lint_rust_cg_requires_graph_name` function L487-504 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `lint_rejects_cron_trigger_in_workflow_triggers_list` function L507-518 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `lint_allows_cron_trigger_bound_via_on` function L521-530 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
+-  `lint_python_cg_requires_graph_name` function L533-549 — `()` — pack time (`#[serde(deny_unknown_fields)]`) rather than at server upload.
 
 #### crates/cloacinactl/src/nouns/package/mod.rs
 
@@ -8933,29 +8949,44 @@
 - pub `upload` module L34 — `-` — inspect / delete.
 - pub `validate` module L35 — `-` — inspect / delete.
 - pub `PackageCmd` struct L38-41 — `{ verb: PackageVerb }` — inspect / delete.
-- pub `run` function L105-121 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — inspect / delete.
--  `PackageVerb` enum L44-102 — `New | Build | Validate | Pack | Publish | Upload | List | Inspect | Delete` — inspect / delete.
--  `PackageCmd` type L104-122 — `= PackageCmd` — inspect / delete.
+- pub `run` function L108-129 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — inspect / delete.
+-  `PackageVerb` enum L44-105 — `New | Build | Validate | Pack | Publish | Upload | List | Inspect | Delete` — inspect / delete.
+-  `PackageCmd` type L107-130 — `= PackageCmd` — inspect / delete.
 
 #### crates/cloacinactl/src/nouns/package/new.rs
 
-- pub `ScaffoldLang` enum L37-40 — `Python | Rust` — the published `cloacina-*` crates.
-- pub `run` function L42-70 — `(name: &str, lang: ScaffoldLang, path: Option<&Path>) -> Result<(), CliError>` — the published `cloacina-*` crates.
--  `CLOACINA_CRATE_VERSION` variable L34 — `: &str` — Version pin for the generated Rust package's `cloacina-*` dependencies.
--  `lang_label` function L72-77 — `(lang: ScaffoldLang) -> &'static str` — the published `cloacina-*` crates.
--  `write` function L79-84 — `(path: &Path, contents: &str) -> Result<(), CliError>` — the published `cloacina-*` crates.
--  `scaffold_python` function L86-129 — `(dir: &Path, name: &str, module: &str) -> Result<(), CliError>` — the published `cloacina-*` crates.
--  `scaffold_rust` function L131-207 — `(dir: &Path, name: &str, module: &str) -> Result<(), CliError>` — the published `cloacina-*` crates.
--  `tests` module L210-271 — `-` — the published `cloacina-*` crates.
--  `python_scaffold_creates_canonical_layout` function L215-230 — `()` — the published `cloacina-*` crates.
--  `rust_scaffold_creates_canonical_layout` function L233-252 — `()` — the published `cloacina-*` crates.
--  `refuses_non_empty_existing_dir` function L255-263 — `()` — the published `cloacina-*` crates.
--  `rejects_empty_name` function L266-270 — `()` — the published `cloacina-*` crates.
+- pub `ScaffoldLang` enum L42-45 — `Python | Rust` — published `cloacina-*` crates, not the in-repo path deps.
+- pub `ScaffoldKind` enum L48-52 — `Workflow | Graph | Cron` — published `cloacina-*` crates, not the in-repo path deps.
+- pub `run` function L54-107 — `( name: &str, lang: ScaffoldLang, kind: ScaffoldKind, path: Option<&Path>, ) -> ...` — published `cloacina-*` crates, not the in-repo path deps.
+-  `CLOACINA_CRATE_VERSION` variable L39 — `: &str` — Version pin for the generated Rust package's `cloacina-*` dependencies.
+-  `lang_label` function L109-114 — `(lang: ScaffoldLang) -> &'static str` — published `cloacina-*` crates, not the in-repo path deps.
+-  `kind_label` function L116-122 — `(kind: ScaffoldKind) -> &'static str` — published `cloacina-*` crates, not the in-repo path deps.
+-  `pascal_case` function L125-137 — `(module: &str) -> String` — `my_graph` -> `MyGraph` for a reactor class/type name.
+-  `write` function L139-144 — `(path: &Path, contents: &str) -> Result<(), CliError>` — published `cloacina-*` crates, not the in-repo path deps.
+-  `scaffold_python` function L150-161 — `( dir: &Path, name: &str, module: &str, kind: ScaffoldKind, ) -> Result<(), CliE...` — published `cloacina-*` crates, not the in-repo path deps.
+-  `scaffold_python_workflow` function L163-203 — `(dir: &Path, name: &str, module: &str) -> Result<(), CliError>` — published `cloacina-*` crates, not the in-repo path deps.
+-  `scaffold_python_graph` function L205-281 — `(dir: &Path, name: &str, module: &str) -> Result<(), CliError>` — published `cloacina-*` crates, not the in-repo path deps.
+-  `scaffold_rust` function L287-317 — `(dir: &Path, name: &str, module: &str, kind: ScaffoldKind) -> Result<(), CliErro...` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rust_cargo_toml` function L319-348 — `(name: &str) -> String` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rust_package_toml` function L350-365 — `(name: &str, module: &str, _graph: bool) -> String` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rust_graph_package_toml` function L367-384 — `(name: &str, module: &str) -> String` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rust_workflow_lib` function L386-411 — `(name: &str, module: &str) -> String` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rust_cron_lib` function L413-439 — `(name: &str, module: &str) -> String` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rust_graph_lib` function L441-517 — `(module: &str) -> String` — published `cloacina-*` crates, not the in-repo path deps.
+-  `tests` module L520-673 — `-` — published `cloacina-*` crates, not the in-repo path deps.
+-  `python_workflow_scaffold_canonical_layout` function L525-544 — `()` — published `cloacina-*` crates, not the in-repo path deps.
+-  `python_graph_scaffold_canonical_layout` function L547-567 — `()` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rust_workflow_scaffold_canonical_layout` function L570-589 — `()` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rust_cron_scaffold_binds_via_on_not_triggers_list` function L592-607 — `()` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rust_graph_scaffold_sets_graph_name_and_macros` function L610-629 — `()` — published `cloacina-*` crates, not the in-repo path deps.
+-  `python_cron_is_rejected` function L632-642 — `()` — published `cloacina-*` crates, not the in-repo path deps.
+-  `refuses_non_empty_existing_dir` function L645-659 — `()` — published `cloacina-*` crates, not the in-repo path deps.
+-  `rejects_empty_name` function L662-672 — `()` — published `cloacina-*` crates, not the in-repo path deps.
 
 #### crates/cloacinactl/src/nouns/package/pack.rs
 
 - pub `run` function L22-40 — `(dir: &Path, out: Option<&Path>, sign: Option<&Path>) -> Result<(), CliError>`
-- pub `pack_to` function L49-59 — `(dir: &Path, out: Option<&Path>) -> Result<PathBuf, CliError>` — Validate the package source and pack it into a `.cloacina` archive, returning
+- pub `pack_to` function L49-62 — `(dir: &Path, out: Option<&Path>) -> Result<PathBuf, CliError>` — Validate the package source and pack it into a `.cloacina` archive, returning
 
 #### crates/cloacinactl/src/nouns/package/publish.rs
 
@@ -8967,13 +8998,13 @@
 
 #### crates/cloacinactl/src/nouns/package/validate.rs
 
-- pub `run` function L33-74 — `(path: &Path) -> Result<(), CliError>` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
--  `tests` module L77-158 — `-` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
--  `write_python_package` function L81-107 — `(dir: &Path, entry_under_workflow: bool)` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
--  `validates_good_python_source_dir` function L110-115 — `()` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
--  `rejects_python_without_workflow_dir` function L118-124 — `()` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
--  `rejects_package_type_unknown_key` function L127-150 — `()` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
--  `rejects_missing_path` function L153-157 — `()` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
+- pub `run` function L33-77 — `(path: &Path) -> Result<(), CliError>` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
+-  `tests` module L80-163 — `-` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
+-  `write_python_package` function L84-110 — `(dir: &Path, entry_under_workflow: bool)` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
+-  `validates_good_python_source_dir` function L113-118 — `()` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
+-  `rejects_python_without_workflow_dir` function L121-127 — `()` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
+-  `rejects_package_type_unknown_key` function L130-155 — `()` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
+-  `rejects_missing_path` function L158-162 — `()` — `Cargo.toml` + `src/lib.rs` for Rust) — so authors catch them locally.
 
 ### crates/cloacinactl/src/nouns/server
 
@@ -9036,10 +9067,10 @@
 #### crates/cloacinactl/src/nouns/workflow/mod.rs
 
 - pub `WorkflowCmd` struct L30-33 — `{ verb: WorkflowVerb }` — `cloacinactl workflow <verb>`.
-- pub `run` function L54-114 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl workflow <verb>`.
+- pub `run` function L54-121 — `(self, globals: &GlobalOpts) -> Result<(), CliError>` — `cloacinactl workflow <verb>`.
 -  `WorkflowVerb` enum L36-51 — `List | Inspect | Run` — `cloacinactl workflow <verb>`.
--  `WorkflowCmd` type L53-115 — `= WorkflowCmd` — `cloacinactl workflow <verb>`.
--  `load_context` function L117-130 — `(source: Option<&str>) -> Result<serde_json::Value, CliError>` — `cloacinactl workflow <verb>`.
+-  `WorkflowCmd` type L53-122 — `= WorkflowCmd` — `cloacinactl workflow <verb>`.
+-  `load_context` function L124-137 — `(source: Option<&str>) -> Result<serde_json::Value, CliError>` — `cloacinactl workflow <verb>`.
 
 ### crates/cloacinactl/src/shared
 
@@ -12763,4 +12794,3 @@
 
 - pub `executionStatusColor` function L35-37 — `function executionStatusColor(status: string): string`
 - pub `isTerminalStatus` function L44-46 — `function isTerminalStatus(status: string): boolean`
-

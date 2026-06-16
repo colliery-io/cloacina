@@ -28,37 +28,25 @@ enableRobotsTXT = true
 
 [menu]
   [[menu.main]]
-    name = "Quick Start"
-    url = "/quick-start/"
+    name = "Start Here"
+    url = "/start/"
     weight = 5
   [[menu.main]]
-    name = "Workflows"
-    url = "/workflows/"
+    name = "Embed the Library"
+    url = "/embed/"
     weight = 10
   [[menu.main]]
-    name = "Computation Graphs"
-    url = "/computation-graphs/"
+    name = "Run the Service"
+    url = "/service/"
     weight = 20
   [[menu.main]]
-    name = "Python (Cloaca)"
-    url = "/python/"
-    weight = 15
-  [[menu.main]]
-    name = "Platform"
-    url = "/platform/"
+    name = "Engine & Primitives"
+    url = "/engine/"
     weight = 30
   [[menu.main]]
-    name = "API Reference"
-    url = "/api-reference/"
-    weight = 35
-  [[menu.main]]
-    name = "Glossary"
-    url = "/glossary/"
-    weight = 50
-  [[menu.main]]
-    name = "Troubleshooting"
-    url = "/troubleshooting/"
-    weight = 51
+    name = "Reference"
+    url = "/reference/"
+    weight = 40
   [[menu.main]]
     name = "Contributing"
     url = "/contributing/"
@@ -66,3 +54,6 @@ enableRobotsTXT = true
 
 [params]
   geekdocLogo = "logo.png"
+  # Collapse sidebar sections by default — the reader sees the top-level doors
+  # and expands only the one they're in (the active page's trail auto-expands).
+  geekdocCollapseAllSections = true
