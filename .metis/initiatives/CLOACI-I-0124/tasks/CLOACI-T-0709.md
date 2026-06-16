@@ -4,14 +4,14 @@ level: task
 title: "WS-7 — Naive-user polish (status vocab, placeholder leak, Tasks:0)"
 short_code: "CLOACI-T-0709"
 created_at: 2026-06-16T01:50:20.066720+00:00
-updated_at: 2026-06-16T01:50:20.066720+00:00
+updated_at: 2026-06-16T04:13:51.209713+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0124
 ## Objective
 
 (P2) Fix the naive-user confusion bugs the audit found — small, high-clarity wins.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria (real)
 

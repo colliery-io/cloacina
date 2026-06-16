@@ -59,7 +59,7 @@ export function App() {
           <Route path="graphs/:name" element={<GraphDetail />} />
           <Route path="operations" element={<Operations />} />
           <Route path="keys" element={<Keys />} />
-          <Route path="settings" element={<Placeholder title="Settings" task="T-0651" />} />
+          <Route path="settings" element={<Placeholder title="Settings" />} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Route>

@@ -17,14 +17,15 @@
 import { Stack, Text, Title } from "@mantine/core";
 
 /**
- * Placeholder for routes whose views land in later tasks — keeps the nav +
- * routing real in the skeleton so each feature task drops into a wired slot.
+ * Placeholder for routes whose views aren't built yet — keeps the nav +
+ * routing real so the page exists. Shows a neutral "coming soon" rather than
+ * leaking an internal task code to the user (CLOACI-I-0124 / WS-7).
  */
-export function Placeholder({ title, task }: { title: string; task: string }) {
+export function Placeholder({ title }: { title: string }) {
   return (
     <Stack>
       <Title order={2}>{title}</Title>
-      <Text c="dimmed">Built in {task}.</Text>
+      <Text c="dimmed">This area isn't available yet — coming soon.</Text>
     </Stack>
   );
 }

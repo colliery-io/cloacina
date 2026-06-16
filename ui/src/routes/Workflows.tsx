@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-import { Button, Group, Stack, Table, Text, Title } from "@mantine/core";
+import { Badge, Button, Group, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useWorkflows } from "../api/workflows";
@@ -69,7 +69,25 @@ export function Workflows() {
                   )}
                 </Table.Td>
                 <Table.Td>{w.version}</Table.Td>
-                <Table.Td>{w.tasks.length}</Table.Td>
+                <Table.Td>
+                  {w.tasks.length > 0 ? (
+                    w.tasks.length
+                  ) : (
+                    // A package with no workflow tasks is a computation-graph
+                    // package — show what it is instead of a "0" that reads as
+                    // broken (CLOACI-I-0124 / WS-7).
+                    <Tooltip
+                      label="Computation-graph package — it has no workflow tasks. See the Graphs view for its nodes."
+                      multiline
+                      w={260}
+                      withArrow
+                    >
+                      <Badge variant="light" color="grape">
+                        graph
+                      </Badge>
+                    </Tooltip>
+                  )}
+                </Table.Td>
                 <Table.Td>{formatTimestamp(w.created_at)}</Table.Td>
               </Table.Tr>
             ))}

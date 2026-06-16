@@ -14,7 +14,19 @@
  *  limitations under the License.
  */
 
-import { Anchor, Badge, Card, Divider, Drawer, Group, List, Stack, Text, Title } from "@mantine/core";
+import {
+  Anchor,
+  Badge,
+  Card,
+  Divider,
+  Drawer,
+  Group,
+  List,
+  Stack,
+  Text,
+  Title,
+  Tooltip,
+} from "@mantine/core";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
@@ -22,6 +34,7 @@ import { useGraph } from "../api/health";
 import { Dag, type DagEdge, type DagNode } from "../components/Dag";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
+import { explainToken } from "../util/vocab";
 
 type TopoNode = { id: string; inputs?: string[] };
 type TopoEdge = { from: string; to: string; label?: string | null };
@@ -84,8 +97,8 @@ function describeNode(
       title: id.slice(8),
       kind: "Reactor",
       rows: [
-        ["Criteria", data.reaction_mode ?? "—"],
-        ["Input strategy", data.input_strategy ?? "—"],
+        ["Criteria", explainToken(data.reaction_mode).label],
+        ["Input strategy", explainToken(data.input_strategy).label],
         ["Accumulators", data.accumulators.join(", ") || "—"],
         ["Role", "Fires the graph when its criteria over the bound accumulators are met."],
       ],
@@ -149,14 +162,30 @@ export function GraphDetail() {
                 </Badge>
               )}
               {data.reaction_mode && (
-                <Badge variant="light" color="grape">
-                  {data.reaction_mode}
-                </Badge>
+                <Tooltip
+                  label={explainToken(data.reaction_mode).tip}
+                  disabled={!explainToken(data.reaction_mode).tip}
+                  multiline
+                  w={260}
+                  withArrow
+                >
+                  <Badge variant="light" color="grape">
+                    {explainToken(data.reaction_mode).label}
+                  </Badge>
+                </Tooltip>
               )}
               {data.input_strategy && (
-                <Badge variant="light" color="cyan">
-                  {data.input_strategy}
-                </Badge>
+                <Tooltip
+                  label={explainToken(data.input_strategy).tip}
+                  disabled={!explainToken(data.input_strategy).tip}
+                  multiline
+                  w={260}
+                  withArrow
+                >
+                  <Badge variant="light" color="cyan">
+                    {explainToken(data.input_strategy).label}
+                  </Badge>
+                </Tooltip>
               )}
             </Group>
 

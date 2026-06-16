@@ -4,14 +4,14 @@ level: task
 title: "WS-6 — Non-cron triggers in the Triggers view (event/poll/reactor)"
 short_code: "CLOACI-T-0708"
 created_at: 2026-06-16T01:50:18.600468+00:00
-updated_at: 2026-06-16T03:53:01.418248+00:00
+updated_at: 2026-06-16T04:13:43.092656+00:00
 parent: CLOACI-I-0124
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -31,6 +31,8 @@ initiative_id: CLOACI-I-0124
 (P1) Surface **non-cron triggers** in the Triggers view — today only `CRON` appears,
 so event/poll/reactor triggers (e.g. the `mixed-rust` package's reactor+trigger) are
 invisible.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -149,4 +151,50 @@ endpoints via [[CLOACI-T-0702]] if unclear.
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-16 — DONE (poll triggers now visible + firing)
+
+**Root cause found:** packaged custom-poll triggers were both invisible *and*
+never fired. The reconciler's `step_load_custom_triggers` registered the
+in-memory `Trigger` impl, but the trigger scheduler drives polling off
+`get_enabled_triggers()` (the `schedules` rows) and the Triggers read API lists
+those same rows — and nothing ever persisted a `trigger`-type row for poll
+triggers. Cron triggers persisted via `register_cron_workflow`; the poll path
+had no equivalent.
+
+**Server/runtime fix (the substance of the ticket):**
+- New reconciler step `step_persist_poll_schedules` + a `CronWorkflowRegistrar
+  ::register_poll_trigger` method; `DalCronRegistrar` upserts a
+  `NewSchedule::trigger` (poll interval + allow_concurrent). Wired into all
+  three load paths (rust cdylib / python / CG); schedule ids tracked for unload
+  next to the cron rows (deleted by id, same path).
+- Added `poll_interval_ms` to `TriggerScheduleInfo` (detail response) +
+  populated it; regenerated `openapi.json` and the `@cloacina/client` types.
+
+**UI (WS-6 proper):**
+- Triggers list and detail now show a meaningful **kind** — `cron` / `poll` —
+  with a plain-language tooltip instead of the raw `schedule_type`. Schedule
+  column shows the cron expression or `every 30s`. (Honest mapping: the
+  `schedules` table only holds cron + poll; event/reactor triggers aren't
+  schedules — they live on computation graphs and surface in the Graphs view.)
+- Detail gains **Run now** (fires the bound workflow via the execute endpoint)
+  and a read-only enable/disable badge with a tooltip explaining there's no
+  toggle endpoint (a new server capability = an I-0124 non-goal).
+- New `demo-poll-rust` fixture (poll trigger firing `demo_poll_workflow`),
+  added to the demo seed.
+
+**Verified live** (`ui/e2e/ws6.spec.ts`, screenshots in
+`/tmp/cloacina-ui-uat/ws6/`): `demo_poll_workflow` lists as **POLL / every 30s**
+beside the cron rows; the detail shows fires-workflow + poll interval + Run now;
+`recent_executions` confirm the poll trigger now actually fires (~30s apart) —
+proving the fix restored function, not just visibility.
+
+**Acceptance:** list shows meaningful types ✓; detail shows what it fires +
+schedule/interval ✓; run-now wired, enable/disable degraded with reason ✓;
+Playwright walk re-passed with a non-cron trigger in the seed ✓.
+
+**Backlog noted:** cron schedules use `create` (not upsert) at load, so
+repeated `ui up --keep-db` reboots accumulate duplicate cron rows (cosmetic;
+a fresh seed shows one). The poll path uses `upsert_trigger` and stays
+singular. Worth aligning the cron path to upsert in a follow-up.
+
+Committed `22061743` on `feat/ui-0124-server-read-endpoints`.

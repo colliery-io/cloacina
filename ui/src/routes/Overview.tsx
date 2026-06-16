@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-import { Anchor, Card, Group, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { Anchor, Badge, Card, Group, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
@@ -89,7 +89,14 @@ export function Overview() {
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{w.tasks.length}</Text>
+                      {w.tasks.length > 0 ? (
+                        <Text size="sm">{w.tasks.length}</Text>
+                      ) : (
+                        // CG package (no workflow tasks) — see Workflows/WS-7.
+                        <Badge variant="light" color="grape" size="sm">
+                          graph
+                        </Badge>
+                      )}
                     </Table.Td>
                   </Table.Tr>
                 ))}
