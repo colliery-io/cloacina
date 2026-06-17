@@ -40,81 +40,80 @@ export function TaskRuntimeChart({ stats }: { stats: TaskRuntimeStat[] }) {
   }
 
   const scale = Math.max(...stats.map((s) => s.maxMs), 1);
-  const pct = (ms: number) => `${Math.max((ms / scale) * 100, 0.6)}%`;
+  const pos = (ms: number) => Math.max((ms / scale) * 100, 0);
 
   return (
     <Box style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {stats.map((s) => {
-        // A "last run" marker that's notably above the mean is the regression
-        // signal; colour it amber past 1.5× the average.
-        const slow = s.lastMs != null && s.lastMs > s.avgMs * 1.5 && s.count > 1;
+        const spread = s.maxMs - s.minMs;
         return (
           <Box
             key={s.taskName}
-            style={{ display: "grid", gridTemplateColumns: "180px 1fr 64px", alignItems: "center", gap: 8 }}
+            style={{ display: "grid", gridTemplateColumns: "150px 1fr 70px", alignItems: "center", gap: 8 }}
           >
             <Tooltip label={`${s.count} run${s.count === 1 ? "" : "s"} sampled`} withArrow openDelay={300} position="left">
               <Text size="xs" truncate fw={500}>
                 {s.taskName}
               </Text>
             </Tooltip>
-            <Box style={{ position: "relative", height: 18, background: "var(--mantine-color-gray-1)", borderRadius: 3 }}>
-              {/* min→max observed range */}
-              <Box
-                style={{
-                  position: "absolute",
-                  left: pct(s.minMs),
-                  width: `${Math.max(((s.maxMs - s.minMs) / scale) * 100, 0)}%`,
-                  top: 6,
-                  bottom: 6,
-                  background: "var(--mantine-color-blue-2)",
-                  borderRadius: 2,
-                }}
-              />
-              {/* mean bar */}
-              <Tooltip
-                label={`avg ${formatMs(s.avgMs)} · min ${formatMs(s.minMs)} · max ${formatMs(s.maxMs)}`}
-                withArrow
-                openDelay={150}
-              >
+            <Tooltip
+              label={`avg ${formatMs(s.avgMs)} · min ${formatMs(s.minMs)} · max ${formatMs(s.maxMs)}`}
+              withArrow
+              openDelay={150}
+              position="top"
+            >
+              <Box style={{ position: "relative", height: 18, background: "var(--mantine-color-gray-1)", borderRadius: 3 }}>
+                {/* mean bar from zero — length ranks the tasks by duration */}
                 <Box
                   style={{
                     position: "absolute",
                     left: 0,
-                    width: pct(s.avgMs),
+                    width: `${pos(s.avgMs)}%`,
                     top: 2,
                     bottom: 2,
                     background: "var(--mantine-color-blue-6)",
                     borderRadius: 3,
                   }}
                 />
-              </Tooltip>
-              {/* most-recent run marker */}
-              {s.lastMs != null && (
-                <Tooltip label={`last run ${formatMs(s.lastMs)}`} withArrow openDelay={150}>
-                  <Box
-                    style={{
-                      position: "absolute",
-                      left: pct(s.lastMs),
-                      top: 0,
-                      bottom: 0,
-                      width: 2,
-                      background: slow ? "var(--mantine-color-orange-7)" : "var(--mantine-color-dark-5)",
-                    }}
-                  />
-                </Tooltip>
-              )}
-            </Box>
-            <Text size="xs" c={slow ? "orange" : "dimmed"} ta="right" style={{ whiteSpace: "nowrap" }}>
+                {/* min–max as a capped error bar so the spread reads as a range */}
+                {spread > 0 && (
+                  <>
+                    <Box
+                      style={{
+                        position: "absolute",
+                        left: `${pos(s.minMs)}%`,
+                        width: `${pos(spread)}%`,
+                        top: 8,
+                        height: 2,
+                        background: "var(--mantine-color-blue-9)",
+                      }}
+                    />
+                    {[s.minMs, s.maxMs].map((m, i) => (
+                      <Box
+                        key={i}
+                        style={{
+                          position: "absolute",
+                          left: `${pos(m)}%`,
+                          top: 4,
+                          height: 10,
+                          width: 2,
+                          background: "var(--mantine-color-blue-9)",
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+              </Box>
+            </Tooltip>
+            <Text size="xs" c="dimmed" ta="right" style={{ whiteSpace: "nowrap" }}>
               {formatMs(s.avgMs)}
             </Text>
           </Box>
         );
       })}
       <Group gap="md" mt={4}>
-        <Legend swatch="var(--mantine-color-blue-6)" label="mean" />
-        <Legend swatch="var(--mantine-color-blue-2)" label="min–max" />
-        <Legend swatch="var(--mantine-color-dark-5)" label="last run" />
+        <Legend swatch="var(--mantine-color-blue-6)" label="mean duration" />
+        <Legend swatch="var(--mantine-color-blue-9)" label="min–max across runs" />
       </Group>
     </Box>
   );

@@ -63,7 +63,7 @@ export function WorkflowDetail() {
   // Cross-run task-duration aggregate (Airflow "Task Duration"). Sampled over
   // the most recent runs and ordered by the DAG's topological rank so the chart
   // reads in nominal run order. Keyed by the registered workflow name.
-  const RUNS_SAMPLED = 20;
+  const RUNS_SAMPLED = 40;
   const runtimes = useWorkflowTaskRuntimes(data?.workflow_name ?? "", { runs: RUNS_SAMPLED });
   const runtimeRank = data?.task_graph ? topoRank(data.task_graph) : undefined;
   const runtimeStats = [...runtimes.stats].sort((a, b) => {
