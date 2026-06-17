@@ -34,6 +34,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useDeleteWorkflow, useExecuteWorkflow, useWorkflow } from "../api/workflows";
 import { useWorkflowTaskRuntimes } from "../api/executions";
 import { BuildStatusBadge } from "../components/BuildStatusBadge";
+import { CombinedTimeline } from "../components/CombinedTimeline";
 import { TaskRuntimeChart } from "../components/TaskRuntimeChart";
 import { WorkflowGraph } from "../components/WorkflowGraph";
 import { Empty, ErrorState, Loading } from "../components/states/States";
@@ -188,6 +189,27 @@ export function WorkflowDetail() {
             </Text>
           ) : (
             <TaskRuntimeChart stats={runtimeStats} />
+          )}
+        </Card>
+      )}
+
+      {data && (
+        <Card withBorder padding="lg">
+          <Group justify="space-between" mb="sm">
+            <Title order={4}>Combined timeline</Title>
+            <Text size="xs" c="dimmed">
+              span &amp; wait distribution · last {runtimes.runsCounted} run
+              {runtimes.runsCounted === 1 ? "" : "s"}
+            </Text>
+          </Group>
+          {runtimes.isPending ? (
+            <Loading label="Aligning run timelines…" />
+          ) : runtimes.isError ? (
+            <Text size="sm" c="dimmed">
+              Couldn't load run history.
+            </Text>
+          ) : (
+            <CombinedTimeline runs={runtimes.runs} graph={data.task_graph} />
           )}
         </Card>
       )}

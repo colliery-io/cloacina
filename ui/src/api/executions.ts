@@ -107,20 +107,36 @@ function taskDurationMs(t: TaskExecutionDetail): number | null {
 const localTaskId = (name: string) => name.split("::").pop() || name;
 
 /**
- * Per-task runtime statistics across the most recent runs of a workflow
- * (CLOACI-I-0124 — the Airflow-style "Task Duration" aggregate). Lists the
- * recent executions, fans out a task fetch per run (shared cache with the
- * detail view), and reduces to mean/min/max per task. The newest run's
- * durations are surfaced as `lastMs` so a regression stands out against the
- * mean. Returns stats unsorted; the caller orders by the DAG rank.
+ * One run's normalized task timing, for the combined-timeline distribution
+ * view. `start`/`end` are absolute epoch-ms; offsets are taken against `t0`
+ * (the run's earliest task start) by the consumer so runs align at zero.
+ */
+export type RunTimeline = {
+  id: string;
+  status: string;
+  t0: number;
+  /** Local task id → absolute start/end ms (only completed tasks). */
+  tasks: Record<string, { start: number; end: number }>;
+};
+
+/**
+ * Per-task runtime statistics + normalized per-run timelines across the most
+ * recent runs of a workflow (CLOACI-I-0124). Lists the recent executions, fans
+ * out a task fetch per run (shared cache with the detail view), and reduces to:
+ *   - `stats`: mean/min/max duration per task (the "Task Duration" bar chart);
+ *     the newest run's duration is surfaced as `lastMs` so a regression stands
+ *     out against the mean. Unsorted; the caller orders by DAG rank.
+ *   - `runs`: each run's per-task start/end, for the combined box-and-whisker
+ *     timeline (start/end-edge jitter + inter-task wait distribution).
  */
 export function useWorkflowTaskRuntimes(workflow: string, opts: { runs?: number } = {}) {
   const { connection } = useAuth();
   const tenant = useTenant();
-  const runs = opts.runs ?? 20;
+  const limit = opts.runs ?? 20;
 
-  const list = useExecutions({ workflow: workflow || undefined, limit: runs });
-  const ids = (list.data?.items ?? []).map((e) => e.id);
+  const list = useExecutions({ workflow: workflow || undefined, limit });
+  const items = list.data?.items ?? [];
+  const ids = items.map((e) => e.id);
 
   const results = useQueries({
     queries: ids.map((id) => ({
@@ -131,10 +147,14 @@ export function useWorkflowTaskRuntimes(workflow: string, opts: { runs?: number 
     })),
   });
 
-  // Accumulate durations per local task name. The first id is the most recent
-  // run (the list is newest-first), so its durations become `lastMs`.
+  // Accumulate durations per local task name, and build the per-run timeline.
+  // The first id is the most recent run (the list is newest-first), so its
+  // durations become `lastMs`.
   const acc = new Map<string, { sum: number; min: number; max: number; count: number; last: number | null }>();
+  const runs: RunTimeline[] = [];
   results.forEach((r, runIdx) => {
+    const tasks: Record<string, { start: number; end: number }> = {};
+    let t0 = Infinity;
     for (const t of r.data?.tasks ?? []) {
       const ms = taskDurationMs(t);
       if (ms == null) continue;
@@ -146,6 +166,14 @@ export function useWorkflowTaskRuntimes(workflow: string, opts: { runs?: number 
       cur.count += 1;
       if (runIdx === 0) cur.last = ms;
       acc.set(key, cur);
+
+      const start = Date.parse(t.started_at as string);
+      const end = Date.parse(t.completed_at as string);
+      tasks[key] = { start, end };
+      if (start < t0) t0 = start;
+    }
+    if (Object.keys(tasks).length > 0) {
+      runs.push({ id: ids[runIdx], status: items[runIdx]?.status ?? "", t0, tasks });
     }
   });
 
@@ -160,6 +188,7 @@ export function useWorkflowTaskRuntimes(workflow: string, opts: { runs?: number 
 
   return {
     stats,
+    runs,
     runsCounted: ids.length,
     isPending: list.isPending || results.some((r) => r.isPending),
     isError: list.isError || results.some((r) => r.isError),
