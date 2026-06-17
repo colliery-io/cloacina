@@ -1,0 +1,22 @@
+# Demo Python cron-trigger fixture (CLOACI-T-0688). A pure-Python task workflow
+# plus a cron @cloaca.trigger that fires it on a schedule, so the UI's Triggers
+# view shows a Python-authored schedule and executions auto-appear. This is the
+# Python mirror of demo-cron-rust and exercises the Rust↔Python parity surface
+# closed in T-0688 (Python @cloaca.trigger was poll-only — no cron/timezone).
+#
+# Self-contained: the trigger's `on` names the workflow in this same package.
+# There is NO triggers section in package.toml — the @cloaca.trigger decorator
+# running at import (entry_module) IS the declaration.
+[package]
+name = "demo-py-cron"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "demo_py_cron_workflow"
+language = "python"
+description = "demo python cron workflow — fires on a schedule"
+author = "cloacina-ui-demo"
+entry_module = "demo_py_cron.tasks"
