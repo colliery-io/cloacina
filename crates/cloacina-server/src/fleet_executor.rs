@@ -438,6 +438,24 @@ impl TaskExecutor for FleetExecutor {
                     .await);
             }
             self.delivery_wake.wake();
+
+            // Stamp started_at now that the packet is committed to a specific
+            // agent — the fleet's execution-start moment (the slot is taken).
+            // The agent is DB-less and the claim only records the owner, not
+            // started_at, so without this the per-task timeline (Gantt) has no
+            // real start offset. Idempotent (no-op if already set) + best-effort.
+            if let Err(e) = self
+                .dal
+                .task_execution()
+                .mark_started(event.task_execution_id)
+                .await
+            {
+                warn!(
+                    task_id = %event.task_execution_id,
+                    error = %e,
+                    "fleet: failed to stamp task started_at"
+                );
+            }
             debug!(
                 task_id = %event.task_execution_id,
                 agent_id = %agent_id,

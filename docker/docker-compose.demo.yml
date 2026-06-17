@@ -85,6 +85,10 @@ services:
       # Resolves the `{{ KAFKA_BROKER }}` token in Kafka-stream accumulator
       # configs (e.g. demo-kafka-stream-rust) to the in-network broker.
       CLOACINA_VAR_KAFKA_BROKER: "kafka:9092"
+      # Route all task execution to the execution-agent fleet instead of the
+      # server's in-process executor (CLOACI-I-0114). The `agent` services below
+      # register over WS, fetch cdylibs by digest, run tasks, and report back.
+      CLOACINA_DEFAULT_EXECUTOR: "fleet"
     depends_on:
       postgres:
         condition: service_healthy
@@ -206,6 +210,32 @@ services:
         condition: service_completed_successfully
     restart: on-failure
 
+  # Execution-agent fleet (CLOACI-I-0114). DB-less workers: register with the
+  # server over WS, fetch compiled cdylibs by digest, run tasks, report results.
+  # The server routes all work here (CLOACINA_DEFAULT_EXECUTOR=fleet). Aggregate
+  # capacity = replicas × max-concurrency = 3 × 4 = 12 concurrent tasks, which
+  # is the real concurrency knob now that the in-process executor is bypassed.
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    command:
+      - "--server"
+      - "http://server:8080"
+      - "--api-key"
+      - *bootstrap_key
+      - "--max-concurrency"
+      - "4"
+    depends_on:
+      server:
+        condition: service_started
+    # The agent exits cleanly (0) when the server's WS drops (e.g. a server
+    # restart); unless-stopped revives it so the fleet self-heals across server
+    # bounces instead of staying down.
+    restart: unless-stopped
+    deploy:
+      replicas: 3
+
   # Continuous workflow driver (CLOACI-I-0124). The seed leaves a deterministic
   # completed/failed/in-flight state; this keeps firing demo_slow_workflow at
   # its natural (jittered) pace so the runtime / Gantt / combined-timeline
@@ -220,8 +250,11 @@ services:
       HARNESS_SERVER_URL: "http://server:8080"
       HARNESS_API_KEY: *bootstrap_key
       HARNESS_TENANT: "public"
+      # Gentle enough that a run completes before the next fires — at a tighter
+      # interval the slow workflow (with its jittered, occasionally-contended
+      # runs) piles up unboundedly and the last tasks never finish in-window.
       HARNESS_MODE: "loop"
-      HARNESS_INTERVAL_MS: "15000"
+      HARNESS_INTERVAL_MS: "60000"
     depends_on:
       server:
         condition: service_started

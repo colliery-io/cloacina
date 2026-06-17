@@ -402,24 +402,6 @@ impl TaskExecutor for ThreadTaskExecutor {
             );
         }
 
-        // Stamp the task's started_at at the moment execution begins. The
-        // claiming path already does this inside the claim; the embedded path
-        // runs with claiming disabled and otherwise leaves started_at NULL, so
-        // the per-task timeline (Gantt) has no real start offset. Idempotent
-        // (no-op when a claim already stamped it) and best-effort.
-        if let Err(e) = self
-            .dal
-            .task_execution()
-            .mark_started(event.task_execution_id)
-            .await
-        {
-            tracing::warn!(
-                task_id = %event.task_execution_id,
-                error = %e,
-                "Failed to stamp task started_at"
-            );
-        }
-
         // Cancellation channel — the heartbeat loop flips this to `true` if
         // it detects `ClaimLost`. The execution future races against it via
         // `execute_with_cancellation` (Layer 1), and tasks holding a
@@ -474,6 +456,25 @@ impl TaskExecutor for ThreadTaskExecutor {
             .acquire_owned()
             .await
             .map_err(|_| DispatchError::ExecutorNotFound("semaphore closed".into()))?;
+
+        // Stamp started_at now that the slot is acquired and execution is about
+        // to begin — so a task's duration reflects real work, not time spent
+        // waiting for a concurrency slot. The claiming path may already have set
+        // it; mark_started is a no-op when started_at is non-NULL. (The embedded
+        // path otherwise leaves it NULL, breaking the per-task timeline.)
+        // Best-effort.
+        if let Err(e) = self
+            .dal
+            .task_execution()
+            .mark_started(event.task_execution_id)
+            .await
+        {
+            tracing::warn!(
+                task_id = %event.task_execution_id,
+                error = %e,
+                "Failed to stamp task started_at"
+            );
+        }
 
         // Compute runner_id for claim-guarded state transitions
         let claim_runner_id = if self.config.enable_claiming {
