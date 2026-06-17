@@ -135,3 +135,9 @@ Each child starts by writing its "minimal author" example as the regression guar
   into `-> Result<(), TaskError>` (additive; full 2-arg form untouched). Guard
   compiles+runs; 11/11 macro tests. Prelude `use super::*` auto-injection was
   tried + reverted (warns on existing manual imports). 3 of 9 done.
+- 2026-06-17: **[[CLOACI-T-0739]] (T7) done** (scope corrected): blanket
+  `process` trait default infeasible by design (generic runtime calls `process`
+  for any `A`) — documented. Concrete fix: `state_accumulator` was missing from
+  `cloacina`'s macro re-export; added (all 5 reachable). Tutorial conversion
+  folded into [[CLOACI-T-0738]]. User cleared running angreal integration/e2e/
+  ui-demo for verification. 4 of 9 done; packaging cluster (0735/0736/0737) next.
