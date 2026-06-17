@@ -153,6 +153,10 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
         super::computation_graph::batch_accumulator_decorator,
         &module
     )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::computation_graph::state_accumulator_decorator,
+        &module
+    )?)?;
     module.add_function(wrap_pyfunction!(super::computation_graph::node, &module)?)?;
     module.add_class::<super::computation_graph::PyComputationGraphBuilder>()?;
 
