@@ -278,3 +278,24 @@ wiring, the real unknown) → Part C decision. Each its own commit; verify via
   registry). So `@cloaca.trigger(cron=…)` needs an API decision: what it
   decorates and how it ties to a workflow (Rust uses `#[trigger(on=wf, cron=…)]`).
   Deferred pending that decision; not guessed.
+- 2026-06-17: **Part B (cron trigger) built — mirror-Rust API.** Resolved the
+  design question: `@cloaca.trigger(on="wf", cron="…", timezone="…")` mirrors
+  `#[trigger(on=…, cron=…, timezone=…)]`. Validation mirrors Rust (cron XOR
+  poll_interval; `on` required for cron). Turned out **contained to `trigger.rs`**:
+  `build_view_python` (loading.rs:1398) already emits `cron_expression()` +
+  `workflow_name()` from the Trigger trait, but `PythonTriggerWrapper` returned
+  the trait defaults (None / ""). Fix: carry `on`/`cron`/`timezone` on
+  `PythonTriggerDef` + the wrapper and override `Trigger::workflow_name()` /
+  `cron_expression()`. The reconciler's `step_load_cron_triggers` then registers
+  the cron schedule — packaged-Python cron authoring now works end-to-end.
+  Tests: cron decorator carries cron+workflow; wrapper exposes them; validation
+  guards. 16+10 trigger tests pass; cloacina-python compiles (default features).
+- 2026-06-17: **Two honest caveats.** (1) `timezone` is captured at authoring
+  but **not honored downstream** — the reconciler hardcodes `"UTC"`
+  (loading.rs:1543) and `TriggerPackageMetadata` has no `timezone` field. This is
+  a **pre-existing cross-language gap** (Rust `#[trigger(timezone=)]` is dropped
+  the same way), so Python is at parity; full plumbing is a separate follow-up.
+  (2) Embedded (in-process, non-packaged) cron via the decorator isn't scheduled
+  (cron needs a DB + the reconciler; import-time has neither) — embedded cron
+  stays on the runner-level `register_cron_workflow` API. The packaged/decorator
+  authoring form (the documented gap) is what's closed.
