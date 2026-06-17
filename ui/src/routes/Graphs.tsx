@@ -18,7 +18,7 @@ import { Badge, Card, Group, Stack, Table, Text, Title, Tooltip } from "@mantine
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { useAccumulators, useGraphs } from "../api/health";
+import { useAccumulators, useGraphs, useReactors } from "../api/health";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { explainToken } from "../util/vocab";
@@ -69,17 +69,19 @@ function StateDot({ state }: { state: string }) {
 export function Graphs() {
   const navigate = useNavigate();
   const graphs = useGraphs();
+  const reactors = useReactors();
   const accs = useAccumulators();
 
-  // name → status, so a graph row can show its accumulators' health at a glance.
+  // name → status, so a graph/reactor row can show its accumulators' health at a glance.
   const accStatus = useMemo(() => {
     const m = new Map<string, string>();
     for (const a of accs.data?.items ?? []) m.set(a.name, String(a.status ?? ""));
     return m;
   }, [accs.data]);
 
-  // Recent throughput per graph, derived from the fires counter across polls.
+  // Recent throughput per graph / per reactor, from the fires counter across polls.
   const throughput = useGraphThroughput(graphs.data?.items ?? []);
+  const reactorThroughput = useGraphThroughput(reactors.data?.items ?? []);
 
   return (
     <Stack>
@@ -178,6 +180,138 @@ export function Graphs() {
                     <Text size="sm">{formatAgo(lastFired)}</Text>
                   </Table.Td>
                 </Table.Tr>
+                );
+              })}
+            </Table.Tbody>
+          </Table>
+        )}
+      </Card>
+
+      <Card withBorder padding="lg">
+        <Title order={4} mb="sm">
+          Reactors
+        </Title>
+        <Text size="sm" c="dimmed" mb="sm">
+          Reactors are first-class: a reactor fires when its criteria over its
+          accumulators are met, and graphs bind to it. A reactor with no graph
+          bound still appears here.
+        </Text>
+        {reactors.isPending ? (
+          <Loading label="Loading reactors…" />
+        ) : reactors.isError ? (
+          <ErrorState error={reactors.error} onRetry={reactors.refetch} />
+        ) : reactors.data.items.length === 0 ? (
+          <Empty message="No reactors loaded." />
+        ) : (
+          <Table highlightOnHover>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Name</Table.Th>
+                <Table.Th>Criteria</Table.Th>
+                <Table.Th>Accumulators</Table.Th>
+                <Table.Th>Bound graph</Table.Th>
+                <Table.Th>Throughput</Table.Th>
+                <Table.Th>Last fired</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {reactors.data.items.map((r) => {
+                const rate = reactorThroughput.get(r.name);
+                const fires = (r as { fires?: number }).fires ?? 0;
+                const lastFired = (r as { last_fired_at?: string | null }).last_fired_at ?? null;
+                const boundGraphs = (r as { bound_graphs?: string[] }).bound_graphs ?? [];
+                const criteria = r.reaction_mode ? explainToken(r.reaction_mode) : null;
+                const firstGraph = boundGraphs[0];
+                return (
+                  <Table.Tr
+                    key={r.name}
+                    style={{ cursor: firstGraph ? "pointer" : "default" }}
+                    onClick={
+                      firstGraph
+                        ? () => navigate(`/graphs/${encodeURIComponent(firstGraph)}`)
+                        : undefined
+                    }
+                  >
+                    <Table.Td style={{ whiteSpace: "nowrap" }}>
+                      <Group gap="xs" wrap="nowrap">
+                        <Text fw={500}>{r.name}</Text>
+                        {r.paused && (
+                          <Badge color="orange" variant="light">
+                            paused
+                          </Badge>
+                        )}
+                      </Group>
+                    </Table.Td>
+                    <Table.Td>
+                      {criteria ? (
+                        <Tooltip label={criteria.tip} disabled={!criteria.tip} withArrow>
+                          <Badge variant="light" color="blue">
+                            {criteria.label}
+                          </Badge>
+                        </Tooltip>
+                      ) : (
+                        <Text size="sm" c="dimmed">
+                          —
+                        </Text>
+                      )}
+                    </Table.Td>
+                    <Table.Td>
+                      {r.accumulators.length === 0 ? (
+                        <Text size="sm" c="dimmed">
+                          —
+                        </Text>
+                      ) : (
+                        <Group gap={6} wrap="nowrap">
+                          {r.accumulators.map((name) => {
+                            const status = accStatus.get(name) ?? "unknown";
+                            return (
+                              <Tooltip
+                                key={name}
+                                label={`${name}: ${explainToken(status).label}`}
+                                withArrow
+                                openDelay={150}
+                              >
+                                <span style={{ display: "inline-flex" }}>
+                                  <StateDot state={status} />
+                                </span>
+                              </Tooltip>
+                            );
+                          })}
+                          <Text size="xs" c="dimmed">
+                            {r.accumulators.length}
+                          </Text>
+                        </Group>
+                      )}
+                    </Table.Td>
+                    <Table.Td>
+                      {boundGraphs.length === 0 ? (
+                        <Tooltip label="This reactor has no graph bound yet." withArrow>
+                          <Text size="sm" c="dimmed">
+                            unbound
+                          </Text>
+                        </Tooltip>
+                      ) : (
+                        <Text size="sm">{boundGraphs.join(", ")}</Text>
+                      )}
+                    </Table.Td>
+                    <Table.Td style={{ whiteSpace: "nowrap" }}>
+                      {rate == null ? (
+                        <Text size="sm" c="dimmed">
+                          —
+                        </Text>
+                      ) : (
+                        <Tooltip
+                          label={`Recent rate. ${fires.toLocaleString()} total fires since load.`}
+                          withArrow
+                        >
+                          <Text size="sm">~{rate}/min</Text>
+                        </Tooltip>
+                      )}
+                    </Table.Td>
+                    <Table.Td style={{ whiteSpace: "nowrap" }}>
+                      <Text size="sm">{formatAgo(lastFired)}</Text>
+                    </Table.Td>
+                  </Table.Tr>
                 );
               })}
             </Table.Tbody>

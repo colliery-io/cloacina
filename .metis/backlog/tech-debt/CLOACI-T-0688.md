@@ -5,7 +5,7 @@ title: "Close Rust↔Python interface parity gaps (state accumulators, packaged 
 short_code: "CLOACI-T-0688"
 created_at: 2026-06-15T13:46:31.557405+00:00
 updated_at: 2026-06-17T15:19:21.592385+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -299,3 +299,48 @@ wiring, the real unknown) → Part C decision. Each its own commit; verify via
   (cron needs a DB + the reconciler; import-time has neither) — embedded cron
   stays on the runner-level `register_cron_workflow` API. The packaged/decorator
   authoring form (the documented gap) is what's closed.
+- 2026-06-17: **Runtime test gap closed (commit f35ac189, PR #132).** Added 4
+  sqlite/no-docker Rust integration tests: `accumulator.rs` —
+  `test_state_accumulator_runtime_bounded_evicts_and_emits_history` (capacity=2
+  feeds 1,2,3 → boundaries [1],[1,2],[2,3], proving eviction+history) and
+  `test_state_accumulator_runtime_write_only_emits_nothing` (capacity=0 emits no
+  boundary); `reconciler/loading.rs` —
+  `build_view_python_emits_cron_metadata_for_runtime_trigger` (cron_expression()
+  + workflow_name() flow into the view) and
+  `step_load_cron_triggers_selects_cron_bearing_triggers` (only cron-bearing
+  triggers register, against their TARGET workflow, UTC; poll triggers ignored).
+  All 4 pass; pre-commit fmt + both-backend cargo check green. Covers the Rust
+  runtime tier; the Python-level / live-runner e2e tier (Docker-gated, AC line
+  "against a live runner") remains the one open follow-up.
+- 2026-06-17: **Demo-stack coverage added (commit 85162cab, PR #132).** Both new
+  Python surfaces now ship in the UI demo (`docker/docker-compose.demo.yml`):
+  `demo-py-state` (`@cloaca.state_accumulator(capacity=5)` → reactor → 2-node CG,
+  fed over WS via the producer — `py_window` added to `HARNESS_WS_ACCUMULATORS`
+  + a bid/ask generator in `produce.mjs`) and `demo-py-cron` (pure-Python task
+  workflow + `@cloaca.trigger(on=, cron="*/15 * * * * *")`, the Python mirror of
+  `demo-cron-rust`, self-driving via the cron scheduler). Both packed in
+  `pack-demo-fixtures.sh`. This doubles as the live-runner exercise the AC wanted
+  for the new Python surfaces — verifiable by bringing up the demo stack (Docker
+  is down locally, so not yet run here). Python syntax checked; decorator
+  signatures + graph-dict shape matched against the built bindings.
+- 2026-06-17: **Live demo stack run — BOTH surfaces verified end-to-end; found +
+  fixed a real shipping bug (commit 21fdc1d7, PR #132).** Brought up
+  `docker-compose.demo.yml`. `demo-py-cron` loaded + its cron schedule registered
+  immediately. `demo-py-state` FAILED to load: server reconciler reported
+  `module 'cloaca' has no attribute 'state_accumulator'`. **Root cause:** Part A
+  registered `state_accumulator` in the maturin `#[pymodule]` (lib.rs) but NOT in
+  `ensure_cloaca_module` (loader.rs) — the SYNTHETIC `cloaca` the *server* injects
+  into its embedded interpreter (the server image has no pip wheel). Two parallel
+  registration lists drifted; the Part A unit test passed because it called the
+  Rust decorator fn directly, never `import cloaca`. **Fix:** register
+  `state_accumulator_decorator` in `ensure_cloaca_module` + extend
+  `test_ensure_cloaca_module_registers_in_sys_modules` to assert the
+  `state_accumulator` attr (guards the drift). After rebuild+restart:
+  • `demo-py-state` → "Python computation graph imported", reactor running, CG
+    `fires=1..N` every 2s off the `py_window` WS feed.
+  • `demo-py-cron` → cron fires every 15s, `py_cron_step` completes, context
+    carries `{demo_py_cron_ran, schedule_expression:"*/15 * * * * *",
+    schedule_timezone:"UTC", scheduled_time}`, "Successfully executed and audited".
+  This satisfies the AC "Tests cover the new Python authoring surfaces against a
+  live runner". **Remaining AC:** Part C decision (`defer_until`) + remove the
+  "Rust-only" caveats from the primitive docs.

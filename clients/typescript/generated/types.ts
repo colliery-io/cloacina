@@ -204,6 +204,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/health/reactors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /v1/health/reactors — list loaded reactors visible to the caller
+         *     (CLOACI-T-0742). Reactor-first: includes reactors with no graph bound, which
+         *     `list_graphs` omits. Visibility reuses the same tenant gate as graphs.
+         */
+        get: operations["list_reactors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants": {
         parameters: {
             query?: never;
@@ -838,6 +859,39 @@ export interface components {
          *     returns `{items, total}`. `total` is best-effort — it equals the
          *     returned page size when the server doesn't run a separate COUNT.
          */
+        ListResponse_ReactorStatus: {
+            items: {
+                /** @description Accumulators this reactor consumes (its inputs). */
+                accumulators: string[];
+                /** @description Graphs bound to this reactor; empty when the reactor has no graph yet. */
+                bound_graphs?: string[];
+                /**
+                 * Format: int64
+                 * @description Total fires since load (the reactor's live fire counter, WS-10).
+                 */
+                fires?: number;
+                /**
+                 * @description Reactor health snapshot; `{"state": "running" | "stopped"}` when no
+                 *     detailed health is available. Free-form JSON, mirroring `GraphStatus`.
+                 */
+                health: unknown;
+                /** @description Input strategy: `"latest"` | `"sequential"`. */
+                input_strategy?: string | null;
+                /** @description RFC 3339 timestamp of the last fire; `null` if it hasn't fired yet. */
+                last_fired_at?: string | null;
+                name: string;
+                /** @description Pause state of the reactor. */
+                paused: boolean;
+                /** @description Firing criteria: `"when_any"` | `"when_all"`. */
+                reaction_mode?: string | null;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
         ListResponse_TenantSummary: {
             items: {
                 name: string;
@@ -855,6 +909,36 @@ export interface components {
              * @description The `.cloacina` package archive.
              */
             file: string;
+        };
+        /**
+         * @description One row in `GET /v1/health/reactors` (CLOACI-T-0742). Reactor-first view:
+         *     reactors are standalone (a graph binds to a reactor, not vice versa), so a
+         *     reactor with no graph bound appears here but not in `GET /v1/health/graphs`.
+         */
+        ReactorStatus: {
+            /** @description Accumulators this reactor consumes (its inputs). */
+            accumulators: string[];
+            /** @description Graphs bound to this reactor; empty when the reactor has no graph yet. */
+            bound_graphs?: string[];
+            /**
+             * Format: int64
+             * @description Total fires since load (the reactor's live fire counter, WS-10).
+             */
+            fires?: number;
+            /**
+             * @description Reactor health snapshot; `{"state": "running" | "stopped"}` when no
+             *     detailed health is available. Free-form JSON, mirroring `GraphStatus`.
+             */
+            health: unknown;
+            /** @description Input strategy: `"latest"` | `"sequential"`. */
+            input_strategy?: string | null;
+            /** @description RFC 3339 timestamp of the last fire; `null` if it hasn't fired yet. */
+            last_fired_at?: string | null;
+            name: string;
+            /** @description Pause state of the reactor. */
+            paused: boolean;
+            /** @description Firing criteria: `"when_any"` | `"when_all"`. */
+            reaction_mode?: string | null;
         };
         /** @description One per-task row of an execution (CLOACI-I-0124 / WS-1). */
         TaskExecutionDetail: {
@@ -1535,6 +1619,35 @@ export interface operations {
             };
             /** @description Graph not found (or not visible to caller) */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_reactors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Loaded reactors visible to the caller */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_ReactorStatus"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -137,6 +137,35 @@ pub struct GraphStatus {
     pub last_fire_unix_ms: Option<i64>,
 }
 
+/// Status of a managed reactor (CLOACI-T-0742). Reactors are first-class: a
+/// reactor is loaded (`load_reactor`) and graphs bind to it afterward
+/// (`bind_graph_to_reactor`), so a reactor can be running with **no graph
+/// bound**. `list_graphs` is graph-first and would omit such a reactor; this is
+/// reactor-first, sourced directly from the `reactors` map.
+#[derive(Debug, Clone)]
+pub struct ReactorStatus {
+    /// Reactor name (the `reactors` map key).
+    pub name: String,
+    /// Accumulators this reactor consumes, in declaration order.
+    pub accumulators: Vec<String>,
+    /// Firing criteria: `"when_any"` | `"when_all"`.
+    pub reaction_mode: String,
+    /// Input strategy: `"latest"` | `"sequential"`.
+    pub input_strategy: String,
+    /// Graphs bound to this reactor (empty if the reactor has no graph yet).
+    pub bound_graphs: Vec<String>,
+    pub paused: bool,
+    pub running: bool,
+    /// Reactor health state machine value. None if health tracking isn't configured.
+    pub health: Option<super::reactor::ReactorHealth>,
+    /// Tenant scope at load time. `None` for single-tenant / admin-owned reactors.
+    pub tenant_id: Option<String>,
+    /// Total fires since load (live reactor counter, WS-10).
+    pub fires: u64,
+    /// Unix-epoch millis of the last fire; `None` if it hasn't fired yet.
+    pub last_fire_unix_ms: Option<i64>,
+}
+
 /// Validate that two declarations targeting the same reactor name agree on
 /// the reactor's contract. Mismatches are operator-facing errors, not silent
 /// no-ops — the second package may have shipped with a different
@@ -932,6 +961,52 @@ impl ComputationGraphScheduler {
                     fires: running.reactor_shared.stats().0,
                     last_fire_unix_ms: running.reactor_shared.stats().1,
                 })
+            })
+            .collect()
+    }
+
+    /// List all loaded reactors with status (CLOACI-T-0742). Reactor-first: one
+    /// entry per reactor in the `reactors` map, **including reactors with no
+    /// graph bound** (which `list_graphs` omits, since it iterates
+    /// `graph_to_reactor`). `bound_graphs` is the reverse lookup over that map.
+    pub async fn list_reactors(&self) -> Vec<ReactorStatus> {
+        let reactors = self.reactors.read().await;
+        let g2r = self.graph_to_reactor.read().await;
+        reactors
+            .iter()
+            .map(|(reactor_name, running)| {
+                let bound_graphs: Vec<String> = g2r
+                    .iter()
+                    .filter(|(_, r)| *r == reactor_name)
+                    .map(|(g, _)| g.clone())
+                    .collect();
+                let (fires, last_fire_unix_ms) = running.reactor_shared.stats();
+                ReactorStatus {
+                    name: reactor_name.clone(),
+                    accumulators: running
+                        .accumulator_handles
+                        .iter()
+                        .map(|(n, _)| n.clone())
+                        .collect(),
+                    reaction_mode: match running.declaration.reactor.criteria {
+                        ReactionCriteria::WhenAny => "when_any".to_string(),
+                        ReactionCriteria::WhenAll => "when_all".to_string(),
+                    },
+                    input_strategy: match running.declaration.reactor.strategy {
+                        InputStrategy::Latest => "latest".to_string(),
+                        InputStrategy::Sequential => "sequential".to_string(),
+                    },
+                    bound_graphs,
+                    paused: running.reactor_shared.is_paused(),
+                    running: !running.reactor_handle.is_finished(),
+                    health: running
+                        .reactor_health_rx
+                        .as_ref()
+                        .map(|rx| rx.borrow().clone()),
+                    tenant_id: running.declaration.tenant_id.clone(),
+                    fires,
+                    last_fire_unix_ms,
+                }
             })
             .collect()
     }

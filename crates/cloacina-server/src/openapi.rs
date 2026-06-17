@@ -33,10 +33,10 @@ use cloacina_api_types::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
     ExecutionSummary, ExecutionTasksResponse, GraphStatus, GraphTopology, GraphTopologyEdge,
     GraphTopologyNode, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse,
-    TaskExecutionDetail, TenantCreatedResponse, TenantListResponse, TenantRemovedResponse,
-    TenantSummary, TriggerDetailResponse, TriggerExecution, TriggerScheduleInfo,
-    TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary,
-    WorkflowTaskNode, WorkflowUploadedResponse, WsTicketResponse,
+    ReactorStatus, TaskExecutionDetail, TenantCreatedResponse, TenantListResponse,
+    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerExecution,
+    TriggerScheduleInfo, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
+    WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse, WsTicketResponse,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -110,6 +110,7 @@ impl Modify for SecurityAddon {
         crate::routes::agent::list_agents,
         crate::routes::compiler::compiler_status,
         crate::routes::health_graphs::list_accumulators,
+        crate::routes::health_graphs::list_reactors,
         crate::routes::health_graphs::list_graphs,
         crate::routes::health_graphs::get_graph,
     ),
@@ -156,8 +157,10 @@ impl Modify for SecurityAddon {
         GraphTopology,
         GraphTopologyNode,
         GraphTopologyEdge,
+        ReactorStatus,
         ListResponse<AccumulatorStatus>,
         ListResponse<GraphStatus>,
+        ListResponse<ReactorStatus>,
     )),
     modifiers(&SecurityAddon),
     tags(

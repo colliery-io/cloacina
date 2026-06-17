@@ -31,7 +31,7 @@ use axum::{
 };
 
 use cloacina::computation_graph::registry::KeyContext;
-use cloacina_api_types::{AccumulatorStatus, GraphStatus, ListResponse};
+use cloacina_api_types::{AccumulatorStatus, GraphStatus, ListResponse, ReactorStatus};
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
@@ -97,6 +97,56 @@ pub async fn list_accumulators(
 
     // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
     Json(ListResponse::new(accumulators))
+}
+
+/// GET /v1/health/reactors — list loaded reactors visible to the caller
+/// (CLOACI-T-0742). Reactor-first: includes reactors with no graph bound, which
+/// `list_graphs` omits. Visibility reuses the same tenant gate as graphs.
+#[utoipa::path(
+    get,
+    path = "/v1/health/reactors",
+    tag = "graph-health",
+    responses(
+        (status = 200, description = "Loaded reactors visible to the caller", body = ListResponse<ReactorStatus>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn list_reactors(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+) -> impl IntoResponse {
+    let loaded = state.graph_scheduler.list_reactors().await;
+
+    let reactors: Vec<ReactorStatus> = loaded
+        .into_iter()
+        .filter(|r| graph_visible(&auth, r.tenant_id.as_deref()))
+        .map(|r| {
+            let health = r
+                .health
+                .as_ref()
+                .map(|h| serde_json::to_value(h).unwrap_or(serde_json::json!("unknown")))
+                .unwrap_or(
+                    serde_json::json!({"state": if !r.running { "stopped" } else { "running" }}),
+                );
+            ReactorStatus {
+                name: r.name,
+                health,
+                accumulators: r.accumulators,
+                reaction_mode: Some(r.reaction_mode),
+                input_strategy: Some(r.input_strategy),
+                bound_graphs: r.bound_graphs,
+                paused: r.paused,
+                fires: r.fires,
+                last_fired_at: r
+                    .last_fire_unix_ms
+                    .and_then(chrono::DateTime::from_timestamp_millis)
+                    .map(|dt| dt.to_rfc3339()),
+            }
+        })
+        .collect();
+
+    Json(ListResponse::new(reactors))
 }
 
 /// GET /v1/health/graphs — list loaded graphs visible to the caller.

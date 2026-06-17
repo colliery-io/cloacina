@@ -56,6 +56,7 @@ pub use executions::{
 pub use fleet::AgentInfo;
 pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
+    ReactorStatus,
 };
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,

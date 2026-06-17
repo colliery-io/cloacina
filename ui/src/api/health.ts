@@ -44,6 +44,19 @@ export function useGraphs() {
   });
 }
 
+/** Reactors visible to the key (CLOACI-T-0742). Reactor-first: includes
+ *  reactors with no graph bound (which the graphs list omits). Polled like
+ *  graphs so fire counters / throughput stay live. */
+export function useReactors() {
+  const client = useClient();
+  const tenant = useTenant();
+  return useQuery({
+    queryKey: queryKeys.reactors(tenant),
+    queryFn: () => client.listReactors(),
+    refetchInterval: 5000,
+  });
+}
+
 export function useGraph(name: string) {
   const client = useClient();
   const tenant = useTenant();
