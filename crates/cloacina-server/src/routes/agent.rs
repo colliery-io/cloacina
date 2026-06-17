@@ -225,6 +225,40 @@ pub async fn fetch_artifact(
     Ok(resp)
 }
 
+/// `GET /v1/agent/source/{digest}` — content-addressed package SOURCE fetch
+/// (CLOACI-T-0716). Returns the uploaded `.cloacina` archive for the package
+/// whose active build has `content_hash == digest`. Used for Python packages:
+/// they have no cdylib (`/artifact/{digest}` is empty), so the agent fetches
+/// the archive and imports the `workflow/` + `vendor/` tree via PyO3. Same
+/// content-addressed access model as `fetch_artifact`.
+pub async fn fetch_source(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path(digest): Path<String>,
+) -> Result<Response, ApiError> {
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let bytes = dal
+        .workflow_packages()
+        .get_package_archive_by_content_hash(&digest)
+        .await
+        .map_err(|e| ApiError::internal(format!("source lookup failed: {}", e)))?;
+
+    let Some(bytes) = bytes else {
+        return Err(ApiError::not_found(
+            "source_not_found",
+            format!("no package source archive with digest {}", digest),
+        ));
+    };
+
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .body(Body::from(bytes))
+        .map_err(|e| ApiError::internal(format!("build source response: {}", e)))?;
+    Ok(resp)
+}
+
 /// `GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
 /// roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
 /// registered against *this* server instance.

@@ -1228,6 +1228,10 @@ fn build_router(state: AppState) -> Router {
             "/agent/artifact/{digest}",
             axum::routing::get(crate::routes::agent::fetch_artifact),
         )
+        .route(
+            "/agent/source/{digest}",
+            axum::routing::get(crate::routes::agent::fetch_source),
+        )
         // All four agent endpoints authenticate with an API key (bearer) and
         // extract `Extension<AuthenticatedKey>`. The layer MUST be attached
         // here, before the merge into `auth_routes` below: `.route_layer` only

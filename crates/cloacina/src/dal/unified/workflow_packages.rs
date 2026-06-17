@@ -22,7 +22,7 @@
 
 use super::models::{NewUnifiedWorkflowPackage, UnifiedWorkflowPackage};
 use super::DAL;
-use crate::database::schema::unified::workflow_packages;
+use crate::database::schema::unified::{workflow_packages, workflow_registry};
 use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::models::workflow_packages::WorkflowPackage;
 use crate::registry::error::RegistryError;
@@ -731,6 +731,177 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
         Ok(result.map(|r| r.content_hash))
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CLOACI-T-0716: agent fleet — Python source fetch + language dispatch.
+    // ────────────────────────────────────────────────────────────────────
+
+    /// `(content_hash, language)` for the **active** build of a package, where
+    /// `language` is `"python"` when the build produced no cdylib
+    /// (`compiled_data` empty — the compiler short-circuits pure-Python packages
+    /// to an empty artifact) and `"rust"` otherwise. The `FleetExecutor` stamps
+    /// `language` into the `WorkPacket` so the agent loads the package the right
+    /// way (dlopen vs PyO3 import). Same active-row filter as
+    /// `get_active_content_hash_for_package`.
+    pub async fn get_active_dispatch_for_package(
+        &self,
+        package_name: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Option<(String, String)>, RegistryError> {
+        let row = self
+            .get_active_row_for_package(package_name, tenant_id)
+            .await?;
+        Ok(row.map(|r| {
+            let UnifiedWorkflowPackage {
+                content_hash,
+                compiled_data,
+                ..
+            } = r;
+            let has_cdylib = compiled_data
+                .map(|b| !b.into_inner().is_empty())
+                .unwrap_or(false);
+            let language = if has_cdylib { "rust" } else { "python" }.to_string();
+            (content_hash, language)
+        }))
+    }
+
+    async fn get_active_row_for_package(
+        &self,
+        package_name: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<Option<UnifiedWorkflowPackage>, RegistryError> {
+        let package_name = package_name.to_string();
+        let tenant_id = tenant_id.map(|s| s.to_string());
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    let base = workflow_packages::table
+                        .filter(workflow_packages::package_name.eq(package_name))
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .filter(workflow_packages::superseded.eq(UniversalBool(false)));
+                    match tenant_id {
+                        Some(t) => base
+                            .filter(workflow_packages::tenant_id.eq(t))
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional(),
+                        None => base
+                            .filter(workflow_packages::tenant_id.is_null())
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional(),
+                    }
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    let base = workflow_packages::table
+                        .filter(workflow_packages::package_name.eq(package_name))
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .filter(workflow_packages::superseded.eq(UniversalBool(false)));
+                    match tenant_id {
+                        Some(t) => base
+                            .filter(workflow_packages::tenant_id.eq(t))
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional(),
+                        None => base
+                            .filter(workflow_packages::tenant_id.is_null())
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional(),
+                    }
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            }
+        )
+    }
+
+    /// Source `.cloacina` archive bytes for the package whose active build has
+    /// `content_hash == digest`. The registry (`workflow_registry.data`) holds
+    /// the uploaded archive — for a Python package this is the importable
+    /// `workflow/` + `vendor/` tree (`compiled_data` is empty). Served by
+    /// `GET /v1/agent/source/{digest}` so a DB-less agent can fetch + import a
+    /// Python package (CLOACI-T-0716).
+    pub async fn get_package_archive_by_content_hash(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        use crate::database::universal_types::UniversalBinary;
+        let content_hash = content_hash.to_string();
+        // Two single-table lookups (package row → registry_id → archive),
+        // avoiding a cross-table join the unified schema doesn't wire up.
+        let result: Option<UniversalBinary> = crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    let pkg: Option<UnifiedWorkflowPackage> = workflow_packages::table
+                        .filter(workflow_packages::content_hash.eq(content_hash))
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()?;
+                    match pkg {
+                        Some(p) => workflow_registry::table
+                            .filter(workflow_registry::id.eq(p.registry_id))
+                            .select(workflow_registry::data)
+                            .first::<UniversalBinary>(conn)
+                            .optional(),
+                        None => Ok(None),
+                    }
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    let pkg: Option<UnifiedWorkflowPackage> = workflow_packages::table
+                        .filter(workflow_packages::content_hash.eq(content_hash))
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .first::<UnifiedWorkflowPackage>(conn)
+                        .optional()?;
+                    match pkg {
+                        Some(p) => workflow_registry::table
+                            .filter(workflow_registry::id.eq(p.registry_id))
+                            .select(workflow_registry::data)
+                            .first::<UniversalBinary>(conn)
+                            .optional(),
+                        None => Ok(None),
+                    }
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+        Ok(result.map(|b| b.into_inner()))
     }
 }
 

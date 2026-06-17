@@ -113,6 +113,10 @@ async fn run(args: Args) -> Result<()> {
         .build()
         .context("build HTTP client")?;
 
+    // Install the PyO3 Python runtime so the agent can load Python-packaged
+    // workflows (not just Rust cdylibs). Idempotent. (CLOACI-T-0716)
+    cloacina_python::install();
+
     let target_triple = args
         .target_triple_override
         .clone()
@@ -622,6 +626,159 @@ fn summarize_outcome(o: &cloacina::fleet::AgentOutcome) -> String {
 // Work-packet processing — OQ-6 + Tier-A stub.
 // ────────────────────────────────────────────────────────────────────
 
+/// Process-wide cache of loaded per-package runtimes, keyed by artifact digest
+/// (CLOACI-T-0716). A package is loaded once — `dlopen` for Rust, PyO3 import
+/// for Python — and the populated `Runtime` is reused for every subsequent
+/// packet of that package. Required for Python (re-importing a module in a live
+/// interpreter is a no-op, so the `@task` decorators wouldn't re-run) and a
+/// useful efficiency win for Rust.
+static LOADED_RUNTIMES: std::sync::OnceLock<
+    tokio::sync::Mutex<std::collections::HashMap<String, Arc<cloacina::Runtime>>>,
+> = std::sync::OnceLock::new();
+
+fn loaded_runtimes(
+) -> &'static tokio::sync::Mutex<std::collections::HashMap<String, Arc<cloacina::Runtime>>> {
+    LOADED_RUNTIMES.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Fetch the package SOURCE archive (the uploaded `.cloacina`) by digest from
+/// `GET /v1/agent/source/{digest}` — used for Python packages, which have no
+/// cdylib (CLOACI-T-0716).
+async fn fetch_source_archive(
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    digest: &str,
+) -> Result<Vec<u8>> {
+    let url = format!("{}/v1/agent/source/{}", server, digest);
+    let resp = http
+        .get(&url)
+        .bearer_auth(api_key)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(resp.bytes().await?.to_vec())
+}
+
+/// Load a Rust cdylib package into `runtime`: fetch + cache the artifact by
+/// digest, then register its tasks via the fidius-backed `TaskRegistrar`.
+async fn load_rust_cdylib(
+    packet: &WorkPacket,
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    cache_dir: &std::path::Path,
+    runtime: &Arc<cloacina::Runtime>,
+) -> std::result::Result<(), cloacina::fleet::AgentOutcome> {
+    let artifact_path =
+        fetch_and_cache_artifact(http, server, api_key, &packet.artifact, cache_dir)
+            .await
+            .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+                reason: RefusalReason::ArtifactFetchFailed,
+                message: format!("artifact fetch failed: {}", e),
+            })?;
+    let cdylib_bytes =
+        std::fs::read(&artifact_path).map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::ArtifactFetchFailed,
+            message: format!("read cached artifact {:?}: {}", artifact_path, e),
+        })?;
+    let registrar = cloacina::registry::loader::TaskRegistrar::new().map_err(|e| {
+        cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: format!("task registrar init: {}", e),
+        }
+    })?;
+    let package_id = format!("agent_pkg_{}", packet.artifact.digest);
+    let metadata = synthetic_package_metadata(&packet.artifact.digest);
+    let registered = registrar
+        .register_package_tasks(
+            &package_id,
+            &cdylib_bytes,
+            &metadata,
+            packet.tenant_id.as_deref(),
+            runtime,
+        )
+        .await
+        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: format!("register_package_tasks: {}", e),
+        })?;
+    debug!(
+        package_id = %package_id,
+        registered = ?registered.iter().map(|n| n.to_string()).collect::<Vec<_>>(),
+        "cdylib registered"
+    );
+    Ok(())
+}
+
+/// Load a Python package into `runtime`: fetch the source archive, stage it,
+/// and import the `workflow/` + `vendor/` tree via the installed `PythonRuntime`
+/// (PyO3). The staging dir lives under `cache_dir` and is left in place — the
+/// imported module's `sys.path` entries point into it for the process lifetime
+/// (CLOACI-T-0716).
+async fn load_python_package(
+    packet: &WorkPacket,
+    digest: &str,
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    cache_dir: &std::path::Path,
+    runtime: &Arc<cloacina::Runtime>,
+) -> std::result::Result<(), cloacina::fleet::AgentOutcome> {
+    let archive = fetch_source_archive(http, server, api_key, digest)
+        .await
+        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::ArtifactFetchFailed,
+            message: format!("python source fetch failed: {}", e),
+        })?;
+
+    let staging = cache_dir.join(format!("pysrc-{}", digest));
+    std::fs::create_dir_all(&staging).map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+        reason: RefusalReason::RuntimeLoadFailed,
+        message: format!("create python staging dir {:?}: {}", staging, e),
+    })?;
+
+    let py = cloacina::python_runtime::python_runtime().ok_or_else(|| {
+        cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: "no Python runtime installed in agent".to_string(),
+        }
+    })?;
+
+    // The tenant must match what the task lookup uses, which is the tenant
+    // component of the packet's namespaced task_name (e.g. `public::pkg::wf::t`).
+    // The public tenant rides as `tenant_id = None` in the packet, so deriving
+    // from task_name (rather than `tenant_id.unwrap_or_default()` → "") is what
+    // makes the Python tasks register under `public::…` instead of `::…`.
+    let tenant = cloacina::parse_namespace(&packet.task_name)
+        .map(|ns| ns.tenant_id)
+        .unwrap_or_else(|_| packet.tenant_id.clone().unwrap_or_default());
+    let runtime_for_load = runtime.clone();
+    // load_workflow_package is synchronous + holds the GIL → run off the async
+    // worker. We discard the LoadedPythonWorkflow (it may hold non-Send PyObjects)
+    // and only care that the tasks registered into `runtime`.
+    let result = tokio::task::spawn_blocking(move || {
+        py.load_workflow_package(&archive, &staging, &tenant, &runtime_for_load)
+            .map(|_| ())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(())) => {
+            debug!(digest = %digest, "python package imported");
+            Ok(())
+        }
+        Ok(Err(e)) => Err(cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: format!("python load: {}", e),
+        }),
+        Err(e) => Err(cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: format!("python load task panicked: {}", e),
+        }),
+    }
+}
+
 /// The agent's full execution path for one packet (Tier B, T-0632).
 ///
 /// 1. **OQ-6 fail-closed** target-triple check — refuse if the artifact was
@@ -645,8 +802,18 @@ async fn process_work_packet(
     api_key: &str,
     cache_dir: &std::path::Path,
 ) -> cloacina::fleet::AgentOutcome {
-    // 1. OQ-6 fail-closed.
-    if packet.artifact.build_target_triple != agent_triple {
+    // 1-3. Resolve (or build) the per-package runtime, cached by digest.
+    //
+    // Loading is done once per package and the populated Runtime is reused
+    // across packets: re-importing a Python module in a live interpreter is a
+    // no-op (so the `@task` decorators wouldn't re-run and the new Runtime would
+    // be empty), and for Rust it avoids a redundant dlopen per task.
+    let digest = packet.artifact.digest.clone();
+    let is_python = packet.language.as_deref() == Some("python");
+
+    // OQ-6 fail-closed for Rust cdylibs (built for a specific target). Python is
+    // interpreted, so the artifact triple is irrelevant — skip the gate.
+    if !is_python && packet.artifact.build_target_triple != agent_triple {
         return cloacina::fleet::AgentOutcome::Refused {
             reason: RefusalReason::TargetTripleMismatch,
             message: format!(
@@ -656,63 +823,27 @@ async fn process_work_packet(
         };
     }
 
-    // 2. Fetch + cache (no-op if cached).
-    let artifact_path =
-        match fetch_and_cache_artifact(http, server, api_key, &packet.artifact, cache_dir).await {
-            Ok(p) => p,
-            Err(e) => {
-                return cloacina::fleet::AgentOutcome::Refused {
-                    reason: RefusalReason::ArtifactFetchFailed,
-                    message: format!("artifact fetch failed: {}", e),
-                };
+    let runtime = {
+        // The lock is held across a (one-time, per-digest) load so concurrent
+        // packets for the same package don't double-load; cache hits are a quick
+        // map lookup + Arc clone.
+        let mut cache = loaded_runtimes().lock().await;
+        if let Some(rt) = cache.get(&digest) {
+            rt.clone()
+        } else {
+            let rt = Arc::new(cloacina::Runtime::new());
+            let loaded = if is_python {
+                load_python_package(packet, &digest, http, server, api_key, cache_dir, &rt).await
+            } else {
+                load_rust_cdylib(packet, http, server, api_key, cache_dir, &rt).await
+            };
+            if let Err(out) = loaded {
+                return out;
             }
-        };
-    let cdylib_bytes = match std::fs::read(&artifact_path) {
-        Ok(b) => b,
-        Err(e) => {
-            return cloacina::fleet::AgentOutcome::Refused {
-                reason: RefusalReason::ArtifactFetchFailed,
-                message: format!("read cached artifact {:?}: {}", artifact_path, e),
-            };
+            cache.insert(digest.clone(), rt.clone());
+            rt
         }
     };
-
-    // 3. Register the cdylib's tasks into a per-packet Runtime.
-    let runtime = Arc::new(cloacina::Runtime::new());
-    let registrar = match cloacina::registry::loader::TaskRegistrar::new() {
-        Ok(r) => r,
-        Err(e) => {
-            return cloacina::fleet::AgentOutcome::Refused {
-                reason: RefusalReason::RuntimeLoadFailed,
-                message: format!("task registrar init: {}", e),
-            };
-        }
-    };
-    let package_id = format!("agent_pkg_{}", packet.artifact.digest);
-    let metadata = synthetic_package_metadata(&packet.artifact.digest);
-    let registered_namespaces = match registrar
-        .register_package_tasks(
-            &package_id,
-            &cdylib_bytes,
-            &metadata,
-            packet.tenant_id.as_deref(),
-            &runtime,
-        )
-        .await
-    {
-        Ok(ns) => ns,
-        Err(e) => {
-            return cloacina::fleet::AgentOutcome::Refused {
-                reason: RefusalReason::RuntimeLoadFailed,
-                message: format!("register_package_tasks: {}", e),
-            };
-        }
-    };
-    debug!(
-        package_id = %package_id,
-        registered = ?registered_namespaces.iter().map(|n| n.to_string()).collect::<Vec<_>>(),
-        "cdylib registered"
-    );
 
     // 4. Resolve the task by namespace string.
     let namespace = match cloacina::parse_namespace(&packet.task_name) {
@@ -727,9 +858,10 @@ async fn process_work_packet(
     let Some(task) = runtime.get_task(&namespace) else {
         return cloacina::fleet::AgentOutcome::Failure {
             message: format!(
-                "task `{}` not registered after loading cdylib (registered: {:?})",
+                "task `{}` not registered after loading package (registered: {:?})",
                 packet.task_name,
-                registered_namespaces
+                runtime
+                    .task_namespaces()
                     .iter()
                     .map(|n| n.to_string())
                     .collect::<Vec<_>>()
@@ -958,6 +1090,7 @@ mod tests {
             },
             timeout_seconds: 60,
             tenant_id: None,
+            language: Some("rust".into()),
         }
     }
 

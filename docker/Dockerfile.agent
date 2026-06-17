@@ -51,12 +51,18 @@ RUN cargo build --release --locked --bin cloacina-agent
 FROM debian:bookworm-slim AS runtime
 
 # Same runtime deps as cloacina-server — the agent dlopens workflow cdylibs
-# that link these (libpq/libpython/libsasl2/libssl).
+# that link these (libpq/libpython/libsasl2/libssl). The agent binary also now
+# EMBEDS a Python interpreter (PyO3) to run Python-packaged workflows
+# (CLOACI-T-0716), which needs the Python standard library at runtime, not just
+# libpython — `libpython3.11-stdlib` (and python3.11) provide it so
+# `Py_Initialize` succeeds.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         libpq5 \
         ca-certificates \
         libpython3.11 \
+        libpython3.11-stdlib \
+        python3.11 \
         libsasl2-2 \
         libssl3 \
  && rm -rf /var/lib/apt/lists/*
