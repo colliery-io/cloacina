@@ -371,10 +371,22 @@ impl Scheduler {
 
         info!("Found {} due cron schedule(s)", due_schedules.len());
 
+        // Process each due schedule on its own task (CLOACI-T-0743). The handoff
+        // `executor.execute(...)` blocks until the workflow runs, so processing
+        // sequentially made a second schedule due at the same instant wait for
+        // the first workflow's entire execution before it was even picked up
+        // (observed: ~3–10s, the first workflow's run time). Spawning keeps the
+        // scheduler loop non-blocking ("move on immediately" per this module's
+        // contract) so co-due schedules dispatch concurrently and the loop
+        // returns to its sleep immediately. Per-row `claim_and_update_cron` is
+        // atomic, so concurrent processing of distinct schedules is safe.
         for schedule in due_schedules {
-            if let Err(e) = self.process_cron_schedule(&schedule, now).await {
-                error!("Failed to process cron schedule {}: {}", schedule.id, e);
-            }
+            let this = self.clone();
+            tokio::spawn(async move {
+                if let Err(e) = this.process_cron_schedule(&schedule, now).await {
+                    error!("Failed to process cron schedule {}: {}", schedule.id, e);
+                }
+            });
         }
 
         Ok(())
