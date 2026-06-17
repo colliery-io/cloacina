@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-16T22:14:54Z | 712 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-17T02:29:57Z | 715 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -910,6 +910,7 @@
     │   │   └── AuthContext.tsx
     │   ├── components/
     │   │   ├── BuildStatusBadge.tsx
+    │   │   ├── CombinedTimeline.tsx
     │   │   ├── Dag.tsx
     │   │   ├── EventLog.tsx
     │   │   ├── GraphHealth.tsx
@@ -918,6 +919,8 @@
     │   │   ├── RunCircles.tsx
     │   │   ├── Shell.tsx
     │   │   ├── StatusBadge.tsx
+    │   │   ├── TaskGantt.tsx
+    │   │   ├── TaskRuntimeChart.tsx
     │   │   ├── TaskTable.tsx
     │   │   ├── WorkflowGraph.tsx
     │   │   └── states/
@@ -3324,24 +3327,27 @@
 - pub `mark_completed` function L44-54 — `( &self, task_id: UniversalUuid, runner_id: Option<UniversalUuid>, ) -> Result<b...` — Marks a task execution as completed.
 - pub `mark_failed` function L208-221 — `( &self, task_id: UniversalUuid, error_message: &str, runner_id: Option<Universa...` — Marks a task execution as failed with an error message.
 - pub `mark_ready` function L382-388 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — Marks a task as ready for execution.
-- pub `mark_skipped` function L525-535 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a task as skipped with a provided reason.
-- pub `mark_abandoned` function L665-675 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a task as permanently abandoned after too many recovery attempts.
-- pub `set_sub_status` function L804-814 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — Updates the sub_status of a running task execution.
-- pub `reset_retry_state` function L954-960 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — Resets the retry state for a task to its initial state.
+- pub `mark_started` function L532-538 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — Stamps a task's `started_at` (and flips it to `Running`) at the moment
+- pub `mark_skipped` function L604-614 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a task as skipped with a provided reason.
+- pub `mark_abandoned` function L744-754 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a task as permanently abandoned after too many recovery attempts.
+- pub `set_sub_status` function L883-893 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — Updates the sub_status of a running task execution.
+- pub `reset_retry_state` function L1033-1039 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — Resets the retry state for a task to its initial state.
 -  `mark_completed_postgres` function L57-126 — `( &self, task_id: UniversalUuid, runner_id: Option<UniversalUuid>, ) -> Result<b...` — are written atomically.
 -  `mark_completed_sqlite` function L129-198 — `( &self, task_id: UniversalUuid, runner_id: Option<UniversalUuid>, ) -> Result<b...` — are written atomically.
 -  `mark_failed_postgres` function L224-297 — `( &self, task_id: UniversalUuid, error_message: &str, runner_id: Option<Universa...` — are written atomically.
 -  `mark_failed_sqlite` function L300-373 — `( &self, task_id: UniversalUuid, error_message: &str, runner_id: Option<Universa...` — are written atomically.
 -  `mark_ready_postgres` function L391-456 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
 -  `mark_ready_sqlite` function L459-519 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `mark_skipped_postgres` function L538-597 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_skipped_sqlite` function L600-659 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_abandoned_postgres` function L678-736 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_abandoned_sqlite` function L739-797 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `set_sub_status_postgres` function L817-881 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — are written atomically.
--  `set_sub_status_sqlite` function L884-948 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — are written atomically.
--  `reset_retry_state_postgres` function L963-1021 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `reset_retry_state_sqlite` function L1024-1082 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_started_postgres` function L541-568 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_started_sqlite` function L571-598 — `(&self, task_id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_skipped_postgres` function L617-676 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_skipped_sqlite` function L679-738 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_abandoned_postgres` function L757-815 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_abandoned_sqlite` function L818-876 — `( &self, task_id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `set_sub_status_postgres` function L896-960 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — are written atomically.
+-  `set_sub_status_sqlite` function L963-1027 — `( &self, task_id: UniversalUuid, sub_status: Option<&str>, ) -> Result<(), Valid...` — are written atomically.
+-  `reset_retry_state_postgres` function L1042-1100 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `reset_retry_state_sqlite` function L1103-1161 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
 
 ### crates/cloacina/src/database
 
@@ -3960,34 +3966,34 @@
 -  `execute_with_cancellation` function L268-300 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, mut cancel_rx: to...` — Runs [`execute_with_timeout`] racing against a cancellation signal
 -  `ThreadTaskExecutor` type L310-329 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
 -  `clone` function L311-328 — `(&self) -> Self` — to the executor based on routing rules.
--  `ThreadTaskExecutor` type L336-670 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
--  `execute` function L337-649 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
--  `has_capacity` function L651-653 — `(&self) -> bool` — to the executor based on routing rules.
--  `metrics` function L655-665 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
--  `name` function L667-669 — `(&self) -> &str` — to the executor based on routing rules.
--  `tests` module L673-960 — `-` — to the executor based on routing rules.
--  `failure_reason_covers_every_variant_with_bounded_values` function L682-742 — `()` — to the executor based on routing rules.
--  `test_merge_primitives_latest_wins` function L749-754 — `()` — to the executor based on routing rules.
--  `test_merge_string_latest_wins` function L757-762 — `()` — to the executor based on routing rules.
--  `test_merge_different_types_latest_wins` function L765-770 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_deduplicates` function L773-778 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_no_overlap` function L781-786 — `()` — to the executor based on routing rules.
--  `test_merge_arrays_complete_overlap` function L789-794 — `()` — to the executor based on routing rules.
--  `test_merge_objects_no_conflict` function L797-802 — `()` — to the executor based on routing rules.
--  `test_merge_objects_conflicting_keys` function L805-810 — `()` — to the executor based on routing rules.
--  `test_merge_objects_recursive` function L813-818 — `()` — to the executor based on routing rules.
--  `test_merge_nested_arrays_in_objects` function L821-826 — `()` — to the executor based on routing rules.
--  `test_merge_null_latest_wins` function L829-834 — `()` — to the executor based on routing rules.
--  `test_merge_bool_latest_wins` function L837-842 — `()` — to the executor based on routing rules.
--  `sqlite_tests` module L848-913 — `-` — to the executor based on routing rules.
--  `test_executor` function L851-856 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
--  `test_executor_has_capacity_initially` function L866-869 — `()` — to the executor based on routing rules.
--  `test_executor_metrics_initial` function L872-879 — `()` — to the executor based on routing rules.
--  `test_executor_name` function L882-885 — `()` — to the executor based on routing rules.
--  `test_executor_clone_shares_semaphore` function L888-896 — `()` — to the executor based on routing rules.
--  `test_executor_custom_config` function L899-912 — `()` — to the executor based on routing rules.
--  `test_new_uses_empty_runtime_not_from_global` function L921-934 — `()` — to the executor based on routing rules.
--  `test_with_runtime_and_registry_uses_provided_runtime` function L938-959 — `()` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L336-689 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
+-  `execute` function L337-668 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
+-  `has_capacity` function L670-672 — `(&self) -> bool` — to the executor based on routing rules.
+-  `metrics` function L674-684 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
+-  `name` function L686-688 — `(&self) -> &str` — to the executor based on routing rules.
+-  `tests` module L692-979 — `-` — to the executor based on routing rules.
+-  `failure_reason_covers_every_variant_with_bounded_values` function L701-761 — `()` — to the executor based on routing rules.
+-  `test_merge_primitives_latest_wins` function L768-773 — `()` — to the executor based on routing rules.
+-  `test_merge_string_latest_wins` function L776-781 — `()` — to the executor based on routing rules.
+-  `test_merge_different_types_latest_wins` function L784-789 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_deduplicates` function L792-797 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_no_overlap` function L800-805 — `()` — to the executor based on routing rules.
+-  `test_merge_arrays_complete_overlap` function L808-813 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_no_conflict` function L816-821 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_conflicting_keys` function L824-829 — `()` — to the executor based on routing rules.
+-  `test_merge_objects_recursive` function L832-837 — `()` — to the executor based on routing rules.
+-  `test_merge_nested_arrays_in_objects` function L840-845 — `()` — to the executor based on routing rules.
+-  `test_merge_null_latest_wins` function L848-853 — `()` — to the executor based on routing rules.
+-  `test_merge_bool_latest_wins` function L856-861 — `()` — to the executor based on routing rules.
+-  `sqlite_tests` module L867-932 — `-` — to the executor based on routing rules.
+-  `test_executor` function L870-875 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
+-  `test_executor_has_capacity_initially` function L885-888 — `()` — to the executor based on routing rules.
+-  `test_executor_metrics_initial` function L891-898 — `()` — to the executor based on routing rules.
+-  `test_executor_name` function L901-904 — `()` — to the executor based on routing rules.
+-  `test_executor_clone_shares_semaphore` function L907-915 — `()` — to the executor based on routing rules.
+-  `test_executor_custom_config` function L918-931 — `()` — to the executor based on routing rules.
+-  `test_new_uses_empty_runtime_not_from_global` function L940-953 — `()` — to the executor based on routing rules.
+-  `test_with_runtime_and_registry_uses_provided_runtime` function L957-978 — `()` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 
@@ -6544,41 +6550,44 @@
 
 -  `Args` struct L61-86 — `{ server: String, api_key: String, agent_id: Option<String>, max_concurrency: u3...` — execute, classify the outcome, return `Success`/`Failure`.
 -  `main` function L89-103 — `() -> Result<()>` — execute, classify the outcome, return `Success`/`Failure`.
--  `run` function L105-182 — `(args: Args) -> Result<()>` — execute, classify the outcome, return `Success`/`Failure`.
--  `register` function L188-212 — `( http: &reqwest::Client, server: &str, api_key: &str, agent_id: &Option<String>...` — execute, classify the outcome, return `Success`/`Failure`.
--  `mint_ws_ticket` function L214-228 — `(http: &reqwest::Client, server: &str, api_key: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
--  `post_result` function L230-244 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
--  `spawn_heartbeat_loop` function L246-282 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, max_...` — execute, classify the outcome, return `Success`/`Failure`.
--  `receive_loop` function L289-352 — `( mut stream: tokio_tungstenite::WebSocketStream<S>, http: reqwest::Client, serv...` — execute, classify the outcome, return `Success`/`Failure`.
--  `handle_text_frame` function L355-430 — `( text: String, http: &reqwest::Client, server: &str, api_key: &str, agent_id: &...` — execute, classify the outcome, return `Success`/`Failure`.
--  `decode_packet` function L432-441 — `(env: &serde_json::Value) -> Result<WorkPacket>` — execute, classify the outcome, return `Success`/`Failure`.
--  `make_ack` function L443-450 — `(id: i64) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
--  `spawn_packet_worker` function L456-495 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, targ...` — Spawn a worker that runs the full Tier-B path (triple check → fetch+cache
--  `spawn_refusal` function L500-527 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, pack...` — Spawn a worker that POSTs a refusal + acks.
--  `report_outcome` function L529-547 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
--  `summarize_outcome` function L549-557 — `(o: &cloacina::fleet::AgentOutcome) -> String` — execute, classify the outcome, return `Success`/`Failure`.
--  `process_work_packet` function L578-708 — `( packet: &WorkPacket, agent_triple: &str, http: &reqwest::Client, server: &str,...` — The agent's full execution path for one packet (Tier B, T-0632).
--  `fetch_and_cache_artifact` function L713-763 — `( http: &reqwest::Client, server: &str, api_key: &str, artifact: &cloacina::flee...` — GET the artifact from `/v1/agent/artifact/{digest}` and cache it under
--  `library_extension` function L765-773 — `() -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
--  `synthetic_package_metadata` function L780-796 — `( digest: &str, ) -> cloacina::registry::loader::package_loader::PackageMetadata` — Build a minimal `PackageMetadata` for `TaskRegistrar::register_package_tasks`.
--  `build_context` function L800-818 — `( value: &serde_json::Value, ) -> Result<cloacina::Context<serde_json::Value>, a...` — Convert the work packet's `serde_json::Value` (expected to be an Object or
--  `kind_of` function L820-829 — `(v: &serde_json::Value) -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
--  `context_to_value` function L834-841 — `(ctx: &cloacina::Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` back into a JSON object so the
--  `ws_url_for` function L847-863 — `(server: &str, agent_id: &str, ticket: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
--  `truncate` function L865-871 — `(s: &str, max: usize) -> &str` — execute, classify the outcome, return `Success`/`Failure`.
--  `_` variable L874-877 — `: fn()` — execute, classify the outcome, return `Success`/`Failure`.
--  `_assert_serialize` function L875 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `tests` module L880-1014 — `-` — execute, classify the outcome, return `Success`/`Failure`.
--  `pkt` function L884-900 — `(triple: &str) -> WorkPacket` — execute, classify the outcome, return `Success`/`Failure`.
--  `target_triple_mismatch_refuses_pre_fetch` function L907-931 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `artifact_fetch_failure_refuses` function L934-956 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `tempdir` function L958-962 — `() -> std::path::PathBuf` — execute, classify the outcome, return `Success`/`Failure`.
--  `rand_suffix` function L964-971 — `() -> String` — execute, classify the outcome, return `Success`/`Failure`.
--  `build_context_accepts_object_or_null` function L974-980 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `build_context_rejects_non_object_non_null` function L983-986 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `context_to_value_round_trips_through_build_context` function L989-994 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `ws_url_for_handles_https_and_http` function L997-1008 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `ws_url_for_rejects_unsupported_scheme` function L1011-1013 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `RECONNECT_BACKOFF_MIN` variable L106 — `: Duration` — Backoff bounds for the reconnect loop.
+-  `RECONNECT_BACKOFF_MAX` variable L107 — `: Duration` — execute, classify the outcome, return `Success`/`Failure`.
+-  `run` function L109-168 — `(args: Args) -> Result<()>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `connect_and_serve` function L174-244 — `( args: &Args, http: &reqwest::Client, server_base: &str, target_triple: &str, i...` — One register→connect→serve session.
+-  `register` function L250-274 — `( http: &reqwest::Client, server: &str, api_key: &str, agent_id: &Option<String>...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `mint_ws_ticket` function L276-290 — `(http: &reqwest::Client, server: &str, api_key: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `post_result` function L292-306 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `spawn_heartbeat_loop` function L308-344 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, max_...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `receive_loop` function L351-414 — `( mut stream: tokio_tungstenite::WebSocketStream<S>, http: reqwest::Client, serv...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `handle_text_frame` function L417-492 — `( text: String, http: &reqwest::Client, server: &str, api_key: &str, agent_id: &...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `decode_packet` function L494-503 — `(env: &serde_json::Value) -> Result<WorkPacket>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `make_ack` function L505-512 — `(id: i64) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `spawn_packet_worker` function L518-557 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, targ...` — Spawn a worker that runs the full Tier-B path (triple check → fetch+cache
+-  `spawn_refusal` function L562-589 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, pack...` — Spawn a worker that POSTs a refusal + acks.
+-  `report_outcome` function L591-609 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `summarize_outcome` function L611-619 — `(o: &cloacina::fleet::AgentOutcome) -> String` — execute, classify the outcome, return `Success`/`Failure`.
+-  `process_work_packet` function L640-770 — `( packet: &WorkPacket, agent_triple: &str, http: &reqwest::Client, server: &str,...` — The agent's full execution path for one packet (Tier B, T-0632).
+-  `fetch_and_cache_artifact` function L775-825 — `( http: &reqwest::Client, server: &str, api_key: &str, artifact: &cloacina::flee...` — GET the artifact from `/v1/agent/artifact/{digest}` and cache it under
+-  `library_extension` function L827-835 — `() -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
+-  `synthetic_package_metadata` function L842-858 — `( digest: &str, ) -> cloacina::registry::loader::package_loader::PackageMetadata` — Build a minimal `PackageMetadata` for `TaskRegistrar::register_package_tasks`.
+-  `build_context` function L862-880 — `( value: &serde_json::Value, ) -> Result<cloacina::Context<serde_json::Value>, a...` — Convert the work packet's `serde_json::Value` (expected to be an Object or
+-  `kind_of` function L882-891 — `(v: &serde_json::Value) -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
+-  `context_to_value` function L896-903 — `(ctx: &cloacina::Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` back into a JSON object so the
+-  `ws_url_for` function L909-925 — `(server: &str, agent_id: &str, ticket: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `truncate` function L927-933 — `(s: &str, max: usize) -> &str` — execute, classify the outcome, return `Success`/`Failure`.
+-  `_` variable L936-939 — `: fn()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `_assert_serialize` function L937 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `tests` module L942-1076 — `-` — execute, classify the outcome, return `Success`/`Failure`.
+-  `pkt` function L946-962 — `(triple: &str) -> WorkPacket` — execute, classify the outcome, return `Success`/`Failure`.
+-  `target_triple_mismatch_refuses_pre_fetch` function L969-993 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `artifact_fetch_failure_refuses` function L996-1018 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `tempdir` function L1020-1024 — `() -> std::path::PathBuf` — execute, classify the outcome, return `Success`/`Failure`.
+-  `rand_suffix` function L1026-1033 — `() -> String` — execute, classify the outcome, return `Success`/`Failure`.
+-  `build_context_accepts_object_or_null` function L1036-1042 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `build_context_rejects_non_object_non_null` function L1045-1048 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `context_to_value_round_trips_through_build_context` function L1051-1056 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `ws_url_for_handles_https_and_http` function L1059-1070 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `ws_url_for_rejects_unsupported_scheme` function L1073-1075 — `()` — execute, classify the outcome, return `Success`/`Failure`.
 
 ### crates/cloacina-api-types/src
 
@@ -6820,25 +6829,25 @@
 -  `load_manifest` function L302-309 — `(source_dir: &Path) -> Result<toml::Value, String>` — main loop.
 -  `manifest_language` function L311-324 — `(manifest: &toml::Value) -> String` — main loop.
 -  `classify_offline_failure` function L346-394 — `(stderr: &str) -> Option<String>` — Classify a non-zero cargo exit into an operator-actionable error message
--  `cargo_build` function L396-558 — `( package_id: uuid::Uuid, source_dir: &Path, config: &CompilerConfig, ) -> Resul...` — main loop.
+-  `cargo_build` function L396-569 — `( package_id: uuid::Uuid, source_dir: &Path, config: &CompilerConfig, ) -> Resul...` — main loop.
 -  `MAX_ERR` variable L401 — `: usize` — main loop.
--  `profile_for_flags` function L560-566 — `(flags: &[String]) -> &'static str` — main loop.
--  `find_cdylib` function L568-589 — `(target_dir: &Path, pkg_name: &str) -> Result<PathBuf, String>` — main loop.
--  `read_cargo_package_name` function L591-603 — `(source_dir: &Path) -> Result<String, String>` — main loop.
--  `apply_rlimits` function L619-650 — `(cmd: &mut tokio::process::Command, rlimits: &BuildRlimits)` — Install a `pre_exec` hook on the cargo `Command` that calls `setrlimit`
--  `apply_rlimits` function L655-658 — `(_cmd: &mut tokio::process::Command, _rlimits: &BuildRlimits)` — Non-Linux fallback: rlimits stored on `CompilerConfig` but not applied.
--  `tests` module L665-927 — `-` — main loop.
--  `synthetic_sleeper_package` function L673-698 — `(work: &Path, sleep_secs: u64) -> PathBuf` — Build a minimal cargo package whose `build.rs` sleeps for `sleep_secs`
--  `test_config` function L700-727 — `(home: &Path, build_timeout: Duration) -> CompilerConfig` — main loop.
--  `cargo_build_returns_timed_out_when_build_rs_sleeps_past_timeout` function L737-766 — `()` — CLOACI-T-0573: a build whose `build.rs` exceeds `--build-timeout-s`
--  `classify_offline_failure_extracts_single_missing_crate` function L773-787 — `()` — main loop.
--  `classify_offline_failure_aggregates_multiple_missing_crates` function L790-799 — `()` — main loop.
--  `classify_offline_failure_dedupes_repeated_missing_crate_mentions` function L802-811 — `()` — main loop.
--  `classify_offline_failure_recognizes_missing_lockfile` function L814-826 — `()` — main loop.
--  `classify_offline_failure_recognizes_git_dep_offline` function L829-842 — `()` — main loop.
--  `classify_offline_failure_returns_none_for_unrelated_stderr` function L845-850 — `()` — main loop.
--  `synthetic_memory_hog_package` function L860-887 — `(work: &Path) -> PathBuf` — A `build.rs` that tries to allocate 8 GiB.
--  `cargo_build_fails_when_build_rs_overshoots_rlimit_as` function L899-926 — `()` — CLOACI-T-0575 (Linux only): a build whose `build.rs` allocates past
+-  `profile_for_flags` function L571-577 — `(flags: &[String]) -> &'static str` — main loop.
+-  `find_cdylib` function L579-600 — `(target_dir: &Path, pkg_name: &str) -> Result<PathBuf, String>` — main loop.
+-  `read_cargo_package_name` function L602-614 — `(source_dir: &Path) -> Result<String, String>` — main loop.
+-  `apply_rlimits` function L630-661 — `(cmd: &mut tokio::process::Command, rlimits: &BuildRlimits)` — Install a `pre_exec` hook on the cargo `Command` that calls `setrlimit`
+-  `apply_rlimits` function L666-669 — `(_cmd: &mut tokio::process::Command, _rlimits: &BuildRlimits)` — Non-Linux fallback: rlimits stored on `CompilerConfig` but not applied.
+-  `tests` module L676-938 — `-` — main loop.
+-  `synthetic_sleeper_package` function L684-709 — `(work: &Path, sleep_secs: u64) -> PathBuf` — Build a minimal cargo package whose `build.rs` sleeps for `sleep_secs`
+-  `test_config` function L711-738 — `(home: &Path, build_timeout: Duration) -> CompilerConfig` — main loop.
+-  `cargo_build_returns_timed_out_when_build_rs_sleeps_past_timeout` function L748-777 — `()` — CLOACI-T-0573: a build whose `build.rs` exceeds `--build-timeout-s`
+-  `classify_offline_failure_extracts_single_missing_crate` function L784-798 — `()` — main loop.
+-  `classify_offline_failure_aggregates_multiple_missing_crates` function L801-810 — `()` — main loop.
+-  `classify_offline_failure_dedupes_repeated_missing_crate_mentions` function L813-822 — `()` — main loop.
+-  `classify_offline_failure_recognizes_missing_lockfile` function L825-837 — `()` — main loop.
+-  `classify_offline_failure_recognizes_git_dep_offline` function L840-853 — `()` — main loop.
+-  `classify_offline_failure_returns_none_for_unrelated_stderr` function L856-861 — `()` — main loop.
+-  `synthetic_memory_hog_package` function L871-898 — `(work: &Path) -> PathBuf` — A `build.rs` that tries to allocate 8 GiB.
+-  `cargo_build_fails_when_build_rs_overshoots_rlimit_as` function L910-937 — `()` — CLOACI-T-0575 (Linux only): a build whose `build.rs` allocates past
 
 #### crates/cloacina-compiler/src/config.rs
 
@@ -7961,20 +7970,20 @@
 -  `FLEET_CLAIM_HEARTBEAT_INTERVAL` variable L71 — `: Duration` — How often the executor refreshes its task claim while waiting for the agent
 -  `FleetExecutor` type L99-148 — `= FleetExecutor` — and filters by tenant.
 -  `reconcile_error` function L131-147 — `( &self, event: &TaskReadyEvent, claimed_task: &ClaimedTask, retry_policy: &Retr...` — Route a pre-dispatch failure (namespace parse, task-not-loaded,
--  `FleetExecutor` type L151-585 — `impl TaskExecutor for FleetExecutor` — and filters by tenant.
--  `execute` function L152-560 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — and filters by tenant.
--  `has_capacity` function L562-567 — `(&self) -> bool` — and filters by tenant.
--  `metrics` function L569-580 — `(&self) -> ExecutorMetrics` — and filters by tenant.
--  `name` function L582-584 — `(&self) -> &str` — and filters by tenant.
--  `value_to_context` function L589-606 — `(value: serde_json::Value) -> Result<Context<serde_json::Value>, anyhow::Error>` — Convert a JSON Object (or Null) into a `Context<serde_json::Value>` to feed
--  `context_to_json` function L610-617 — `(ctx: &Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` into a JSON object for the work
--  `kind_of` function L619-628 — `(v: &serde_json::Value) -> &'static str` — and filters by tenant.
--  `_` variable L631 — `: fn(UniversalUuid)` — and filters by tenant.
--  `tests` module L634-663 — `-` — and filters by tenant.
--  `value_to_context_round_trips_an_object` function L638-643 — `()` — and filters by tenant.
--  `value_to_context_accepts_null_as_empty` function L646-649 — `()` — and filters by tenant.
--  `value_to_context_rejects_array` function L652-655 — `()` — and filters by tenant.
--  `context_to_json_round_trips_through_value_to_context` function L658-662 — `()` — and filters by tenant.
+-  `FleetExecutor` type L151-603 — `impl TaskExecutor for FleetExecutor` — and filters by tenant.
+-  `execute` function L152-578 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — and filters by tenant.
+-  `has_capacity` function L580-585 — `(&self) -> bool` — and filters by tenant.
+-  `metrics` function L587-598 — `(&self) -> ExecutorMetrics` — and filters by tenant.
+-  `name` function L600-602 — `(&self) -> &str` — and filters by tenant.
+-  `value_to_context` function L607-624 — `(value: serde_json::Value) -> Result<Context<serde_json::Value>, anyhow::Error>` — Convert a JSON Object (or Null) into a `Context<serde_json::Value>` to feed
+-  `context_to_json` function L628-635 — `(ctx: &Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` into a JSON object for the work
+-  `kind_of` function L637-646 — `(v: &serde_json::Value) -> &'static str` — and filters by tenant.
+-  `_` variable L649 — `: fn(UniversalUuid)` — and filters by tenant.
+-  `tests` module L652-681 — `-` — and filters by tenant.
+-  `value_to_context_round_trips_an_object` function L656-661 — `()` — and filters by tenant.
+-  `value_to_context_accepts_null_as_empty` function L664-667 — `()` — and filters by tenant.
+-  `value_to_context_rejects_array` function L670-673 — `()` — and filters by tenant.
+-  `context_to_json_round_trips_through_value_to_context` function L676-680 — `()` — and filters by tenant.
 
 #### crates/cloacina-server/src/lib.rs
 
@@ -11745,8 +11754,8 @@
 #### examples/fixtures/demo-cron-rust/src/lib.rs
 
 - pub `demo_cron_trigger` function L34 — `()`
-- pub `demo_cron_wf` module L41-53 — `-`
-- pub `demo_cron_step` function L45-52 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `demo_cron_wf` module L41-65 — `-`
+- pub `demo_cron_step` function L45-64 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 
 ### examples/fixtures/demo-fail-rust
 
@@ -11878,13 +11887,13 @@
 
 #### examples/fixtures/demo-slow-rust/src/lib.rs
 
-- pub `demo_slow_workflow` module L36-86 — `-`
-- pub `ingest` function L53-57 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `validate` function L60-64 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `transform` function L67-71 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `aggregate` function L74-78 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `publish` function L81-85 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
--  `pause` function L44-50 — `(context: &Context<serde_json::Value>)`
+- pub `demo_slow_workflow` module L39-106 — `-`
+- pub `ingest` function L73-77 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `validate` function L80-84 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `transform` function L87-91 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `aggregate` function L94-98 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `publish` function L101-105 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+-  `pause` function L51-70 — `(context: &Context<serde_json::Value>, base_ms: u64, jitter_ms: u64)`
 
 ### examples/fixtures/fleet-slow-rust
 
@@ -11916,8 +11925,8 @@
 - pub `mixed_graph` module L68-80 — `-` — binding all coexist in a single cdylib.
 - pub `compute` function L71-75 — `(alpha: Option<&AlphaIn>) -> ReactorOutput` — binding all coexist in a single cdylib.
 - pub `output` function L77-79 — `(input: &ReactorOutput) -> ReactorOutput` — binding all coexist in a single cdylib.
-- pub `mixed_wf` module L89-97 — `-` — binding all coexist in a single cdylib.
-- pub `mixed_step` function L93-96 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — binding all coexist in a single cdylib.
+- pub `mixed_wf` module L89-112 — `-` — binding all coexist in a single cdylib.
+- pub `mixed_step` function L93-111 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — binding all coexist in a single cdylib.
 
 ### examples/fixtures/reactor-only-rust/src
 
@@ -12701,7 +12710,7 @@
 
 #### ui/e2e/env.ts
 
-- pub `seedConnection` function L31-41 — `function seedConnection(page: Page): Promise<void>`
+- pub `seedConnection` function L32-42 — `function seedConnection(page: Page): Promise<void>`
 
 #### ui/e2e/walk.spec.ts
 
@@ -12744,19 +12753,19 @@
 
 #### ui/harness/src/main.mjs
 
--  `intEnv` function L67-72 — `function intEnv(name, dflt)`
--  `log` function L74 — `const log = (...args)`
--  `sleep` function L75 — `const sleep = (ms)`
--  `makeClient` function L77-84 — `function makeClient()`
--  `waitForHealth` function L86-99 — `function waitForHealth(client)`
--  `ensureTenant` function L102-120 — `function ensureTenant(client)`
--  `uploadPackages` function L124-148 — `function uploadPackages(client)`
--  `execute` function L150-154 — `function execute(client, workflow, context)`
--  `executeReady` function L160-176 — `function executeReady(client, workflow, context)`
--  `waitForTerminal` function L179-189 — `function waitForTerminal(client, execId)`
--  `seed` function L191-227 — `function seed(client)`
--  `loop` function L229-260 — `function loop(client)`
--  `main` function L262-291 — `function main()`
+-  `intEnv` function L66-71 — `function intEnv(name, dflt)`
+-  `log` function L73 — `const log = (...args)`
+-  `sleep` function L74 — `const sleep = (ms)`
+-  `makeClient` function L76-83 — `function makeClient()`
+-  `waitForHealth` function L85-98 — `function waitForHealth(client)`
+-  `ensureTenant` function L101-119 — `function ensureTenant(client)`
+-  `uploadPackages` function L123-150 — `function uploadPackages(client)`
+-  `execute` function L152-156 — `function execute(client, workflow, context)`
+-  `executeReady` function L162-178 — `function executeReady(client, workflow, context)`
+-  `waitForTerminal` function L181-191 — `function waitForTerminal(client, execId)`
+-  `seed` function L193-231 — `function seed(client)`
+-  `loop` function L233-266 — `function loop(client)`
+-  `main` function L268-297 — `function main()`
 
 #### ui/harness/src/produce.mjs
 
@@ -12805,13 +12814,20 @@
 #### ui/src/api/executions.ts
 
 - pub `TaskExecutionDetail` type L27-40 — `= { id: string; task_name: string; status: string; started_at: string | null; co...`
-- pub `useExecutionTasks` function L53-70 — `function useExecutionTasks(id: string, opts: { poll?: boolean } = {})`
-- pub `ExecutionsQuery` type L72-77 — `= { status?: string; workflow?: string; limit?: number; offset?: number; }`
-- pub `useExecutions` function L80-88 — `function useExecutions(query: ExecutionsQuery)`
-- pub `useExecution` function L96-106 — `function useExecution(id: string, opts: { livePoll?: boolean } = {})`
-- pub `useExecutionEvents` function L109-116 — `function useExecutionEvents(id: string)`
-- pub `useLiveExecutionEvents` function L129-160 — `function useLiveExecutionEvents(id: string, enabled: boolean): ExecutionEvent[]`
+- pub `useExecutionTasks` function L74-83 — `function useExecutionTasks(id: string, opts: { poll?: boolean } = {})`
+- pub `TaskRuntimeStat` type L86-96 — `= { /** Local task id (last `::` segment). */ taskName: string; /** Runs that co...`
+- pub `RunTimeline` type L114-120 — `= { id: string; status: string; t0: number; /** Local task id → absolute start...`
+- pub `useWorkflowTaskRuntimes` function L132-196 — `function useWorkflowTaskRuntimes(workflow: string, opts: { runs?: number } = {})`
+- pub `ExecutionsQuery` type L198-203 — `= { status?: string; workflow?: string; limit?: number; offset?: number; }`
+- pub `useExecutions` function L206-214 — `function useExecutions(query: ExecutionsQuery)`
+- pub `useExecution` function L222-232 — `function useExecution(id: string, opts: { livePoll?: boolean } = {})`
+- pub `useExecutionEvents` function L235-242 — `function useExecutionEvents(id: string)`
+- pub `useLiveExecutionEvents` function L255-286 — `function useLiveExecutionEvents(id: string, enabled: boolean): ExecutionEvent[]`
 -  `ExecutionTasksResponse` type L42-46 — `= { tenant_id: string; execution_id: string; tasks: TaskExecutionDetail[]; }`
+-  `Connection` type L48 — `= { serverUrl: string; apiKey: string }`
+-  `fetchExecutionTasks` function L56-68 — `function fetchExecutionTasks( connection: Connection, tenant: string, id: string...`
+-  `taskDurationMs` function L99-105 — `function taskDurationMs(t: TaskExecutionDetail): number | null`
+-  `localTaskId` function L107 — `const localTaskId = (name: string)`
 
 #### ui/src/api/health.ts
 
@@ -12876,6 +12892,16 @@
 
 - pub `BuildStatusBadge` function L32-38 — `function BuildStatusBadge({ status }: { status: string })`
 
+#### ui/src/components/CombinedTimeline.tsx
+
+- pub `CombinedTimeline` function L75-241 — `function CombinedTimeline({ runs, graph, }: { runs: RunTimeline[]; graph?: TaskG...`
+-  `summary` function L25-36 — `function summary(xs: number[])`
+-  `q` function L28-34 — `const q = (p: number)`
+-  `Row` type L38-54 — `= { name: string; /** Runs that contributed timing for this task. */ n: number; ...`
+-  `pct` function L156 — `const pct = (ms: number)`
+-  `width` function L157 — `const width = (ms: number)`
+-  `Legend` function L243-252 — `function Legend({ swatch, label }: { swatch: string; label: string })`
+
 #### ui/src/components/Dag.tsx
 
 - pub `DagNodeKind` type L32 — `= "compute" | "accumulator" | "reactor" | "trigger"`
@@ -12909,12 +12935,26 @@
 
 #### ui/src/components/Shell.tsx
 
-- pub `Shell` function L47-94 — `function Shell()`
--  `handleDisconnect` function L51-54 — `function handleDisconnect()`
+- pub `Shell` function L78-129 — `function Shell()`
+-  `ServerHealthDot` function L34-61 — `function ServerHealthDot()`
+-  `handleDisconnect` function L82-85 — `function handleDisconnect()`
 
 #### ui/src/components/StatusBadge.tsx
 
 - pub `StatusBadge` function L22-28 — `function StatusBadge({ status }: { status: string })`
+
+#### ui/src/components/TaskGantt.tsx
+
+- pub `TaskGantt` function L48-159 — `function TaskGantt({ tasks, order, }: { tasks: TaskExecutionDetail[]; /** DAG to...`
+-  `localId` function L24 — `const localId = (name: string)`
+-  `Bar` type L26-34 — `= { id: string; name: string; fullName: string; status: string; start: number; e...`
+-  `rankOf` function L86 — `const rankOf = (b: Bar)`
+
+#### ui/src/components/TaskRuntimeChart.tsx
+
+- pub `TaskRuntimeChart` function L33-120 — `function TaskRuntimeChart({ stats }: { stats: TaskRuntimeStat[] })`
+-  `pos` function L43 — `const pos = (ms: number)`
+-  `Legend` function L122-131 — `function Legend({ swatch, label }: { swatch: string; label: string })`
 
 #### ui/src/components/TaskTable.tsx
 
@@ -12950,13 +12990,15 @@
 
 #### ui/src/routes/ExecutionDetail.tsx
 
-- pub `ExecutionDetail` function L47-147 — `function ExecutionDetail()`
+- pub `ExecutionDetail` function L49-220 — `function ExecutionDetail()`
+-  `onReRun` function L91-97 — `function onReRun()`
+-  `Field` function L223-232 — `function Field({ label, children }: { label: string; children: React.ReactNode }...`
 
 #### ui/src/routes/Executions.tsx
 
-- pub `Executions` function L33-154 — `function Executions()`
--  `setParam` function L48-59 — `function setParam(key: string, value: string)`
--  `page` function L61-72 — `function page(delta: number)`
+- pub `Executions` function L36-167 — `function Executions()`
+-  `setParam` function L51-62 — `function setParam(key: string, value: string)`
+-  `page` function L64-75 — `function page(delta: number)`
 
 #### ui/src/routes/GraphDetail.tsx
 
@@ -13009,14 +13051,15 @@
 
 #### ui/src/routes/Triggers.tsx
 
-- pub `Triggers` function L32-138 — `function Triggers()`
--  `page` function L42-53 — `function page(delta: number)`
+- pub `Triggers` function L45-176 — `function Triggers()`
+-  `humanizeCron` function L32-38 — `function humanizeCron(expr: string): string`
+-  `page` function L56-67 — `function page(delta: number)`
 
 #### ui/src/routes/WorkflowDetail.tsx
 
-- pub `WorkflowDetail` function L46-211 — `function WorkflowDetail()`
--  `onExecute` function L59-86 — `function onExecute()`
--  `onDelete` function L88-94 — `function onDelete()`
+- pub `WorkflowDetail` function L50-268 — `function WorkflowDetail()`
+-  `onExecute` function L75-102 — `function onExecute()`
+-  `onDelete` function L104-110 — `function onDelete()`
 
 #### ui/src/routes/WorkflowUpload.tsx
 
@@ -13050,6 +13093,8 @@
 #### ui/src/util/format.ts
 
 - pub `formatTimestamp` function L18-22 — `function formatTimestamp(ts: string | null | undefined): string`
+- pub `formatDuration` function L29-38 — `function formatDuration( start: string | null | undefined, end: string | null | ...`
+- pub `formatMs` function L41-49 — `function formatMs(ms: number): string`
 
 #### ui/src/util/status.ts
 
