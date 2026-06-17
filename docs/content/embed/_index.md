@@ -19,4 +19,10 @@ want to operate Cloacina as a shared, multi-tenant service, see
 **[Run the Service]({{< ref "/service" >}})**. For what the two share — the core
 objects you author against — see **[Engine & Primitives]({{< ref "/engine" >}})**.
 
+**Who this is for:** application developers embedding the engine as a library
+inside their own Rust or Python code.
+
+**Prerequisites:** an existing Rust or Python project to add the dependency to,
+and a database you already operate (SQLite is fine to start).
+
 {{< toc-tree >}}

@@ -136,21 +136,21 @@ For the workflow execution side, the existing `cloacina_workflows_total{status, 
 | You want | Reach for |
 |---|---|
 | A workflow that fires on a reactor firing, durable across restart | This recipe (`upstream = reactor("name")` on `#[trigger]`) |
-| A computation graph that fires on a reactor firing, in-process minimum-latency | `#[computation_graph(trigger = reactor("name"))]` (see [Tutorial 07]({{< ref "/embed/tutorials/10-computation-graph" >}})) |
+| A computation graph that fires on a reactor firing, in-process minimum-latency | `#[computation_graph(trigger = reactor("name"))]` (see [Tutorial 10]({{< ref "/embed/tutorials/10-computation-graph" >}})) |
 | A workflow that fires on a custom poll / event / file watch | Implement the [Trigger trait]({{< ref "/embed/tutorials/07-event-triggers" >}}) — no reactor involved |
 
 ## What this how-to does NOT cover
 
-- **Reactor authoring.** This recipe assumes the reactor exists. See [Tutorial 07 — Your First Computation Graph]({{< ref "/embed/tutorials/10-computation-graph" >}}) for the reactor side.
+- **Reactor authoring.** This recipe assumes the reactor exists. See [Tutorial 10 — Your First Computation Graph]({{< ref "/embed/tutorials/10-computation-graph" >}}) for the reactor side.
 - **Tearing down a subscription.** Removing the `#[trigger]` from the workflow and re-deploying the package unregisters the subscription. There is no separate CLI for it today.
 - **Replaying past firings.** The `reactor_firings` log is forward-looking; replay would require a separate mechanism (not currently shipped).
 
 ## See also
 
-- [Subscription fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}}) — conceptual model (deferred from DOC-F; may be a stub at time of reading).
-- [Filter reactor firings with CEL]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}}) — focused recipe for the predicate side (DOC-F deliverable).
+- [Subscription fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}}) — conceptual model.
+- [Filter reactor firings with CEL]({{< ref "/engine/computation-graphs/how-to/filter-reactor-firings-with-cel" >}}) — focused recipe for the predicate side.
 - [Reactor-triggered workflows]({{< ref "/engine/computation-graphs/how-to/reactor-triggered-workflows" >}}) — the existing CG-side how-to with the dual-path topology overview.
-- [Tutorial 09 — Event Triggers]({{< ref "/embed/tutorials/07-event-triggers" >}}) — the in-process `Trigger` trait alternative.
+- [Tutorial 07 — Event Triggers]({{< ref "/embed/tutorials/07-event-triggers" >}}) — the in-process `Trigger` trait alternative.
 - **CLOACI-I-0100** — DB-backed reactor → workflow subscription fan-out.
 - **CLOACI-T-0602** — CEL predicate filtering on subscriptions.
 - **CLOACI-S-0011** — primitive nomenclature spec (post-2026-04-24 topology amendment).

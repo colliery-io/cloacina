@@ -167,7 +167,7 @@ Deployments where this is unacceptable should terminate `/metrics` at the revers
 - [Multi-tenancy]({{< ref "multi-tenancy" >}}) — operational mechanics of tenant isolation.
 - [Package Format]({{< ref "package-format" >}}) — how `.cloacina` archives are structured.
 - [Packaged Workflow Architecture]({{< ref "packaged-workflow-architecture" >}}) — the FFI / cdylib trust boundary.
-- `require-signed-packages` how-to (DOC-C deliverable; not yet written) will cover the operator-side mechanics of turning on signature enforcement — `--require-signatures` + `--verification-org-id` setup, audit-log expectations, and recovery if you lock yourself out.
+- [Require Signed Packages]({{< ref "/service/how-to/require-signed-packages" >}}) — the operator-side mechanics of turning on signature enforcement: `--require-signatures` + `--verification-org-id` setup, audit-log expectations, and recovery if you lock yourself out.
 - [Package Signing]({{< ref "/service/how-to/security/package-signing" >}}) — how to set up the signing pipeline.
 - [Running the Compiler]({{< ref "/service/how-to/running-the-compiler" >}}) — compiler threat model + Phase 1 hardening flags.
 - **CLOACI-A-0005** — Deployment-mode trust model (the authoritative ADR for this page).
