@@ -68,6 +68,12 @@ docs/content/api-reference/_nav.yml
 # Transient test output (don't commit)
 integration-test.log
 .metis/*.log
+# Auto-generated Metis code index — regenerated on every edit by the indexer,
+# so it churns constantly and shouldn't be tracked.
+.metis/code-index.md
+.metis/code-index-hashes.json
+.metis/code-index-symbols.json
+.metis/.index-dirty
 node_modules/
 clients/python/.venv/
 clients/python/dist/
