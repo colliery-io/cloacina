@@ -102,6 +102,10 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Backoff bounds for the reconnect loop.
+const RECONNECT_BACKOFF_MIN: Duration = Duration::from_secs(1);
+const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
+
 async fn run(args: Args) -> Result<()> {
     let server_base = args.server.trim_end_matches('/').to_string();
     let http = reqwest::Client::builder()
@@ -123,14 +127,67 @@ async fn run(args: Args) -> Result<()> {
     info!(cache_dir = ?cache_dir, "artifact cache directory");
     let cache_dir = Arc::new(cache_dir);
 
-    // ── 1. Register ────────────────────────────────────────────────
+    // Process-wide in-flight counter — survives across reconnect sessions so a
+    // task still running when the WS drops is still counted on reconnect.
+    let in_flight = Arc::new(AtomicU32::new(0));
+
+    // ── Reconnect loop ─────────────────────────────────────────────
+    // A WS drop (or a server restart, which also forgets our registration) must
+    // NOT take the agent down — it re-registers and reconnects with capped
+    // exponential backoff. A session that actually connected resets the backoff;
+    // repeated failures (server still down) back off up to RECONNECT_BACKOFF_MAX.
+    let mut backoff = RECONNECT_BACKOFF_MIN;
+    loop {
+        match connect_and_serve(
+            &args,
+            &http,
+            &server_base,
+            &target_triple,
+            in_flight.clone(),
+            cache_dir.clone(),
+        )
+        .await
+        {
+            Ok(()) => {
+                // We had a live session that then ended — reconnect promptly.
+                info!("substrate WS session ended — reconnecting");
+                backoff = RECONNECT_BACKOFF_MIN;
+                tokio::time::sleep(RECONNECT_BACKOFF_MIN).await;
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    backoff_seconds = backoff.as_secs(),
+                    "agent session failed to establish — backing off before retry"
+                );
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(RECONNECT_BACKOFF_MAX);
+            }
+        }
+    }
+}
+
+/// One register→connect→serve session. Returns `Ok(())` once a live WS session
+/// has ended (caller reconnects immediately) and `Err` if the session could not
+/// be established (caller backs off). The per-session heartbeat task is aborted
+/// on every exit path so it never outlives its registration.
+async fn connect_and_serve(
+    args: &Args,
+    http: &reqwest::Client,
+    server_base: &str,
+    target_triple: &str,
+    in_flight: Arc<AtomicU32>,
+    cache_dir: Arc<std::path::PathBuf>,
+) -> Result<()> {
+    // ── 1. Register (fresh each session — the server may have restarted and
+    //       forgotten us, in which case a stale agent_id would be unroutable).
     let register_resp = register(
-        &http,
-        &server_base,
+        http,
+        server_base,
         &args.api_key,
         &args.agent_id,
         args.max_concurrency,
-        &target_triple,
+        target_triple,
         &args.capabilities,
     )
     .await
@@ -144,11 +201,10 @@ async fn run(args: Args) -> Result<()> {
         "agent registered with server"
     );
 
-    // ── 2. Spawn heartbeat task ────────────────────────────────────
-    let in_flight = Arc::new(AtomicU32::new(0));
-    spawn_heartbeat_loop(
+    // ── 2. Spawn the heartbeat task for THIS session.
+    let heartbeat = spawn_heartbeat_loop(
         http.clone(),
-        server_base.clone(),
+        server_base.to_string(),
         args.api_key.clone(),
         agent_id.clone(),
         args.max_concurrency,
@@ -156,29 +212,35 @@ async fn run(args: Args) -> Result<()> {
         Duration::from_secs(register_resp.heartbeat_interval_seconds.max(1) as u64),
     );
 
-    // ── 3. Mint a single-use WS ticket + connect the substrate WS ──
-    let ticket = mint_ws_ticket(&http, &server_base, &args.api_key)
+    // ── 3+4. Mint a ticket, connect, and serve. Bundled so the heartbeat is
+    //         aborted on any early exit (mint/connect failure or loop end).
+    let session = async {
+        let ticket = mint_ws_ticket(http, server_base, &args.api_key)
+            .await
+            .context("mint WS ticket")?;
+        let ws_url = ws_url_for(server_base, &agent_id, &ticket)?;
+        info!(ws_url = %ws_url, "connecting to substrate delivery WS");
+        let (stream, _resp) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .with_context(|| format!("WS connect to {}", ws_url))?;
+        info!(agent_id = %agent_id, "substrate WS connected");
+        receive_loop(
+            stream,
+            http.clone(),
+            server_base.to_string(),
+            args.api_key.clone(),
+            agent_id.clone(),
+            target_triple.to_string(),
+            args.max_concurrency,
+            in_flight.clone(),
+            cache_dir.clone(),
+        )
         .await
-        .context("mint WS ticket")?;
-    let ws_url = ws_url_for(&server_base, &agent_id, &ticket)?;
-    info!(ws_url = %ws_url, "connecting to substrate delivery WS");
-    let (stream, _resp) = tokio_tungstenite::connect_async(&ws_url)
-        .await
-        .with_context(|| format!("WS connect to {}", ws_url))?;
+    }
+    .await;
 
-    // ── 4. Receive + process loop ──────────────────────────────────
-    receive_loop(
-        stream,
-        http,
-        server_base,
-        args.api_key,
-        agent_id,
-        target_triple,
-        args.max_concurrency,
-        in_flight,
-        cache_dir,
-    )
-    .await
+    heartbeat.abort();
+    session
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -251,7 +313,7 @@ fn spawn_heartbeat_loop(
     max_concurrency: u32,
     in_flight: Arc<AtomicU32>,
     interval: Duration,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -278,7 +340,7 @@ fn spawn_heartbeat_loop(
                 Err(e) => warn!(error = %e, "heartbeat request failed"),
             }
         }
-    });
+    })
 }
 
 // ────────────────────────────────────────────────────────────────────
