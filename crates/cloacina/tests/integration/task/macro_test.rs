@@ -80,6 +80,30 @@ async fn test_bare_task_defaults_id_to_fn_name() {
     assert_eq!(result.unwrap().get("bare_ran"), Some(&Value::Bool(true)));
 }
 
+// CLOACI-T-0734 regression guard: bare signature — `&mut Context` (no generic,
+// via the Context<T = serde_json::Value> default) and `-> Result<()>` (no error
+// type, normalized to TaskError by the macro). Must compile and run.
+#[task]
+async fn bare_signature_task(context: &mut Context) -> Result<()> {
+    context
+        .insert("bare_sig_ran", Value::Bool(true))
+        .map_err(|e| TaskError::ExecutionFailed {
+            message: format!("Context error: {:?}", e),
+            task_id: "bare_signature_task".to_string(),
+            timestamp: chrono::Utc::now(),
+        })?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bare_signature_task_compiles_and_runs() {
+    let task = bare_signature_task_task();
+    assert_eq!(task.id(), "bare_signature_task");
+    let result = task.execute(Context::new()).await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().get("bare_sig_ran"), Some(&Value::Bool(true)));
+}
+
 #[tokio::test]
 async fn test_macro_generated_task() {
     // Test that the macro generates the correct task struct

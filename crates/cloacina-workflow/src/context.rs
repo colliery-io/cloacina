@@ -50,7 +50,7 @@ use tracing::{debug, warn};
 /// let user_id = context.get("user_id").unwrap();
 /// ```
 #[derive(Debug)]
-pub struct Context<T>
+pub struct Context<T = serde_json::Value>
 where
     T: Serialize + for<'de> Deserialize<'de> + Debug,
 {

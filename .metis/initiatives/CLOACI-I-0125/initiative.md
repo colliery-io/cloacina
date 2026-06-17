@@ -129,3 +129,9 @@ Each child starts by writing its "minimal author" example as the regression guar
   T-0732 bug: a bare `#[task]` (no parens) inside `#[workflow]` was dropped from
   the DAG; fixed in `workflow_attr.rs` (+`#[derive(Default)]` on TaskAttributes)
   with a workflow-level guard. 10/10 macro tests green. 2 of 9 tasks done.
+- 2026-06-17: **[[CLOACI-T-0734]] (T3) complete + verified** (1 AC descoped):
+  bare task signatures now work — `Context<T = serde_json::Value>` default param
+  enables `&mut Context`, and a macro return-type rewrite turns `-> Result<()>`
+  into `-> Result<(), TaskError>` (additive; full 2-arg form untouched). Guard
+  compiles+runs; 11/11 macro tests. Prelude `use super::*` auto-injection was
+  tried + reverted (warns on existing manual imports). 3 of 9 done.

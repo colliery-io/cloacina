@@ -251,7 +251,15 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
     let graph_data_json =
         build_package_graph_data(&detected_tasks, &task_dependencies, workflow_name);
 
-    // Generate the module items (original content preserved)
+    // Generate the module items (original content preserved).
+    //
+    // CLOACI-T-0734: auto-injecting `use super::*;` here was tried and reverted
+    // — it makes every existing workflow module's own `use super::*;` a
+    // redundant glob and emits an `unused_imports` warning across the whole
+    // codebase. The net ergonomic win (dropping one line) isn't worth the
+    // warning noise unless we also sweep the manual imports out everywhere; the
+    // signature de-ceremony (bare `Context` / `Result<()>`) is the substantive
+    // win and lands without that side effect.
     let module_items = if let Some((_, items)) = mod_content {
         quote! { #(#items)* }
     } else {
