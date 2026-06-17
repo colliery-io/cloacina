@@ -115,8 +115,8 @@ pub struct ThreadTaskExecutor {
     total_executed: Arc<AtomicU64>,
     /// Metrics: total tasks failed.
     total_failed: Arc<AtomicU64>,
-    /// Shared post-execution handler (T-0630). Holds the same DAL + counters
-    /// + runner_id as this executor; the upcoming `FleetExecutor` (T-0633)
+    /// Shared post-execution handler (T-0630). Holds the same DAL, counters,
+    /// and runner_id as this executor; the upcoming `FleetExecutor` (T-0633)
     /// will construct an analogous handler so thread and fleet paths share
     /// one state-write sequence.
     result_handler: crate::executor::TaskResultHandler,

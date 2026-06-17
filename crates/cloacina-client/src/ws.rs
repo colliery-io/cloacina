@@ -111,7 +111,7 @@ pub(crate) fn subscribe_delivery(
             })
             .expect("hello serializes");
             socket
-                .send(Message::Text(hello.into()))
+                .send(Message::Text(hello))
                 .await
                 .map_err(|e| ClientError::Ws(format!("hello send failed: {e}")))?;
 
@@ -156,7 +156,7 @@ pub(crate) fn subscribe_delivery(
                                 id: ack_id,
                             })
                             .expect("ack serializes");
-                            if socket.send(Message::Text(ack.into())).await.is_err() {
+                            if socket.send(Message::Text(ack)).await.is_err() {
                                 break;
                             }
                         }
