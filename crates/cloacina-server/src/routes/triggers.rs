@@ -219,6 +219,7 @@ pub async fn get_trigger(
                     enabled: schedule.enabled.is_true(),
                     cron_expression: schedule.cron_expression,
                     trigger_name: schedule.trigger_name,
+                    poll_interval_ms: schedule.poll_interval_ms.map(i64::from),
                 },
                 recent_executions: exec_items,
             })

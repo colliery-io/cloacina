@@ -131,6 +131,10 @@ pub struct GraphStatus {
     pub reaction_mode: String,
     /// Input strategy of the bound reactor: `"latest"` | `"sequential"`.
     pub input_strategy: String,
+    /// Total graph fires since load (live reactor counter, WS-10).
+    pub fires: u64,
+    /// Unix-epoch millis of the last fire; `None` if it hasn't fired yet.
+    pub last_fire_unix_ms: Option<i64>,
 }
 
 /// Validate that two declarations targeting the same reactor name agree on
@@ -925,6 +929,8 @@ impl ComputationGraphScheduler {
                         InputStrategy::Latest => "latest".to_string(),
                         InputStrategy::Sequential => "sequential".to_string(),
                     },
+                    fires: running.reactor_shared.stats().0,
+                    last_fire_unix_ms: running.reactor_shared.stats().1,
                 })
             })
             .collect()

@@ -7,6 +7,10 @@ extension = "cloacina"
 
 [metadata]
 workflow_name = "mixed_workflow"
+# The package also defines a reactor-bound computation graph (`mixed_graph`); a
+# package with a `#[computation_graph]` must declare its graph_name or packing
+# fails. (CLOACI-I-0124 / WS-11 — unblocks the docker-compose demo fixtures.)
+graph_name = "mixed_graph"
 language = "rust"
 description = "Mixed primitive fixture: reactor + trigger + reactor-bound CG + workflow"
 author = "Cloacina Test Fixtures"

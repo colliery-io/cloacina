@@ -32,11 +32,15 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useDeleteWorkflow, useExecuteWorkflow, useWorkflow } from "../api/workflows";
+import { useWorkflowTaskRuntimes } from "../api/executions";
 import { BuildStatusBadge } from "../components/BuildStatusBadge";
+import { CombinedTimeline } from "../components/CombinedTimeline";
+import { TaskRuntimeChart } from "../components/TaskRuntimeChart";
 import { WorkflowGraph } from "../components/WorkflowGraph";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { classifyError } from "../api/errors";
 import { formatTimestamp } from "../util/format";
+import { topoRank } from "../util/topo";
 
 /**
  * Workflow detail (T-0652 read + T-0657 write). Execute (with optional JSON
@@ -55,6 +59,18 @@ export function WorkflowDetail() {
 
   const execute = useExecuteWorkflow();
   const del = useDeleteWorkflow();
+
+  // Cross-run task-duration aggregate (Airflow "Task Duration"). Sampled over
+  // the most recent runs and ordered by the DAG's topological rank so the chart
+  // reads in nominal run order. Keyed by the registered workflow name.
+  const RUNS_SAMPLED = 40;
+  const runtimes = useWorkflowTaskRuntimes(data?.workflow_name ?? "", { runs: RUNS_SAMPLED });
+  const runtimeRank = data?.task_graph ? topoRank(data.task_graph) : undefined;
+  const runtimeStats = [...runtimes.stats].sort((a, b) => {
+    const ar = runtimeRank?.get(a.taskName) ?? Number.MAX_SAFE_INTEGER;
+    const br = runtimeRank?.get(b.taskName) ?? Number.MAX_SAFE_INTEGER;
+    return ar - br || b.avgMs - a.avgMs;
+  });
 
   function onExecute() {
     let context: unknown;
@@ -154,6 +170,47 @@ export function WorkflowDetail() {
               )}
             </div>
           </Stack>
+        </Card>
+      )}
+
+      {data && (
+        <Card withBorder padding="lg">
+          <Group justify="space-between" mb="sm">
+            <Title order={4}>Task runtimes</Title>
+            <Text size="xs" c="dimmed">
+              avg over last {runtimes.runsCounted} run{runtimes.runsCounted === 1 ? "" : "s"}
+            </Text>
+          </Group>
+          {runtimes.isPending ? (
+            <Loading label="Aggregating run durations…" />
+          ) : runtimes.isError ? (
+            <Text size="sm" c="dimmed">
+              Couldn't load run history.
+            </Text>
+          ) : (
+            <TaskRuntimeChart stats={runtimeStats} />
+          )}
+        </Card>
+      )}
+
+      {data && (
+        <Card withBorder padding="lg">
+          <Group justify="space-between" mb="sm">
+            <Title order={4}>Combined timeline</Title>
+            <Text size="xs" c="dimmed">
+              span &amp; wait distribution · last {runtimes.runsCounted} run
+              {runtimes.runsCounted === 1 ? "" : "s"}
+            </Text>
+          </Group>
+          {runtimes.isPending ? (
+            <Loading label="Aligning run timelines…" />
+          ) : runtimes.isError ? (
+            <Text size="sm" c="dimmed">
+              Couldn't load run history.
+            </Text>
+          ) : (
+            <CombinedTimeline runs={runtimes.runs} graph={data.task_graph} />
+          )}
         </Card>
       )}
 

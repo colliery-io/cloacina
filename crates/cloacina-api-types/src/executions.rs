@@ -83,6 +83,11 @@ pub struct ExecutionEvent {
     pub event_type: String,
     /// JSON-encoded additional data for the event; `null` when absent.
     pub event_data: Option<String>,
+    /// Local name of the task this event is about, resolved from the event's
+    /// `task_execution_id`. `null` for workflow-scoped events (e.g.
+    /// `workflow_completed`) or when the task can't be resolved
+    /// (CLOACI-I-0124 / WS-9).
+    pub task_name: Option<String>,
     /// RFC 3339 timestamp.
     pub created_at: String,
     pub sequence_num: i64,
@@ -95,4 +100,41 @@ pub struct ExecutionEventsResponse {
     pub tenant_id: String,
     pub execution_id: String,
     pub events: Vec<ExecutionEvent>,
+}
+
+/// One per-task row of an execution (CLOACI-I-0124 / WS-1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskExecutionDetail {
+    /// Task execution UUID.
+    pub id: String,
+    /// Task identifier within the workflow.
+    pub task_name: String,
+    pub status: String,
+    /// RFC 3339 timestamp; `null` until the task starts.
+    pub started_at: Option<String>,
+    /// RFC 3339 timestamp; `null` while still running.
+    pub completed_at: Option<String>,
+    pub attempt: i32,
+    pub max_attempts: i32,
+    /// Row-created timestamp (RFC 3339) — always present; a fallback "start"
+    /// when `started_at` is null (some runner configs don't stamp it).
+    pub created_at: String,
+    /// Row-updated timestamp (RFC 3339) — always present; a fallback "end".
+    pub updated_at: String,
+    /// `sub_status` qualifier (e.g. deferral), when present.
+    pub sub_status: Option<String>,
+    /// Last error message for the most recent failed attempt, when present.
+    pub last_error: Option<String>,
+    /// Structured error details, when present.
+    pub error_details: Option<String>,
+}
+
+/// `GET /tenants/{tenant_id}/executions/{id}/tasks` response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ExecutionTasksResponse {
+    pub tenant_id: String,
+    pub execution_id: String,
+    pub tasks: Vec<TaskExecutionDetail>,
 }

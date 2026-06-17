@@ -27,12 +27,58 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
+import { executionStatusColor } from "../util/status";
+
+/** Node role — drives styling so triggers/reactors/accumulators read as
+ *  distinct from the compute nodes (CLOACI-I-0124 / WS-4). */
+export type DagNodeKind = "compute" | "accumulator" | "reactor" | "trigger";
+
 /** A node in a directed graph. */
 export interface DagNode {
   id: string;
   /** Display label (defaults to `id`). */
   label?: string;
+  /** Role of the node; defaults to `compute`. */
+  kind?: DagNodeKind;
+  /** Per-task execution status (CLOACI-T-0719). When set, colours the node by
+   *  state (running/completed/failed/skipped/…) and overrides `kind` styling —
+   *  the execution DAG is coloured live as tasks transition. */
+  status?: string;
 }
+
+/** Execution-state fill/border for a node, mirroring `StatusBadge` colours.
+ *  `skipped` is rendered distinctly (dashed, dimmed) so a branch-not-taken
+ *  reads as neither failed nor completed. */
+function statusStyle(status: string): { background: string; border: string } {
+  if (status.toLowerCase() === "skipped") {
+    return {
+      background: "var(--mantine-color-gray-1)",
+      border: "1px dashed var(--mantine-color-gray-5)",
+    };
+  }
+  const c = executionStatusColor(status);
+  return {
+    background: `var(--mantine-color-${c}-light)`,
+    border: `1px solid var(--mantine-color-${c}-5)`,
+  };
+}
+
+/** Per-kind fill/border (Mantine light-variant CSS vars). */
+const KIND_STYLE: Record<DagNodeKind, { background?: string; border?: string }> = {
+  compute: {},
+  accumulator: {
+    background: "var(--mantine-color-blue-light)",
+    border: "1px solid var(--mantine-color-blue-4)",
+  },
+  reactor: {
+    background: "var(--mantine-color-grape-light)",
+    border: "1px solid var(--mantine-color-grape-4)",
+  },
+  trigger: {
+    background: "var(--mantine-color-orange-light)",
+    border: "1px solid var(--mantine-color-orange-4)",
+  },
+};
 
 /** A directed edge `from → to`, with an optional label (e.g. routing variant). */
 export interface DagEdge {
@@ -55,11 +101,14 @@ export function Dag({
   edges,
   height = 420,
   testId,
+  onNodeClick,
 }: {
   nodes: DagNode[];
   edges: DagEdge[];
   height?: number;
   testId?: string;
+  /** Called with the node id when a node is clicked (CLOACI-I-0124 / WS-5). */
+  onNodeClick?: (id: string) => void;
 }) {
   const { rfNodes, rfEdges } = useMemo(() => {
     const ids = new Set(nodes.map((n) => n.id));
@@ -95,6 +144,7 @@ export function Dag({
           borderRadius: 8,
           border: "1px solid var(--mantine-color-default-border)",
           padding: "8px 10px",
+          ...(n.status ? statusStyle(n.status) : KIND_STYLE[n.kind ?? "compute"]),
         },
       };
     });
@@ -111,6 +161,7 @@ export function Dag({
         nodesDraggable
         proOptions={{ hideAttribution: true }}
         minZoom={0.2}
+        onNodeClick={onNodeClick ? (_, node) => onNodeClick(node.id) : undefined}
       >
         <Background />
         <Controls showInteractive={false} />

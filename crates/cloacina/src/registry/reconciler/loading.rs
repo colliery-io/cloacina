@@ -320,6 +320,9 @@ impl RegistryReconciler {
             // Step 1: cron triggers — registered through the attached
             // CronWorkflowRegistrar (no-op when none is wired).
             cron_schedule_ids = self.step_load_cron_triggers(&metadata, &view).await?;
+            // Step 1b: persist poll-trigger schedule rows so the trigger
+            // scheduler polls them and they show in the Triggers view (WS-6).
+            cron_schedule_ids.extend(self.step_persist_poll_schedules(&metadata, &view).await?);
             // Step 2: custom triggers (validated against runtime).
             let trigger_names =
                 self.step_load_custom_triggers(&metadata, &view, Some(&library_data))?;
@@ -423,6 +426,10 @@ impl RegistryReconciler {
                 &cloacina_manifest.metadata.accumulators,
             );
             cron_schedule_ids = self.step_load_cron_triggers(&metadata, &py_view).await?;
+            cron_schedule_ids.extend(
+                self.step_persist_poll_schedules(&metadata, &py_view)
+                    .await?,
+            );
             let trigger_names = self.step_load_custom_triggers(&metadata, &py_view, None)?;
 
             // Reactors: route through the unified pipeline helper.
@@ -588,6 +595,10 @@ impl RegistryReconciler {
                     if !cg_cron_ids.is_empty() {
                         cron_schedule_ids.extend(cg_cron_ids);
                     }
+                    cron_schedule_ids.extend(
+                        self.step_persist_poll_schedules(&metadata, &cg_view)
+                            .await?,
+                    );
                     let _ = self.step_load_custom_triggers(&metadata, &cg_view, None)?;
                     self.step_load_reactors(&metadata, &cg_view, &cloacina_manifest.metadata)
                         .await?;
@@ -1545,6 +1556,85 @@ impl RegistryReconciler {
                         "Package {} v{}: failed to register cron schedule for workflow '{}' \
                          (trigger '{}', cron='{}'): {}",
                         metadata.package_name, metadata.version, target_workflow, t.name, expr, e
+                    );
+                }
+            }
+        }
+        Ok(schedule_ids)
+    }
+
+    /// Pipeline step 1b: persist `trigger`-type schedule rows for custom-poll
+    /// (non-cron) triggers (CLOACI-I-0124 / WS-6).
+    ///
+    /// `step_load_custom_triggers` registers the in-memory `Trigger` impl, but
+    /// the trigger scheduler drives polling off `get_enabled_triggers()` — the
+    /// `schedules` rows — and the Triggers read API lists those same rows. So a
+    /// packaged poll trigger that was only registered in-memory was both
+    /// invisible in the UI and never polled. This step closes that gap by
+    /// creating the schedule row through the attached `CronWorkflowRegistrar`,
+    /// mirroring `step_load_cron_triggers`. Returned IDs are captured into
+    /// `PackageState::cron_schedule_ids` (cron + poll rows share the same
+    /// delete-by-id unload path). No-op without a registrar.
+    pub(super) async fn step_persist_poll_schedules(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+    ) -> Result<Vec<String>, RegistryError> {
+        let poll_entries: Vec<&cloacina_workflow_plugin::TriggerPackageMetadata> = view
+            .triggers
+            .iter()
+            .filter(|t| t.cron_expression.is_none())
+            .collect();
+        if poll_entries.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let Some(registrar) = self.cron_registrar.as_ref() else {
+            warn!(
+                "Package {} v{}: {} poll trigger(s) declared but no CronWorkflowRegistrar \
+                 attached — poll triggers will NOT be scheduled or appear in the Triggers view",
+                metadata.package_name,
+                metadata.version,
+                poll_entries.len()
+            );
+            return Ok(Vec::new());
+        };
+
+        let mut schedule_ids = Vec::new();
+        for t in poll_entries {
+            // Bind the schedule to the trigger's TARGET workflow (its
+            // `#[trigger(on = "...")]`), falling back to the trigger's own
+            // name for older metadata — same convention as the cron path.
+            let target_workflow = if t.workflow_name.is_empty() {
+                t.name.as_str()
+            } else {
+                t.workflow_name.as_str()
+            };
+            let poll_ms = parse_humantime_duration(&t.poll_interval)
+                .unwrap_or_else(|| std::time::Duration::from_secs(60))
+                .as_millis()
+                .min(i32::MAX as u128) as i32;
+            match registrar
+                .register_poll_trigger(&t.name, target_workflow, poll_ms, t.allow_concurrent)
+                .await
+            {
+                Ok(id) => {
+                    info!(
+                        "Package {} v{}: registered poll-trigger schedule for workflow '{}' \
+                         (trigger '{}', poll={}ms, id={})",
+                        metadata.package_name,
+                        metadata.version,
+                        target_workflow,
+                        t.name,
+                        poll_ms,
+                        id
+                    );
+                    schedule_ids.push(id);
+                }
+                Err(e) => {
+                    warn!(
+                        "Package {} v{}: failed to register poll-trigger schedule for '{}': {}",
+                        metadata.package_name, metadata.version, t.name, e
                     );
                 }
             }

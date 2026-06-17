@@ -346,13 +346,13 @@ impl TaskExecutor for FleetExecutor {
             //       task's package within the agent's tenant scope. The success +
             //       non-superseded filters are load-bearing (see DAL doc) — a
             //       wrong row would route a stale/unbuilt cdylib to the agent.
-            let digest = match self
+            let (digest, language) = match self
                 .dal
                 .workflow_packages()
-                .get_active_content_hash_for_package(&namespace.package_name, tenant_id.as_deref())
+                .get_active_dispatch_for_package(&namespace.package_name, tenant_id.as_deref())
                 .await
             {
-                Ok(Some(h)) => h,
+                Ok(Some(info)) => info,
                 Ok(None) => {
                     return Ok(self
                         .reconcile_error(
@@ -396,6 +396,7 @@ impl TaskExecutor for FleetExecutor {
                 },
                 timeout_seconds: 300,
                 tenant_id: tenant_id.clone(),
+                language: Some(language),
             };
             let payload_bytes = match serde_json::to_vec(&packet) {
                 Ok(b) => b,
@@ -438,6 +439,24 @@ impl TaskExecutor for FleetExecutor {
                     .await);
             }
             self.delivery_wake.wake();
+
+            // Stamp started_at now that the packet is committed to a specific
+            // agent — the fleet's execution-start moment (the slot is taken).
+            // The agent is DB-less and the claim only records the owner, not
+            // started_at, so without this the per-task timeline (Gantt) has no
+            // real start offset. Idempotent (no-op if already set) + best-effort.
+            if let Err(e) = self
+                .dal
+                .task_execution()
+                .mark_started(event.task_execution_id)
+                .await
+            {
+                warn!(
+                    task_id = %event.task_execution_id,
+                    error = %e,
+                    "fleet: failed to stamp task started_at"
+                );
+            }
             debug!(
                 task_id = %event.task_execution_id,
                 agent_id = %agent_id,

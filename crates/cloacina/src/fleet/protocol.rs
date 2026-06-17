@@ -160,6 +160,13 @@ pub struct WorkPacket {
     /// even receive the packet; included here so the agent can pass it into
     /// the runtime when constructing the task's execution scope.
     pub tenant_id: Option<String>,
+    /// Package language, so the agent loads it the right way: `"rust"` (or
+    /// absent, for older servers) → `dlopen` the cdylib at `artifact`;
+    /// `"python"` → fetch the source archive and import it via PyO3. Defaults
+    /// to `"rust"` when missing so a packet from a pre-CLOACI-T-0716 server is
+    /// still handled as before. (CLOACI-T-0716)
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 /// Reference to a workflow artifact (cdylib) the agent must fetch + load.
@@ -274,6 +281,7 @@ mod tests {
             },
             timeout_seconds: 60,
             tenant_id: Some("t1".into()),
+            language: Some("rust".into()),
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: WorkPacket = serde_json::from_str(&json).unwrap();

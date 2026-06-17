@@ -156,6 +156,8 @@ macro_rules! package {
                             dependencies,
                             description: format!("Task: {}", cloacina_workflow::Task::id(&*task)),
                             source_location: format!("{}/lib.rs", env!("CARGO_PKG_NAME")),
+                            trigger_rules: cloacina_workflow::Task::trigger_rules(&*task)
+                                .to_string(),
                         });
                     }
                     // Look up WorkflowDescriptorEntry for description / author /

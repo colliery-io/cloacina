@@ -15,6 +15,8 @@
     "start": "node src/main.mjs"
   },
   "dependencies": {
-    "@cloacina/client": "file:../../clients/typescript"
+    "@cloacina/client": "file:../../clients/typescript",
+    "kafkajs": "^2.2.4",
+    "ws": "^8.18.0"
   }
 }

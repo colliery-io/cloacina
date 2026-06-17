@@ -15,13 +15,185 @@
  */
 
 import { followExecutionEvents } from "@cloacina/client";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { ExecutionEvent } from "../components/EventLog";
-import { useClient, useTenant } from "../auth/AuthContext";
+import { useAuth, useClient, useTenant } from "../auth/AuthContext";
 import { isTerminalStatus } from "../util/status";
 import { queryKeys } from "./hooks";
+
+/** One per-task row of an execution (CLOACI-I-0124 / WS-1; `/executions/{id}/tasks`). */
+export type TaskExecutionDetail = {
+  id: string;
+  task_name: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  attempt: number;
+  max_attempts: number;
+  created_at: string;
+  updated_at: string;
+  sub_status: string | null;
+  last_error: string | null;
+  error_details: string | null;
+};
+
+type ExecutionTasksResponse = {
+  tenant_id: string;
+  execution_id: string;
+  tasks: TaskExecutionDetail[];
+};
+
+type Connection = { serverUrl: string; apiKey: string };
+
+/**
+ * Fetch the per-task rows for one execution. Shared by the single-execution
+ * view (`useExecutionTasks`) and the cross-run aggregate
+ * (`useWorkflowTaskRuntimes`) so both populate the same query cache. The
+ * generated SDK doesn't expose this endpoint yet, so we call it directly.
+ */
+async function fetchExecutionTasks(
+  connection: Connection,
+  tenant: string,
+  id: string,
+): Promise<ExecutionTasksResponse> {
+  const base = connection.serverUrl.replace(/\/$/, "");
+  const res = await fetch(
+    `${base}/v1/tenants/${encodeURIComponent(tenant)}/executions/${encodeURIComponent(id)}/tasks`,
+    { headers: { Authorization: `Bearer ${connection.apiKey}` } },
+  );
+  if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
+  return res.json();
+}
+
+/**
+ * Per-task rows for an execution (CLOACI-I-0124 / WS-1). `poll` re-fetches
+ * every 2s while the run is in progress.
+ */
+export function useExecutionTasks(id: string, opts: { poll?: boolean } = {}) {
+  const { connection } = useAuth();
+  const tenant = useTenant();
+  return useQuery({
+    queryKey: queryKeys.executionTasks(tenant, id),
+    enabled: !!connection && !!id,
+    queryFn: () => fetchExecutionTasks(connection!, tenant, id),
+    refetchInterval: opts.poll ? 2000 : false,
+  });
+}
+
+/** Aggregate per-task duration across the last N runs of a workflow. */
+export type TaskRuntimeStat = {
+  /** Local task id (last `::` segment). */
+  taskName: string;
+  /** Runs that contributed a completed duration for this task. */
+  count: number;
+  avgMs: number;
+  minMs: number;
+  maxMs: number;
+  /** Duration in the most recent run, or null if it didn't run/complete there. */
+  lastMs: number | null;
+};
+
+/** A completed task contributes a duration; running/missing rows are skipped. */
+function taskDurationMs(t: TaskExecutionDetail): number | null {
+  if (!t.started_at || !t.completed_at) return null;
+  const s = Date.parse(t.started_at);
+  const e = Date.parse(t.completed_at);
+  if (Number.isNaN(s) || Number.isNaN(e) || e < s) return null;
+  return e - s;
+}
+
+const localTaskId = (name: string) => name.split("::").pop() || name;
+
+/**
+ * One run's normalized task timing, for the combined-timeline distribution
+ * view. `start`/`end` are absolute epoch-ms; offsets are taken against `t0`
+ * (the run's earliest task start) by the consumer so runs align at zero.
+ */
+export type RunTimeline = {
+  id: string;
+  status: string;
+  t0: number;
+  /** Local task id → absolute start/end ms (only completed tasks). */
+  tasks: Record<string, { start: number; end: number }>;
+};
+
+/**
+ * Per-task runtime statistics + normalized per-run timelines across the most
+ * recent runs of a workflow (CLOACI-I-0124). Lists the recent executions, fans
+ * out a task fetch per run (shared cache with the detail view), and reduces to:
+ *   - `stats`: mean/min/max duration per task (the "Task Duration" bar chart);
+ *     the newest run's duration is surfaced as `lastMs` so a regression stands
+ *     out against the mean. Unsorted; the caller orders by DAG rank.
+ *   - `runs`: each run's per-task start/end, for the combined box-and-whisker
+ *     timeline (start/end-edge jitter + inter-task wait distribution).
+ */
+export function useWorkflowTaskRuntimes(workflow: string, opts: { runs?: number } = {}) {
+  const { connection } = useAuth();
+  const tenant = useTenant();
+  const limit = opts.runs ?? 20;
+
+  const list = useExecutions({ workflow: workflow || undefined, limit });
+  const items = list.data?.items ?? [];
+  const ids = items.map((e) => e.id);
+
+  const results = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: queryKeys.executionTasks(tenant, id),
+      enabled: !!connection && !!workflow && !!id,
+      queryFn: () => fetchExecutionTasks(connection!, tenant, id),
+      staleTime: 30_000,
+    })),
+  });
+
+  // Accumulate durations per local task name, and build the per-run timeline.
+  // The first id is the most recent run (the list is newest-first), so its
+  // durations become `lastMs`.
+  const acc = new Map<string, { sum: number; min: number; max: number; count: number; last: number | null }>();
+  const runs: RunTimeline[] = [];
+  results.forEach((r, runIdx) => {
+    const tasks: Record<string, { start: number; end: number }> = {};
+    let t0 = Infinity;
+    for (const t of r.data?.tasks ?? []) {
+      const ms = taskDurationMs(t);
+      if (ms == null) continue;
+      const key = localTaskId(t.task_name);
+      const cur = acc.get(key) ?? { sum: 0, min: Infinity, max: 0, count: 0, last: null };
+      cur.sum += ms;
+      cur.min = Math.min(cur.min, ms);
+      cur.max = Math.max(cur.max, ms);
+      cur.count += 1;
+      if (runIdx === 0) cur.last = ms;
+      acc.set(key, cur);
+
+      const start = Date.parse(t.started_at as string);
+      const end = Date.parse(t.completed_at as string);
+      tasks[key] = { start, end };
+      if (start < t0) t0 = start;
+    }
+    if (Object.keys(tasks).length > 0) {
+      runs.push({ id: ids[runIdx], status: items[runIdx]?.status ?? "", t0, tasks });
+    }
+  });
+
+  const stats: TaskRuntimeStat[] = [...acc.entries()].map(([taskName, a]) => ({
+    taskName,
+    count: a.count,
+    avgMs: a.sum / a.count,
+    minMs: a.min,
+    maxMs: a.max,
+    lastMs: a.last,
+  }));
+
+  return {
+    stats,
+    runs,
+    runsCounted: ids.length,
+    isPending: list.isPending || results.some((r) => r.isPending),
+    isError: list.isError || results.some((r) => r.isError),
+  };
+}
 
 export type ExecutionsQuery = {
   status?: string;

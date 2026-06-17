@@ -32,9 +32,11 @@ class MarketMakerReactor:
     pass
 
 
-# Define the computation graph
+# Define the computation graph. Named distinctly from the Rust `packaged-graph`
+# example's `market_maker` graph so both parallel examples can be deployed in
+# the same tenant without a graph-name collision (CLOACI-I-0124 / WS-11).
 with cloaca.ComputationGraphBuilder(
-    "market_maker",
+    "market_maker_py",
     reactor=MarketMakerReactor,
     graph={
         "decision": {

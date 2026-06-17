@@ -38,6 +38,9 @@ export function useGraphs() {
   return useQuery({
     queryKey: queryKeys.graphs(tenant),
     queryFn: () => client.listGraphs(),
+    // Poll so the operational metrics (fires / throughput / last-fired) stay
+    // live and the UI can derive recent throughput from successive samples.
+    refetchInterval: 5000,
   });
 }
 

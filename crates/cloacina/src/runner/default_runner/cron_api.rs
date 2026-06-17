@@ -389,11 +389,15 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
         new_schedule.timezone = Some(timezone.to_string());
 
         let dal = DAL::new(self.database.clone());
+        // Idempotent on (workflow_name, cron_expression, timezone): the
+        // reconciler re-runs this on every package re-load, and a partially-
+        // failed load is retried each tick — `create` accumulated a duplicate
+        // schedule every time (CLOACI-T-0669). Upsert collapses those to one.
         let schedule = dal
             .schedule()
-            .create(new_schedule)
+            .upsert_cron(new_schedule)
             .await
-            .map_err(|e| format!("Failed to create cron schedule: {}", e))?;
+            .map_err(|e| format!("Failed to register cron schedule: {}", e))?;
 
         Ok(schedule.id.to_string())
     }
@@ -408,5 +412,34 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
             .delete(parsed)
             .await
             .map_err(|e| format!("Failed to delete cron schedule: {}", e))
+    }
+
+    async fn register_poll_trigger(
+        &self,
+        trigger_name: &str,
+        workflow_name: &str,
+        poll_interval_ms: i32,
+        allow_concurrent: bool,
+    ) -> Result<String, String> {
+        use crate::database::universal_types::UniversalBool;
+        use crate::models::schedule::NewSchedule;
+        use std::time::Duration;
+
+        let mut new_schedule = NewSchedule::trigger(
+            trigger_name,
+            workflow_name,
+            Duration::from_millis(poll_interval_ms.max(0) as u64),
+        );
+        new_schedule.allow_concurrent = Some(UniversalBool::new(allow_concurrent));
+
+        let dal = DAL::new(self.database.clone());
+        // Upsert so re-loading a package (same trigger name) refreshes the
+        // row instead of erroring on a duplicate.
+        let schedule = dal
+            .schedule()
+            .upsert_trigger(new_schedule)
+            .await
+            .map_err(|e| format!("Failed to create poll-trigger schedule: {}", e))?;
+        Ok(schedule.id.to_string())
     }
 }

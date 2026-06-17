@@ -457,6 +457,25 @@ impl TaskExecutor for ThreadTaskExecutor {
             .await
             .map_err(|_| DispatchError::ExecutorNotFound("semaphore closed".into()))?;
 
+        // Stamp started_at now that the slot is acquired and execution is about
+        // to begin — so a task's duration reflects real work, not time spent
+        // waiting for a concurrency slot. The claiming path may already have set
+        // it; mark_started is a no-op when started_at is non-NULL. (The embedded
+        // path otherwise leaves it NULL, breaking the per-task timeline.)
+        // Best-effort.
+        if let Err(e) = self
+            .dal
+            .task_execution()
+            .mark_started(event.task_execution_id)
+            .await
+        {
+            tracing::warn!(
+                task_id = %event.task_execution_id,
+                error = %e,
+                "Failed to stamp task started_at"
+            );
+        }
+
         // Compute runner_id for claim-guarded state transitions
         let claim_runner_id = if self.config.enable_claiming {
             Some(self.instance_id)

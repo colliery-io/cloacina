@@ -15,97 +15,163 @@
  */
 
 import { Anchor, Card, Group, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
 import { useGraphs } from "../api/health";
+import { useWorkflows } from "../api/workflows";
+import { GraphHealth } from "../components/GraphHealth";
+import { RunCircles, type RunDot } from "../components/RunCircles";
+import { RecentTasksCell } from "../components/RecentTasksCell";
 import { StatusBadge } from "../components/StatusBadge";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatTimestamp } from "../util/format";
+import { useGraphThroughput } from "../util/activity";
+
+const PREVIEW = 8;
 
 /**
- * Overview dashboard (T-0655 / REQ-002): recent executions + a status
- * rollup + a graph-health summary tile. Each tile deep-links to its full
- * view. Composed from the existing executions/health hooks. Graph-health
- * *detail* lives at /graphs (OQ-4 decision); here it's a summary.
+ * Overview dashboard (T-0655; CLOACI-I-0124 WS-3 redesign). Real, navigable
+ * lists of the two primitives an operator manages — workflows and computation
+ * graphs — plus recent executions. Replaces the earlier summary "count cards"
+ * (which read as totals and hid graph health). Each list previews the first
+ * few and links to its full, paginated view.
  */
 export function Overview() {
   const navigate = useNavigate();
-  const recent = useExecutions({ limit: 5, offset: 0 });
+  const workflows = useWorkflows();
   const graphs = useGraphs();
+  // One executions query feeds both the recent-runs preview and the per-workflow
+  // run circles (CLOACI-I-0124 / WS-10).
+  const recent = useExecutions({ limit: 200, offset: 0 });
 
-  const rollup = (() => {
-    if (!recent.data) return [];
-    const counts = new Map<string, number>();
-    for (const e of recent.data.items) counts.set(e.status, (counts.get(e.status) ?? 0) + 1);
-    return [...counts.entries()];
-  })();
+  // Workflows tile lists real workflows only; pure computation-graph packages
+  // (no workflow tasks) appear in the Computation graphs tile instead (WS-10).
+  const wfItems = (workflows.data?.items ?? []).filter((w) => w.tasks.length > 0);
+  const graphItems = graphs.data?.items ?? [];
+  const graphTp = useGraphThroughput(graphItems);
+  const recentItems = recent.data?.items ?? [];
 
-  const graphSummary = graphs.data
-    ? {
-        total: graphs.data.items.length,
-        paused: graphs.data.items.filter((g) => g.paused).length,
-      }
-    : null;
+  const runsByWorkflow = useMemo(() => {
+    const m = new Map<string, RunDot[]>();
+    for (const e of recentItems) {
+      const arr = m.get(e.workflow_name) ?? [];
+      arr.push({ id: e.id, status: e.status, started_at: e.started_at });
+      m.set(e.workflow_name, arr);
+    }
+    return m;
+  }, [recentItems]);
 
   return (
     <Stack>
       <Title order={2}>Overview</Title>
 
-      <SimpleGrid cols={{ base: 1, sm: 3 }}>
-        {/* Status rollup */}
+      <SimpleGrid cols={{ base: 1, lg: 2 }}>
+        {/* Workflows */}
         <Card withBorder padding="lg">
-          <Text fw={600} mb="xs">
-            Recent status
-          </Text>
-          {recent.isPending ? (
-            <Loading label="…" />
-          ) : recent.isError ? (
-            <ErrorState error={recent.error} onRetry={recent.refetch} />
-          ) : rollup.length === 0 ? (
-            <Text c="dimmed" size="sm">
-              No recent executions.
-            </Text>
+          <Group justify="space-between" mb="sm">
+            <Title order={4}>Workflows</Title>
+            <Anchor component={Link} to="/workflows" size="sm">
+              {wfItems.length > PREVIEW ? `All ${wfItems.length}` : "Manage"}
+            </Anchor>
+          </Group>
+          {workflows.isPending ? (
+            <Loading label="Loading…" />
+          ) : workflows.isError ? (
+            <ErrorState error={workflows.error} onRetry={workflows.refetch} />
+          ) : wfItems.length === 0 ? (
+            <Empty message="No workflows uploaded yet." />
           ) : (
-            <Group gap="xs">
-              {rollup.map(([status, n]) => (
-                <Group key={status} gap={4}>
-                  <StatusBadge status={status} />
-                  <Text size="sm">{n}</Text>
-                </Group>
-              ))}
-            </Group>
+            <Table highlightOnHover verticalSpacing="xs">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Package</Table.Th>
+                  <Table.Th>Recent runs</Table.Th>
+                  <Table.Th>Recent tasks</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {wfItems.slice(0, PREVIEW).map((w) => (
+                  <Table.Tr
+                    key={w.id}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => navigate(`/workflows/${encodeURIComponent(w.package_name)}`)}
+                  >
+                    <Table.Td>
+                      <Text size="sm" fw={500}>
+                        {w.package_name}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        {w.tasks.length} task{w.tasks.length === 1 ? "" : "s"} · v{w.version}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} />
+                    </Table.Td>
+                    <Table.Td>
+                      <RecentTasksCell
+                        executionId={runsByWorkflow.get(w.workflow_name)?.[0]?.id ?? null}
+                      />
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
           )}
         </Card>
 
-        {/* Graph-health summary → /graphs */}
+        {/* Computation graphs */}
         <Card withBorder padding="lg">
-          <Group justify="space-between">
-            <Text fw={600}>Computation graphs</Text>
+          <Group justify="space-between" mb="sm">
+            <Title order={4}>Computation graphs</Title>
             <Anchor component={Link} to="/graphs" size="sm">
-              View
+              {graphItems.length > PREVIEW ? `All ${graphItems.length}` : "View"}
             </Anchor>
           </Group>
           {graphs.isPending ? (
-            <Loading label="…" />
+            <Loading label="Loading…" />
           ) : graphs.isError ? (
             <ErrorState error={graphs.error} onRetry={graphs.refetch} />
+          ) : graphItems.length === 0 ? (
+            <Empty message="No computation graphs loaded." />
           ) : (
-            <Text size="sm" c="dimmed">
-              {graphSummary?.total ?? 0} loaded
-              {graphSummary && graphSummary.paused > 0 ? `, ${graphSummary.paused} paused` : ""}
-            </Text>
+            <Table highlightOnHover verticalSpacing="xs">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th>Health</Table.Th>
+                  <Table.Th>Throughput</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {graphItems.slice(0, PREVIEW).map((g) => {
+                  const rate = graphTp.get(g.name);
+                  return (
+                  <Table.Tr
+                    key={g.name}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => navigate(`/graphs/${encodeURIComponent(g.name)}`)}
+                  >
+                    <Table.Td>
+                      <Text size="sm" fw={500}>
+                        {g.name}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <GraphHealth value={g.health} />
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="sm" c={rate == null ? "dimmed" : undefined}>
+                        {rate == null ? "—" : `~${rate}/min`}
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
+                  );
+                })}
+              </Table.Tbody>
+            </Table>
           )}
-        </Card>
-
-        {/* Quick link */}
-        <Card withBorder padding="lg">
-          <Text fw={600} mb="xs">
-            Workflows
-          </Text>
-          <Anchor component={Link} to="/workflows" size="sm">
-            Manage workflows
-          </Anchor>
         </Card>
       </SimpleGrid>
 
@@ -121,12 +187,12 @@ export function Overview() {
           <Loading label="Loading…" />
         ) : recent.isError ? (
           <ErrorState error={recent.error} onRetry={recent.refetch} />
-        ) : recent.data.items.length === 0 ? (
+        ) : recentItems.length === 0 ? (
           <Empty message="No executions yet." />
         ) : (
           <Table highlightOnHover>
             <Table.Tbody>
-              {recent.data.items.map((e) => (
+              {recentItems.slice(0, 5).map((e) => (
                 <Table.Tr
                   key={e.id}
                   style={{ cursor: "pointer" }}

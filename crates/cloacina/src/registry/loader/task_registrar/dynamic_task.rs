@@ -119,6 +119,10 @@ pub(super) struct DynamicLibraryTask {
     task_name: String,
     /// Task dependencies as fully qualified namespaces
     dependencies: Vec<TaskNamespace>,
+    /// Trigger rules JSON for conditional execution, forwarded from the cdylib's
+    /// FFI metadata (CLOACI-T-0721). Without this the host defaulted to `Always`
+    /// and packaged workflows silently ignored conditional execution / skips.
+    trigger_rules: serde_json::Value,
 }
 
 impl DynamicLibraryTask {
@@ -135,11 +139,13 @@ impl DynamicLibraryTask {
         plugin: Arc<LoadedWorkflowPlugin>,
         task_name: String,
         dependencies: Vec<TaskNamespace>,
+        trigger_rules: serde_json::Value,
     ) -> Self {
         Self {
             plugin,
             task_name,
             dependencies,
+            trigger_rules,
         }
     }
 }
@@ -242,6 +248,14 @@ impl Task for DynamicLibraryTask {
 
     fn dependencies(&self) -> &[TaskNamespace] {
         &self.dependencies
+    }
+
+    /// Forward the cdylib task's trigger rules so the scheduler honours
+    /// conditional execution for packaged workflows (CLOACI-T-0721). The trait
+    /// default is `Always`; before this override every packaged task ran
+    /// unconditionally regardless of its declared `trigger_rules`.
+    fn trigger_rules(&self) -> serde_json::Value {
+        self.trigger_rules.clone()
     }
 }
 

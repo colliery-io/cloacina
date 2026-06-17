@@ -591,6 +591,7 @@ dependencies = [
  "base64",
  "clap",
  "cloacina",
+ "cloacina-python",
  "futures-util",
  "reqwest",
  "serde",

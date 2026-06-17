@@ -25,6 +25,7 @@ pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
 pub mod openapi;
+pub mod ops_metrics;
 pub mod routes;
 pub mod tenant_runner_cache;
 
@@ -787,6 +788,12 @@ pub async fn run(
     // Bootstrap: create initial admin key if none exist
     bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
 
+    // Operational-metrics publisher (CLOACI-T-0718): pushes server/compiler/
+    // fleet/reconciler snapshots to a subscribed Operations UI over the WS
+    // substrate (direct sink push, not the durable outbox). No-op when nothing
+    // is subscribed.
+    crate::ops_metrics::spawn(state.clone(), substrate_shutdown_rx.clone());
+
     // Fleet executor registration (CLOACI-I-0114 / T-0633, T-0640). Only wired
     // up when the operator opts into the fleet via `--default-executor fleet`;
     // otherwise all work stays on the in-process thread executor and there's no
@@ -1097,6 +1104,13 @@ fn build_router(state: AppState) -> Router {
             "/auth/ws-ticket",
             post(crate::routes::keys::create_ws_ticket),
         )
+        // Execution-agent fleet roster (admin, operator-facing) — CLOACI-I-0124
+        .route("/agents", get(crate::routes::agent::list_agents))
+        // Compiler / build-pipeline status (admin) — CLOACI-I-0124
+        .route(
+            "/compiler/status",
+            get(crate::routes::compiler::compiler_status),
+        )
         // Tenant management
         .route("/tenants", post(crate::routes::tenants::create_tenant))
         .route("/tenants", get(crate::routes::tenants::list_tenants))
@@ -1151,6 +1165,10 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/tenants/{tenant_id}/executions/{exec_id}/events",
             get(crate::routes::executions::get_execution_events),
+        )
+        .route(
+            "/tenants/{tenant_id}/executions/{exec_id}/tasks",
+            get(crate::routes::executions::get_execution_tasks),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -1216,6 +1234,10 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/agent/artifact/{digest}",
             axum::routing::get(crate::routes::agent::fetch_artifact),
+        )
+        .route(
+            "/agent/source/{digest}",
+            axum::routing::get(crate::routes::agent::fetch_source),
         )
         // All four agent endpoints authenticate with an API key (bearer) and
         // extract `Extension<AuthenticatedKey>`. The layer MUST be attached

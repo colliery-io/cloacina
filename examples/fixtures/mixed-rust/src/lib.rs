@@ -92,6 +92,21 @@ pub mod mixed_wf {
     #[task(id = "mixed_step", dependencies = [])]
     pub async fn mixed_step(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let _ = context;
+        // Jittered work so the poll-driven stream of runs lingers visibly in
+        // Running and builds a real (if small) duration distribution for the
+        // UI — was instantaneous. ~0.5–3.5s, seeded from the clock; kept under
+        // the 5s poll interval so runs don't pile up (CLOACI-I-0124).
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(1)
+            | 1;
+        let mut x = seed;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let ms = 500 + x % 3_001; // [500, 3500]
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
         Ok(())
     }
 }

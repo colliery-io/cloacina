@@ -20,7 +20,7 @@ import { RequireAuth } from "./components/RequireAuth";
 import { Shell } from "./components/Shell";
 import { Connect } from "./routes/Connect";
 import { Overview } from "./routes/Overview";
-import { NotFound, Placeholder } from "./routes/Placeholder";
+import { NotFound } from "./routes/Placeholder";
 import { Workflows } from "./routes/Workflows";
 import { WorkflowDetail } from "./routes/WorkflowDetail";
 import { WorkflowUpload } from "./routes/WorkflowUpload";
@@ -30,7 +30,9 @@ import { Triggers } from "./routes/Triggers";
 import { TriggerDetail } from "./routes/TriggerDetail";
 import { Graphs } from "./routes/Graphs";
 import { GraphDetail } from "./routes/GraphDetail";
+import { Operations } from "./routes/Operations";
 import { Keys } from "./routes/Keys";
+import { Settings } from "./routes/Settings";
 
 /**
  * Route map (CLOACI-I-0117 IA). Feature views replace the placeholders as
@@ -56,8 +58,9 @@ export function App() {
           <Route path="triggers/:name" element={<TriggerDetail />} />
           <Route path="graphs" element={<Graphs />} />
           <Route path="graphs/:name" element={<GraphDetail />} />
+          <Route path="operations" element={<Operations />} />
           <Route path="keys" element={<Keys />} />
-          <Route path="settings" element={<Placeholder title="Settings" task="T-0651" />} />
+          <Route path="settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Route>

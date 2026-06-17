@@ -1,0 +1,19 @@
+# Demo poll-trigger fixture (CLOACI-I-0124 / WS-6). A workflow plus a custom
+# *poll* trigger (non-cron) that fires it on a fixed interval, so the UI's
+# Triggers view shows a `trigger`-type schedule alongside the cron one —
+# poll/event triggers were previously invisible because every seeded schedule
+# was cron. Self-contained (the trigger's `on` names the workflow in this same
+# package) — modeled on demo-cron-rust but driven by the runtime trigger
+# registry instead of the cron scheduler.
+[package]
+name = "demo-poll-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "demo_poll_workflow"
+language = "rust"
+description = "demo poll workflow — fires on a poll interval"
+author = "cloacina-ui-demo"

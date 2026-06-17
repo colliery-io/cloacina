@@ -32,29 +32,35 @@
 //!   replaced. Changes here are API changes and must ride a release.
 
 pub mod common;
+pub mod compiler;
 pub mod delivery;
 pub mod error;
 pub mod executions;
+pub mod fleet;
 pub mod health;
 pub mod keys;
+pub mod operations;
 pub mod reactor;
 pub mod tenants;
 pub mod triggers;
 pub mod workflows;
 
 pub use common::{ListResponse, TenantListResponse};
+pub use compiler::CompilerStatus;
 pub use delivery::{ClientMessage, EnvelopeError, ServerMessage, DELIVERY_PROTOCOL_VERSION};
 pub use error::ErrorBody;
 pub use executions::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
-    ExecutionSummary, ListExecutionsQuery,
+    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskExecutionDetail,
 };
+pub use fleet::AgentInfo;
 pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
 };
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
 };
+pub use operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
 pub use reactor::{ReactorCommand, ReactorResponse};
 pub use tenants::{
     CreateTenantRequest, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,

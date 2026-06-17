@@ -28,6 +28,9 @@ pub struct OwnedTaskMetadata {
     pub local_id: String,
     /// JSON string of task dependencies
     pub dependencies_json: String,
+    /// JSON string of the task's trigger rules (conditional execution).
+    /// `{"type":"Always"}` when unconditional. (CLOACI-T-0721)
+    pub trigger_rules_json: String,
 }
 
 /// Owned collection of task metadata — safe to use after library is unloaded.

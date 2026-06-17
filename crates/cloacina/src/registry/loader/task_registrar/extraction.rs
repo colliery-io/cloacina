@@ -83,6 +83,7 @@ impl TaskRegistrar {
                 local_id: t.id,
                 dependencies_json: serde_json::to_string(&t.dependencies)
                     .unwrap_or_else(|_| "[]".to_string()),
+                trigger_rules_json: t.trigger_rules,
             })
             .collect();
 

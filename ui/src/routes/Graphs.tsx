@@ -14,12 +14,53 @@
  *  limitations under the License.
  */
 
-import { Badge, Card, Stack, Table, Text, Title } from "@mantine/core";
+import { Badge, Card, Group, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAccumulators, useGraphs } from "../api/health";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
+import { explainToken } from "../util/vocab";
+import { formatAgo, useGraphThroughput } from "../util/activity";
+
+/** Color a graph/accumulator state for an at-a-glance dot (CLOACI-I-0124 / WS-10). */
+function stateColor(state: string | undefined): string {
+  switch ((state ?? "").toLowerCase()) {
+    case "live":
+    case "running":
+    case "healthy":
+      return "green";
+    case "warming":
+    case "connecting":
+    case "starting":
+    case "socket_only":
+      return "yellow";
+    case "degraded":
+      return "orange";
+    case "crashed":
+    case "stopped":
+    case "failed":
+      return "red";
+    default:
+      return "gray";
+  }
+}
+
+function StateDot({ state }: { state: string }) {
+  return (
+    <span
+      style={{
+        width: 10,
+        height: 10,
+        borderRadius: "50%",
+        background: `var(--mantine-color-${stateColor(state)}-6)`,
+        display: "inline-block",
+        flex: "0 0 auto",
+      }}
+    />
+  );
+}
 
 /**
  * Computation-graph health (T-0655, OQ-4 → own top-level view): graphs +
@@ -29,6 +70,16 @@ export function Graphs() {
   const navigate = useNavigate();
   const graphs = useGraphs();
   const accs = useAccumulators();
+
+  // name → status, so a graph row can show its accumulators' health at a glance.
+  const accStatus = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of accs.data?.items ?? []) m.set(a.name, String(a.status ?? ""));
+    return m;
+  }, [accs.data]);
+
+  // Recent throughput per graph, derived from the fires counter across polls.
+  const throughput = useGraphThroughput(graphs.data?.items ?? []);
 
   return (
     <Stack>
@@ -51,11 +102,16 @@ export function Graphs() {
                 <Table.Th>Name</Table.Th>
                 <Table.Th>Health</Table.Th>
                 <Table.Th>Accumulators</Table.Th>
-                <Table.Th>Paused</Table.Th>
+                <Table.Th>Throughput</Table.Th>
+                <Table.Th>Last fired</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {graphs.data.items.map((g) => (
+              {graphs.data.items.map((g) => {
+                const rate = throughput.get(g.name);
+                const fires = (g as { fires?: number }).fires ?? 0;
+                const lastFired = (g as { last_fired_at?: string | null }).last_fired_at ?? null;
+                return (
                 <Table.Tr
                   key={g.name}
                   style={{ cursor: "pointer" }}
@@ -64,23 +120,66 @@ export function Graphs() {
                   <Table.Td>
                     <Text fw={500}>{g.name}</Text>
                   </Table.Td>
-                  <Table.Td>
-                    <GraphHealth value={g.health} />
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>
+                    <Group gap="xs" wrap="nowrap">
+                      <GraphHealth value={g.health} />
+                      {g.paused && (
+                        <Badge color="orange" variant="light">
+                          paused
+                        </Badge>
+                      )}
+                    </Group>
                   </Table.Td>
-                  <Table.Td>{g.accumulators.length}</Table.Td>
                   <Table.Td>
-                    {g.paused ? (
-                      <Badge color="orange" variant="light">
-                        paused
-                      </Badge>
-                    ) : (
-                      <Text c="dimmed" size="sm">
+                    {g.accumulators.length === 0 ? (
+                      <Text size="sm" c="dimmed">
                         —
                       </Text>
+                    ) : (
+                      <Group gap={6} wrap="nowrap">
+                        {g.accumulators.map((name) => {
+                          const status = accStatus.get(name) ?? "unknown";
+                          return (
+                            <Tooltip
+                              key={name}
+                              label={`${name}: ${explainToken(status).label}`}
+                              withArrow
+                              openDelay={150}
+                            >
+                              <span style={{ display: "inline-flex" }}>
+                                <StateDot state={status} />
+                              </span>
+                            </Tooltip>
+                          );
+                        })}
+                        <Text size="xs" c="dimmed">
+                          {g.accumulators.length}
+                        </Text>
+                      </Group>
                     )}
                   </Table.Td>
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>
+                    {rate == null ? (
+                      <Tooltip label="Recent fire rate; computed once two polls are in." withArrow>
+                        <Text size="sm" c="dimmed">
+                          —
+                        </Text>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip
+                        label={`Recent rate. ${fires.toLocaleString()} total fires since the graph loaded.`}
+                        withArrow
+                      >
+                        <Text size="sm">~{rate}/min</Text>
+                      </Tooltip>
+                    )}
+                  </Table.Td>
+                  <Table.Td style={{ whiteSpace: "nowrap" }}>
+                    <Text size="sm">{formatAgo(lastFired)}</Text>
+                  </Table.Td>
                 </Table.Tr>
-              ))}
+                );
+              })}
             </Table.Tbody>
           </Table>
         )}

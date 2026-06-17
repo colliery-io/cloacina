@@ -189,12 +189,54 @@ pub use cloacina_api_types::reactor::{ReactorCommand, ReactorResponse};
 /// Handle to a running reactor — exposes shared state for WebSocket queries.
 ///
 /// Returned by `Reactor::handle()` before calling `run()`.
+/// Operational counters for a reactor, shared between the running reactor and
+/// its [`ReactorHandle`] so the scheduler/API can report live activity
+/// (CLOACI-I-0124 / WS-10): total graph fires + the wall-clock time of the last
+/// fire. Throughput is derived by the caller from successive `fires` samples.
+#[derive(Debug, Default)]
+pub struct ReactorStats {
+    fires: std::sync::atomic::AtomicU64,
+    /// Unix-epoch millis of the last fire; `0` means "never fired".
+    last_fire_unix_ms: std::sync::atomic::AtomicI64,
+}
+
+impl ReactorStats {
+    /// Record a graph fire; returns the new total.
+    pub fn record_fire(&self) -> u64 {
+        self.last_fire_unix_ms.store(
+            chrono::Utc::now().timestamp_millis(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        self.fires
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1
+    }
+
+    /// Total fires so far.
+    pub fn fires(&self) -> u64 {
+        self.fires.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Unix-epoch millis of the last fire, or `None` if it hasn't fired yet.
+    pub fn last_fire_unix_ms(&self) -> Option<i64> {
+        match self
+            .last_fire_unix_ms
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            0 => None,
+            v => Some(v),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ReactorHandle {
     /// Shared cache — readable by WebSocket handlers for GetState.
     pub cache: Arc<RwLock<InputCache>>,
     /// Pause flag — when true, executor skips graph execution.
     pub paused: Arc<AtomicBool>,
+    /// Live fire counters (CLOACI-I-0124 / WS-10).
+    pub stats: Arc<ReactorStats>,
 }
 
 impl ReactorHandle {
@@ -202,6 +244,11 @@ impl ReactorHandle {
     pub async fn get_state(&self) -> HashMap<String, String> {
         let cache = self.cache.read().await;
         cache.entries_as_json()
+    }
+
+    /// Live operational counters: `(total_fires, last_fire_unix_ms)`.
+    pub fn stats(&self) -> (u64, Option<i64>) {
+        (self.stats.fires(), self.stats.last_fire_unix_ms())
     }
 
     /// Check if the reactor is paused.
@@ -261,6 +308,8 @@ pub struct Reactor {
     )>,
     /// Flush senders for batch accumulators — signalled after graph execution.
     batch_flush_senders: Vec<mpsc::Sender<()>>,
+    /// Live fire counters, shared with the `ReactorHandle` (WS-10).
+    stats: Arc<ReactorStats>,
 }
 
 impl Reactor {
@@ -288,6 +337,7 @@ impl Reactor {
             health: None,
             accumulator_health_rxs: Vec::new(),
             batch_flush_senders: Vec::new(),
+            stats: Arc::new(ReactorStats::default()),
         }
     }
 
@@ -350,6 +400,7 @@ impl Reactor {
         ReactorHandle {
             cache: self.cache.clone(),
             paused: self.paused.clone(),
+            stats: self.stats.clone(),
         }
     }
 
@@ -615,7 +666,9 @@ impl Reactor {
         let tenant_id_exec = self.tenant_id.clone();
         let graph_name_exec = self.graph_name.clone();
         let batch_flush = self.batch_flush_senders.clone();
-        let fire_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        // Shared with the ReactorHandle so the scheduler/API can report live
+        // fire counts + last-fire time (WS-10).
+        let fire_counter = self.stats.clone();
         // Consecutive persist failures — drives the I-0108 / T-0590
         // watchdog that flips the reactor to `Degraded` after 5 in a row.
         let persist_streak = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -660,7 +713,7 @@ impl Reactor {
                                 .record(fire_started.elapsed().as_secs_f64());
                                 match &result {
                                     GraphResult::Completed { .. } => {
-                                        let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                                        let fires = fire_counter.record_fire();
                                         tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                         persist_reactor_state(
                                             &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec, None,
@@ -713,7 +766,7 @@ impl Reactor {
                                         .record(fire_started.elapsed().as_secs_f64());
                                         match &result {
                                             GraphResult::Completed { .. } => {
-                                                let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                                                let fires = fire_counter.record_fire();
                                                 tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                                 persist_reactor_state(
                                                     &dal_exec, &graph_name_exec, &cache_exec,

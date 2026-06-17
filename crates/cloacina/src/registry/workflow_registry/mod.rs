@@ -24,6 +24,8 @@ mod database;
 pub mod filesystem;
 mod package;
 
+pub use database::{build_queue_stats, reconciler_stats, BuildQueueStats, ReconcilerStats};
+
 use async_trait::async_trait;
 use std::collections::HashMap;
 use uuid::Uuid;

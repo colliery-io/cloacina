@@ -34,9 +34,9 @@ pub mod demo_fail_workflow {
 
     #[task(id = "prepare", dependencies = [], retry_attempts = 0)]
     pub async fn prepare(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-        // A brief, runtime-free pause so the failed run isn't instantaneous —
-        // the partial-progress state is visible before the failure lands.
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        // A pause so the failed run isn't instantaneous — the partial-progress
+        // (Running) state is visible before the failure lands (WS-10 liveness).
+        std::thread::sleep(std::time::Duration::from_secs(3));
         context.insert("prepare_done", serde_json::json!(true))?;
         Ok(())
     }

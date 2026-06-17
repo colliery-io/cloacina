@@ -1,0 +1,19 @@
+# Demo full-pipeline computation-graph fixture (CLOACI-I-0124 / WS-8). A
+# reactor-bound CG with TWO accumulators feeding one reactor on `when_any`
+# (multi-source fan-in), then a three-node pipeline combine → evaluate →
+# signal. Ported from examples/tutorials/computation-graphs/library/
+# 09-full-pipeline so the Graphs view has real fan-in structure to render.
+# The accumulators are plain (socket) sources — no external broker config —
+# so the graph loads cleanly in the demo without extra infrastructure.
+[package]
+name = "demo-pipeline-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "market_pipeline"
+language = "rust"
+description = "demo full pipeline — two sources fan in (when_any) → combine → evaluate → signal"
+author = "Cloacina Test Fixtures"

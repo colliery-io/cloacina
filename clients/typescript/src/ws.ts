@@ -287,3 +287,19 @@ export async function* followExecutionEvents(
     yield decodePushJson(push);
   }
 }
+
+/**
+ * Stream operational-metrics snapshots (server / compiler / fleet / reconciler)
+ * pushed by the server (CLOACI-T-0718). Admin-scoped: the `ops_metrics:global`
+ * recipient is tenant `None`, which only an admin key matches. Each yielded
+ * value is an `OpsMetricsEvent` JSON snapshot — the latest wins, so a consumer
+ * just renders whatever arrived most recently.
+ */
+export async function* followOpsMetrics(
+  client: CloacinaClient,
+  options: DeliverySubscribeOptions = {},
+): AsyncGenerator<unknown, void, void> {
+  for await (const push of subscribeDelivery(client, "ops_metrics:global", options)) {
+    yield decodePushJson(push);
+  }
+}

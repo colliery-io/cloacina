@@ -27,6 +27,7 @@ export {
   decodePushJson,
   decodePushPayload,
   followExecutionEvents,
+  followOpsMetrics,
   subscribeDelivery,
   type DeliveryPush,
   type DeliveryServerMessage,

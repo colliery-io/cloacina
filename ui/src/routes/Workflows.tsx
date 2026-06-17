@@ -15,11 +15,29 @@
  */
 
 import { Button, Group, Stack, Table, Text, Title } from "@mantine/core";
+import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { useExecutions } from "../api/executions";
 import { useWorkflows } from "../api/workflows";
+import { RunCircles, type RunDot } from "../components/RunCircles";
+import { RecentTasksCell } from "../components/RecentTasksCell";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatTimestamp } from "../util/format";
+
+/** Bucket recent executions (newest-first) by workflow name for the run circles. */
+function useRecentRunsByWorkflow(): Map<string, RunDot[]> {
+  const recent = useExecutions({ limit: 200, offset: 0 });
+  return useMemo(() => {
+    const m = new Map<string, RunDot[]>();
+    for (const e of recent.data?.items ?? []) {
+      const arr = m.get(e.workflow_name) ?? [];
+      arr.push({ id: e.id, status: e.status, started_at: e.started_at });
+      m.set(e.workflow_name, arr);
+    }
+    return m;
+  }, [recent.data]);
+}
 
 /**
  * Workflows list (T-0652 / REQ-003 read half). Establishes the list view
@@ -28,6 +46,13 @@ import { formatTimestamp } from "../util/format";
 export function Workflows() {
   const navigate = useNavigate();
   const { data, isPending, isError, error, refetch } = useWorkflows();
+  const runsByWorkflow = useRecentRunsByWorkflow();
+
+  // Only real workflows belong here. A package with no workflow tasks is a
+  // pure computation-graph package — it lives in the Graphs view, not the
+  // workflow list. (A CG wrapped in `#[workflow]` + a trigger *does* have a
+  // task, so it stays.) CLOACI-I-0124 / WS-10.
+  const items = (data?.items ?? []).filter((w) => w.tasks.length > 0);
 
   return (
     <Stack>
@@ -41,7 +66,7 @@ export function Workflows() {
         <Loading label="Loading workflows…" />
       ) : isError ? (
         <ErrorState error={error} onRetry={refetch} />
-      ) : data.items.length === 0 ? (
+      ) : items.length === 0 ? (
         <Empty message="No workflows uploaded yet." />
       ) : (
         <Table highlightOnHover stickyHeader>
@@ -50,11 +75,13 @@ export function Workflows() {
               <Table.Th>Package</Table.Th>
               <Table.Th>Version</Table.Th>
               <Table.Th>Tasks</Table.Th>
+              <Table.Th>Recent runs</Table.Th>
+              <Table.Th>Recent tasks</Table.Th>
               <Table.Th>Created</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {data.items.map((w) => (
+            {items.map((w) => (
               <Table.Tr
                 key={w.id}
                 style={{ cursor: "pointer" }}
@@ -70,6 +97,14 @@ export function Workflows() {
                 </Table.Td>
                 <Table.Td>{w.version}</Table.Td>
                 <Table.Td>{w.tasks.length}</Table.Td>
+                <Table.Td>
+                  <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} />
+                </Table.Td>
+                <Table.Td>
+                  <RecentTasksCell
+                    executionId={runsByWorkflow.get(w.workflow_name)?.[0]?.id ?? null}
+                  />
+                </Table.Td>
                 <Table.Td>{formatTimestamp(w.created_at)}</Table.Td>
               </Table.Tr>
             ))}

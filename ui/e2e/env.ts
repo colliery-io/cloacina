@@ -5,8 +5,9 @@
 
 import type { Page } from "@playwright/test";
 
-// Wiring from `angreal test ui-e2e`. Sensible local defaults so a developer
-// can point the specs at a hand-run `angreal ui up` + `angreal ui seed`.
+// Wiring from `angreal test ui-e2e` (which stands up its own stack and sets
+// these). The defaults let a developer also point the specs at any running
+// server — e.g. the compose demo stack (`angreal ui up`).
 export const SERVER_URL = process.env.E2E_SERVER_URL ?? "http://localhost:8080";
 export const API_KEY = process.env.E2E_API_KEY ?? "clk_dev_ui_bootstrap_key_0001";
 export const TENANT = process.env.E2E_TENANT ?? "public";

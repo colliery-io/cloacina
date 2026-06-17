@@ -14,14 +14,28 @@
  *  limitations under the License.
  */
 
-import { Badge, Button, Group, Stack, Table, Text, Title } from "@mantine/core";
+import { ActionIcon, Badge, Button, Group, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { IconPlayerPlay } from "@tabler/icons-react";
+import cronstrue from "cronstrue";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useTriggers } from "../api/triggers";
+import { useExecuteWorkflow } from "../api/workflows";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatTimestamp } from "../util/format";
+import { describeTriggerKind, formatPollInterval } from "../util/triggers";
 
 const PAGE_SIZE = 50;
+
+// Humanize a cron expression (e.g. a 6-field "seconds" cron → "Every 15
+// seconds"); falls back to the raw expression if it can't be parsed.
+function humanizeCron(expr: string): string {
+  try {
+    return cronstrue.toString(expr, { verbose: false });
+  } catch {
+    return expr;
+  }
+}
 
 /**
  * Triggers/schedules list (T-0654 / REQ-005). Server-paginated (limit/offset),
@@ -32,6 +46,7 @@ export function Triggers() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const offset = Math.max(0, Number(params.get("offset") ?? "0") || 0);
+  const execute = useExecuteWorkflow();
 
   const { data, isPending, isError, error, refetch } = useTriggers({
     limit: PAGE_SIZE,
@@ -73,10 +88,13 @@ export function Triggers() {
                 <Table.Th>Enabled</Table.Th>
                 <Table.Th>Next run</Table.Th>
                 <Table.Th>Last run</Table.Th>
+                <Table.Th />
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {data.items.map((t) => (
+              {data.items.map((t) => {
+                const kind = describeTriggerKind(t.schedule_type);
+                return (
                 <Table.Tr
                   key={t.id}
                   style={{ cursor: "pointer" }}
@@ -88,12 +106,24 @@ export function Triggers() {
                     <Text fw={500}>{t.workflow_name}</Text>
                   </Table.Td>
                   <Table.Td>
-                    <Badge variant="light" color={t.schedule_type === "cron" ? "grape" : "teal"}>
-                      {t.schedule_type}
-                    </Badge>
+                    <Tooltip label={kind.tip} disabled={!kind.tip} multiline w={260} withArrow>
+                      <Badge variant="light" color={kind.color}>
+                        {kind.label}
+                      </Badge>
+                    </Tooltip>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{t.cron_expression ?? t.trigger_name ?? "—"}</Text>
+                    {t.cron_expression ? (
+                      <Tooltip label={t.cron_expression} withArrow openDelay={300}>
+                        <Text size="sm">{humanizeCron(t.cron_expression)}</Text>
+                      </Tooltip>
+                    ) : (
+                      <Text size="sm">
+                        {t.poll_interval_ms != null
+                          ? `every ${formatPollInterval(t.poll_interval_ms)}`
+                          : (t.trigger_name ?? "—")}
+                      </Text>
+                    )}
                   </Table.Td>
                   <Table.Td>
                     <Badge variant="dot" color={t.enabled ? "green" : "gray"}>
@@ -102,8 +132,27 @@ export function Triggers() {
                   </Table.Td>
                   <Table.Td>{formatTimestamp(t.next_run_at)}</Table.Td>
                   <Table.Td>{formatTimestamp(t.last_run_at)}</Table.Td>
+                  <Table.Td>
+                    <Tooltip label={`Run ${t.workflow_name} now`} withArrow>
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        loading={execute.isPending && execute.variables?.name === t.workflow_name}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          execute.mutate(
+                            { name: t.workflow_name },
+                            { onSuccess: (res) => navigate(`/executions/${res.execution_id}`) },
+                          );
+                        }}
+                      >
+                        <IconPlayerPlay size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Table.Td>
                 </Table.Tr>
-              ))}
+                );
+              })}
             </Table.Tbody>
           </Table>
 
