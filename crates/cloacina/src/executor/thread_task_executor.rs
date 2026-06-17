@@ -402,6 +402,24 @@ impl TaskExecutor for ThreadTaskExecutor {
             );
         }
 
+        // Stamp the task's started_at at the moment execution begins. The
+        // claiming path already does this inside the claim; the embedded path
+        // runs with claiming disabled and otherwise leaves started_at NULL, so
+        // the per-task timeline (Gantt) has no real start offset. Idempotent
+        // (no-op when a claim already stamped it) and best-effort.
+        if let Err(e) = self
+            .dal
+            .task_execution()
+            .mark_started(event.task_execution_id)
+            .await
+        {
+            tracing::warn!(
+                task_id = %event.task_execution_id,
+                error = %e,
+                "Failed to stamp task started_at"
+            );
+        }
+
         // Cancellation channel — the heartbeat loop flips this to `true` if
         // it detects `ClaimLost`. The execution future races against it via
         // `execute_with_cancellation` (Layer 1), and tasks holding a

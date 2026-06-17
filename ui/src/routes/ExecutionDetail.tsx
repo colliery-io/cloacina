@@ -26,6 +26,7 @@ import {
 } from "../api/executions";
 import { EventLog } from "../components/EventLog";
 import { StatusBadge } from "../components/StatusBadge";
+import { TaskGantt } from "../components/TaskGantt";
 import { TaskTable } from "../components/TaskTable";
 import { ErrorState, Loading } from "../components/states/States";
 import { useExecuteWorkflow, useWorkflow } from "../api/workflows";
@@ -176,6 +177,24 @@ export function ExecutionDetail() {
           <ErrorState error={tasks.error} onRetry={tasks.refetch} />
         ) : (
           <TaskTable tasks={tasks.data.tasks} order={taskOrder} />
+        )}
+      </Card>
+
+      <Card withBorder padding="lg">
+        <Group justify="space-between" mb="sm">
+          <Title order={4}>Timeline</Title>
+          {!terminal && (
+            <Text size="xs" c="blue">
+              live
+            </Text>
+          )}
+        </Group>
+        {tasks.isPending ? (
+          <Loading label="Loading timeline…" />
+        ) : tasks.isError ? (
+          <ErrorState error={tasks.error} onRetry={tasks.refetch} />
+        ) : (
+          <TaskGantt tasks={tasks.data.tasks} order={taskOrder} />
         )}
       </Card>
 

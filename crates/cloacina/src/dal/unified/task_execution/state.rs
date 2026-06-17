@@ -518,6 +518,85 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(())
     }
 
+    /// Stamps a task's `started_at` (and flips it to `Running`) at the moment
+    /// execution begins, idempotently.
+    ///
+    /// The distributed/claiming path stamps `started_at` inside
+    /// `claim_ready_task`/`claim_for_runner`, but the embedded single-runner
+    /// path executes with claiming disabled and never went through a claim — so
+    /// `started_at` stayed NULL and the per-task timeline (the Gantt view) had
+    /// no real start offset. This is called from the executor before a task
+    /// runs; the `started_at IS NULL` guard makes it a no-op when a claim
+    /// already stamped it, so the two paths don't fight. Best-effort: failures
+    /// are logged by the caller, not fatal to execution.
+    pub async fn mark_started(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.mark_started_postgres(task_id).await,
+            self.mark_started_sqlite(task_id).await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn mark_started_postgres(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        conn.interact(move |conn| {
+            let now = UniversalTimestamp::now();
+            diesel::update(
+                task_executions::table
+                    .filter(task_executions::id.eq(task_id))
+                    .filter(task_executions::started_at.is_null()),
+            )
+            .set((
+                task_executions::status.eq("Running"),
+                task_executions::started_at.eq(Some(now)),
+                task_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn mark_started_sqlite(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        conn.interact(move |conn| {
+            let now = UniversalTimestamp::now();
+            diesel::update(
+                task_executions::table
+                    .filter(task_executions::id.eq(task_id))
+                    .filter(task_executions::started_at.is_null()),
+            )
+            .set((
+                task_executions::status.eq("Running"),
+                task_executions::started_at.eq(Some(now)),
+                task_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        Ok(())
+    }
+
     /// Marks a task as skipped with a provided reason.
     ///
     /// This operation is transactional: the status update and execution event

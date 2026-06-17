@@ -34,8 +34,13 @@ export function formatDuration(
   const s = Date.parse(start);
   const e = end ? Date.parse(end) : Date.now();
   if (Number.isNaN(s) || Number.isNaN(e) || e < s) return "—";
-  const ms = e - s;
-  if (ms < 1000) return `${ms} ms`;
+  return formatMs(e - s);
+}
+
+/** Human-friendly duration from a raw millisecond span (the Gantt/runtime views). */
+export function formatMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
   const sec = ms / 1000;
   if (sec < 60) return `${sec.toFixed(sec < 10 ? 1 : 0)} s`;
   const m = Math.floor(sec / 60);
