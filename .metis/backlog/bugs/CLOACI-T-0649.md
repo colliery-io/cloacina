@@ -1,18 +1,18 @@
 ---
 id: server-ignores-database-name-in
 level: task
-title: "Server ignores database name in --database-url — pools hardcode dbname "cloacina" via build_postgres_url"
+title: "Server ignores database name in --database-url — pools hardcode the cloacina dbname via build_postgres_url"
 short_code: "CLOACI-T-0649"
 created_at: 2026-06-10T03:24:08.288047+00:00
-updated_at: 2026-06-10T03:24:08.288047+00:00
-parent:
+updated_at: 2026-06-17T11:46:45.498288+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -68,6 +68,12 @@ Fix direction: respect the URL's path when present; only fall back to the `datab
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -139,3 +145,18 @@ Fix direction: respect the URL's path when present; only fall back to the `datab
 ## Status Updates **[REQUIRED]**
 
 *To be added during implementation*
+
+## Status Updates
+- 2026-06-17: **Fixed + verified (unit).** `Database::build_postgres_url`
+  (crates/cloacina/src/database/connection/mod.rs:443) no longer unconditionally
+  `set_path(database_name)`; it now respects an explicit dbname in the URL and
+  only falls back to the parameter when the URL has none (empty path or `/`).
+  This fixes `--database-url postgres://…/mydb` silently connecting to the
+  hardcoded `"cloacina"`. Added unit guards
+  `build_postgres_url_respects_explicit_dbname` +
+  `build_postgres_url_falls_back_when_no_dbname` (both pass); 53 database-module
+  tests green. Audited all `Database::new*` call sites: server (lib.rs:163) and
+  runner (mod.rs:108) pass `"cloacina"`, and the postgres test harness
+  (tests/fixtures.rs:89) passes a base URL with no dbname — all use the
+  unchanged fallback path, so no caller regresses. The only behavior change is
+  the bug fix (explicit URL dbname now honored).

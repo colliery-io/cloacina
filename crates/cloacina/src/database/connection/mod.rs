@@ -440,9 +440,21 @@ impl Database {
     }
 
     /// Builds a PostgreSQL connection URL.
+    ///
+    /// Respects an explicit database name already present in `base_url` (e.g.
+    /// `postgres://host/mydb`); only falls back to the `database_name`
+    /// parameter when the URL carries no database (empty path or just `/`).
+    ///
+    /// Previously this unconditionally called `set_path(database_name)`, so a
+    /// `--database-url postgres://…/mydb` silently connected to the
+    /// caller-supplied `database_name` (the server hardcodes `"cloacina"`)
+    /// while logging `mydb` — data landed in the wrong database (CLOACI-T-0649).
     fn build_postgres_url(base_url: &str, database_name: &str) -> Result<String, url::ParseError> {
         let mut url = Url::parse(base_url)?;
-        url.set_path(database_name);
+        let has_explicit_db = !url.path().trim_start_matches('/').is_empty();
+        if !has_explicit_db {
+            url.set_path(database_name);
+        }
         Ok(url.to_string())
     }
 
@@ -839,6 +851,28 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // CLOACI-T-0649: build_postgres_url must respect an explicit database name
+    // in the URL and only fall back to the parameter when the URL has none.
+    #[test]
+    fn build_postgres_url_respects_explicit_dbname() {
+        // Explicit dbname in the URL is preserved (NOT overridden by the param).
+        let url = Database::build_postgres_url("postgres://u:p@host:5432/mydb", "cloacina").unwrap();
+        assert!(
+            url.contains("/mydb") && !url.contains("/cloacina"),
+            "explicit dbname must win: {url}"
+        );
+    }
+
+    #[test]
+    fn build_postgres_url_falls_back_when_no_dbname() {
+        // No path → fall back to the parameter.
+        let url = Database::build_postgres_url("postgres://u:p@host:5432", "cloacina").unwrap();
+        assert!(url.contains("/cloacina"), "should fall back to param: {url}");
+        // Bare "/" path also counts as "no database".
+        let url2 = Database::build_postgres_url("postgres://u:p@host:5432/", "cloacina").unwrap();
+        assert!(url2.contains("/cloacina"), "bare slash should fall back: {url2}");
+    }
 
     // -----------------------------------------------------------------------
     // CLOACI-T-0582: strict-search-path flag toggle
