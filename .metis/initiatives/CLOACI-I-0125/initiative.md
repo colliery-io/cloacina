@@ -141,3 +141,10 @@ Each child starts by writing its "minimal author" example as the regression guar
   `cloacina`'s macro re-export; added (all 5 reachable). Tutorial conversion
   folded into [[CLOACI-T-0738]]. User cleared running angreal integration/e2e/
   ui-demo for verification. 4 of 9 done; packaging cluster (0735/0736/0737) next.
+- 2026-06-17: **`angreal test integration` PASSED** on the 4 landed tasks — all
+  Rust integration tests + 29 Python sqlite scenarios green (incl. CG +
+  task-invokes-graph). Confirms the `Context<T = serde_json::Value>` default
+  param and macro changes regress nothing. [[CLOACI-T-0735]] investigated (see
+  its doc) but not yet implemented — `[metadata]` is already mostly optional, the
+  real win is inferring `language` from layout; deferred. Checkpoint: remaining 5
+  (0735/0736/0737/0738/0740) are the heavy packaging/compiler/CG + breaking tier.
