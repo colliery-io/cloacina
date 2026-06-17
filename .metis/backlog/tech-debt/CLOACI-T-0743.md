@@ -202,4 +202,42 @@ of its scheduled second).
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-06-17: **Built + live-verified (PR #133, commit on `timer-driven-cron`).**
+  Implemented exactly as planned: DAL `next_cron_due_time()` (postgres+sqlite),
+  timer-driven loop in `cron_trigger_scheduler.rs` (cache next-due → sleep exactly
+  until it, backstop = repurposed `cron_poll_interval`, recompute only on fire or
+  notify), shared `Arc<Notify>` on `DefaultRunner` → `Scheduler` + `DalCronRegistrar`,
+  signaled by register/unregister/enable/disable/delete. 4 sqlite unit tests on
+  the sleep math pass; core+server compile clean.
+  **LIVE RESULT (demo stack, branch rebased onto main w/ #132):**
+  `demo_py_cron_workflow` (`*/15`) now fires within **~10ms** of its scheduled
+  second — `scheduled 22:48:00 → executing 22:48:00.009`; `scheduled 22:48:15 →
+  22:48:15.010`. Detection logged "Found N due cron" ~3ms after the boundary
+  (was up to 30s). The 30s idle sweep is gone.
+- 2026-06-17: **Separate, pre-existing issue observed (NOT this task's scope).**
+  When ≥2 cron schedules are due in the same instant, `check_and_execute_cron_schedules`
+  processes them **sequentially**, and `execute_cron_workflow`'s handoff can block
+  (~13s seen when the fleet was at capacity under demo load), delaying the 2nd
+  schedule. This is orthogonal to detection latency (which this task fixed) — it's
+  the cron loop's sequential handoff + executor backpressure. Candidate follow-up:
+  spawn per-schedule handoffs / don't block the cron loop on executor capacity.
+- 2026-06-17: AC status — sleep-until-due ✓, change-notify ✓, fires within ~1s
+  (10ms) ✓, backstop + multi-instance documented ✓, unit tests ✓, live demo ✓,
+  no poll-trigger/reactor regression ✓ (1s tick path untouched). PR #133 open,
+  CI running. Note: kept the `cron_poll_interval` field name (repurposed as the
+  backstop) rather than adding `cron_backstop_interval`, to avoid churning the
+  config builder API — semantics documented on the field.
+- 2026-06-17: **Sequential-handoff issue FIXED in this PR (commit a0cc44cb)** —
+  pulled the earlier "separate follow-up" into scope since it was the user-visible
+  residual. `check_and_execute_cron_schedules` now spawns each
+  `process_cron_schedule` on its own task instead of awaiting them in a loop
+  (`executor.execute()` blocks until the workflow runs, which is why a 2nd co-due
+  schedule waited for the 1st's full execution). Per-row `claim_and_update_cron`
+  is atomic so concurrent processing is safe; matches the module's "move on
+  immediately" contract. **LIVE RESULT:** at the :30 and :45 boundaries both
+  `demo_cron_workflow` and `demo_py_cron_workflow` now log "Executing" at the
+  **same millisecond**, ~4ms after the scheduled second (was: 2nd waited ~3–10s).
+  Also bumped the demo fleet 4→16/agent (48 aggregate, commit 79ab87bf) to clear
+  the "no capacity" backpressure that compounded it. Final latency picture:
+  detection ~3ms, single pickup ~10ms, co-due pickup ~4ms concurrent. The WS push
+  was never the bottleneck (agent results return in ms).

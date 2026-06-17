@@ -4,14 +4,14 @@ level: task
 title: "Surface reactors as first-class entities in the CG view + enrich accumulator/reactor operational metrics"
 short_code: "CLOACI-T-0742"
 created_at: 2026-06-17T21:41:13.884119+00:00
-updated_at: 2026-06-17T21:50:43.763198+00:00
+updated_at: 2026-06-17T22:43:48.880264+00:00
 parent: CLOACI-I-0117
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -122,6 +122,8 @@ or its firing logic (any/all), and a reactor not bound to a graph is invisible.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
