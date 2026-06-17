@@ -857,7 +857,8 @@ mod tests {
     #[test]
     fn build_postgres_url_respects_explicit_dbname() {
         // Explicit dbname in the URL is preserved (NOT overridden by the param).
-        let url = Database::build_postgres_url("postgres://u:p@host:5432/mydb", "cloacina").unwrap();
+        let url =
+            Database::build_postgres_url("postgres://u:p@host:5432/mydb", "cloacina").unwrap();
         assert!(
             url.contains("/mydb") && !url.contains("/cloacina"),
             "explicit dbname must win: {url}"
@@ -868,10 +869,16 @@ mod tests {
     fn build_postgres_url_falls_back_when_no_dbname() {
         // No path → fall back to the parameter.
         let url = Database::build_postgres_url("postgres://u:p@host:5432", "cloacina").unwrap();
-        assert!(url.contains("/cloacina"), "should fall back to param: {url}");
+        assert!(
+            url.contains("/cloacina"),
+            "should fall back to param: {url}"
+        );
         // Bare "/" path also counts as "no database".
         let url2 = Database::build_postgres_url("postgres://u:p@host:5432/", "cloacina").unwrap();
-        assert!(url2.contains("/cloacina"), "bare slash should fall back: {url2}");
+        assert!(
+            url2.contains("/cloacina"),
+            "bare slash should fall back: {url2}"
+        );
     }
 
     // -----------------------------------------------------------------------

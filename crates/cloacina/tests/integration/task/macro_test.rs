@@ -101,7 +101,10 @@ async fn test_bare_signature_task_compiles_and_runs() {
     assert_eq!(task.id(), "bare_signature_task");
     let result = task.execute(Context::new()).await;
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().get("bare_sig_ran"), Some(&Value::Bool(true)));
+    assert_eq!(
+        result.unwrap().get("bare_sig_ran"),
+        Some(&Value::Bool(true))
+    );
 }
 
 #[tokio::test]

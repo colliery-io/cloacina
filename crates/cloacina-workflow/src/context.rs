@@ -337,16 +337,16 @@ impl Context<serde_json::Value> {
     {
         match self.data.get(key) {
             None => Ok(None),
-            Some(value) => serde_json::from_value(value.clone()).map(Some).map_err(|e| {
-                crate::error::TaskError::ValidationFailed {
+            Some(value) => serde_json::from_value(value.clone())
+                .map(Some)
+                .map_err(|e| crate::error::TaskError::ValidationFailed {
                     message: format!(
                         "context key '{}' could not be read as {}: {}",
                         key,
                         std::any::type_name::<V>(),
                         e
                     ),
-                }
-            }),
+                }),
         }
     }
 
@@ -405,16 +405,19 @@ impl Context<serde_json::Value> {
     /// ctx.insert_as("total", 100u32).unwrap();
     /// assert_eq!(ctx.get_as::<u32>("total").unwrap(), Some(100));
     /// ```
-    pub fn insert_as<V>(&mut self, key: impl Into<String>, value: V) -> Result<(), crate::error::TaskError>
+    pub fn insert_as<V>(
+        &mut self,
+        key: impl Into<String>,
+        value: V,
+    ) -> Result<(), crate::error::TaskError>
     where
         V: serde::Serialize,
     {
         let key = key.into();
-        let json = serde_json::to_value(value).map_err(|e| {
-            crate::error::TaskError::ValidationFailed {
+        let json =
+            serde_json::to_value(value).map_err(|e| crate::error::TaskError::ValidationFailed {
                 message: format!("context key '{}' could not be serialized: {}", key, e),
-            }
-        })?;
+            })?;
         // Upsert: overwrite if present, insert otherwise.
         self.data.insert(key, json);
         Ok(())
@@ -529,7 +532,8 @@ mod tests {
     #[test]
     fn test_typed_accessor_errors_are_actionable() {
         let mut ctx = Context::new();
-        ctx.insert("count", serde_json::json!("not-a-number")).unwrap();
+        ctx.insert("count", serde_json::json!("not-a-number"))
+            .unwrap();
 
         // Type mismatch names the key and target type.
         let err = ctx.get_as::<u32>("count").unwrap_err();

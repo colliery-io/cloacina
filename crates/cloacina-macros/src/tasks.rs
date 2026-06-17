@@ -21,8 +21,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use syn::{
     parse::{Parse, ParseStream},
-    Expr, FnArg, GenericArgument, Ident, ItemFn, LitStr, Pat, PathArguments, ReturnType,
-    Result as SynResult, Token, Type,
+    Expr, FnArg, GenericArgument, Ident, ItemFn, LitStr, Pat, PathArguments, Result as SynResult,
+    ReturnType, Token, Type,
 };
 
 use crate::registry::{get_registry, TaskInfo};
