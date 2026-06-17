@@ -90,6 +90,48 @@ impl WsDeliverySink {
         g.remove(&key);
     }
 
+    /// Whether a recipient is currently connected on this replica. Lets a
+    /// publisher skip gathering ephemeral data nobody is listening for
+    /// (CLOACI-T-0718).
+    pub fn has_recipient(&self, recipient: &str, tenant_id: Option<&str>) -> bool {
+        let key = (recipient.to_string(), tenant_id.map(|s| s.to_string()));
+        self.by_key
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&key)
+    }
+
+    /// Push a frame straight to a connected recipient, bypassing the durable
+    /// outbox + relay (CLOACI-T-0718). For *ephemeral* latest-snapshot data
+    /// (operational metrics) that must NOT accrue rows in `delivery_outbox` —
+    /// the substrate's durable path is reserved for must-not-lose work
+    /// (execution events, work packets). Returns `true` if a connection
+    /// received it, `false` if nobody is listening (no-op) or the channel is
+    /// full/closed — the next snapshot supersedes a dropped one anyway.
+    pub fn push_direct(
+        &self,
+        recipient: &str,
+        tenant_id: Option<&str>,
+        msg: ServerMessage,
+    ) -> bool {
+        let key = (recipient.to_string(), tenant_id.map(|s| s.to_string()));
+        let sender = {
+            let g = self.by_key.lock().unwrap_or_else(|e| e.into_inner());
+            g.get(&key).cloned()
+        };
+        let Some(sender) = sender else {
+            return false;
+        };
+        match sender.try_send(msg) {
+            Ok(()) => true,
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                self.unregister(recipient, tenant_id);
+                false
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => false,
+        }
+    }
+
     /// Current registry depth — useful for metrics (T-0628).
     pub fn len(&self) -> usize {
         self.by_key.lock().unwrap_or_else(|e| e.into_inner()).len()

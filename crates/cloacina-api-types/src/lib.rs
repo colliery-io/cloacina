@@ -39,6 +39,7 @@ pub mod executions;
 pub mod fleet;
 pub mod health;
 pub mod keys;
+pub mod operations;
 pub mod reactor;
 pub mod tenants;
 pub mod triggers;
@@ -59,6 +60,7 @@ pub use health::{
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
 };
+pub use operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
 pub use reactor::{ReactorCommand, ReactorResponse};
 pub use tenants::{
     CreateTenantRequest, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,

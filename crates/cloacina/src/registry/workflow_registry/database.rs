@@ -1941,6 +1941,78 @@ pub struct BuildQueueStats {
     pub heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// Package-availability snapshot for the reconciler tile (CLOACI-T-0718 /
+/// absorbs T-0717): how many packages built successfully and are available to
+/// load, how many failed, and when the most recent successful build landed.
+/// Counts the active (non-superseded) rows. Independent of the registry's
+/// package loader — powers the server's ops-metrics publisher.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReconcilerStats {
+    pub built: u64,
+    pub failed: u64,
+    pub last_built_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Compute [`ReconcilerStats`] over a raw [`Database`] handle.
+pub async fn reconciler_stats(
+    database: &crate::database::Database,
+) -> Result<ReconcilerStats, RegistryError> {
+    use crate::dal::unified::models::UnifiedWorkflowPackage;
+    use crate::database::schema::unified::workflow_packages;
+    use crate::database::universal_types::UniversalBool;
+
+    macro_rules! query {
+        ($conn:expr) => {{
+            $conn
+                .interact(
+                    move |conn| -> Result<ReconcilerStats, diesel::result::Error> {
+                        let built = workflow_packages::table
+                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                            .filter(workflow_packages::build_status.eq("success"))
+                            .count()
+                            .get_result::<i64>(conn)?;
+                        let failed = workflow_packages::table
+                            .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                            .filter(workflow_packages::build_status.eq("failed"))
+                            .count()
+                            .get_result::<i64>(conn)?;
+                        let last_built: Option<UnifiedWorkflowPackage> = workflow_packages::table
+                            .filter(workflow_packages::build_status.eq("success"))
+                            .order(workflow_packages::compiled_at.desc())
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()?;
+                        Ok(ReconcilerStats {
+                            built: built as u64,
+                            failed: failed as u64,
+                            last_built_at: last_built.and_then(|r| r.compiled_at.map(|t| t.0)),
+                        })
+                    },
+                )
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+        }};
+    }
+
+    crate::dispatch_backend!(
+        database.backend(),
+        {
+            let conn = database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?;
+            query!(conn)
+        },
+        {
+            let conn = database
+                .get_sqlite_connection()
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?;
+            query!(conn)
+        }
+    )
+}
+
 /// A build row claimed by the compiler. Everything the compiler needs to
 /// locate the source and write back results.
 #[derive(Debug, Clone)]

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-06-17T02:29:57Z | 715 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-06-17T03:25:40Z | 715 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -3026,6 +3026,8 @@
 - pub `delete_package_metadata_by_id` function L498-508 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by UUID from the database.
 - pub `get_compiled_data_by_content_hash` function L571-582 — `( &self, content_hash: &str, ) -> Result<Option<Vec<u8>>, RegistryError>` — Look up a compiled package by its `content_hash` digest and return
 - pub `get_active_content_hash_for_package` function L644-658 — `( &self, package_name: &str, tenant_id: Option<&str>, ) -> Result<Option<String>...` — Resolve the **active** content-hash (digest) for a package name within a
+- pub `get_active_dispatch_for_package` function L747-767 — `( &self, package_name: &str, tenant_id: Option<&str>, ) -> Result<Option<(String...` — `(content_hash, language)` for the **active** build of a package, where
+- pub `get_package_archive_by_content_hash` function L841-905 — `( &self, content_hash: &str, ) -> Result<Option<Vec<u8>>, RegistryError>` — Source `.cloacina` archive bytes for the package whose active build has
 -  `store_package_metadata_postgres` function L73-138 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
 -  `store_package_metadata_sqlite` function L141-206 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
 -  `get_package_metadata_postgres` function L224-258 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
@@ -3042,17 +3044,18 @@
 -  `get_compiled_data_by_content_hash_sqlite` function L611-634 — `( &self, content_hash: &str, ) -> Result<Option<Vec<u8>>, RegistryError>` — at runtime based on the database connection type.
 -  `get_active_content_hash_postgres` function L661-696 — `( &self, package_name: String, tenant_id: Option<String>, ) -> Result<Option<Str...` — at runtime based on the database connection type.
 -  `get_active_content_hash_sqlite` function L699-734 — `( &self, package_name: String, tenant_id: Option<String>, ) -> Result<Option<Str...` — at runtime based on the database connection type.
--  `tests` module L738-991 — `-` — at runtime based on the database connection type.
--  `unique_dal` function L744-754 — `() -> DAL` — at runtime based on the database connection type.
--  `sample_metadata` function L757-777 — `(name: &str, version: &str) -> PackageMetadata` — at runtime based on the database connection type.
--  `test_store_and_get_package_metadata` function L781-810 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_not_found` function L814-823 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_by_id` function L827-851 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_by_id_not_found` function L855-864 — `()` — at runtime based on the database connection type.
--  `test_list_all_packages` function L868-900 — `()` — at runtime based on the database connection type.
--  `test_delete_package_metadata` function L904-940 — `()` — at runtime based on the database connection type.
--  `test_delete_package_metadata_by_id` function L944-973 — `()` — at runtime based on the database connection type.
--  `test_delete_nonexistent_does_not_error` function L977-990 — `()` — at runtime based on the database connection type.
+-  `get_active_row_for_package` function L769-833 — `( &self, package_name: &str, tenant_id: Option<&str>, ) -> Result<Option<Unified...` — at runtime based on the database connection type.
+-  `tests` module L909-1162 — `-` — at runtime based on the database connection type.
+-  `unique_dal` function L915-925 — `() -> DAL` — at runtime based on the database connection type.
+-  `sample_metadata` function L928-948 — `(name: &str, version: &str) -> PackageMetadata` — at runtime based on the database connection type.
+-  `test_store_and_get_package_metadata` function L952-981 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_not_found` function L985-994 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_by_id` function L998-1022 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_by_id_not_found` function L1026-1035 — `()` — at runtime based on the database connection type.
+-  `test_list_all_packages` function L1039-1071 — `()` — at runtime based on the database connection type.
+-  `test_delete_package_metadata` function L1075-1111 — `()` — at runtime based on the database connection type.
+-  `test_delete_package_metadata_by_id` function L1115-1144 — `()` — at runtime based on the database connection type.
+-  `test_delete_nonexistent_does_not_error` function L1148-1161 — `()` — at runtime based on the database connection type.
 
 #### crates/cloacina/src/dal/unified/workflow_registry_storage.rs
 
@@ -4082,18 +4085,18 @@
 - pub `AgentRegisterResponse` struct L101-111 — `{ protocol_version: u32, agent_id: String, heartbeat_interval_seconds: u32 }` — homogeneous; this is the guard that makes a misconfiguration loud.
 - pub `AgentHeartbeatRequest` struct L118-126 — `{ protocol_version: u32, agent_id: String, in_flight: u32, available_capacity: u...` — homogeneous; this is the guard that makes a misconfiguration loud.
 - pub `AgentHeartbeatResponse` struct L129-131 — `{ protocol_version: u32 }` — homogeneous; this is the guard that makes a misconfiguration loud.
-- pub `WorkPacket` struct L144-163 — `{ protocol_version: u32, task_execution_id: String, workflow_execution_id: Strin...` — Fully self-contained work packet — everything a DB-less agent needs to
-- pub `ArtifactRef` struct L167-177 — `{ digest: String, fetch_url: String, build_target_triple: String }` — Reference to a workflow artifact (cdylib) the agent must fetch + load.
-- pub `AgentResultRequest` struct L184-193 — `{ protocol_version: u32, agent_id: String, task_execution_id: String, attempt: i...` — homogeneous; this is the guard that makes a misconfiguration loud.
-- pub `AgentResultResponse` struct L196-198 — `{ protocol_version: u32 }` — homogeneous; this is the guard that makes a misconfiguration loud.
-- pub `AgentOutcome` enum L207-221 — `Success | Failure | Refused` — Outcome of one work packet as reported by the agent.
-- pub `FailureClassification` enum L228-238 — `TaskError | Transient | Validation | Timeout` — Bounded classification of a task-level failure so the server's retry
-- pub `RefusalReason` enum L244-255 — `TargetTripleMismatch | ArtifactFetchFailed | RuntimeLoadFailed | Shutdown | Tena...` — Why the agent refused to even run the packet.
--  `tests` module L258-342 — `-` — homogeneous; this is the guard that makes a misconfiguration loud.
--  `work_packet_round_trips_as_json` function L262-283 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
--  `outcome_variants_round_trip_with_snake_case_tags` function L286-325 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
--  `agent_recipient_prefix_is_stable` function L328-333 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
--  `register_request_agent_id_defaults_to_none` function L336-341 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
+- pub `WorkPacket` struct L144-170 — `{ protocol_version: u32, task_execution_id: String, workflow_execution_id: Strin...` — Fully self-contained work packet — everything a DB-less agent needs to
+- pub `ArtifactRef` struct L174-184 — `{ digest: String, fetch_url: String, build_target_triple: String }` — Reference to a workflow artifact (cdylib) the agent must fetch + load.
+- pub `AgentResultRequest` struct L191-200 — `{ protocol_version: u32, agent_id: String, task_execution_id: String, attempt: i...` — homogeneous; this is the guard that makes a misconfiguration loud.
+- pub `AgentResultResponse` struct L203-205 — `{ protocol_version: u32 }` — homogeneous; this is the guard that makes a misconfiguration loud.
+- pub `AgentOutcome` enum L214-228 — `Success | Failure | Refused` — Outcome of one work packet as reported by the agent.
+- pub `FailureClassification` enum L235-245 — `TaskError | Transient | Validation | Timeout` — Bounded classification of a task-level failure so the server's retry
+- pub `RefusalReason` enum L251-262 — `TargetTripleMismatch | ArtifactFetchFailed | RuntimeLoadFailed | Shutdown | Tena...` — Why the agent refused to even run the packet.
+-  `tests` module L265-350 — `-` — homogeneous; this is the guard that makes a misconfiguration loud.
+-  `work_packet_round_trips_as_json` function L269-291 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
+-  `outcome_variants_round_trip_with_snake_case_tags` function L294-333 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
+-  `agent_recipient_prefix_is_stable` function L336-341 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
+-  `register_request_agent_id_defaults_to_none` function L344-349 — `()` — homogeneous; this is the guard that makes a misconfiguration loud.
 
 ### crates/cloacina/src/models
 
@@ -6552,42 +6555,47 @@
 -  `main` function L89-103 — `() -> Result<()>` — execute, classify the outcome, return `Success`/`Failure`.
 -  `RECONNECT_BACKOFF_MIN` variable L106 — `: Duration` — Backoff bounds for the reconnect loop.
 -  `RECONNECT_BACKOFF_MAX` variable L107 — `: Duration` — execute, classify the outcome, return `Success`/`Failure`.
--  `run` function L109-168 — `(args: Args) -> Result<()>` — execute, classify the outcome, return `Success`/`Failure`.
--  `connect_and_serve` function L174-244 — `( args: &Args, http: &reqwest::Client, server_base: &str, target_triple: &str, i...` — One register→connect→serve session.
--  `register` function L250-274 — `( http: &reqwest::Client, server: &str, api_key: &str, agent_id: &Option<String>...` — execute, classify the outcome, return `Success`/`Failure`.
--  `mint_ws_ticket` function L276-290 — `(http: &reqwest::Client, server: &str, api_key: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
--  `post_result` function L292-306 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
--  `spawn_heartbeat_loop` function L308-344 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, max_...` — execute, classify the outcome, return `Success`/`Failure`.
--  `receive_loop` function L351-414 — `( mut stream: tokio_tungstenite::WebSocketStream<S>, http: reqwest::Client, serv...` — execute, classify the outcome, return `Success`/`Failure`.
--  `handle_text_frame` function L417-492 — `( text: String, http: &reqwest::Client, server: &str, api_key: &str, agent_id: &...` — execute, classify the outcome, return `Success`/`Failure`.
--  `decode_packet` function L494-503 — `(env: &serde_json::Value) -> Result<WorkPacket>` — execute, classify the outcome, return `Success`/`Failure`.
--  `make_ack` function L505-512 — `(id: i64) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
--  `spawn_packet_worker` function L518-557 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, targ...` — Spawn a worker that runs the full Tier-B path (triple check → fetch+cache
--  `spawn_refusal` function L562-589 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, pack...` — Spawn a worker that POSTs a refusal + acks.
--  `report_outcome` function L591-609 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
--  `summarize_outcome` function L611-619 — `(o: &cloacina::fleet::AgentOutcome) -> String` — execute, classify the outcome, return `Success`/`Failure`.
--  `process_work_packet` function L640-770 — `( packet: &WorkPacket, agent_triple: &str, http: &reqwest::Client, server: &str,...` — The agent's full execution path for one packet (Tier B, T-0632).
--  `fetch_and_cache_artifact` function L775-825 — `( http: &reqwest::Client, server: &str, api_key: &str, artifact: &cloacina::flee...` — GET the artifact from `/v1/agent/artifact/{digest}` and cache it under
--  `library_extension` function L827-835 — `() -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
--  `synthetic_package_metadata` function L842-858 — `( digest: &str, ) -> cloacina::registry::loader::package_loader::PackageMetadata` — Build a minimal `PackageMetadata` for `TaskRegistrar::register_package_tasks`.
--  `build_context` function L862-880 — `( value: &serde_json::Value, ) -> Result<cloacina::Context<serde_json::Value>, a...` — Convert the work packet's `serde_json::Value` (expected to be an Object or
--  `kind_of` function L882-891 — `(v: &serde_json::Value) -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
--  `context_to_value` function L896-903 — `(ctx: &cloacina::Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` back into a JSON object so the
--  `ws_url_for` function L909-925 — `(server: &str, agent_id: &str, ticket: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
--  `truncate` function L927-933 — `(s: &str, max: usize) -> &str` — execute, classify the outcome, return `Success`/`Failure`.
--  `_` variable L936-939 — `: fn()` — execute, classify the outcome, return `Success`/`Failure`.
--  `_assert_serialize` function L937 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `tests` module L942-1076 — `-` — execute, classify the outcome, return `Success`/`Failure`.
--  `pkt` function L946-962 — `(triple: &str) -> WorkPacket` — execute, classify the outcome, return `Success`/`Failure`.
--  `target_triple_mismatch_refuses_pre_fetch` function L969-993 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `artifact_fetch_failure_refuses` function L996-1018 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `tempdir` function L1020-1024 — `() -> std::path::PathBuf` — execute, classify the outcome, return `Success`/`Failure`.
--  `rand_suffix` function L1026-1033 — `() -> String` — execute, classify the outcome, return `Success`/`Failure`.
--  `build_context_accepts_object_or_null` function L1036-1042 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `build_context_rejects_non_object_non_null` function L1045-1048 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `context_to_value_round_trips_through_build_context` function L1051-1056 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `ws_url_for_handles_https_and_http` function L1059-1070 — `()` — execute, classify the outcome, return `Success`/`Failure`.
--  `ws_url_for_rejects_unsupported_scheme` function L1073-1075 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `run` function L109-172 — `(args: Args) -> Result<()>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `connect_and_serve` function L178-248 — `( args: &Args, http: &reqwest::Client, server_base: &str, target_triple: &str, i...` — One register→connect→serve session.
+-  `register` function L254-278 — `( http: &reqwest::Client, server: &str, api_key: &str, agent_id: &Option<String>...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `mint_ws_ticket` function L280-294 — `(http: &reqwest::Client, server: &str, api_key: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `post_result` function L296-310 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `spawn_heartbeat_loop` function L312-348 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, max_...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `receive_loop` function L355-418 — `( mut stream: tokio_tungstenite::WebSocketStream<S>, http: reqwest::Client, serv...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `handle_text_frame` function L421-496 — `( text: String, http: &reqwest::Client, server: &str, api_key: &str, agent_id: &...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `decode_packet` function L498-507 — `(env: &serde_json::Value) -> Result<WorkPacket>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `make_ack` function L509-516 — `(id: i64) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `spawn_packet_worker` function L522-561 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, targ...` — Spawn a worker that runs the full Tier-B path (triple check → fetch+cache
+-  `spawn_refusal` function L566-593 — `( http: reqwest::Client, server: String, api_key: String, agent_id: String, pack...` — Spawn a worker that POSTs a refusal + acks.
+-  `report_outcome` function L595-613 — `( http: &reqwest::Client, server: &str, api_key: &str, req: &AgentResultRequest,...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `summarize_outcome` function L615-623 — `(o: &cloacina::fleet::AgentOutcome) -> String` — execute, classify the outcome, return `Success`/`Failure`.
+-  `LOADED_RUNTIMES` variable L635-637 — `: std::sync::OnceLock< tokio::sync::Mutex<std::collections::HashMap<String, Arc<...` — Process-wide cache of loaded per-package runtimes, keyed by artifact digest
+-  `loaded_runtimes` function L639-642 — `( ) -> &'static tokio::sync::Mutex<std::collections::HashMap<String, Arc<cloacin...` — execute, classify the outcome, return `Success`/`Failure`.
+-  `fetch_source_archive` function L647-661 — `( http: &reqwest::Client, server: &str, api_key: &str, digest: &str, ) -> Result...` — Fetch the package SOURCE archive (the uploaded `.cloacina`) by digest from
+-  `load_rust_cdylib` function L665-712 — `( packet: &WorkPacket, http: &reqwest::Client, server: &str, api_key: &str, cach...` — Load a Rust cdylib package into `runtime`: fetch + cache the artifact by
+-  `load_python_package` function L719-780 — `( packet: &WorkPacket, digest: &str, http: &reqwest::Client, server: &str, api_k...` — Load a Python package into `runtime`: fetch the source archive, stage it,
+-  `process_work_packet` function L797-902 — `( packet: &WorkPacket, agent_triple: &str, http: &reqwest::Client, server: &str,...` — The agent's full execution path for one packet (Tier B, T-0632).
+-  `fetch_and_cache_artifact` function L907-957 — `( http: &reqwest::Client, server: &str, api_key: &str, artifact: &cloacina::flee...` — GET the artifact from `/v1/agent/artifact/{digest}` and cache it under
+-  `library_extension` function L959-967 — `() -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
+-  `synthetic_package_metadata` function L974-990 — `( digest: &str, ) -> cloacina::registry::loader::package_loader::PackageMetadata` — Build a minimal `PackageMetadata` for `TaskRegistrar::register_package_tasks`.
+-  `build_context` function L994-1012 — `( value: &serde_json::Value, ) -> Result<cloacina::Context<serde_json::Value>, a...` — Convert the work packet's `serde_json::Value` (expected to be an Object or
+-  `kind_of` function L1014-1023 — `(v: &serde_json::Value) -> &'static str` — execute, classify the outcome, return `Success`/`Failure`.
+-  `context_to_value` function L1028-1035 — `(ctx: &cloacina::Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` back into a JSON object so the
+-  `ws_url_for` function L1041-1057 — `(server: &str, agent_id: &str, ticket: &str) -> Result<String>` — execute, classify the outcome, return `Success`/`Failure`.
+-  `truncate` function L1059-1065 — `(s: &str, max: usize) -> &str` — execute, classify the outcome, return `Success`/`Failure`.
+-  `_` variable L1068-1071 — `: fn()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `_assert_serialize` function L1069 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `tests` module L1074-1209 — `-` — execute, classify the outcome, return `Success`/`Failure`.
+-  `pkt` function L1078-1095 — `(triple: &str) -> WorkPacket` — execute, classify the outcome, return `Success`/`Failure`.
+-  `target_triple_mismatch_refuses_pre_fetch` function L1102-1126 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `artifact_fetch_failure_refuses` function L1129-1151 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `tempdir` function L1153-1157 — `() -> std::path::PathBuf` — execute, classify the outcome, return `Success`/`Failure`.
+-  `rand_suffix` function L1159-1166 — `() -> String` — execute, classify the outcome, return `Success`/`Failure`.
+-  `build_context_accepts_object_or_null` function L1169-1175 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `build_context_rejects_non_object_non_null` function L1178-1181 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `context_to_value_round_trips_through_build_context` function L1184-1189 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `ws_url_for_handles_https_and_http` function L1192-1203 — `()` — execute, classify the outcome, return `Success`/`Failure`.
+-  `ws_url_for_rejects_unsupported_scheme` function L1206-1208 — `()` — execute, classify the outcome, return `Success`/`Failure`.
 
 ### crates/cloacina-api-types/src
 
@@ -7970,20 +7978,20 @@
 -  `FLEET_CLAIM_HEARTBEAT_INTERVAL` variable L71 — `: Duration` — How often the executor refreshes its task claim while waiting for the agent
 -  `FleetExecutor` type L99-148 — `= FleetExecutor` — and filters by tenant.
 -  `reconcile_error` function L131-147 — `( &self, event: &TaskReadyEvent, claimed_task: &ClaimedTask, retry_policy: &Retr...` — Route a pre-dispatch failure (namespace parse, task-not-loaded,
--  `FleetExecutor` type L151-603 — `impl TaskExecutor for FleetExecutor` — and filters by tenant.
--  `execute` function L152-578 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — and filters by tenant.
--  `has_capacity` function L580-585 — `(&self) -> bool` — and filters by tenant.
--  `metrics` function L587-598 — `(&self) -> ExecutorMetrics` — and filters by tenant.
--  `name` function L600-602 — `(&self) -> &str` — and filters by tenant.
--  `value_to_context` function L607-624 — `(value: serde_json::Value) -> Result<Context<serde_json::Value>, anyhow::Error>` — Convert a JSON Object (or Null) into a `Context<serde_json::Value>` to feed
--  `context_to_json` function L628-635 — `(ctx: &Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` into a JSON object for the work
--  `kind_of` function L637-646 — `(v: &serde_json::Value) -> &'static str` — and filters by tenant.
--  `_` variable L649 — `: fn(UniversalUuid)` — and filters by tenant.
--  `tests` module L652-681 — `-` — and filters by tenant.
--  `value_to_context_round_trips_an_object` function L656-661 — `()` — and filters by tenant.
--  `value_to_context_accepts_null_as_empty` function L664-667 — `()` — and filters by tenant.
--  `value_to_context_rejects_array` function L670-673 — `()` — and filters by tenant.
--  `context_to_json_round_trips_through_value_to_context` function L676-680 — `()` — and filters by tenant.
+-  `FleetExecutor` type L151-604 — `impl TaskExecutor for FleetExecutor` — and filters by tenant.
+-  `execute` function L152-579 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — and filters by tenant.
+-  `has_capacity` function L581-586 — `(&self) -> bool` — and filters by tenant.
+-  `metrics` function L588-599 — `(&self) -> ExecutorMetrics` — and filters by tenant.
+-  `name` function L601-603 — `(&self) -> &str` — and filters by tenant.
+-  `value_to_context` function L608-625 — `(value: serde_json::Value) -> Result<Context<serde_json::Value>, anyhow::Error>` — Convert a JSON Object (or Null) into a `Context<serde_json::Value>` to feed
+-  `context_to_json` function L629-636 — `(ctx: &Context<serde_json::Value>) -> serde_json::Value` — Materialize a `Context<serde_json::Value>` into a JSON object for the work
+-  `kind_of` function L638-647 — `(v: &serde_json::Value) -> &'static str` — and filters by tenant.
+-  `_` variable L650 — `: fn(UniversalUuid)` — and filters by tenant.
+-  `tests` module L653-682 — `-` — and filters by tenant.
+-  `value_to_context_round_trips_an_object` function L657-662 — `()` — and filters by tenant.
+-  `value_to_context_accepts_null_as_empty` function L665-668 — `()` — and filters by tenant.
+-  `value_to_context_rejects_array` function L671-674 — `()` — and filters by tenant.
+-  `context_to_json_round_trips_through_value_to_context` function L677-681 — `()` — and filters by tenant.
 
 #### crates/cloacina-server/src/lib.rs
 
@@ -8007,81 +8015,81 @@
 -  `runner_config_for_tenant_cache` function L241-257 — `( reconcile_interval: Option<std::time::Duration>, default_executor: &str, ) -> ...` — CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
 -  `validate_security_args` function L265-277 — `( require_signatures: bool, verification_org_id: Option<&uuid::Uuid>, ) -> Resul...` — Validate security-related CLI args at server boot.
 -  `request_id_middleware` function L1053-1081 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that generates a UUID request ID, creates a tracing span,
--  `build_router` function L1083-1277 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
--  `api_request_metrics` function L1281-1303 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
--  `health` function L1312-1314 — `() -> impl IntoResponse` — management, workflow upload, and execution APIs.
--  `ready` function L1326-1355 — `(State(state): State<AppState>) -> impl IntoResponse` — management, workflow upload, and execution APIs.
--  `metrics` function L1358-1368 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
--  `fallback_404` function L1373-1375 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns the canonical `ApiError`
--  `shutdown_signal` function L1378-1400 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L1406-1454 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L1458-1460 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L1463-3784 — `-` — management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L1471 — `: &str` — management, workflow upload, and execution APIs.
--  `shared_test_metrics_handle` function L1482-1492 — `() -> metrics_exporter_prometheus::PrometheusHandle` — One Prometheus recorder per test process, shared by every `test_state()`.
--  `HANDLE` variable L1483-1484 — `: std::sync::OnceLock<metrics_exporter_prometheus::PrometheusHandle>` — management, workflow upload, and execution APIs.
--  `shared_test_runner` function L1503-1520 — `() -> Arc<cloacina::runner::DefaultRunner>` — One shared `DefaultRunner` (+ its connection pool) for the whole test
--  `RUNNER` variable L1504-1505 — `: tokio::sync::OnceCell<Arc<cloacina::runner::DefaultRunner>>` — management, workflow upload, and execution APIs.
--  `test_state` function L1523-1563 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `test_state_with_signature_required` function L1568-1578 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
--  `create_test_api_key` function L1581-1589 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L1592-1607 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_request_id_header_present` function L1613-1639 — `()` — management, workflow upload, and execution APIs.
--  `test_health_returns_200` function L1645-1657 — `()` — management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L1661-1673 — `()` — management, workflow upload, and execution APIs.
--  `test_metrics_returns_prometheus_format` function L1677-1745 — `()` — management, workflow upload, and execution APIs.
--  `test_scheduler_loop_metrics_emit` function L1749-1825 — `()` — management, workflow upload, and execution APIs.
--  `test_supervisor_health_metrics_emit` function L1829-1913 — `()` — management, workflow upload, and execution APIs.
--  `test_accumulator_metrics_emit` function L1917-1993 — `()` — management, workflow upload, and execution APIs.
--  `test_reactor_metrics_emit` function L1997-2074 — `()` — management, workflow upload, and execution APIs.
--  `test_ws_metrics_emit` function L2078-2157 — `()` — management, workflow upload, and execution APIs.
--  `test_persist_failure_metrics_emit` function L2161-2231 — `()` — management, workflow upload, and execution APIs.
--  `test_i0099_cardinality_within_ceiling` function L2244-2555 — `()` — I-0099 cardinality guard — assert that every `cloacina_*` metric
--  `test_api_request_duration_histogram_emitted` function L2559-2603 — `()` — management, workflow upload, and execution APIs.
--  `test_unprefixed_auth_route_returns_404` function L2616-2631 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
--  `test_auth_no_token_returns_401` function L2637-2649 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L2653-2666 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L2670-2683 — `()` — management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L2687-2700 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L2706-2724 — `()` — management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L2728-2744 — `()` — management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L2748-2763 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L2767-2792 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L2796-2811 — `()` — management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L2815-2829 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L2835-2864 — `()` — management, workflow upload, and execution APIs.
--  `test_list_tenants` function L2868-2888 — `()` — management, workflow upload, and execution APIs.
--  `test_tenant_runner_cache_lru_evicts_oldest` function L2898-2988 — `()` — CLOACI-T-0580: LRU eviction.
--  `test_remove_tenant_idempotent_retry` function L2996-3050 — `()` — CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
--  `test_tenant_runners_share_inventory_arc` function L3058-3143 — `()` — CLOACI-T-0580: two per-tenant runners constructed through the
--  `test_remove_tenant_nonexistent_succeeds` function L3147-3163 — `()` — management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L3167-3203 — `()` — management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L3207-3222 — `()` — management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L3228-3242 — `()` — management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L3246-3259 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L3263-3287 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L3291-3315 — `()` — management, workflow upload, and execution APIs.
--  `fixture_path` function L3318-3323 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L3326-3337 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L3340-3350 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L3354-3380 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L3384-3410 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L3414-3434 — `()` — management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L3440-3454 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L3458-3471 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L3475-3489 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L3493-3506 — `()` — management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L3510-3525 — `()` — management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L3529-3547 — `()` — management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L3553-3567 — `()` — management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L3571-3584 — `()` — management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L3590-3602 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_unsigned_with_require_signatures_returns_403` function L3614-3647 — `()` — management, workflow upload, and execution APIs.
--  `test_upload_signed_with_require_signatures_passes_verification` function L3651-3742 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_default_passes` function L3747-3750 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_org_without_require_passes` function L3753-3758 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_with_org_passes` function L3761-3765 — `()` — management, workflow upload, and execution APIs.
--  `validate_security_args_require_without_org_fails` function L3768-3783 — `()` — management, workflow upload, and execution APIs.
+-  `build_router` function L1083-1281 — `(state: AppState) -> Router` — management, workflow upload, and execution APIs.
+-  `api_request_metrics` function L1285-1307 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that counts API requests by method and status code, and records
+-  `health` function L1316-1318 — `() -> impl IntoResponse` — management, workflow upload, and execution APIs.
+-  `ready` function L1330-1359 — `(State(state): State<AppState>) -> impl IntoResponse` — management, workflow upload, and execution APIs.
+-  `metrics` function L1362-1372 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
+-  `fallback_404` function L1377-1379 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns the canonical `ApiError`
+-  `shutdown_signal` function L1382-1404 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L1410-1458 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L1462-1464 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L1467-3788 — `-` — management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L1475 — `: &str` — management, workflow upload, and execution APIs.
+-  `shared_test_metrics_handle` function L1486-1496 — `() -> metrics_exporter_prometheus::PrometheusHandle` — One Prometheus recorder per test process, shared by every `test_state()`.
+-  `HANDLE` variable L1487-1488 — `: std::sync::OnceLock<metrics_exporter_prometheus::PrometheusHandle>` — management, workflow upload, and execution APIs.
+-  `shared_test_runner` function L1507-1524 — `() -> Arc<cloacina::runner::DefaultRunner>` — One shared `DefaultRunner` (+ its connection pool) for the whole test
+-  `RUNNER` variable L1508-1509 — `: tokio::sync::OnceCell<Arc<cloacina::runner::DefaultRunner>>` — management, workflow upload, and execution APIs.
+-  `test_state` function L1527-1567 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `test_state_with_signature_required` function L1572-1582 — `( verification_org_id: cloacina::UniversalUuid, ) -> AppState` — Create a test AppState with `require_signatures = true` and a known
+-  `create_test_api_key` function L1585-1593 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L1596-1611 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_request_id_header_present` function L1617-1643 — `()` — management, workflow upload, and execution APIs.
+-  `test_health_returns_200` function L1649-1661 — `()` — management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L1665-1677 — `()` — management, workflow upload, and execution APIs.
+-  `test_metrics_returns_prometheus_format` function L1681-1749 — `()` — management, workflow upload, and execution APIs.
+-  `test_scheduler_loop_metrics_emit` function L1753-1829 — `()` — management, workflow upload, and execution APIs.
+-  `test_supervisor_health_metrics_emit` function L1833-1917 — `()` — management, workflow upload, and execution APIs.
+-  `test_accumulator_metrics_emit` function L1921-1997 — `()` — management, workflow upload, and execution APIs.
+-  `test_reactor_metrics_emit` function L2001-2078 — `()` — management, workflow upload, and execution APIs.
+-  `test_ws_metrics_emit` function L2082-2161 — `()` — management, workflow upload, and execution APIs.
+-  `test_persist_failure_metrics_emit` function L2165-2235 — `()` — management, workflow upload, and execution APIs.
+-  `test_i0099_cardinality_within_ceiling` function L2248-2559 — `()` — I-0099 cardinality guard — assert that every `cloacina_*` metric
+-  `test_api_request_duration_histogram_emitted` function L2563-2607 — `()` — management, workflow upload, and execution APIs.
+-  `test_unprefixed_auth_route_returns_404` function L2620-2635 — `()` — Regression for T-0557 Bug 1: T-0449 nested every authenticated
+-  `test_auth_no_token_returns_401` function L2641-2653 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L2657-2670 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L2674-2687 — `()` — management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L2691-2704 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L2710-2728 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L2732-2748 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L2752-2767 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L2771-2796 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L2800-2815 — `()` — management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L2819-2833 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L2839-2868 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L2872-2892 — `()` — management, workflow upload, and execution APIs.
+-  `test_tenant_runner_cache_lru_evicts_oldest` function L2902-2992 — `()` — CLOACI-T-0580: LRU eviction.
+-  `test_remove_tenant_idempotent_retry` function L3000-3054 — `()` — CLOACI-T-0581: re-running `remove_tenant` on the same tenant is
+-  `test_tenant_runners_share_inventory_arc` function L3062-3147 — `()` — CLOACI-T-0580: two per-tenant runners constructed through the
+-  `test_remove_tenant_nonexistent_succeeds` function L3151-3167 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L3171-3207 — `()` — management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L3211-3226 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L3232-3246 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L3250-3263 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L3267-3291 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L3295-3319 — `()` — management, workflow upload, and execution APIs.
+-  `fixture_path` function L3322-3327 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L3330-3341 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L3344-3354 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L3358-3384 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L3388-3414 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L3418-3438 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L3444-3458 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L3462-3475 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L3479-3493 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L3497-3510 — `()` — management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L3514-3529 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L3533-3551 — `()` — management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L3557-3571 — `()` — management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L3575-3588 — `()` — management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L3594-3606 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_unsigned_with_require_signatures_returns_403` function L3618-3651 — `()` — management, workflow upload, and execution APIs.
+-  `test_upload_signed_with_require_signatures_passes_verification` function L3655-3746 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_default_passes` function L3751-3754 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_org_without_require_passes` function L3757-3762 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_with_org_passes` function L3765-3769 — `()` — management, workflow upload, and execution APIs.
+-  `validate_security_args_require_without_org_fails` function L3772-3787 — `()` — management, workflow upload, and execution APIs.
 
 #### crates/cloacina-server/src/main.rs
 
@@ -8136,11 +8144,12 @@
 - pub `heartbeat_agent` function L110-129 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `POST /v1/agent/heartbeat`
 - pub `report_result` function L140-188 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `POST /v1/agent/result`
 - pub `fetch_artifact` function L197-226 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `GET /v1/agent/artifact/{digest}` — content-addressed cdylib fetch.
-- pub `list_agents` function L242-266 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — T-0631 the result endpoint accepts + logs.
+- pub `fetch_source` function L234-260 — `( State(state): State<AppState>, Extension(_auth): Extension<AuthenticatedKey>, ...` — `GET /v1/agent/source/{digest}` — content-addressed package SOURCE fetch
+- pub `list_agents` function L276-300 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — T-0631 the result endpoint accepts + logs.
 -  `require_protocol_version` function L52-64 — `(version: u32) -> Result<(), ApiError>` — T-0631 the result endpoint accepts + logs.
--  `tests` module L269-286 — `-` — T-0631 the result endpoint accepts + logs.
--  `host_target_triple_is_arch_os_format` function L273-279 — `()` — T-0631 the result endpoint accepts + logs.
--  `require_protocol_version_accepts_current` function L282-285 — `()` — T-0631 the result endpoint accepts + logs.
+-  `tests` module L303-320 — `-` — T-0631 the result endpoint accepts + logs.
+-  `host_target_triple_is_arch_os_format` function L307-313 — `()` — T-0631 the result endpoint accepts + logs.
+-  `require_protocol_version_accepts_current` function L316-319 — `()` — T-0631 the result endpoint accepts + logs.
 
 #### crates/cloacina-server/src/routes/auth.rs
 

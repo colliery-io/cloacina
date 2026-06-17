@@ -4,15 +4,15 @@ level: task
 title: "Publish operational metrics over WS — event-driven Operations UI instead of polling"
 short_code: "CLOACI-T-0718"
 created_at: 2026-06-17T02:27:31.574720+00:00
-updated_at: 2026-06-17T02:27:31.574720+00:00
+updated_at: 2026-06-17T03:55:56.412713+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -56,21 +56,25 @@ the UI subscribes once".
 
 ## Acceptance Criteria
 
-- [ ] An operational-metrics channel/topic on the existing WS substrate that the
-      UI can subscribe to once and receive server/compiler/scheduler/fleet/
-      reconciler status without per-tile polling.
-- [ ] The Operations page tiles update from pushed events; the per-tile ~5s
-      `useQuery` pollers are removed (or fall back to poll only when the WS is
-      disconnected).
-- [ ] Updates are pushed on meaningful change (fleet roster churn, build-status
-      transition, reconcile activity) and/or on a coarse server-side tick — not
-      driven by client timers.
-- [ ] Reconnect / resync behaves like the execution stream: on WS drop the UI
-      reconnects and re-receives current state (no permanently stale tiles).
-- [ ] Multi-tenant scoping is respected — a client only receives metrics for
-      tenants it is authorized for, consistent with the existing WS auth model.
-- [ ] Documented WS message shape for the metrics envelope (mirrors the
-      execution-event envelope / `ws-protocol.md`).
+- [x] An operational-metrics channel on the existing WS substrate the UI
+      subscribes to once and receives server/compiler/fleet/reconciler status
+      without per-tile polling. ✅ `ops_metrics:global`, SDK `followOpsMetrics`.
+- [x] The Operations page tiles update from pushed events; the per-tile ~5s
+      pollers are removed. ✅ `useFleet`/`useCompilerStatus` deleted; the page
+      uses `useLiveOpsMetrics`. (`useServerHealth` kept ONLY for the always-on
+      header liveness dot — a single `/health` probe, not a tile poller.)
+- [x] Updates are pushed on a coarse server-side tick (~5s), not client timers.
+      ✅ And the publish is gated on a connected subscriber, so nothing is
+      gathered/pushed when no Operations page is open.
+- [x] Reconnect / resync behaves like the execution stream. ✅ Reuses the SDK
+      `subscribeDelivery` (ticket re-mint + reconnect/backoff); ops metrics are
+      latest-snapshot so a fresh push supersedes any missed one.
+- [x] Tenant scoping respected. ✅ `ops_metrics:global` is tenant `None`; the
+      sink matches `(recipient, tenant)` exactly, so only admin keys
+      (`tenant_id=None`) receive it — same fence as the admin REST endpoints.
+- [x] Message shape documented. ✅ `OpsMetricsEvent` in
+      `cloacina-api-types::operations` (kind `"ops_metrics"` on the standard
+      delivery `Push` envelope).
 
 ## Implementation Notes
 
@@ -131,3 +135,55 @@ health is reactive, not polled. Relates to the broader visibility overhaul
   tile ([[CLOACI-T-0717]]) are poll-based, while the WS push substrate
   ([[CLOACI-I-0115]]) used for execution events ([[CLOACI-T-0656]]) is the
   natural transport to move them onto.
+
+- 2026-06-17: ACTIVE. Scope = **substrate + all ops tiles** (server/compiler/
+  fleet/reconciler). **Absorbs CLOACI-T-0717** (reconciler = one field in the
+  ops payload, no separate poller). **CLOACI-T-0719** reuses this pattern next.
+
+  **Design — direct WS publish, NO outbox rows.** Ops metrics are ephemeral
+  latest-snapshot; the durable `delivery_outbox` (NOTIFY + sweeper + no retention)
+  is the wrong tool and would leak rows. Instead publish straight to the
+  in-memory `WsDeliverySink` (the `(recipient,tenant)→mpsc::Sender<ServerMessage>`
+  registry the WS handler already pumps to the socket), bypassing the outbox +
+  relay entirely:
+  - `WsDeliverySink::push_direct(recipient, tenant, ServerMessage)` → send to the
+    connected sender if present, no-op otherwise (subscriber-gating for free,
+    zero rows when no Operations page is open).
+  - Reuse everything else: same `/v1/ws/delivery/ops_metrics:global` route, same
+    ticket auth, same SDK `subscribeDelivery`/resync. The durable outbox is
+    untouched — still the right tool for execution events / work packets.
+  - Scope/auth: recipient `ops_metrics:global`, tenant `None` (admin keys are
+    `tenant_id=None`; sink matches `(recipient,tenant)` exactly → admin-only,
+    same fence as the REST endpoints).
+  - Push `id`: monotonic counter (NOT a DB row id) for the SDK's dedup; the
+    client `ack` lands on `mark_acked(<unknown id>)` → benign no-op.
+  - Publisher: dedicated `tokio` task (~5s tick) gathering ServerHealth
+    (db/graph ready) + `build_queue_stats` (compiler) + `agent_registry.snapshot()`
+    (fleet) + a DB-cheap reconciler signal (success/failed package counts +
+    last_built_at); calls `push_direct`.
+
+  ### Plan
+  1. api-types: `OpsMetricsEvent { server, compiler, fleet, reconciler, ts }`
+     (reuse `CompilerStatus`, `AgentInfo`; add `ServerHealthLite`,
+     `ReconcilerStatus`).
+  2. sink: `push_direct(recipient, tenant, ServerMessage) -> bool` +
+     `has_recipient` (for an optional skip-gather optimization).
+  3. server: `ops_metrics.rs` publisher; spawn in lib.rs; monotonic id counter.
+  4. SDK: `followOpsMetrics(client, scope)` over `subscribeDelivery`.
+  5. UI: `useLiveOpsMetrics()` replacing the 4 pollers; tiles push-driven +
+     reconciler tile.
+  6. Build/deploy/verify the Operations page updates live with no polling.
+
+- 2026-06-17: DONE + verified. Implemented exactly the direct-WS-publish design.
+  Files: `cloacina-api-types/src/operations.rs` (`OpsMetricsEvent`,
+  `ServerHealthLite`, `ReconcilerStatus`); `workflow_registry::reconciler_stats`
+  (built/failed/last_built); `WsDeliverySink::{push_direct,has_recipient}`;
+  `cloacina-server/src/ops_metrics.rs` (publisher) + spawn in lib.rs; SDK
+  `followOpsMetrics`; UI `useLiveOpsMetrics` + rewritten `Operations.tsx`
+  (4 push-driven tiles incl the new **Reconciler** tile — **T-0717 absorbed**).
+  Verified on the demo: Operations page shows LIVE + "updated just now", all
+  tiles populated (Reconciler: built/available 10, 0 failed; Fleet: 3 agents
+  with live heartbeats), and `SELECT COUNT(*) FROM delivery_outbox WHERE
+  recipient LIKE 'ops_metrics%'` = **0** (no durable rows accrued).
+  ACCEPTANCE MET. CLOACI-T-0719 will reuse this same direct-push pattern as a
+  per-task-state channel.

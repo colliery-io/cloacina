@@ -25,6 +25,7 @@ pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
 pub mod openapi;
+pub mod ops_metrics;
 pub mod routes;
 pub mod tenant_runner_cache;
 
@@ -786,6 +787,12 @@ pub async fn run(
 
     // Bootstrap: create initial admin key if none exist
     bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
+
+    // Operational-metrics publisher (CLOACI-T-0718): pushes server/compiler/
+    // fleet/reconciler snapshots to a subscribed Operations UI over the WS
+    // substrate (direct sink push, not the durable outbox). No-op when nothing
+    // is subscribed.
+    crate::ops_metrics::spawn(state.clone(), substrate_shutdown_rx.clone());
 
     // Fleet executor registration (CLOACI-I-0114 / T-0633, T-0640). Only wired
     // up when the operator opts into the fleet via `--default-executor fleet`;

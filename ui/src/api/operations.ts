@@ -14,14 +14,17 @@
  *  limitations under the License.
  */
 
+import { followOpsMetrics } from "@cloacina/client";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
-import { useAuth } from "../auth/AuthContext";
+import { useAuth, useClient } from "../auth/AuthContext";
 
 /**
- * Operations/health hooks (CLOACI-I-0124 / WS-2). These hit operator endpoints
- * the generated SDK doesn't expose yet, so we call them directly off the active
- * connection. All poll on a slow interval — ops state changes slowly.
+ * Operations/health hooks (CLOACI-I-0124 / WS-2). The Operations page consumes
+ * `useLiveOpsMetrics` — a single WS subscription pushed from the server
+ * (CLOACI-T-0718) — instead of per-tile polling. `useServerHealth` remains a
+ * light poll for the always-on header liveness dot.
  */
 
 export type AgentInfo = {
@@ -51,6 +54,26 @@ export type ServerHealth = {
   ready: boolean;
   /** 503 reason from `/ready`, when not ready. */
   reason: string | null;
+};
+
+export type ReconcilerStatus = {
+  /** `"ok"` (no build failures) or `"errors"`. */
+  status: string;
+  /** Packages built successfully and available to load. */
+  built: number;
+  /** Packages whose latest build failed. */
+  failed: number;
+  /** RFC 3339 timestamp of the most recent successful build. */
+  last_built_at: string | null;
+};
+
+/** One operational-metrics snapshot pushed over WS (CLOACI-T-0718). */
+export type OpsMetrics = {
+  server: ServerHealth;
+  compiler: CompilerStatus;
+  fleet: AgentInfo[];
+  reconciler: ReconcilerStatus;
+  ts: string;
 };
 
 function base(serverUrl: string): string {
@@ -92,37 +115,34 @@ export function useServerHealth() {
   });
 }
 
-/** Execution-agent fleet roster (`GET /v1/agents`, admin). */
-export function useFleet() {
-  const { connection } = useAuth();
-  return useQuery({
-    queryKey: ["ops", "fleet", connection?.serverUrl],
-    enabled: !!connection,
-    refetchInterval: POLL,
-    queryFn: async (): Promise<AgentInfo[]> => {
-      const res = await fetch(`${base(connection!.serverUrl)}/v1/agents`, {
-        headers: { Authorization: `Bearer ${connection!.apiKey}` },
-      });
-      if (!res.ok) throw new Error(`Failed to load fleet (${res.status})`);
-      const body = await res.json();
-      return (body.items ?? body) as AgentInfo[];
-    },
-  });
-}
+/**
+ * Live operational metrics over WS (CLOACI-T-0718) — the Operations page's
+ * single source for the compiler / fleet / reconciler / server tiles, replacing
+ * the per-tile pollers. The server pushes a fresh snapshot every few seconds
+ * while subscribed; this returns the latest, or `null` until the first arrives
+ * (and across a reconnect the SDK re-subscribes automatically). `enabled` gates
+ * the subscription to when the page is mounted.
+ */
+export function useLiveOpsMetrics(enabled: boolean): OpsMetrics | null {
+  const client = useClient();
+  const [metrics, setMetrics] = useState<OpsMetrics | null>(null);
 
-/** Compiler / build-pipeline status (`GET /v1/compiler/status`, admin). */
-export function useCompilerStatus() {
-  const { connection } = useAuth();
-  return useQuery({
-    queryKey: ["ops", "compiler", connection?.serverUrl],
-    enabled: !!connection,
-    refetchInterval: POLL,
-    queryFn: async (): Promise<CompilerStatus> => {
-      const res = await fetch(`${base(connection!.serverUrl)}/v1/compiler/status`, {
-        headers: { Authorization: `Bearer ${connection!.apiKey}` },
-      });
-      if (!res.ok) throw new Error(`Failed to load compiler status (${res.status})`);
-      return res.json();
-    },
-  });
+  useEffect(() => {
+    if (!enabled) return;
+    setMetrics(null);
+    const controller = new AbortController();
+    (async () => {
+      try {
+        for await (const ev of followOpsMetrics(client, { signal: controller.signal })) {
+          setMetrics(ev as OpsMetrics);
+        }
+      } catch {
+        // Aborted on unmount, or a terminal stream error — the SDK reconnects
+        // internally; on unmount we simply stop.
+      }
+    })();
+    return () => controller.abort();
+  }, [client, enabled]);
+
+  return metrics;
 }
