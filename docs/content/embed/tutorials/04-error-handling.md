@@ -19,8 +19,6 @@ A task that returns an error (Rust) or raises (Python) is marked failed. Configu
 {{< tab "Rust" >}}
 ```rust
 #[task(
-    id = "flaky",
-    dependencies = [],
     retry_attempts = 3,
     retry_backoff = "exponential",
     retry_delay_ms = 500,
@@ -34,7 +32,6 @@ pub async fn flaky(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError
 {{< tab "Python" >}}
 ```python
 @cloaca.task(
-    id="flaky",
     retry_attempts=3,
     retry_backoff="exponential",
     retry_delay_ms=500,

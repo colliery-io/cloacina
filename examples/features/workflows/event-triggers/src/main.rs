@@ -64,7 +64,7 @@ pub mod file_processing_workflow {
     use super::*;
 
     /// Validates and parses an incoming file.
-    #[task(id = "validate_file", dependencies = [])]
+    #[task]
     pub async fn validate_file(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         // Clone string value to avoid borrow issues
         let filename = context
@@ -87,7 +87,7 @@ pub mod file_processing_workflow {
     }
 
     /// Processes the validated file data.
-    #[task(id = "process_file", dependencies = ["validate_file"])]
+    #[task(dependencies = ["validate_file"])]
     pub async fn process_file(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let filename = context
             .get("filename")
@@ -112,7 +112,7 @@ pub mod file_processing_workflow {
     }
 
     /// Archives the processed file.
-    #[task(id = "archive_file", dependencies = ["process_file"])]
+    #[task(dependencies = ["process_file"])]
     pub async fn archive_file(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let filename = context
             .get("filename")
@@ -145,7 +145,7 @@ pub mod queue_processing_workflow {
     use super::*;
 
     /// Drains messages from the queue.
-    #[task(id = "drain_queue", dependencies = [])]
+    #[task]
     pub async fn drain_queue(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let queue_name = context
             .get("queue_name")
@@ -172,7 +172,7 @@ pub mod queue_processing_workflow {
     }
 
     /// Processes the drained messages.
-    #[task(id = "process_messages", dependencies = ["drain_queue"])]
+    #[task(dependencies = ["drain_queue"])]
     pub async fn process_messages(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -194,7 +194,7 @@ pub mod queue_processing_workflow {
     }
 
     /// Acknowledges processed messages.
-    #[task(id = "ack_messages", dependencies = ["process_messages"])]
+    #[task(dependencies = ["process_messages"])]
     pub async fn ack_messages(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let messages_processed = context
             .get("messages_processed")
@@ -228,7 +228,7 @@ pub mod service_recovery_workflow {
     use super::*;
 
     /// Diagnoses the service failure.
-    #[task(id = "diagnose_failure", dependencies = [])]
+    #[task]
     pub async fn diagnose_failure(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -258,7 +258,7 @@ pub mod service_recovery_workflow {
     }
 
     /// Attempts to restart the service.
-    #[task(id = "restart_service", dependencies = ["diagnose_failure"])]
+    #[task(dependencies = ["diagnose_failure"])]
     pub async fn restart_service(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -281,7 +281,7 @@ pub mod service_recovery_workflow {
     }
 
     /// Verifies service health after restart.
-    #[task(id = "verify_recovery", dependencies = ["restart_service"])]
+    #[task(dependencies = ["restart_service"])]
     pub async fn verify_recovery(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -307,7 +307,7 @@ pub mod service_recovery_workflow {
     }
 
     /// Sends notification about the incident.
-    #[task(id = "notify_incident", dependencies = ["verify_recovery"])]
+    #[task(dependencies = ["verify_recovery"])]
     pub async fn notify_incident(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {

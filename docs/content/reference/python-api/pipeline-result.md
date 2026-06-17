@@ -135,7 +135,7 @@ for task_id, task_result in task_results.items():
 import cloaca
 from datetime import datetime
 
-@cloaca.task(id="process_data")
+@cloaca.task()
 def process_data(context):
     """Example task that processes data."""
     input_data = context.get("input_data", [])

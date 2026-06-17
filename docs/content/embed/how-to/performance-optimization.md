@@ -171,7 +171,7 @@ def memory_efficient_processing(context):
 import asyncio
 import aiohttp
 
-@cloaca.task(id="optimized_api_calls")
+@cloaca.task()
 async def optimized_api_calls(context):
     urls = context.get("urls", [])
     max_concurrent = context.get("max_concurrent_requests", 10)
@@ -201,7 +201,7 @@ async def optimized_api_calls(context):
 ```python
 from contextlib import asynccontextmanager
 
-@cloaca.task(id="resource_managed_task")
+@cloaca.task()
 async def resource_managed_task(context):
     # Properly manage resources
     @asynccontextmanager
@@ -251,7 +251,7 @@ class ResultCache:
 # Global cache instance
 result_cache = ResultCache()
 
-@cloaca.task(id="cached_expensive_task")
+@cloaca.task()
 def cached_expensive_task(context):
     cache_key = result_cache.cache_key(context, "cached_expensive_task")
 
@@ -281,7 +281,7 @@ import redis
 # Redis-based caching for distributed systems
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
-@cloaca.task(id="redis_cached_task")
+@cloaca.task()
 def redis_cached_task(context):
     cache_key = f"task_result:{context.get('input_hash')}"
     ttl = 3600  # 1 hour cache
@@ -313,7 +313,7 @@ import time
 import psutil
 from datetime import datetime
 
-@cloaca.task(id="monitored_task")
+@cloaca.task()
 def monitored_task(context):
     # Start monitoring
     start_time = time.time()
@@ -402,7 +402,7 @@ def execute_with_tracking(runner, workflow_name, context):
 ### Efficient Batch Design
 
 ```python
-@cloaca.task(id="optimized_batch_processor")
+@cloaca.task()
 def optimized_batch_processor(context):
     items = context.get("items", [])
     batch_size = context.get("batch_size", 100)

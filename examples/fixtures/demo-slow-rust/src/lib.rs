@@ -69,35 +69,35 @@ pub mod demo_slow_workflow {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
 
-    #[task(id = "ingest", dependencies = [], retry_attempts = 0)]
+    #[task(retry_attempts = 0)]
     pub async fn ingest(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         pause(context, 3_000, 1_500); // ~1.5–4.5s
         context.insert("ingest_done", serde_json::json!(true))?;
         Ok(())
     }
 
-    #[task(id = "validate", dependencies = ["ingest"], retry_attempts = 0)]
+    #[task(dependencies = ["ingest"], retry_attempts = 0)]
     pub async fn validate(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         pause(context, 4_000, 2_000); // ~2–6s
         context.insert("validate_done", serde_json::json!(true))?;
         Ok(())
     }
 
-    #[task(id = "transform", dependencies = ["validate"], retry_attempts = 0)]
+    #[task(dependencies = ["validate"], retry_attempts = 0)]
     pub async fn transform(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         pause(context, 12_000, 5_000); // ~7–17s — the deliberate hot-spot
         context.insert("transform_done", serde_json::json!(true))?;
         Ok(())
     }
 
-    #[task(id = "aggregate", dependencies = ["transform"], retry_attempts = 0)]
+    #[task(dependencies = ["transform"], retry_attempts = 0)]
     pub async fn aggregate(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         pause(context, 5_000, 2_500); // ~2.5–7.5s
         context.insert("aggregate_done", serde_json::json!(true))?;
         Ok(())
     }
 
-    #[task(id = "publish", dependencies = ["aggregate"], retry_attempts = 0)]
+    #[task(dependencies = ["aggregate"], retry_attempts = 0)]
     pub async fn publish(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         pause(context, 3_000, 1_500); // ~1.5–4.5s
         context.insert("demo_slow_complete", serde_json::json!(true))?;

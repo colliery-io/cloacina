@@ -128,13 +128,13 @@ use cloacina::*;
 mod data_processing {
     use super::*;
 
-    #[task(id = "extract", dependencies = [])]
+    #[task]
     async fn extract(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("data", serde_json::json!(42))?;
         Ok(())
     }
 
-    #[task(id = "transform", dependencies = ["extract"])]
+    #[task(dependencies = ["extract"])]
     async fn transform(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let data = context.get("data").unwrap().as_i64().unwrap();
         context.insert("result", serde_json::json!(data * 2))?;
@@ -162,13 +162,13 @@ use cloacina_workflow::{task, workflow, Context, TaskError};
 pub mod data_processing {
     use super::*;
 
-    #[task(id = "extract", dependencies = [])]
+    #[task]
     pub async fn extract(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("data", serde_json::json!(42))?;
         Ok(())
     }
 
-    #[task(id = "transform", dependencies = ["extract"])]
+    #[task(dependencies = ["extract"])]
     pub async fn transform(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let data = context.get("data").unwrap().as_i64().unwrap();
         context.insert("result", serde_json::json!(data * 2))?;

@@ -58,7 +58,7 @@ use tracing::info;
 pub mod alert_workflow {
     use super::*;
 
-    #[task(id = "emit_alert", dependencies = [])]
+    #[task]
     pub async fn emit_alert(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let value = context
             .get("value")

@@ -202,9 +202,10 @@ impl Parse for TaskAttributes {
             }
         }
 
-        let id = id.ok_or_else(|| {
-            syn::Error::new(Span::call_site(), "task macro requires 'id' attribute")
-        })?;
+        // `id` is optional (CLOACI-T-0732): when omitted it defaults to the
+        // function name. The default is resolved at expansion time where the fn
+        // ident is available (an empty string here is the "not provided" sentinel).
+        let id = id.unwrap_or_default();
 
         Ok(TaskAttributes {
             id,
@@ -1016,6 +1017,17 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
             .to_compile_error()
             .into();
         }
+    };
+
+    // Default `id` to the function name when not explicitly provided
+    // (CLOACI-T-0732). Resolved here, where both the parsed attrs and the
+    // function ident are available, so a bare `#[task]` is valid.
+    let attrs = {
+        let mut attrs = attrs;
+        if attrs.id.is_empty() {
+            attrs.id = input_fn.sig.ident.to_string();
+        }
+        attrs
     };
 
     // PHASE 1: Register task in compile-time registry and validate

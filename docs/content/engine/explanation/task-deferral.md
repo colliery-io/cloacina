@@ -46,7 +46,7 @@ Deferred tasks park as cheap futures. Slots serve real work.
 `TaskHandle` is an optional second parameter on `#[task]` functions. Tasks that need deferral request it by adding the parameter:
 
 ```rust
-#[task(id = "wait_for_data", dependencies = [])]
+#[task]
 pub async fn wait_for_data(
     context: &mut Context<serde_json::Value>,
     handle: &mut TaskHandle,

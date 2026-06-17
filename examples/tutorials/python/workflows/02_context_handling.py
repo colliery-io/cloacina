@@ -30,7 +30,7 @@ with cloaca.WorkflowBuilder("data_pipeline") as builder:
     builder.description("Complete data extraction, transformation, validation, and reporting pipeline")
 
     # Tasks are automatically registered when defined within WorkflowBuilder context
-    @cloaca.task(id="extract_data")
+    @cloaca.task()
     def extract_data(context):
         """Extract raw data from a simulated source."""
         print("Extracting data...")
@@ -53,7 +53,7 @@ with cloaca.WorkflowBuilder("data_pipeline") as builder:
         print(f"Extracted {len(raw_data['users'])} users")
         return context
 
-    @cloaca.task(id="transform_data", dependencies=["extract_data"])
+    @cloaca.task(dependencies=["extract_data"])
     def transform_data(context):
         """Transform the raw data into a processed format."""
         print("Transforming data...")
@@ -117,7 +117,7 @@ with cloaca.WorkflowBuilder("data_pipeline") as builder:
 
         return context
 
-    @cloaca.task(id="validate_data", dependencies=["transform_data"])
+    @cloaca.task(dependencies=["transform_data"])
     def validate_data(context):
         """Validate the transformed data meets quality standards."""
         print("Validating data...")
@@ -191,7 +191,7 @@ with cloaca.WorkflowBuilder("data_pipeline") as builder:
 
         return context
 
-    @cloaca.task(id="generate_report", dependencies=["validate_data"])
+    @cloaca.task(dependencies=["validate_data"])
     def generate_report(context):
         """Generate a final report combining all data."""
         print("Generating report...")

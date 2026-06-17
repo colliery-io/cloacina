@@ -23,12 +23,12 @@ Workflows are created using the WorkflowBuilder:
 import cloaca
 
 # Define tasks
-@cloaca.task(id="task_a")
+@cloaca.task()
 def task_a(context):
     context.set("step", "A completed")
     return context
 
-@cloaca.task(id="task_b", dependencies=["task_a"])
+@cloaca.task(dependencies=["task_a"])
 def task_b(context):
     previous_step = context.get("step")
     context.set("step", f"{previous_step}, B completed")
@@ -156,21 +156,21 @@ etl_workflow = create_etl_workflow()
 Workflows support parallel execution of independent tasks:
 
 ```python
-@cloaca.task(id="fetch_users")
+@cloaca.task()
 def fetch_users(context):
     # Simulate API call
     users = [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
     context.set("users", users)
     return context
 
-@cloaca.task(id="fetch_orders")
+@cloaca.task()
 def fetch_orders(context):
     # Simulate API call
     orders = [{"id": 101, "user_id": 1}, {"id": 102, "user_id": 2}]
     context.set("orders", orders)
     return context
 
-@cloaca.task(id="merge_data", dependencies=["fetch_users", "fetch_orders"])
+@cloaca.task(dependencies=["fetch_users", "fetch_orders"])
 def merge_data(context):
     users = context.get("users")
     orders = context.get("orders")
@@ -210,7 +210,7 @@ def create_parallel_workflow():
 Workflows handle task failures gracefully:
 
 ```python
-@cloaca.task(id="risky_task")
+@cloaca.task()
 def risky_task(context):
     """Task that might fail."""
     try:
@@ -225,7 +225,7 @@ def risky_task(context):
 
     return context
 
-@cloaca.task(id="handle_errors", dependencies=["risky_task"])
+@cloaca.task(dependencies=["risky_task"])
 def handle_errors(context):
     """Handle errors from previous tasks."""
     if context.get("success"):

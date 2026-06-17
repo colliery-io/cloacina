@@ -33,7 +33,7 @@ use tracing::info;
 pub mod report_workflow {
     use super::*;
 
-    #[task(id = "generate_report", dependencies = [])]
+    #[task]
     pub async fn generate_report(context: &mut Context<Value>) -> Result<(), TaskError> {
         info!("Generating report...");
         let report_id = format!("report_{}", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
@@ -76,7 +76,7 @@ import time
 with cloaca.WorkflowBuilder("daily_report") as builder:
     builder.description("Daily business analytics report")
 
-    @cloaca.task(id="daily_report")
+    @cloaca.task()
     def daily_report(context):
         from datetime import datetime
         report_data = {"generated_at": datetime.now().isoformat(), "total_orders": 150}

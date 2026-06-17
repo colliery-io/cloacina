@@ -71,7 +71,7 @@ a reactor-bound `ComputationGraphEntry`.
 A workflow task then invokes the graph by name:
 
 ```rust
-#[task(id = "score_inputs", invokes = "decision_graph")]
+#[task(invokes = "decision_graph")]
 async fn score_inputs(ctx: &mut Context<Value>) -> Result<(), TaskError> {
     // Task body. The graph runs after the body returns; terminal
     // outputs are written to the context as keys named after the

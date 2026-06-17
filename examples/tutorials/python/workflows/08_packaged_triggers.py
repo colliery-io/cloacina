@@ -28,7 +28,7 @@ from datetime import datetime
 with cloaca.WorkflowBuilder("data_ingest") as builder:
     builder.description("Ingest data files detected by trigger")
 
-    @cloaca.task(id="validate")
+    @cloaca.task()
     def validate(context):
         """Validate the incoming data file."""
         filename = context.get("filename", "unknown")
@@ -36,7 +36,7 @@ with cloaca.WorkflowBuilder("data_ingest") as builder:
         context.set("valid", True)
         return context
 
-    @cloaca.task(id="load", dependencies=["validate"])
+    @cloaca.task(dependencies=["validate"])
     def load(context):
         """Load validated data into the warehouse."""
         filename = context.get("filename", "unknown")

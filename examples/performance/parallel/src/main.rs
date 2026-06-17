@@ -46,10 +46,7 @@ pub mod parallel_workflow {
     use super::*;
 
     /// Initial setup task that creates data for parallel processing
-    #[task(
-        id = "setup_data",
-        dependencies = []
-    )]
+    #[task]
     pub async fn setup_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("data_batch_1", json!([1, 2, 3, 4, 5]))?;
         context.insert("data_batch_2", json!([6, 7, 8, 9, 10]))?;
@@ -60,7 +57,6 @@ pub mod parallel_workflow {
 
     /// Process batch 1 in parallel
     #[task(
-        id = "process_batch_1",
         dependencies = ["setup_data"]
     )]
     pub async fn process_batch_1(
@@ -82,7 +78,6 @@ pub mod parallel_workflow {
 
     /// Process batch 2 in parallel
     #[task(
-        id = "process_batch_2",
         dependencies = ["setup_data"]
     )]
     pub async fn process_batch_2(
@@ -104,7 +99,6 @@ pub mod parallel_workflow {
 
     /// Process batch 3 in parallel
     #[task(
-        id = "process_batch_3",
         dependencies = ["setup_data"]
     )]
     pub async fn process_batch_3(
@@ -126,7 +120,6 @@ pub mod parallel_workflow {
 
     /// Merge results from all parallel tasks
     #[task(
-        id = "merge_results",
         dependencies = ["process_batch_1", "process_batch_2", "process_batch_3"]
     )]
     pub async fn merge_results(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {

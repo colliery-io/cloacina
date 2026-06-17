@@ -45,7 +45,7 @@ pub async fn demo_poll_trigger() -> Result<TriggerResult, cloacina_workflow::Tri
 pub mod demo_poll_wf {
     use super::*;
 
-    #[task(id = "demo_poll_step", dependencies = [])]
+    #[task]
     pub async fn demo_poll_step(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("demo_poll_ran", serde_json::json!(true))?;
         Ok(())

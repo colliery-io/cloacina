@@ -324,7 +324,7 @@ context.set("error_count", 2)
 ### Safe Access Pattern
 
 ```python
-@cloaca.task(id="safe_task")
+@cloaca.task()
 def safe_task(context):
     # Safe access with defaults
     user_id = context.get("user_id", 0)
@@ -342,7 +342,7 @@ def safe_task(context):
 ### Data Transformation Pattern
 
 ```python
-@cloaca.task(id="transform_data")
+@cloaca.task()
 def transform_data(context):
     # Get input data
     raw_data = context.get("raw_data", [])
@@ -367,7 +367,7 @@ def transform_data(context):
 ### Accumulator Pattern
 
 ```python
-@cloaca.task(id="accumulate_results")
+@cloaca.task()
 def accumulate_results(context):
     # Get existing results
     all_results = context.get("all_results", [])
@@ -451,7 +451,7 @@ context.set("processing_status", "active")
 
 {{< tab "Error Handling" >}}
 ```python
-@cloaca.task(id="robust_task")
+@cloaca.task()
 def robust_task(context):
     try:
         # Validate required data

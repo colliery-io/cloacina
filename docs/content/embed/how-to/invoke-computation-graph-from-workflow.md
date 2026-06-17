@@ -60,7 +60,6 @@ use cloacina::{task, workflow, Context, TaskError};
 use serde_json::Value;
 
 #[task(
-    id = "score_inputs",
     invokes = computation_graph("decision_graph"),
 )]
 pub async fn score_inputs(ctx: &mut Context<Value>) -> Result<(), TaskError> {
@@ -93,7 +92,6 @@ If the task body has prep / cleanup work that should run on the same task invoca
 
 ```rust
 #[task(
-    id = "score_inputs",
     invokes = computation_graph("decision_graph"),
     post_invocation = enrich_output,
 )]
@@ -131,7 +129,7 @@ with cloaca.ComputationGraphBuilder("decision_graph", graph={
     builder.add_node("normalize", normalize_node)
     builder.add_node("dispatch", dispatch_node)
 
-@cloaca.task(id="score_inputs", invokes="decision_graph")
+@cloaca.task(invokes="decision_graph")
 def score_inputs(ctx):
     # Same as Rust — the decorator's expansion handles invocation wiring.
     pass

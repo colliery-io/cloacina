@@ -48,7 +48,7 @@ use serde_json::Value;
 )]
 pub struct PriceSignalTrigger;
 
-#[task(id = "process_signal")]
+#[task]
 pub async fn process_signal(ctx: &mut Context<Value>) -> Result<(), TaskError> {
     // The reactor's firing payload is injected into the task context
     // as the `reactor_payload` key. Extract whatever you need:

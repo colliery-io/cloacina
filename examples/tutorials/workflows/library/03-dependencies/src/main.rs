@@ -78,8 +78,6 @@ pub mod parallel_processing {
 
     /// Generate a large dataset of products
     #[task(
-        id = "generate_data",
-        dependencies = [],
         retry_attempts = 2
     )]
     pub async fn generate_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
@@ -108,7 +106,6 @@ pub mod parallel_processing {
 
     /// Partition the data into three chunks for parallel processing
     #[task(
-        id = "partition_data",
         dependencies = ["generate_data"],
         retry_attempts = 2
     )]
@@ -149,7 +146,6 @@ pub mod parallel_processing {
 
     /// Process the first partition of products
     #[task(
-        id = "process_partition_1",
         dependencies = ["partition_data"],
         retry_attempts = 3,
         retry_delay_ms = 1000
@@ -207,7 +203,6 @@ pub mod parallel_processing {
 
     /// Process the second partition of products
     #[task(
-        id = "process_partition_2",
         dependencies = ["partition_data"],
         retry_attempts = 3,
         retry_delay_ms = 1000
@@ -265,7 +260,6 @@ pub mod parallel_processing {
 
     /// Process the third partition of products
     #[task(
-        id = "process_partition_3",
         dependencies = ["partition_data"],
         retry_attempts = 3,
         retry_delay_ms = 1000
@@ -323,7 +317,6 @@ pub mod parallel_processing {
 
     /// Combine results from all parallel processing tasks
     #[task(
-        id = "combine_results",
         dependencies = ["process_partition_1", "process_partition_2", "process_partition_3"],
         retry_attempts = 2
     )]
@@ -459,7 +452,6 @@ pub mod parallel_processing {
 
     /// Generate final report
     #[task(
-        id = "generate_report",
         dependencies = ["combine_results"],
         retry_attempts = 2
     )]
@@ -502,7 +494,6 @@ pub mod parallel_processing {
 
     /// Send notifications
     #[task(
-        id = "send_notifications",
         dependencies = ["combine_results"],
         retry_attempts = 2
     )]
@@ -540,7 +531,6 @@ pub mod parallel_processing {
 
     /// Clean up temporary data
     #[task(
-        id = "cleanup",
         dependencies = ["generate_report", "send_notifications"],
         retry_attempts = 2
     )]

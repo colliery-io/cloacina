@@ -27,7 +27,7 @@ with cloaca.WorkflowBuilder("simple_workflow") as builder:
     builder.description("A simple three-task workflow demonstrating basic concepts")
 
     # Define tasks using the @task decorator within workflow scope
-    @cloaca.task(id="start_process")
+    @cloaca.task()
     def start_process(context):
         """Initialize the workflow with some data."""
         print("Starting the workflow...")
@@ -40,7 +40,7 @@ with cloaca.WorkflowBuilder("simple_workflow") as builder:
         print(f"Process {context.get('process_id')} initialized")
         return context
 
-    @cloaca.task(id="process_data", dependencies=["start_process"])
+    @cloaca.task(dependencies=["start_process"])
     def process_data(context):
         """Process the data from the previous task."""
         print("Processing data...")
@@ -61,7 +61,7 @@ with cloaca.WorkflowBuilder("simple_workflow") as builder:
         print(f"Processed {len(processed_items)} items for {process_id}")
         return context
 
-    @cloaca.task(id="finalize_process", dependencies=["process_data"])
+    @cloaca.task(dependencies=["process_data"])
     def finalize_process(context):
         """Finalize the workflow and generate summary."""
         print("Finalizing process...")

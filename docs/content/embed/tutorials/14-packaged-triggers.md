@@ -40,7 +40,7 @@ package would load with no tasks):
 import cloaca
 from datetime import datetime
 
-@cloaca.task(id="validate", dependencies=[])
+@cloaca.task(dependencies=[])
 def validate(context):
     """Validate the incoming data file."""
     filename = context.get("filename", "unknown")
@@ -48,7 +48,7 @@ def validate(context):
     context.set("valid", True)
     return context
 
-@cloaca.task(id="load", dependencies=["validate"])
+@cloaca.task(dependencies=["validate"])
 def load(context):
     """Load validated data into the warehouse."""
     filename = context.get("filename", "unknown")

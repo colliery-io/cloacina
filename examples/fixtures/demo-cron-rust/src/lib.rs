@@ -41,7 +41,7 @@ pub async fn demo_cron_trigger() {}
 pub mod demo_cron_wf {
     use super::*;
 
-    #[task(id = "demo_cron_step", dependencies = [])]
+    #[task]
     pub async fn demo_cron_step(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         // Sleep a *jittered* duration so each cron run lingers visibly in the
         // Running state (CLOACI-I-0124 / WS-10 demo liveness) AND so the steady

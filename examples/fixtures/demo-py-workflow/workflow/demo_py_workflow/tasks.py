@@ -8,13 +8,13 @@ from __future__ import annotations
 import cloaca
 
 
-@cloaca.task(id="prepare", dependencies=[])
+@cloaca.task(dependencies=[])
 def prepare(context):
     context.set("demo_py_prepare", True)
     return context
 
 
-@cloaca.task(id="finish", dependencies=["prepare"])
+@cloaca.task(dependencies=["prepare"])
 def finish(context):
     context.set("demo_py_workflow_ran", True)
     return context

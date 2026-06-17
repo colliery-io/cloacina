@@ -58,8 +58,6 @@ pub mod data_backup_workflow {
 
     /// Check if backup prerequisites are met
     #[task(
-        id = "check_backup_prerequisites",
-        dependencies = [],
         retry_attempts = 2,
         retry_backoff = "fixed",
         retry_delay_ms = 5000
@@ -81,7 +79,6 @@ pub mod data_backup_workflow {
 
     /// Create a backup snapshot
     #[task(
-        id = "create_backup_snapshot",
         dependencies = ["check_backup_prerequisites"],
         retry_attempts = 3,
         retry_backoff = "exponential",
@@ -106,7 +103,6 @@ pub mod data_backup_workflow {
 
     /// Verify backup integrity
     #[task(
-        id = "verify_backup_integrity",
         dependencies = ["create_backup_snapshot"],
         retry_attempts = 2,
         retry_backoff = "fixed",
@@ -144,7 +140,6 @@ pub mod data_backup_workflow {
 
     /// Clean up old backups
     #[task(
-        id = "cleanup_old_backups",
         dependencies = ["verify_backup_integrity"],
         retry_attempts = 1,
         retry_backoff = "fixed",
@@ -177,8 +172,6 @@ pub mod health_check_workflow {
 
     /// Check system resources (CPU, memory, disk)
     #[task(
-        id = "check_system_resources",
-        dependencies = [],
         retry_attempts = 1,
         retry_backoff = "fixed",
         retry_delay_ms = 1000
@@ -214,8 +207,6 @@ pub mod health_check_workflow {
 
     /// Check database connectivity
     #[task(
-        id = "check_database_connectivity",
-        dependencies = [],
         retry_attempts = 3,
         retry_backoff = "exponential",
         retry_delay_ms = 1000
@@ -250,8 +241,6 @@ pub mod health_check_workflow {
 
     /// Check external service availability
     #[task(
-        id = "check_external_services",
-        dependencies = [],
         retry_attempts = 2,
         retry_backoff = "linear",
         retry_delay_ms = 2000
@@ -291,7 +280,6 @@ pub mod health_check_workflow {
 
     /// Update health metrics aggregation
     #[task(
-        id = "update_health_metrics",
         dependencies = ["check_system_resources", "check_database_connectivity", "check_external_services"],
         retry_attempts = 2,
         retry_backoff = "fixed",
@@ -357,8 +345,6 @@ pub mod daily_report_workflow {
 
     /// Collect daily metrics from various sources
     #[task(
-        id = "collect_daily_metrics",
-        dependencies = [],
         retry_attempts = 2,
         retry_backoff = "exponential",
         retry_delay_ms = 3000
@@ -386,7 +372,6 @@ pub mod daily_report_workflow {
 
     /// Generate usage report from collected metrics
     #[task(
-        id = "generate_usage_report",
         dependencies = ["collect_daily_metrics"],
         retry_attempts = 2,
         retry_backoff = "fixed",
@@ -428,7 +413,6 @@ pub mod daily_report_workflow {
 
     /// Send report notification to stakeholders
     #[task(
-        id = "send_report_notification",
         dependencies = ["generate_usage_report"],
         retry_attempts = 3,
         retry_backoff = "exponential",

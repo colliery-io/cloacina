@@ -16,7 +16,7 @@ The `@task` decorator is used to define individual tasks that can be executed as
 ```python
 import cloaca
 
-@cloaca.task(id="my_task")
+@cloaca.task()
 def my_task(context):
     """Example task that processes data."""
     # Task implementation
@@ -45,14 +45,14 @@ def my_task(context):
 ## Example with Dependencies
 
 ```python
-@cloaca.task(id="fetch_data")
+@cloaca.task()
 def fetch_data(context):
     """Fetch raw data from source."""
     data = {"raw_data": [1, 2, 3, 4, 5]}
     context.set("raw_data", data)
     return context
 
-@cloaca.task(id="process_data", dependencies=["fetch_data"])
+@cloaca.task(dependencies=["fetch_data"])
 def process_data(context):
     """Process the fetched data."""
     raw_data = context.get("raw_data")
@@ -68,7 +68,7 @@ Tasks can be defined as async functions for non-blocking operations:
 ```python
 import asyncio
 
-@cloaca.task(id="async_task")
+@cloaca.task()
 async def async_task(context):
     """Example async task."""
     await asyncio.sleep(1)  # Simulate async operation
@@ -81,7 +81,7 @@ async def async_task(context):
 Tasks should handle errors gracefully and return appropriate results:
 
 ```python
-@cloaca.task(id="safe_task")
+@cloaca.task()
 def safe_task(context):
     """Task with error handling."""
     try:
@@ -147,7 +147,7 @@ Errors in callbacks are isolated and logged - they don't affect task execution:
 def buggy_callback(task_id, context):
     raise Exception("Callback error!")  # Won't fail the task
 
-@cloaca.task(id="resilient_task", on_success=buggy_callback)
+@cloaca.task(on_success=buggy_callback)
 def resilient_task(context):
     """Task completes even if callback fails."""
     return context
@@ -180,7 +180,7 @@ def cleanup_temp_files(task_id, error, context):
 Tasks receive a [Context]({{< ref "/reference/python-api/context/" >}}) object for data flow:
 
 ```python
-@cloaca.task(id="context_example")
+@cloaca.task()
 def context_example(context):
     """Demonstrate context usage."""
     # Get data from previous tasks
@@ -203,7 +203,7 @@ def context_example(context):
 Design tasks to be idempotent when possible:
 
 ```python
-@cloaca.task(id="idempotent_task")
+@cloaca.task()
 def idempotent_task(context):
     """Task that can be safely retried."""
     # Check if already processed
@@ -225,7 +225,7 @@ def idempotent_task(context):
 Provide meaningful error information:
 
 ```python
-@cloaca.task(id="validation_task")
+@cloaca.task()
 def validation_task(context):
     """Task with clear validation."""
     data = context.get("data")
@@ -253,7 +253,7 @@ Tasks can accept an optional second parameter named `handle` or `task_handle` to
 Add a second parameter named `handle` or `task_handle` to the task function:
 
 ```python
-@cloaca.task(id="wait_for_ready")
+@cloaca.task()
 def wait_for_ready(context, handle):
     """Task that defers until an external condition is met."""
     def check_ready():
@@ -291,7 +291,7 @@ Release the concurrency slot while polling an external condition.
 **Raises:** `ValueError` if the handle has already been consumed or the semaphore is closed.
 
 ```python
-@cloaca.task(id="wait_for_file")
+@cloaca.task()
 def wait_for_file(context, handle):
     import os
 
@@ -320,12 +320,12 @@ Handle-aware and regular tasks work together in the same workflow:
 
 ```python
 with cloaca.WorkflowBuilder("mixed_pipeline") as builder:
-    @cloaca.task(id="normal_task")
+    @cloaca.task()
     def normal_task(context):
         context.set("step_1", True)
         return context
 
-    @cloaca.task(id="deferred_task", dependencies=["normal_task"])
+    @cloaca.task(dependencies=["normal_task"])
     def deferred_task(context, handle):
         handle.defer_until(lambda: True, poll_interval_ms=10)
         context.set("step_2", True)

@@ -97,7 +97,6 @@ Trigger rules are compile-time expressions that control conditional task executi
 
 ```rust
 #[task(
-    id = "cleanup",
     dependencies = ["process"],
     trigger_rules = any(
         task_failed("process"),
@@ -120,7 +119,7 @@ The task function must:
 An optional second parameter named `handle` or `task_handle` provides access to a `TaskHandle` for concurrency slot management. When the macro detects a parameter with one of these names, it sets `requires_handle() = true` on the generated `Task` trait implementation. The executor then creates a `TaskHandle` and injects it via task-local storage at runtime.
 
 ```rust
-#[task(id = "wait_for_file")]
+#[task]
 pub async fn wait_for_file(
     context: &mut Context<Value>,
     handle: &mut TaskHandle,
@@ -169,17 +168,17 @@ Applied to a `pub mod` containing `#[task]` functions. Auto-discovers tasks, val
 pub mod etl_pipeline {
     use super::*;
 
-    #[task(id = "extract", dependencies = [])]
+    #[task]
     pub async fn extract(context: &mut Context<Value>) -> Result<(), TaskError> {
         Ok(())
     }
 
-    #[task(id = "transform", dependencies = ["extract"])]
+    #[task(dependencies = ["extract"])]
     pub async fn transform(context: &mut Context<Value>) -> Result<(), TaskError> {
         Ok(())
     }
 
-    #[task(id = "load", dependencies = ["transform"])]
+    #[task(dependencies = ["transform"])]
     pub async fn load(context: &mut Context<Value>) -> Result<(), TaskError> {
         Ok(())
     }

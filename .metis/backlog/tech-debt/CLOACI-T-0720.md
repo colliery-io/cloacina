@@ -1,7 +1,7 @@
 ---
 id: authoring-surface-cruft-sweep-let
 level: task
-title: "Authoring-surface cruft sweep — let workflow authors get away with "just types" (minimize required boilerplate)"
+title: 'Authoring-surface cruft sweep — let workflow authors get away with "just types" (minimize required boilerplate)'
 short_code: "CLOACI-T-0720"
 created_at: 2026-06-17T03:15:23.168112+00:00
 updated_at: 2026-06-17T03:18:14.316300+00:00
@@ -167,8 +167,13 @@ The code already defaults these; the examples don't use the defaults:
 - Rust `id = "fn_name"` duplicates the fn ident the macro already has
   (`tasks.rs:643,687-690`). Default `id` to the fn name → a bare `#[task]` becomes
   valid.
-- Python `return context` — wrapper already re-clones input ctx on `None` return
-  (`crates/cloacina-python/src/task.rs:233-238`); every example returns anyway.
+- ~~Python `return context` — wrapper already re-clones input ctx on `None`
+  return (`crates/cloacina-python/src/task.rs:233-238`); every example returns
+  anyway.~~ **CORRECTED 2026-06-17 (during [[CLOACI-T-0732]]):** this is WRONG.
+  The `None`-return path rebuilds context from `original_data`, a snapshot taken
+  *before* the body runs (`task.rs:207`), so it **discards in-body
+  `context.set(...)` mutations**. `return context` is REQUIRED for any mutating
+  task — not redundant. (Possible author footgun worth its own item.)
 - Python `id=` — falls back to `func.__name__` (`task.rs:498-502`); every example
   passes it.
 - Python stringly deps — function-ref deps already accepted (`task.rs:642-659`).
@@ -317,6 +322,11 @@ Ordered by ROI. Items 1, 4 are near-pure docs/loader wins; the rest are scoped c
   as audit → ranked cruft-removal recommendations → split large fixes into their
   own tasks. Builds on the authoring-DX work [[CLOACI-I-0119]]; coordinates with
   the workflow-builder docs and the Rust↔Python parity item [[CLOACI-T-0688]].
+- 2026-06-17: **Decomposed** into initiative [[CLOACI-I-0125]] (Authoring-surface
+  cruft removal). The 9 in-scope follow-ups are now child tasks
+  CLOACI-T-0732…0740; item 10 (Rust↔Python parity failures) lives in
+  [[CLOACI-T-0688]]. This task remains the research/north-star; execution tracked
+  under I-0125.
 - 2026-06-17: First sweep pass complete — four-surface audit (Rust task/workflow,
   CG/reactor/accumulator, Python `cloaca`, packaging) written up under **Sweep
   Findings** with file:line evidence and 10 ranked, scoped follow-up tasks.

@@ -62,8 +62,6 @@ pub mod analytics_workflow {
     /// This task handles data ingestion from various sources including databases,
     /// APIs, and file systems. Data is normalized and prepared for processing.
     #[task(
-        id = "extract_data",
-        dependencies = [],
         retry_attempts = 3,
         retry_backoff = "exponential"
     )]
@@ -101,7 +99,6 @@ pub mod analytics_workflow {
     /// Performs data quality checks, removes duplicates, handles missing values,
     /// and ensures data consistency before transformation.
     #[task(
-        id = "validate_data",
         dependencies = ["extract_data"],
         retry_attempts = 2,
         retry_backoff = "linear"
@@ -157,7 +154,6 @@ pub mod analytics_workflow {
     /// Applies business logic transformations, aggregations, and enrichment
     /// to prepare data for analysis and reporting.
     #[task(
-        id = "transform_data",
         dependencies = ["validate_data"],
         retry_attempts = 3,
         retry_backoff = "exponential"
@@ -223,7 +219,6 @@ pub mod analytics_workflow {
     /// Creates various output formats including dashboards, alerts, and scheduled
     /// reports for different stakeholder groups.
     #[task(
-        id = "generate_reports",
         dependencies = ["transform_data"],
         retry_attempts = 2,
         retry_backoff = "fixed"

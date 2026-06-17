@@ -40,7 +40,7 @@ use cloacina::{task, workflow, Context, TaskError};
 pub mod greeting {
     use super::*;
 
-    #[task(id = "hello", dependencies = [])]
+    #[task]
     pub async fn hello(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("message", serde_json::json!("Hello World!"))?;
         Ok(())
@@ -58,7 +58,7 @@ import cloaca
 with cloaca.WorkflowBuilder("greeting") as builder:
     builder.description("A one-task workflow")
 
-    @cloaca.task(id="hello")
+    @cloaca.task()
     def hello(context):
         context.set("message", "Hello World!")
         return context

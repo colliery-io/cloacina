@@ -35,10 +35,7 @@ use tracing::{error, info, warn};
 pub mod customer_processing {
     use super::*;
 
-    #[task(
-        id = "process_customer_data",
-        dependencies = []
-    )]
+    #[task]
     pub async fn process_customer_data(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -85,10 +82,7 @@ pub mod customer_processing {
 pub mod tenant_onboarding_workflow {
     use super::*;
 
-    #[task(
-        id = "tenant_onboarding",
-        dependencies = []
-    )]
+    #[task]
     pub async fn tenant_onboarding(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {

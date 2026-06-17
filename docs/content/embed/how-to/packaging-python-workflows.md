@@ -94,7 +94,7 @@ In your entry module (`workflow/data_pipeline/tasks.py`), declare tasks with
 ```python
 import cloaca
 
-@cloaca.task(id="extract", dependencies=[])
+@cloaca.task(dependencies=[])
 def extract(context):
     # cloaca.var() reads from CLOACINA_VAR_ env vars at runtime
     # See "External Configuration" section below
@@ -102,13 +102,13 @@ def extract(context):
     context.set("raw_data", fetch_from(source))  # Replace with your data function
     return context
 
-@cloaca.task(id="transform", dependencies=["extract"])
+@cloaca.task(dependencies=["extract"])
 def transform(context):
     raw = context.get("raw_data")
     context.set("clean_data", clean(raw))  # Replace with your transform logic
     return context
 
-@cloaca.task(id="load", dependencies=["transform"])
+@cloaca.task(dependencies=["transform"])
 def load(context):
     dest = cloaca.var("WAREHOUSE_URL")
     write_to(dest, context.get("clean_data"))  # Replace with your load logic

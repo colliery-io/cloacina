@@ -100,11 +100,11 @@ Add a task to the workflow.
 **Example:**
 ```python
 # Method 1: Add by task ID (string)
-@cloaca.task(id="extract_data")
+@cloaca.task()
 def extract_data(context):
     return context
 
-@cloaca.task(id="transform_data", dependencies=["extract_data"])
+@cloaca.task(dependencies=["extract_data"])
 def transform_data(context):
     return context
 
@@ -160,7 +160,7 @@ WorkflowBuilder supports context manager protocol for automatic registration.
 ```python
 import cloaca
 
-@cloaca.task(id="hello_task")
+@cloaca.task()
 def hello_task(context):
     context.set("message", "Hello, World!")
     return context
@@ -184,7 +184,7 @@ import cloaca
 from datetime import datetime
 
 # Define tasks
-@cloaca.task(id="fetch_users")
+@cloaca.task()
 def fetch_users(context):
     """Fetch user data from API."""
     # Simulate API call
@@ -196,7 +196,7 @@ def fetch_users(context):
     context.set("fetch_time", datetime.now().isoformat())
     return context
 
-@cloaca.task(id="validate_users", dependencies=["fetch_users"])
+@cloaca.task(dependencies=["fetch_users"])
 def validate_users(context):
     """Validate user data."""
     users = context.get("users", [])
@@ -210,7 +210,7 @@ def validate_users(context):
     context.set("validation_count", len(valid_users))
     return context
 
-@cloaca.task(id="process_users", dependencies=["validate_users"])
+@cloaca.task(dependencies=["validate_users"])
 def process_users(context):
     """Process validated users."""
     valid_users = context.get("valid_users", [])
@@ -227,7 +227,7 @@ def process_users(context):
     context.set("processed_users", processed_users)
     return context
 
-@cloaca.task(id="save_results", dependencies=["process_users"])
+@cloaca.task(dependencies=["process_users"])
 def save_results(context):
     """Save processed results."""
     processed_users = context.get("processed_users", [])
@@ -451,11 +451,11 @@ except ValueError as e:
     print(f"Missing task error: {e}")
 
 # Error: Circular dependency
-@cloaca.task(id="task_a", dependencies=["task_b"])
+@cloaca.task(dependencies=["task_b"])
 def task_a(context):
     return context
 
-@cloaca.task(id="task_b", dependencies=["task_a"])  # Circular!
+@cloaca.task(dependencies=["task_a"])  # Circular!
 def task_b(context):
     return context
 

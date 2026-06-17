@@ -121,7 +121,7 @@ has(payload.value) && payload.value > 100
 Filtered subscriptions are still **at-least-once** — see [Subscription fan-out]({{< ref "subscription-fan-out" >}}) for the failure modes. To make the workflow side idempotent, derive a key from the firing and write it through to the workflow's first task:
 
 ```rust
-#[task(id = "process_firing")]
+#[task]
 pub async fn process_firing(ctx: &mut Context<Value>) -> Result<(), TaskError> {
     let firing_id = ctx
         .get("reactor_firing_id")

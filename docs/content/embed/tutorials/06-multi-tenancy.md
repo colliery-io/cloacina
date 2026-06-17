@@ -44,7 +44,7 @@ use std::collections::HashMap;
 pub mod customer_processing {
     use super::*;
 
-    #[task(id = "process_customer_data", dependencies = [])]
+    #[task]
     pub async fn process_customer_data(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -102,7 +102,7 @@ database_url = "postgresql://cloacina:cloacina@localhost:5432/cloacina"
 with cloaca.WorkflowBuilder("customer_processing") as builder:
     builder.description("Process customer data in isolated tenant environment")
 
-    @cloaca.task(id="process_customer_data")
+    @cloaca.task()
     def process_customer_data(context):
         tenant_id = context.get("tenant_id")
         context.set("processed_records", 1250)

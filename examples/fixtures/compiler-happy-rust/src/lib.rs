@@ -32,8 +32,6 @@ pub mod compiler_happy_workflow {
     use super::*;
 
     #[task(
-        id = "noop",
-        dependencies = [],
         retry_attempts = 0
     )]
     pub async fn noop(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {

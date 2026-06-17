@@ -34,7 +34,6 @@ is equivalent to "run when ready."
 ```rust
 // No trigger_rules attribute: uses implicit Always rule
 #[task(
-    id = "process",
     dependencies = ["fetch"]
 )]
 pub async fn process(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
@@ -203,8 +202,6 @@ which then:
 ```rust
 // This task retries up to 3 times with exponential backoff
 #[task(
-    id = "fetch_data",
-    dependencies = [],
     retry_attempts = 3,
     retry_delay_ms = 1000,
     retry_backoff = "exponential"
@@ -217,7 +214,6 @@ pub async fn fetch_data(context: &mut Context<serde_json::Value>) -> Result<(), 
 
 // This fallback ONLY runs after all 3 retries of fetch_data are exhausted
 #[task(
-    id = "cached_data",
     dependencies = ["fetch_data"],
     trigger_rules = task_failed("fetch_data")
 )]

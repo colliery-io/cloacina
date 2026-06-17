@@ -36,8 +36,6 @@ pub mod fleet_slow_workflow {
     // live agent (it is not a task-level retry), so leaving retries off keeps the
     // reclaim semantics clean to assert on.
     #[task(
-        id = "slow",
-        dependencies = [],
         retry_attempts = 0
     )]
     pub async fn slow(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {

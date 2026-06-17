@@ -14,7 +14,7 @@ with cloaca.WorkflowBuilder("daily_report") as builder:
     builder.description("Daily business analytics")
 
     # Tasks are automatically registered when defined within WorkflowBuilder context
-    @cloaca.task(id="daily_report")
+    @cloaca.task()
     def daily_report(context):
         """Generate daily business report."""
         current_time = datetime.now()
@@ -37,7 +37,7 @@ with cloaca.WorkflowBuilder("daily_report") as builder:
 with cloaca.WorkflowBuilder("system_backup") as builder:
     builder.description("System data backup")
 
-    @cloaca.task(id="system_backup")
+    @cloaca.task()
     def system_backup(context):
         """Perform system backup."""
         backup_type = context.get("backup_type", "incremental")
@@ -53,7 +53,7 @@ with cloaca.WorkflowBuilder("system_backup") as builder:
 with cloaca.WorkflowBuilder("data_cleanup") as builder:
     builder.description("Data cleanup and maintenance")
 
-    @cloaca.task(id="data_cleanup")
+    @cloaca.task()
     def data_cleanup(context):
         """Clean up old data."""
         retention_days = context.get("retention_days", 30)
@@ -75,7 +75,7 @@ with cloaca.WorkflowBuilder("data_cleanup") as builder:
 with cloaca.WorkflowBuilder("health_check") as builder:
     builder.description("System health monitoring")
 
-    @cloaca.task(id="health_check")
+    @cloaca.task()
     def health_check(context):
         """Perform system health check."""
         timestamp = datetime.now()

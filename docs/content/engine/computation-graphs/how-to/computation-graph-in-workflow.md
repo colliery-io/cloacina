@@ -66,7 +66,6 @@ The workflow task names the graph by string and gets the invocation generated fo
 
 ```rust
 #[cloacina_macros::task(
-    id = "run_scoring",
     invokes = computation_graph("scoring_graph"),
 )]
 async fn run_scoring(
@@ -100,7 +99,6 @@ async fn after_scoring(
 }
 
 #[cloacina_macros::task(
-    id = "run_scoring_with_post",
     invokes = computation_graph("scoring_graph"),
     post_invocation = after_scoring,
 )]
@@ -135,7 +133,7 @@ with cloaca.WorkflowBuilder("scoring_workflow") as wf:
             raw = ctx.get("input_value", 0.0)
             return {"value": raw * 1.5}
 
-    @cloaca.task(id="run_scoring", invokes=scoring_graph)
+    @cloaca.task(invokes=scoring_graph)
     def run_scoring(ctx):
         # Pre-work runs before the graph fires.
         return ctx
@@ -190,14 +188,13 @@ pub mod batch_scoring {
 mod nightly_report {
     use super::*;
 
-    #[cloacina_macros::task(id = "fetch_batch")]
+    #[cloacina_macros::task]
     async fn fetch_batch(ctx: &mut Context<Value>) -> Result<(), TaskError> {
         ctx.insert("batch", serde_json::json!([1, 2, 3, 4, 5]))?;
         Ok(())
     }
 
     #[cloacina_macros::task(
-        id = "score_batch",
         depends_on = ["fetch_batch"],
         invokes = computation_graph("batch_scoring"),
     )]
@@ -205,7 +202,7 @@ mod nightly_report {
         Ok(())
     }
 
-    #[cloacina_macros::task(id = "publish", depends_on = ["score_batch"])]
+    #[cloacina_macros::task(depends_on = ["score_batch"])]
     async fn publish(ctx: &mut Context<Value>) -> Result<(), TaskError> {
         let confirmation = ctx.get("output").expect("graph terminal must land");
         tracing::info!(?confirmation, "publishing score");

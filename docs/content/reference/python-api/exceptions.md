@@ -96,7 +96,7 @@ except cloaca.WorkflowTimeoutError as e:
 Base class for task-related errors.
 
 ```python
-@cloaca.task(id="risky_task")
+@cloaca.task()
 def risky_task(context):
     try:
         # Risky operation
@@ -127,7 +127,7 @@ except cloaca.TaskValidationError as e:
 Raised when task execution fails.
 
 ```python
-@cloaca.task(id="failing_task")
+@cloaca.task()
 def failing_task(context):
     try:
         # Operation that might fail
@@ -149,7 +149,7 @@ def failing_task(context):
 Raised when individual task execution times out.
 
 ```python
-@cloaca.task(id="slow_task", timeout_seconds=60)
+@cloaca.task(timeout_seconds=60)
 def slow_task(context):
     # This will raise TaskTimeoutError if it takes > 60 seconds
     time.sleep(120)  # Simulates long operation

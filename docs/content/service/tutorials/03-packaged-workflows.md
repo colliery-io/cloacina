@@ -115,8 +115,6 @@ pub mod data_processing {
 
     /// Step 1: Collect input data
     #[task(
-        id = "collect_data",
-        dependencies = [],
         retry_attempts = 2
     )]
     pub async fn collect_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
@@ -138,7 +136,6 @@ pub mod data_processing {
 
     /// Step 2: Process the collected data
     #[task(
-        id = "process_data",
         dependencies = ["collect_data"],
         retry_attempts = 3
     )]
@@ -169,7 +166,6 @@ pub mod data_processing {
 
     /// Step 3: Generate summary report
     #[task(
-        id = "generate_report",
         dependencies = ["process_data"],
         retry_attempts = 1
     )]

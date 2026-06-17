@@ -24,16 +24,16 @@ the DAG edges. Tasks with no dependency between them run **in parallel**.
 pub mod diamond {
     use super::*;
 
-    #[task(id = "fetch", dependencies = [])]
+    #[task]
     pub async fn fetch(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> { Ok(()) }
 
-    #[task(id = "transform_a", dependencies = ["fetch"])]
+    #[task(dependencies = ["fetch"])]
     pub async fn transform_a(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> { Ok(()) }
 
-    #[task(id = "transform_b", dependencies = ["fetch"])]
+    #[task(dependencies = ["fetch"])]
     pub async fn transform_b(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> { Ok(()) }
 
-    #[task(id = "combine", dependencies = ["transform_a", "transform_b"])]
+    #[task(dependencies = ["transform_a", "transform_b"])]
     pub async fn combine(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> { Ok(()) }
 }
 ```
@@ -43,16 +43,16 @@ pub mod diamond {
 with cloaca.WorkflowBuilder("diamond") as builder:
     builder.description("Fan out then fan in")
 
-    @cloaca.task(id="fetch")
+    @cloaca.task()
     def fetch(context): return context
 
-    @cloaca.task(id="transform_a", dependencies=["fetch"])
+    @cloaca.task(dependencies=["fetch"])
     def transform_a(context): return context
 
-    @cloaca.task(id="transform_b", dependencies=["fetch"])
+    @cloaca.task(dependencies=["fetch"])
     def transform_b(context): return context
 
-    @cloaca.task(id="combine", dependencies=["transform_a", "transform_b"])
+    @cloaca.task(dependencies=["transform_a", "transform_b"])
     def combine(context): return context
 ```
 {{< /tab >}}

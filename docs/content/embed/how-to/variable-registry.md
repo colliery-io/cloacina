@@ -87,7 +87,7 @@ threshold = float(cloaca.var_or("MODEL_THRESHOLD", "0.5"))
 ### Per-Environment Database Connections
 
 ```python
-@cloaca.task(id="load_data")
+@cloaca.task()
 def load_data(context):
     db_url = cloaca.var("WAREHOUSE_URL")
     # dev:  CLOACINA_VAR_WAREHOUSE_URL=sqlite:///tmp/dev.db
@@ -100,7 +100,7 @@ def load_data(context):
 ### Per-Tenant Credentials
 
 ```python
-@cloaca.task(id="call_api")
+@cloaca.task()
 def call_api(context):
     api_key = cloaca.var("PARTNER_API_KEY")
     # Each tenant's daemon sets a different key

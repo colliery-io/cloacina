@@ -49,6 +49,37 @@ async fn dependent_task(context: &mut Context<Value>) -> Result<(), TaskError> {
     Ok(())
 }
 
+// CLOACI-T-0732 regression guard: a bare `#[task]` (no `id`, no `dependencies`)
+// must compile, default `id` to the function name, and default deps to empty.
+// If the macro ever re-requires these attrs, this stops compiling/passing.
+#[task]
+async fn bare_minimal_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    context
+        .insert("bare_ran", Value::Bool(true))
+        .map_err(|e| TaskError::ExecutionFailed {
+            message: format!("Context error: {:?}", e),
+            task_id: "bare_minimal_task".to_string(),
+            timestamp: chrono::Utc::now(),
+        })?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bare_task_defaults_id_to_fn_name() {
+    let task = bare_minimal_task_task();
+
+    // `id` defaulted to the function name; deps defaulted to empty.
+    assert_eq!(task.id(), "bare_minimal_task");
+    assert_eq!(task.dependencies(), &[] as &[TaskNamespace]);
+    assert_eq!(BareMinimalTaskTask::dependency_task_ids(), &[] as &[&str]);
+
+    // And it still executes.
+    let context = Context::new();
+    let result = task.execute(context).await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().get("bare_ran"), Some(&Value::Bool(true)));
+}
+
 #[tokio::test]
 async fn test_macro_generated_task() {
     // Test that the macro generates the correct task struct

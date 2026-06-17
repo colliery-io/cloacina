@@ -96,8 +96,6 @@ pub mod file_processing {
     ///
     /// The trigger passes `filename` and `source_path` in the context.
     #[task(
-        id = "validate",
-        dependencies = [],
         retry_attempts = 2,
         retry_backoff = "linear"
     )]
@@ -123,7 +121,6 @@ pub mod file_processing {
 
     /// Transform and process the validated file.
     #[task(
-        id = "transform",
         dependencies = ["validate"],
         retry_attempts = 3,
         retry_backoff = "exponential"
@@ -149,7 +146,6 @@ pub mod file_processing {
 
     /// Archive the processed file.
     #[task(
-        id = "archive",
         dependencies = ["transform"],
         retry_attempts = 1,
         retry_backoff = "fixed"

@@ -45,7 +45,7 @@ pub mod demo_branch_workflow {
         std::thread::sleep(std::time::Duration::from_secs(secs));
     }
 
-    #[task(id = "decide", dependencies = [], retry_attempts = 0)]
+    #[task(retry_attempts = 0)]
     pub async fn decide(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         pause(1);
         // Always take branch A → branch_b's rule (== false) fails → Skipped.
@@ -54,7 +54,6 @@ pub mod demo_branch_workflow {
     }
 
     #[task(
-        id = "branch_a",
         dependencies = ["decide"],
         retry_attempts = 0,
         trigger_rules = context_value("take_branch_a", equals, true)
@@ -66,7 +65,6 @@ pub mod demo_branch_workflow {
     }
 
     #[task(
-        id = "branch_b",
         dependencies = ["decide"],
         retry_attempts = 0,
         trigger_rules = context_value("take_branch_a", equals, false)
@@ -77,7 +75,7 @@ pub mod demo_branch_workflow {
         Ok(())
     }
 
-    #[task(id = "merge", dependencies = ["branch_a", "branch_b"], retry_attempts = 0)]
+    #[task(dependencies = ["branch_a", "branch_b"], retry_attempts = 0)]
     pub async fn merge(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         pause(1);
         context.insert("demo_branch_complete", serde_json::json!(true))?;
