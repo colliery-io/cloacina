@@ -126,6 +126,12 @@ services:
       - "/workspace/target"
       - "--cargo-flag=build"
       - "--cargo-flag=--lib"
+    environment:
+      # Override the compiler's default (line-tables-only) down to NO debuginfo
+      # for the memory-tightest build on a constrained Docker VM — full
+      # debuginfo OOM-killed complex-dag-example (it pulls in the heavy
+      # `cloacina` lib). The demo never debugs the compiled cdylibs.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     depends_on:
       postgres:
         condition: service_healthy

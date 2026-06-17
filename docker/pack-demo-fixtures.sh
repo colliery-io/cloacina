@@ -39,6 +39,19 @@ pack_rust_rel() {
     cloacinactl --home "$HOME_DIR" package pack "$staged" --out "$OUT/$fx.cloacina"
 }
 
+# Example/how-to packages under examples/features/** (CLOACI-I-0124): their
+# Cargo.toml uses 4-deep `../../../../crates` relative paths; rewrite → /workspace.
+# $1 = archive name, $2 = path relative to $WS/examples.
+pack_rust_example() {
+    name="$1"; src="$WS/examples/$2"; staged="/tmp/staged-$name"
+    rm -rf "$staged"; mkdir -p "$staged/src"
+    for rel in package.toml Cargo.toml build.rs src/lib.rs; do
+        [ -f "$src/$rel" ] && sed "s|\.\./\.\./\.\./\.\./crates|$WS/crates|g" "$src/$rel" > "$staged/$rel"
+    done
+    echo "packing $name (rust/example) → $OUT/$name.cloacina"
+    cloacinactl --home "$HOME_DIR" package pack "$staged" --out "$OUT/$name.cloacina"
+}
+
 # $1 = output archive name, $2 = source dir (package.toml + module tree), $3 = version
 pack_python() {
     name="$1"; srcdir="$2"; ver="${3:-0.1.0}"; prefix="$name-$ver"
@@ -60,6 +73,18 @@ pack_rust_rel mixed-rust
 
 # --- Kafka-sourced stream accumulator → reactor-bound CG (Rust) — CLOACI-T-0676 ---
 pack_rust_ws demo-kafka-stream-rust
+
+# --- Complex task DAG (Rust): multi-root, fan-out/fan-in, ~18 tasks across 6
+#     levels — the marquee "complex workflow" for the Workflows DAG view. ---
+pack_rust_example complex-dag-example features/workflows/complex-dag
+
+# --- Routing computation graph (Rust): `market_maker` — a richer CG for the
+#     Graphs view, fed by the producer's orderbook/pricing stream. ---
+pack_rust_example packaged-graph-example features/computation-graphs/packaged-graph
+
+# --- Fan-in pipeline CG (Rust): `market_pipeline` — two sources fan in
+#     (when_any) → 3-node pipeline, also fed by the producer. ---
+pack_rust_ws demo-pipeline-rust
 
 # --- Python: a task workflow + a reactor-bound computation graph ---
 # Both carry their module tree under workflow/ — the reconciler's Python

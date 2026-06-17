@@ -423,6 +423,17 @@ async fn cargo_build(
         })?;
         cmd.env("CARGO_TARGET_DIR", target_dir);
     }
+    // Default the produced cdylibs to line-tables-only debuginfo. These are
+    // deployment artifacts the agent/server dlopen — never debugged
+    // interactively — so full `debuginfo=2` only buys an LLVM memory blowup
+    // (OOMs the build of workflows that pull in the heavy `cloacina` lib),
+    // slower builds, and a larger artifact to ship by digest. `line-tables-only`
+    // keeps file:line in panic backtraces at a fraction of the cost. Only set
+    // when the operator hasn't already pinned it via the environment (the demo
+    // compose stack, for instance, can force `0`). CLOACI-I-0124.
+    if std::env::var_os("CARGO_PROFILE_DEV_DEBUG").is_none() {
+        cmd.env("CARGO_PROFILE_DEV_DEBUG", "line-tables-only");
+    }
     // CARGO_HOME override (CLOACI-T-0574). When the operator has pointed
     // --vendor-dir at a curated cargo home (output of `cargo vendor`), the
     // cargo subprocess sees only that registry. Combined with
