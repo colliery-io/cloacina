@@ -82,17 +82,16 @@ use deadpool_diesel::sqlite::{
 /// SQLite connection-pool size, unified across the sqlite-only and
 /// postgres+sqlite builds.
 ///
-/// **CLOACI-T-0741: set back to 1 (serialize).** CLOACI-T-0622 had bumped this
-/// to 4, but a multi-connection sqlite pool under WAL is the source of the
-/// chronic integration flake — both `database is locked` errors (concurrent
-/// writers) and 180s hangs (WAL/lock contention). SQLite is single-writer; a
-/// pool of 1 serialises access and removes the contention entirely. The
-/// original reason T-0622 left 1 ("looked like a deadlock" on macOS CI) was an
-/// *unbounded* wait on a reentrant/contended checkout — now bounded by
-/// `POOL_WAIT_TIMEOUT`, so a true reentrant checkout surfaces as a fast error
-/// instead of an infinite hang rather than forcing us onto a contended pool.
+/// Must be > 1: the engine holds multiple sqlite connections concurrently
+/// (scheduler loop + executor + heartbeat), so a pool of 1 deadlocks/times-out
+/// the executor. CLOACI-T-0741 tried pool=1 to kill the multi-connection
+/// contention flake (`database is locked` + WAL-lock hangs) and it
+/// **deterministically broke 27 executor integration tests** — serializing is
+/// not an option here. Kept at 4 (CLOACI-T-0622); the flake must be addressed
+/// another way (WAL/checkpoint tuning, connection-scope discipline, or the
+/// retry-on-timeout mitigation) — see [[CLOACI-T-0741]].
 #[cfg(feature = "sqlite")]
-const SQLITE_POOL_SIZE: usize = 1;
+const SQLITE_POOL_SIZE: usize = 4;
 
 /// Bounded wait for a pool connection. Without it, an exhausted or contended
 /// pool (especially the small SQLite pool) waits *indefinitely* for a

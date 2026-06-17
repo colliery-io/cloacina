@@ -91,3 +91,14 @@ absorbing the transient hang — but it is a **mitigation, not a fix**.
   pool-checkout (the added pool `wait_timeout` never fires). Retry-on-timeout
   landed as a mitigation so the lane stops gating PRs; the real fix is blocked on
   a captured stack from a stress-repro.
+- 2026-06-17: **Experiment: sqlite pool=1 — DISPROVED.** Set SQLITE_POOL_SIZE
+  back to 1 to serialize and kill the contention. Result: **27 executor
+  integration tests fail deterministically** (pause_resume, task_execution,
+  retry_condition). The engine holds multiple sqlite connections concurrently
+  (scheduler loop + executor + heartbeat), so pool=1 starves/deadlocks the
+  executor — which is exactly why T-0622 bumped it to 4. Reverted to 4.
+  **Takeaway:** the flake is NOT fixable by pool size. Real avenues: WAL
+  checkpoint/`wal_autocheckpoint` tuning, tightening connection scope so writers
+  don't overlap (the `database is locked` came from concurrent context-saves),
+  or accepting pool=4 + the retry-on-timeout mitigation. Also confirms a clue:
+  the contention is concurrent WRITES (context saves) under WAL, not reads.
