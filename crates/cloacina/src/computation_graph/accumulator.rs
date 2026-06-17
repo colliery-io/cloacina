@@ -119,6 +119,14 @@ pub trait Accumulator: Send + 'static {
     /// Process raw event bytes and optionally produce a boundary.
     /// The implementor owns deserialization — the runtime is format-agnostic.
     /// Called sequentially by the processor task — no concurrent `&mut self`.
+    ///
+    /// CLOACI-T-0739: a trait-level default body was investigated and rejected.
+    /// A `where Self::Output: DeserializeOwned` default cannot be called from
+    /// the generic runtime (`accumulator_runtime<A: Accumulator>`), which calls
+    /// `process` for *any* `A` whose `Output` is only bound by `Serialize`;
+    /// tightening that bound would break the format-agnostic contract. The
+    /// boilerplate-free passthrough path is instead the
+    /// `#[passthrough_accumulator]` macro, which generates this method.
     fn process(&mut self, event: Vec<u8>) -> Option<Self::Output>;
 
     /// Called on startup before first receive.

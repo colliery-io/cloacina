@@ -596,7 +596,7 @@ pub use workflow::{DependencyGraph, Workflow, WorkflowBuilder, WorkflowMetadata}
 #[cfg(feature = "macros")]
 pub use cloacina_macros::{
     batch_accumulator, computation_graph, passthrough_accumulator, polling_accumulator, reactor,
-    stream_accumulator, task, trigger, workflow,
+    state_accumulator, stream_accumulator, task, trigger, workflow,
 };
 
 // The `#[pymodule] fn cloaca` entry point moved to the `cloacina-python`
