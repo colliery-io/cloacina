@@ -158,13 +158,15 @@ export function CombinedTimeline({
 
   return (
     <Box>
-      <Box style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <Box style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {rows.map((r) => {
-          const waitLeft = Math.max(0, r.startMed - r.waitMed);
+          // Median span box; if it would be sub-pixel, give it a floor so the
+          // bar is still visible.
+          const spanW = Math.max(r.endMed - r.startMed, domain * 0.005);
           return (
             <Box
               key={r.name}
-              style={{ display: "grid", gridTemplateColumns: "180px 1fr 96px", alignItems: "center", gap: 8 }}
+              style={{ display: "grid", gridTemplateColumns: "150px 1fr 70px", alignItems: "center", gap: 8 }}
             >
               <Tooltip label={`${r.name} · ${r.n} run${r.n === 1 ? "" : "s"}`} withArrow openDelay={300} position="left">
                 <Text size="xs" truncate fw={500}>
@@ -172,97 +174,52 @@ export function CombinedTimeline({
                 </Text>
               </Tooltip>
 
-              <Box style={{ position: "relative", height: 22 }}>
-                {/* baseline */}
-                <Box
-                  style={{
-                    position: "absolute",
-                    inset: "10px 0",
-                    height: 2,
-                    background: "var(--mantine-color-gray-1)",
-                  }}
-                />
-
-                {/* inter-task wait — grey box (median) + whisker (min–max) */}
-                {r.waitMed > 0.5 && (
-                  <Tooltip
-                    label={`wait after deps · p50 ${formatMs(r.waitMed)} (${formatMs(r.waitMin)}–${formatMs(r.waitMax)})`}
-                    withArrow
-                    openDelay={150}
-                  >
-                    <Box style={{ position: "absolute", inset: 0 }}>
-                      {/* whisker */}
-                      <Box
-                        style={{
-                          position: "absolute",
-                          left: pct(r.startMed - r.waitMax),
-                          width: width(r.waitMax - r.waitMin),
-                          top: 10,
-                          height: 2,
-                          background: "var(--mantine-color-gray-5)",
-                        }}
-                      />
-                      {/* median box */}
-                      <Box
-                        style={{
-                          position: "absolute",
-                          left: pct(waitLeft),
-                          width: width(r.waitMed),
-                          top: 6,
-                          height: 10,
-                          background: "var(--mantine-color-gray-3)",
-                          border: "1px solid var(--mantine-color-gray-5)",
-                          borderRadius: 2,
-                        }}
-                      />
-                    </Box>
-                  </Tooltip>
-                )}
-
-                {/* task span — start/end edge whiskers + median-span box */}
-                <Tooltip
-                  label={`span p50 ${formatMs(r.durMed)} (${formatMs(r.durMin)}–${formatMs(r.durMax)}) · start ${formatMs(r.startMed)}`}
-                  withArrow
-                  openDelay={150}
-                >
-                  <Box style={{ position: "absolute", inset: 0 }}>
-                    {/* start-edge whisker */}
-                    <Box
-                      style={{
-                        position: "absolute",
-                        left: pct(r.startMin),
-                        width: width(r.startMax - r.startMin),
-                        top: 10,
-                        height: 2,
-                        background: "var(--mantine-color-blue-3)",
-                      }}
-                    />
-                    {/* end-edge whisker */}
-                    <Box
-                      style={{
-                        position: "absolute",
-                        left: pct(r.endMin),
-                        width: width(r.endMax - r.endMin),
-                        top: 10,
-                        height: 2,
-                        background: "var(--mantine-color-blue-3)",
-                      }}
-                    />
-                    {/* median span box */}
-                    <Box
-                      style={{
-                        position: "absolute",
-                        left: pct(r.startMed),
-                        width: width(Math.max(r.endMed - r.startMed, domain * 0.004)),
-                        top: 3,
-                        height: 16,
-                        background: "var(--mantine-color-blue-6)",
-                        borderRadius: 3,
-                      }}
-                    />
-                  </Box>
-                </Tooltip>
-              </Box>
+              <Tooltip
+                label={
+                  `span p50 ${formatMs(r.durMed)} (${formatMs(r.durMin)}–${formatMs(r.durMax)}) · ` +
+                  `starts ~${formatMs(r.startMed)} in (${formatMs(r.startMin)}–${formatMs(r.startMax)}) · ` +
+                  `wait after deps p50 ${formatMs(r.waitMed)}`
+                }
+                withArrow
+                openDelay={150}
+                position="top"
+              >
+                <Box style={{ position: "relative", height: 18 }}>
+                  {/* baseline */}
+                  <Box
+                    style={{
+                      position: "absolute",
+                      inset: "8px 0",
+                      height: 2,
+                      background: "var(--mantine-color-gray-2)",
+                    }}
+                  />
+                  {/* observed range: earliest start → latest finish across runs */}
+                  <Box
+                    style={{
+                      position: "absolute",
+                      left: pct(r.startMin),
+                      width: width(r.endMax - r.startMin),
+                      top: 3,
+                      height: 12,
+                      background: "var(--mantine-color-blue-1)",
+                      borderRadius: 3,
+                    }}
+                  />
+                  {/* typical (median) span, solid, on top */}
+                  <Box
+                    style={{
+                      position: "absolute",
+                      left: pct(r.startMed),
+                      width: width(spanW),
+                      top: 3,
+                      height: 12,
+                      background: "var(--mantine-color-blue-6)",
+                      borderRadius: 3,
+                    }}
+                  />
+                </Box>
+              </Tooltip>
 
               <Text size="xs" c="dimmed" ta="right" style={{ whiteSpace: "nowrap" }}>
                 {formatMs(r.durMed)}
@@ -273,11 +230,10 @@ export function CombinedTimeline({
       </Box>
 
       <Group gap="md" mt="xs">
-        <Legend swatch="var(--mantine-color-blue-6)" label="median span" />
-        <Legend swatch="var(--mantine-color-blue-3)" label="start/end spread" />
-        <Legend swatch="var(--mantine-color-gray-3)" label="inter-task wait" />
+        <Legend swatch="var(--mantine-color-blue-6)" label="typical span" />
+        <Legend swatch="var(--mantine-color-blue-1)" label="observed range (earliest start → latest finish)" />
         <Text size="xs" c="dimmed">
-          aligned at run start · {runs.length} run{runs.length === 1 ? "" : "s"}
+          aligned at run start · {runs.length} run{runs.length === 1 ? "" : "s"} · gaps between bars = inter-task wait
         </Text>
       </Group>
     </Box>
