@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
-use crate::dispatcher::{Dispatcher, TaskReadyEvent};
+use crate::dispatcher::{Dispatcher, DispatchError, TaskReadyEvent};
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
 use crate::models::workflow_execution::WorkflowExecutionRecord;
@@ -39,6 +39,15 @@ use super::state_manager::StateManager;
 
 /// Maximum backoff interval during sustained errors (30 seconds).
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Max ready tasks dispatched concurrently per tick (CLOACI-T-0745).
+/// `dispatcher.dispatch()` blocks until the task COMPLETES (the fleet executor
+/// waits on the result channel), so dispatching serially ran tasks one-at-a-time
+/// and the executor's slots were never used concurrently. We dispatch up to this
+/// many at once so the fleet actually saturates; tasks beyond the executor's
+/// capacity get `NoCapacity` (expected backpressure) and stay Ready for a later
+/// tick. Set comfortably above typical fleet aggregate capacity.
+const MAX_CONCURRENT_DISPATCH: usize = 64;
 
 /// Number of consecutive errors before logging a circuit-open warning.
 const CIRCUIT_OPEN_THRESHOLD: u32 = 5;
@@ -287,7 +296,7 @@ impl<'a> SchedulerLoop<'a> {
     /// if their retry_at time has passed (or is null).
     async fn dispatch_ready_tasks(&self) -> Result<(), ValidationError> {
         let dispatcher = match &self.dispatcher {
-            Some(d) => d,
+            Some(d) => d.clone(),
             None => return Ok(()),
         };
 
@@ -303,23 +312,54 @@ impl<'a> SchedulerLoop<'a> {
             return Ok(());
         }
 
-        for task in ready_tasks {
-            let event = TaskReadyEvent::new(
-                task.id,
-                task.workflow_execution_id,
-                task.task_name.clone(),
-                task.attempt,
-            );
-
-            if let Err(e) = dispatcher.dispatch(event).await {
-                warn!(
-                    task_id = %task.id,
-                    task_name = %task.task_name,
-                    error = %e,
-                    "Failed to dispatch ready task"
-                );
-            }
-        }
+        // Dispatch concurrently (CLOACI-T-0745). `dispatch()` blocks until the
+        // task completes, so a serial loop ran tasks one-at-a-time; dispatching
+        // up to MAX_CONCURRENT_DISPATCH at once lets the fleet run them in
+        // parallel. The batch is awaited here, so every dispatched task is
+        // claimed (marked Running) before the next tick reads Ready tasks again —
+        // no double-dispatch. Overflow past executor capacity returns
+        // NoCapacity (expected) and the task stays Ready for a later tick.
+        // Bound the number dispatched per tick to MAX_CONCURRENT_DISPATCH: each
+        // dispatch blocks until its task completes, so draining the WHOLE ready
+        // set in one call would block the loop (and starve completion accounting
+        // + new-readiness marking) for as long as the slowest batch takes. Taking
+        // a bounded slice keeps the loop cycling: dispatch ≤N, return, re-tick to
+        // finalize completions and mark more ready. Remaining Ready tasks are
+        // picked up on subsequent ticks.
+        use futures::stream::StreamExt;
+        futures::stream::iter(ready_tasks.into_iter().take(MAX_CONCURRENT_DISPATCH))
+            .for_each_concurrent(MAX_CONCURRENT_DISPATCH, |task| {
+                let dispatcher = dispatcher.clone();
+                async move {
+                    let event = TaskReadyEvent::new(
+                        task.id,
+                        task.workflow_execution_id,
+                        task.task_name.clone(),
+                        task.attempt,
+                    );
+                    match dispatcher.dispatch(event).await {
+                        Ok(()) => {}
+                        Err(DispatchError::NoCapacity(_)) => {
+                            // Expected backpressure — the task remains Ready and
+                            // is retried on a later tick once a slot frees up.
+                            debug!(
+                                task_id = %task.id,
+                                task_name = %task.task_name,
+                                "Dispatch deferred: executor at capacity"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                task_id = %task.id,
+                                task_name = %task.task_name,
+                                error = %e,
+                                "Failed to dispatch ready task"
+                            );
+                        }
+                    }
+                }
+            })
+            .await;
 
         Ok(())
     }
