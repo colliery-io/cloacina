@@ -40,6 +40,19 @@ pub struct TaskMetadataEntry {
     pub description: String,
     /// Source file location
     pub source_location: String,
+    /// Serialized trigger-rules JSON for conditional execution (CLOACI-T-0721).
+    /// Carries the task's `trigger_rules()` across the cdylib FFI boundary so
+    /// packaged workflows honour conditional execution / skips — without it the
+    /// host's `DynamicLibraryTask` defaulted every task to `Always`. Defaults to
+    /// `{"type":"Always"}` for packages built before this field existed.
+    #[serde(default = "default_trigger_rules")]
+    pub trigger_rules: String,
+}
+
+/// Default trigger-rules JSON (`Always`) for back-compat deserialization of
+/// packages built before `trigger_rules` was carried in the metadata.
+fn default_trigger_rules() -> String {
+    "{\"type\":\"Always\"}".to_string()
 }
 
 /// Complete metadata for a workflow package, returned by `get_task_metadata()`.
@@ -386,6 +399,7 @@ mod tests {
             dependencies: vec![],
             description: "Extract data from sources".to_string(),
             source_location: "src/lib.rs".to_string(),
+            trigger_rules: "{\"type\":\"Always\"}".to_string(),
         };
 
         let json = serde_json::to_string(&entry).unwrap();
@@ -410,6 +424,7 @@ mod tests {
                 dependencies: vec![],
                 description: "First step".to_string(),
                 source_location: "src/lib.rs".to_string(),
+                trigger_rules: "{\"type\":\"Always\"}".to_string(),
             }],
             triggers: Vec::new(),
         };

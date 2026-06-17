@@ -68,6 +68,10 @@ pack_rust_ws demo-fail-rust
 # --- Cron trigger: a workflow fired on a schedule (Triggers view) ---
 pack_rust_ws demo-cron-rust
 
+# --- Branch workflow: a trigger-gated branch where one path is SKIPPED each run
+#     (CLOACI-T-0719) — exercises the Skipped task state on the execution DAG. ---
+pack_rust_ws demo-branch-rust
+
 # --- Reactor + accumulator + reactor-bound CG + trigger + workflow (Rust) ---
 pack_rust_rel mixed-rust
 

@@ -176,6 +176,12 @@ impl TaskRegistrar {
 
             let namespace = TaskNamespace::new(tenant_id, package_name, workflow_name, task_id);
 
+            // Trigger rules for conditional execution (CLOACI-T-0721) — parsed
+            // from the cdylib's FFI metadata so packaged workflows honour skips.
+            // Falls back to Always on any parse issue.
+            let trigger_rules: serde_json::Value = serde_json::from_str(&task.trigger_rules_json)
+                .unwrap_or_else(|_| serde_json::json!({ "type": "Always" }));
+
             let plugin = plugin.clone();
             let task_name = task_id.to_string();
             let deps = dependency_namespaces.clone();
@@ -185,6 +191,7 @@ impl TaskRegistrar {
                     plugin.clone(),
                     task_name.clone(),
                     deps.clone(),
+                    trigger_rules.clone(),
                 )) as Arc<dyn Task>
             });
 

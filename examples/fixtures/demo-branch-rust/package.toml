@@ -1,0 +1,16 @@
+# Demo branch fixture (CLOACI-T-0719). A `decide` task sets a flag; two branch
+# tasks are gated on it via trigger_rules — one runs, the other is SKIPPED
+# (its trigger rule isn't satisfied) — then `merge` runs once both resolve.
+# Exercises the Skipped task state so the execution DAG shows a skipped
+# (dashed) node on every run.
+[package]
+name = "demo-branch-rust"
+version = "0.1.1"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "demo_branch_workflow"
+language = "rust"
+description = "demo branch workflow — a gated branch that skips one path each run"
