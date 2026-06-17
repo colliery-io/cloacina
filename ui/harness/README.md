@@ -20,8 +20,10 @@ executions in one of two modes:
 The harness drives two fixtures (compiled from `examples/fixtures/`):
 
 - **`demo-slow-rust`** → workflow `demo_slow_workflow`: a five-step chain where
-  each step sleeps `context.step_seconds` (default 4s), so one run emits a
-  visible event sequence over ~20s — the live-stream centerpiece.
+  each step sleeps a per-task jittered duration (`transform` is the deliberate
+  hot-spot), so runs emit a visible event sequence and a realistic spread for
+  the runtime / Gantt / distribution views — the live-stream centerpiece. A
+  `context.step_seconds` override pins every step to a flat duration for CI.
 - **`demo-fail-rust`** → workflow `demo_fail_workflow`: does a little work then
   deterministically errors — the failed-state / debug view.
 
@@ -33,47 +35,37 @@ The harness drives two fixtures (compiled from `examples/fixtures/`):
 
 ## Run it
 
-### Via angreal (local dev — recommended)
+The harness runs as **compose services** in the demo stack — there is no
+host-process demo. The `fixtures` service packs the demo packages (per
+`docker/pack-demo-fixtures.sh`), the `harness` service seeds a deterministic
+completed/failed/in-flight state, a `driver` service drives continuous runs,
+and a `producer` service streams data into the computation graphs.
+
+### Via the demo stack (recommended)
 
 ```sh
-# 1. compile the fixtures once
-angreal ui build-fixtures            # → examples/fixtures/dist/*.cloacina
-
-# 2. in one terminal, bring up the stack
-angreal ui up
-
-# 3. in another, seed it (deterministic) or drive it continuously
-angreal ui seed                      # seed mode (completed / failed / in-flight)
-angreal ui seed --loop               # continuous demo activity
+angreal ui up        # docker compose -f docker/docker-compose.demo.yml up -d --build
+# → UI at http://localhost:8082, fleet + harness + driver + producer running
 ```
-
-`angreal ui seed` flags: `--server <url>`, `--key <api-key>`, `--tenant <t>`,
-`--loop`. It auto-builds fixtures + installs harness deps if needed.
 
 > **Packages build asynchronously.** `cloacina-server` does not compile
 > uploaded packages — a separate `cloacina-compiler` polls the DB and builds
-> them (`pending → success`) before the workflow registers. `angreal ui up`
-> now starts a compiler alongside the server, and the demo compose includes
-> one; the harness retries `execute` until the workflow is registered, so the
-> first runs may take a few seconds while the package builds.
+> them (`pending → success`) before the workflow registers. The demo stack
+> runs one; the harness retries `execute` until the workflow is registered, so
+> the first runs may take a few seconds (and the first `up` a few minutes)
+> while packages build.
 
-### Directly (node)
+### Directly (node) — for harness development
+
+Point it at any reachable server with a directory of `.cloacina` packages:
 
 ```sh
 HARNESS_SERVER_URL=http://localhost:8080 \
-HARNESS_API_KEY=clk_dev_ui_bootstrap_key_0001 \
+HARNESS_API_KEY=clk_demo_bootstrap_key_0001 \
 HARNESS_TENANT=public \
-HARNESS_PACKAGE_DIR=../../examples/fixtures/dist \
+HARNESS_PACKAGE_DIR=/path/to/packages \
 HARNESS_MODE=seed \
 node src/main.mjs
-```
-
-### Via the demo compose profile
-
-```sh
-angreal ui build-fixtures
-docker compose -f docker/docker-compose.demo.yml up --build
-# → UI at http://localhost:8081, harness driving continuous activity
 ```
 
 ## Configuration (env)
@@ -86,7 +78,6 @@ docker compose -f docker/docker-compose.demo.yml up --build
 | `HARNESS_PACKAGE_DIR`     | `./packages`             | Directory of `.cloacina` files to upload.          |
 | `HARNESS_MODE`            | `seed`                   | `seed` or `loop`.                                  |
 | `HARNESS_INTERVAL_MS`     | `8000`                   | Loop mode: ms between runs.                         |
-| `HARNESS_STEP_SECONDS`    | `4`                      | Per-step pause of the slow workflow (~×5 total).   |
 | `HARNESS_SLOW_WORKFLOW`   | `demo_slow_workflow`     | Workflow name for the slow/streaming run.          |
 | `HARNESS_FAIL_WORKFLOW`   | `demo_fail_workflow`     | Workflow name for the failing run.                 |
 | `HARNESS_HEALTH_TIMEOUT_MS` | `60000`                | How long to wait for `/health` on startup.         |

@@ -14,16 +14,19 @@ plane view lives, and how the live execution stream works.
 
 ## What you'll learn
 
-- How to stand up the full local UI stack with one command.
+- How to stand up the full UI demo stack with one command.
 - How to connect the UI to a server with a tenant API key.
 - How to upload a packaged workflow, execute it, and follow the run
   live as its events stream in.
-- How to seed a demo workload so there's always something to watch.
+- Where the demo's continuous workload comes from so there's always
+  something to watch.
 
 ## Prerequisites
 
-- A checkout of the cloacina repository with `angreal`, Rust, Docker,
-  and Node 20+ available.
+- A checkout of the cloacina repository with `angreal` and Docker
+  (including Compose) available. Everything else — the server, compiler,
+  execution-agent fleet, and UI — builds and runs inside containers, so
+  you don't need Rust or Node installed on your host.
 
 ## Step 1 — Bring up the stack
 
@@ -33,47 +36,49 @@ From the repo root:
 angreal ui up
 ```
 
-This starts PostgreSQL, builds and runs a CORS-enabled
-`cloacina-server`, starts a `cloacina-compiler` (so packages you upload
-actually build), builds the `@cloacina/client` SDK, and serves the UI
-dev server. When it's ready it prints the connection details:
+This builds and starts the docker compose demo stack: PostgreSQL, Kafka,
+a CORS-enabled `cloacina-server`, an in-cluster `cloacina-compiler` (so
+packages you upload actually build), a 3-agent execution fleet that runs
+the work, a one-shot packer + seed that loads the demo packages, and a
+live computation-graph producer. The first run builds images and
+compiles the demo packages, so it takes a few minutes. When it's ready
+it prints the connection details:
 
 ```
-  UI:      http://localhost:5173
+  UI:      http://localhost:8082
   Server:  http://localhost:8080
   Connect with →  server:  http://localhost:8080
-                  api key: clk_dev_ui_bootstrap_key_0001
+                  api key: clk_demo_bootstrap_key_0001
                   tenant:  public
 ```
 
 > **Why the compiler?** `cloacina-server` does not build uploaded
 > packages itself — a separate `cloacina-compiler` polls the database
-> and compiles them. `angreal ui up` starts one for you; without it,
+> and compiles them. The demo stack runs one for you; without it,
 > uploaded workflows would sit in `pending` forever.
 
 ## Step 2 — Connect
 
-Open <http://localhost:5173>. You'll land on the **Connect** screen.
-Enter the server URL, the bootstrap API key, and the tenant (`public`)
-printed above, then click **Connect**. The key is held in
+Open <http://localhost:8082>. You'll land on the **Connect** screen, with
+the server URL and tenant (`public`) prefilled. Paste the bootstrap API
+key printed above and click **Connect**. The key is held in
 `sessionStorage` for the tab only — closing the tab clears it.
 
 You're now on the **Overview** dashboard: a status rollup, a graph
 summary, and the most recent executions.
 
-## Step 3 — Seed a demo workload
+## Step 3 — The demo is already live
 
-In a second terminal, drive a continuous workload so the UI has live
-activity:
+You don't need to seed anything. The stack ships with a continuous
+workload: a driver fires `demo_slow_workflow` runs on an interval, a cron
+trigger and a poll trigger fire on their own schedules, and the producer
+streams market data into the computation graphs so they keep firing. So
+the **Executions**, **Triggers**, and **Graphs** views all have live
+activity from the moment you connect.
 
-```bash
-angreal ui seed --loop
-```
-
-This uploads the demo workflows and fires a mix of fast, slow, and
-intentionally-failing runs every few seconds. (Use `angreal ui seed`
-without `--loop` for a one-shot deterministic set: one completed, one
-failed, one in-flight run.)
+The demo also loads a spread of example packages — including a complex
+20-task DAG (`complex_dag_workflow`) and several computation graphs — so
+the catalog reflects real structure, not just toy single-task workflows.
 
 ## Step 4 — Watch a run live
 

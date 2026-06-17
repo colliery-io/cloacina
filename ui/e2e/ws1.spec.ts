@@ -6,7 +6,7 @@ import { seedConnection } from "./env";
 const OUT = "/tmp/cloacina-ui-uat/ws1";
 fs.mkdirSync(OUT, { recursive: true });
 
-// Seeded execution ids from `angreal ui seed` (passed via env, with fallbacks).
+// Seeded execution ids from the demo seed harness (passed via env, with fallbacks).
 const FAILED = process.env.WS1_FAILED ?? "";
 const COMPLETED = process.env.WS1_COMPLETED ?? "";
 
