@@ -4,15 +4,15 @@ level: task
 title: "Fix cloacinactl release-binary matrix (aarch64-linux + x86_64-darwin)"
 short_code: "CLOACI-T-0650"
 created_at: 2026-06-10T03:31:33.102846+00:00
-updated_at: 2026-06-10T03:31:33.102846+00:00
-parent:
+updated_at: 2026-06-17T11:51:26.584723+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -65,6 +65,12 @@ The two native-arch legs tolerate it; the cross/x-arch legs don't.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -138,3 +144,16 @@ The two native-arch legs tolerate it; the cross/x-arch legs don't.
 ## Status Updates **[REQUIRED]**
 
 *To be added during implementation*
+
+## Status Updates
+- 2026-06-17: **Fixed + verified locally.** Decided the distributed CLI does NOT
+  need `kafka` (a runtime accumulator backend) — that feature is what linked
+  librdkafka and pulled pyo3 transitively, breaking the cross (aarch64-linux, no
+  Python) and x-arch (x86_64-darwin, no x86_64 librdkafka) legs. Changed both the
+  native and cross build steps in `.github/workflows/unified_release.yml` to
+  `-p cloacinactl --no-default-features --features postgres,sqlite --bin cloacinactl`.
+  Verified locally: `cargo build -p cloacinactl --no-default-features --features
+  postgres,sqlite` finishes clean, the binary runs (`cloacinactl 0.7.0`), and
+  `otool -L` shows **no librdkafka / no libpython** linkage — exactly the two
+  things that broke the failing legs. The 4-target cross-build + `install.sh`
+  per-platform checks will confirm on the next tagged release (v0.7.1).

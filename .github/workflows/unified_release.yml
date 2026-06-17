@@ -419,13 +419,18 @@ jobs:
         if: matrix.cross == true
         run: cargo install cross --locked --version 0.2.5
 
+      # CLOACI-T-0650: build the distributed CLI without `kafka` (and the pyo3
+      # it drags in transitively). kafka is a runtime accumulator backend the
+      # CLI doesn't need; linking librdkafka broke the cross/x-arch legs
+      # (aarch64-linux cross image has no Python for pyo3; x86_64-darwin runner
+      # has no x86_64 librdkafka). postgres+sqlite cover the CLI's DB needs.
       - name: Build (native)
         if: matrix.cross == false
-        run: cargo build --release --locked --target ${{ matrix.target }} --bin cloacinactl
+        run: cargo build --release --locked --target ${{ matrix.target }} -p cloacinactl --no-default-features --features postgres,sqlite --bin cloacinactl
 
       - name: Build (cross)
         if: matrix.cross == true
-        run: cross build --release --locked --target ${{ matrix.target }} --bin cloacinactl
+        run: cross build --release --locked --target ${{ matrix.target }} -p cloacinactl --no-default-features --features postgres,sqlite --bin cloacinactl
 
       - name: Strip binary
         if: runner.os == 'Linux' && matrix.cross == false
