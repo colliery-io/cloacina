@@ -74,6 +74,11 @@ pub struct DefaultRunner {
     pub(super) scheduler: Arc<TaskScheduler>,
     /// Owns the lifecycle of every background service plus typed accessor slots.
     pub(super) service_manager: Arc<RwLock<ServiceManager>>,
+    /// Shared wake signal for the timer-driven cron scheduler (CLOACI-T-0743).
+    /// The cron registrar and the runner's cron API call `notify_one` after
+    /// mutating schedules so the scheduler re-arms its sleep immediately
+    /// instead of waiting for the backstop.
+    pub(super) cron_change: Arc<tokio::sync::Notify>,
 }
 
 impl DefaultRunner {
@@ -172,6 +177,7 @@ impl DefaultRunner {
             config,
             scheduler: Arc::new(scheduler),
             service_manager: Arc::new(RwLock::new(ServiceManager::new())),
+            cron_change: Arc::new(tokio::sync::Notify::new()),
         };
 
         // Start the background services immediately
@@ -256,6 +262,9 @@ impl Clone for DefaultRunner {
             config: self.config.clone(),
             scheduler: self.scheduler.clone(),
             service_manager: self.service_manager.clone(),
+            // Share the SAME Notify across clones so a cron-change signal from
+            // any runner handle reaches the one scheduler loop (CLOACI-T-0743).
+            cron_change: self.cron_change.clone(),
         }
     }
 }

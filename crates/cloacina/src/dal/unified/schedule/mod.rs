@@ -116,6 +116,18 @@ impl<'a> ScheduleDAL<'a> {
         )
     }
 
+    /// Earliest `next_run_at` over all enabled cron schedules, or `None` when
+    /// there are none. Powers the timer-driven scheduler's sleep-until-next-due
+    /// loop (CLOACI-T-0743) — the scheduler sleeps until this instant instead of
+    /// polling on a fixed interval.
+    pub async fn next_cron_due_time(&self) -> Result<Option<DateTime<Utc>>, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.next_cron_due_time_postgres().await,
+            self.next_cron_due_time_sqlite().await
+        )
+    }
+
     /// Atomically claims and updates a cron schedule's timing.
     pub async fn claim_and_update_cron(
         &self,

@@ -89,6 +89,9 @@ impl DefaultRunner {
             }
         })?;
 
+        // Wake the timer-driven scheduler so the first fire is on time (T-0743).
+        self.cron_change.notify_one();
+
         Ok(schedule.id)
     }
 
@@ -143,14 +146,17 @@ impl DefaultRunner {
 
         let dal = DAL::new(self.database.clone());
 
-        if enabled {
+        let result = if enabled {
             dal.schedule().enable(schedule_id).await
         } else {
             dal.schedule().disable(schedule_id).await
         }
         .map_err(|e| WorkflowExecutionError::ExecutionFailed {
             message: format!("Failed to update cron schedule: {}", e),
-        })
+        });
+        // Enabling/disabling changes the due set — re-arm the scheduler (T-0743).
+        self.cron_change.notify_one();
+        result
     }
 
     /// Delete a cron schedule
@@ -175,7 +181,10 @@ impl DefaultRunner {
             WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to delete cron schedule: {}", e),
             }
-        })
+        })?;
+        // Re-arm the scheduler's sleep against the remaining schedules (T-0743).
+        self.cron_change.notify_one();
+        Ok(())
     }
 
     /// Get a specific cron schedule by ID
@@ -355,11 +364,19 @@ impl DefaultRunner {
 /// a registrar and cron triggers warn loudly at load.
 pub struct DalCronRegistrar {
     database: crate::database::Database,
+    /// Wakes the timer-driven cron scheduler after a schedule is registered or
+    /// removed so it fires on time instead of waiting for the backstop
+    /// (CLOACI-T-0743). Shared with the `Scheduler` via the runner's
+    /// `cron_change` Notify.
+    cron_change: Arc<tokio::sync::Notify>,
 }
 
 impl DalCronRegistrar {
-    pub fn new(database: crate::database::Database) -> Self {
-        Self { database }
+    pub fn new(database: crate::database::Database, cron_change: Arc<tokio::sync::Notify>) -> Self {
+        Self {
+            database,
+            cron_change,
+        }
     }
 }
 
@@ -399,6 +416,10 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
             .await
             .map_err(|e| format!("Failed to register cron schedule: {}", e))?;
 
+        // Wake the scheduler so the new schedule's first fire is on time
+        // (CLOACI-T-0743), not delayed up to the backstop interval.
+        self.cron_change.notify_one();
+
         Ok(schedule.id.to_string())
     }
 
@@ -411,7 +432,10 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
         dal.schedule()
             .delete(parsed)
             .await
-            .map_err(|e| format!("Failed to delete cron schedule: {}", e))
+            .map_err(|e| format!("Failed to delete cron schedule: {}", e))?;
+        // Re-arm the scheduler's sleep against the remaining schedules.
+        self.cron_change.notify_one();
+        Ok(())
     }
 
     async fn register_poll_trigger(

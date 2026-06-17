@@ -452,6 +452,68 @@ impl<'a> ScheduleDAL<'a> {
     }
 
     #[cfg(feature = "postgres")]
+    pub(super) async fn next_cron_due_time_postgres(
+        &self,
+    ) -> Result<Option<DateTime<Utc>>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let enabled_true = UniversalBool::from(true);
+
+        let earliest: Option<UniversalTimestamp> = conn
+            .interact(move |conn| {
+                schedules::table
+                    .filter(schedules::schedule_type.eq("cron"))
+                    .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::next_run_at.is_not_null())
+                    .order(schedules::next_run_at.asc())
+                    .select(schedules::next_run_at)
+                    .first::<Option<UniversalTimestamp>>(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .flatten();
+
+        Ok(earliest.map(DateTime::<Utc>::from))
+    }
+
+    #[cfg(feature = "sqlite")]
+    pub(super) async fn next_cron_due_time_sqlite(
+        &self,
+    ) -> Result<Option<DateTime<Utc>>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let enabled_true = UniversalBool::from(true);
+
+        let earliest: Option<UniversalTimestamp> = conn
+            .interact(move |conn| {
+                schedules::table
+                    .filter(schedules::schedule_type.eq("cron"))
+                    .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::next_run_at.is_not_null())
+                    .order(schedules::next_run_at.asc())
+                    .select(schedules::next_run_at)
+                    .first::<Option<UniversalTimestamp>>(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .flatten();
+
+        Ok(earliest.map(DateTime::<Utc>::from))
+    }
+
+    #[cfg(feature = "postgres")]
     pub(super) async fn claim_and_update_cron_postgres(
         &self,
         id: UniversalUuid,
