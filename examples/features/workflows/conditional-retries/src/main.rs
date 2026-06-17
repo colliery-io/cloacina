@@ -58,8 +58,6 @@ pub mod conditional_retries_pipeline {
     /// Flaky API call. Fails twice with a "connection refused" message —
     /// matches the TransientOnly pattern — then succeeds on attempt 3.
     #[task(
-        id = "flaky_api_call",
-        dependencies = [],
         retry_attempts = 3,
         retry_delay_ms = 100,
         retry_max_delay_ms = 500,
@@ -85,8 +83,6 @@ pub mod conditional_retries_pipeline {
     /// `retry_condition = "never"` prevents retries even though
     /// `retry_attempts = 3` is configured.
     #[task(
-        id = "validation_check",
-        dependencies = [],
         retry_attempts = 3,
         retry_delay_ms = 100,
         retry_max_delay_ms = 500,

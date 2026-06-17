@@ -11,7 +11,7 @@ external condition.
 **Examples:**
 
 ```rust,ignore
-#[task(id = "wait_for_file")]
+#[task]
 async fn wait_for_file(
     context: &mut Context<Value>,
     handle: &TaskHandle,

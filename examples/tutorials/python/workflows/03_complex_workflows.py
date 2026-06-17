@@ -33,7 +33,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
 
     # Tasks are automatically registered when defined within WorkflowBuilder context
     # Diamond Pattern: Fork-Join Processing
-    @cloaca.task(id="prepare_dataset")
+    @cloaca.task()
     def prepare_dataset(context):
         """Prepare initial dataset for parallel processing."""
         print("Preparing dataset...")
@@ -55,7 +55,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
         return context
 
     # Parallel Processing Tasks (Fork)
-    @cloaca.task(id="analyze_segments", dependencies=["prepare_dataset"])
+    @cloaca.task(dependencies=["prepare_dataset"])
     def analyze_segments(context):
         """Analyze customer segments in parallel."""
         print("Analyzing customer segments...")
@@ -88,7 +88,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
         print(f"Segment analysis complete: {len(segments)} segments found")
         return context
 
-    @cloaca.task(id="calculate_metrics", dependencies=["prepare_dataset"])
+    @cloaca.task(dependencies=["prepare_dataset"])
     def calculate_metrics(context):
         """Calculate key metrics in parallel."""
         print("Calculating metrics...")
@@ -119,7 +119,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
         return context
 
     # Join point
-    @cloaca.task(id="combine_analysis", dependencies=["analyze_segments", "calculate_metrics"])
+    @cloaca.task(dependencies=["analyze_segments", "calculate_metrics"])
     def combine_analysis(context):
         """Combine parallel analysis results."""
         print("Combining analysis results...")
@@ -165,7 +165,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
         return context
 
     # Fan-Out Pattern: Parallel Processing
-    @cloaca.task(id="initiate_campaigns", dependencies=["combine_analysis"])
+    @cloaca.task(dependencies=["combine_analysis"])
     def initiate_campaigns(context):
         """Initiate multiple marketing campaigns based on analysis."""
         print("Initiating marketing campaigns...")
@@ -198,7 +198,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
         return context
 
     # Parallel Campaign Execution Tasks
-    @cloaca.task(id="execute_email_campaigns", dependencies=["initiate_campaigns"])
+    @cloaca.task(dependencies=["initiate_campaigns"])
     def execute_email_campaigns(context):
         """Execute email-based campaigns."""
         print("Executing email campaigns...")
@@ -234,7 +234,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
         print(f"Email campaigns completed: {len(execution_results)} campaigns executed")
         return context
 
-    @cloaca.task(id="execute_outreach_campaigns", dependencies=["initiate_campaigns"])
+    @cloaca.task(dependencies=["initiate_campaigns"])
     def execute_outreach_campaigns(context):
         """Execute personal outreach campaigns."""
         print("Executing personal outreach campaigns...")
@@ -277,7 +277,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
         return context
 
     # Fan-In Pattern: Aggregate Results
-    @cloaca.task(id="aggregate_campaign_results", dependencies=["execute_email_campaigns", "execute_outreach_campaigns"])
+    @cloaca.task(dependencies=["execute_email_campaigns", "execute_outreach_campaigns"])
     def aggregate_campaign_results(context):
         """Aggregate all campaign results."""
         print("Aggregating campaign results...")
@@ -342,7 +342,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
         return context
 
     # Multi-Level Chain: Sequential Analysis and Optimization
-    @cloaca.task(id="analyze_performance", dependencies=["aggregate_campaign_results"])
+    @cloaca.task(dependencies=["aggregate_campaign_results"])
     def analyze_performance(context):
         """Analyze campaign performance for optimization insights."""
         print("Analyzing performance...")
@@ -415,7 +415,7 @@ with cloaca.WorkflowBuilder("complex_workflow") as builder:
         print(f"Performance analysis completed with {len(optimizations)} optimization opportunities")
         return context
 
-    @cloaca.task(id="generate_recommendations", dependencies=["analyze_performance"])
+    @cloaca.task(dependencies=["analyze_performance"])
     def generate_recommendations(context):
         """Generate final recommendations based on complete analysis."""
         print("Generating final recommendations...")

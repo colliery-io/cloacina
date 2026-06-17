@@ -32,7 +32,7 @@ cloacina_workflow_plugin::package!();
 pub mod demo_fail_workflow {
     use super::*;
 
-    #[task(id = "prepare", dependencies = [], retry_attempts = 0)]
+    #[task(retry_attempts = 0)]
     pub async fn prepare(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         // A pause so the failed run isn't instantaneous — the partial-progress
         // (Running) state is visible before the failure lands (WS-10 liveness).
@@ -41,7 +41,7 @@ pub mod demo_fail_workflow {
         Ok(())
     }
 
-    #[task(id = "boom", dependencies = ["prepare"], retry_attempts = 0)]
+    #[task(dependencies = ["prepare"], retry_attempts = 0)]
     pub async fn boom(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         Err(TaskError::ExecutionFailed {
             message: "demo failure: this task is designed to fail".to_string(),

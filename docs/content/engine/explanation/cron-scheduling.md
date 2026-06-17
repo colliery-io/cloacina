@@ -225,7 +225,7 @@ impl CronExecutor {
 While execution is at-least-once, Cloacina provides mechanisms for exactly-once semantics:
 
 ```rust
-@cloaca.task(id="idempotent_backup")
+@cloaca.task()
 def idempotent_backup(context):
     """Example of idempotent task design."""
 
@@ -515,7 +515,7 @@ For the full namespace + PromQL recipes, see [Metrics Catalog]({{< ref "/referen
 
 ```rust
 // Good: Idempotent with clear failure handling
-@cloaca.task(id="robust_backup")
+@cloaca.task()
 def robust_backup(context):
     backup_id = context.get("backup_id")
 
@@ -537,7 +537,7 @@ def robust_backup(context):
     return context
 
 // Avoid: Non-idempotent operations
-@cloaca.task(id="bad_counter")
+@cloaca.task()
 def bad_counter(context):
     # This will cause issues if executed multiple times
     current = get_counter()

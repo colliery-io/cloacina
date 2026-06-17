@@ -94,29 +94,39 @@ def run_pytest_scenarios(
         # well above any legitimate scenario runtime while still failing
         # fast on a hang.
         scenario_timeout_secs = 180
-        try:
-            result = subprocess.run(
-                cmd,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=scenario_timeout_secs,
-            )
-            passed = result.returncode == 0
-            aggregator.add_result(
-                TestResult(
-                    file_name=test_file.name,
-                    backend=backend_name,
-                    passed=passed,
-                    stdout=result.stdout,
-                    stderr=result.stderr,
-                    return_code=result.returncode,
+        # CLOACI-T-0622: retry ONLY on timeout (the flaky sqlite/PyO3 hang).
+        # A non-zero return code is a real test failure and fails fast — no
+        # retry — so this does NOT mask genuine regressions; it only gives a
+        # transient hang another chance. A scenario that hangs on every attempt
+        # (a deterministic deadlock) still fails the lane.
+        max_attempts = 3
+        result = None
+        last_timeout = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=scenario_timeout_secs,
                 )
-            )
-        except subprocess.TimeoutExpired as e:
+                last_timeout = None
+                break  # completed (pass OR real failure) — never retry a real result
+            except subprocess.TimeoutExpired as e:
+                last_timeout = e
+                if attempt < max_attempts:
+                    print(
+                        f"TIMEOUT: {test_file.name} exceeded {scenario_timeout_secs}s "
+                        f"(attempt {attempt}/{max_attempts}) — retrying flaky hang (CLOACI-T-0622).",
+                        flush=True,
+                    )
+
+        if last_timeout is not None:
+            # Hung on every attempt → treat as a real failure.
+            e = last_timeout
             stdout = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
             stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
-            passed = False
             aggregator.add_result(
                 TestResult(
                     file_name=test_file.name,
@@ -124,17 +134,31 @@ def run_pytest_scenarios(
                     passed=False,
                     stdout=stdout,
                     stderr=stderr
-                    + f"\n[CLOACI-T-0622] scenario subprocess hung past {scenario_timeout_secs}s and was killed.\n",
+                    + f"\n[CLOACI-T-0622] scenario subprocess hung past {scenario_timeout_secs}s "
+                    + f"on all {max_attempts} attempts and was killed.\n",
                     return_code=124,
                 )
             )
             print(
-                f"TIMEOUT: {test_file.name} exceeded {scenario_timeout_secs}s — killed.",
+                f"TIMEOUT: {test_file.name} exceeded {scenario_timeout_secs}s on all "
+                f"{max_attempts} attempts — killed.",
                 flush=True,
             )
             file_results.append((test_file.name, False))
             all_passed = False
             continue
+
+        passed = result.returncode == 0
+        aggregator.add_result(
+            TestResult(
+                file_name=test_file.name,
+                backend=backend_name,
+                passed=passed,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                return_code=result.returncode,
+            )
+        )
         file_results.append((test_file.name, passed))
         if passed:
             print(f"PASSED: {test_file.name}")

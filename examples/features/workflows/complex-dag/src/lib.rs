@@ -41,21 +41,21 @@ mod complex_dag_workflow {
     // Level 0: Root tasks (no dependencies) - these can run in parallel
     // ============================================================================
 
-    #[task(id = "init_config", dependencies = [])]
+    #[task]
     pub async fn init_config(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("config_loaded", serde_json::Value::Bool(true))?;
         println!("Configuration initialized");
         Ok(())
     }
 
-    #[task(id = "init_database", dependencies = [])]
+    #[task]
     pub async fn init_database(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("database_ready", serde_json::Value::Bool(true))?;
         println!("Database connection established");
         Ok(())
     }
 
-    #[task(id = "init_logging", dependencies = [])]
+    #[task]
     pub async fn init_logging(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("logging_enabled", serde_json::Value::Bool(true))?;
         println!("Logging system initialized");
@@ -66,21 +66,21 @@ mod complex_dag_workflow {
     // Level 1: Second level - depends on specific root tasks
     // ============================================================================
 
-    #[task(id = "load_schema", dependencies = ["init_database"])]
+    #[task(dependencies = ["init_database"])]
     pub async fn load_schema(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("schema_loaded", serde_json::Value::Bool(true))?;
         println!("Database schema loaded");
         Ok(())
     }
 
-    #[task(id = "setup_security", dependencies = ["init_config"])]
+    #[task(dependencies = ["init_config"])]
     pub async fn setup_security(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("security_configured", serde_json::Value::Bool(true))?;
         println!("Security configuration applied");
         Ok(())
     }
 
-    #[task(id = "configure_monitoring", dependencies = ["init_logging", "init_config"])]
+    #[task(dependencies = ["init_logging", "init_config"])]
     pub async fn configure_monitoring(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -93,14 +93,14 @@ mod complex_dag_workflow {
     // Level 2: Third level - more complex dependencies
     // ============================================================================
 
-    #[task(id = "create_tables", dependencies = ["load_schema", "setup_security"])]
+    #[task(dependencies = ["load_schema", "setup_security"])]
     pub async fn create_tables(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("tables_created", serde_json::Value::Bool(true))?;
         println!("Database tables created");
         Ok(())
     }
 
-    #[task(id = "setup_cache", dependencies = ["load_schema"])]
+    #[task(dependencies = ["load_schema"])]
     pub async fn setup_cache(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("cache_ready", serde_json::Value::Bool(true))?;
         println!("Caching layer configured");
@@ -111,21 +111,21 @@ mod complex_dag_workflow {
     // Level 3: Data processing branch
     // ============================================================================
 
-    #[task(id = "load_raw_data", dependencies = ["create_tables"])]
+    #[task(dependencies = ["create_tables"])]
     pub async fn load_raw_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("raw_data_loaded", serde_json::Value::Bool(true))?;
         println!("Raw data loaded into staging tables");
         Ok(())
     }
 
-    #[task(id = "validate_data", dependencies = ["load_raw_data"])]
+    #[task(dependencies = ["load_raw_data"])]
     pub async fn validate_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("data_validated", serde_json::Value::Bool(true))?;
         println!("Data validation completed");
         Ok(())
     }
 
-    #[task(id = "clean_data", dependencies = ["validate_data"])]
+    #[task(dependencies = ["validate_data"])]
     pub async fn clean_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         context.insert("data_cleaned", serde_json::Value::Bool(true))?;
         println!("Data cleaning process completed");
@@ -136,7 +136,7 @@ mod complex_dag_workflow {
     // Level 4: Parallel transformation tasks
     // ============================================================================
 
-    #[task(id = "transform_customers", dependencies = ["clean_data"])]
+    #[task(dependencies = ["clean_data"])]
     pub async fn transform_customers(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -145,7 +145,7 @@ mod complex_dag_workflow {
         Ok(())
     }
 
-    #[task(id = "transform_orders", dependencies = ["clean_data"])]
+    #[task(dependencies = ["clean_data"])]
     pub async fn transform_orders(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -154,7 +154,7 @@ mod complex_dag_workflow {
         Ok(())
     }
 
-    #[task(id = "transform_products", dependencies = ["clean_data"])]
+    #[task(dependencies = ["clean_data"])]
     pub async fn transform_products(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -167,7 +167,7 @@ mod complex_dag_workflow {
     // Level 5: Aggregation tasks that depend on multiple transformations
     // ============================================================================
 
-    #[task(id = "calculate_metrics", dependencies = ["transform_customers", "transform_orders"])]
+    #[task(dependencies = ["transform_customers", "transform_orders"])]
     pub async fn calculate_metrics(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -176,7 +176,7 @@ mod complex_dag_workflow {
         Ok(())
     }
 
-    #[task(id = "generate_insights", dependencies = ["transform_products", "calculate_metrics"])]
+    #[task(dependencies = ["transform_products", "calculate_metrics"])]
     pub async fn generate_insights(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -189,7 +189,7 @@ mod complex_dag_workflow {
     // Level 6: Reporting branch - depends on cache and insights
     // ============================================================================
 
-    #[task(id = "build_dashboard", dependencies = ["setup_cache", "generate_insights"])]
+    #[task(dependencies = ["setup_cache", "generate_insights"])]
     pub async fn build_dashboard(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -198,7 +198,7 @@ mod complex_dag_workflow {
         Ok(())
     }
 
-    #[task(id = "generate_reports", dependencies = ["calculate_metrics", "configure_monitoring"])]
+    #[task(dependencies = ["calculate_metrics", "configure_monitoring"])]
     pub async fn generate_reports(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -211,7 +211,7 @@ mod complex_dag_workflow {
     // Level 7: Final convergence tasks
     // ============================================================================
 
-    #[task(id = "send_notifications", dependencies = ["build_dashboard", "generate_reports"])]
+    #[task(dependencies = ["build_dashboard", "generate_reports"])]
     pub async fn send_notifications(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -220,7 +220,7 @@ mod complex_dag_workflow {
         Ok(())
     }
 
-    #[task(id = "cleanup_staging", dependencies = ["send_notifications"])]
+    #[task(dependencies = ["send_notifications"])]
     pub async fn cleanup_staging(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {

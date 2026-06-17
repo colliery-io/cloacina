@@ -61,7 +61,7 @@ pub mod deferred_pipeline {
     /// - Whether a file has appeared on disk
     /// - Whether an API endpoint returns a ready status
     /// - Whether a message has arrived in a queue
-    #[task(id = "wait_for_data", dependencies = [])]
+    #[task]
     pub async fn wait_for_data(
         context: &mut Context<serde_json::Value>,
         handle: &mut TaskHandle,
@@ -104,7 +104,7 @@ pub mod deferred_pipeline {
     }
 
     /// Processes data that was fetched by the deferred task.
-    #[task(id = "process_data", dependencies = ["wait_for_data"])]
+    #[task(dependencies = ["wait_for_data"])]
     pub async fn process_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let data = context
             .get("external_data")

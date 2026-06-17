@@ -35,7 +35,7 @@ with cloaca.WorkflowBuilder("tenant_onboarding") as builder:
     builder.description("New tenant onboarding workflow")
 
     # Tasks are automatically registered when defined within WorkflowBuilder context
-    @cloaca.task(id="tenant_onboarding")
+    @cloaca.task()
     def tenant_onboarding(context):
         """Handle new tenant onboarding workflow."""
         print("Starting tenant onboarding...")
@@ -79,7 +79,7 @@ with cloaca.WorkflowBuilder("tenant_onboarding") as builder:
 with cloaca.WorkflowBuilder("tenant_data_processing") as builder:
     builder.description("Tenant-specific data processing and reporting")
 
-    @cloaca.task(id="process_tenant_data")
+    @cloaca.task()
     def process_tenant_data(context):
         """Process tenant-specific data."""
         print("Processing tenant data...")
@@ -107,7 +107,7 @@ with cloaca.WorkflowBuilder("tenant_data_processing") as builder:
         print(f"Processed {data_volume} records for tenant {tenant_id}")
         return context
 
-    @cloaca.task(id="generate_tenant_report", dependencies=["process_tenant_data"])
+    @cloaca.task(dependencies=["process_tenant_data"])
     def generate_tenant_report(context):
         """Generate tenant-specific analytics report."""
         print("Generating tenant report...")

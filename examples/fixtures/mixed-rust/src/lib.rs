@@ -89,7 +89,7 @@ pub mod mixed_graph {
 pub mod mixed_wf {
     use super::*;
 
-    #[task(id = "mixed_step", dependencies = [])]
+    #[task]
     pub async fn mixed_step(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let _ = context;
         // Jittered work so the poll-driven stream of runs lingers visibly in

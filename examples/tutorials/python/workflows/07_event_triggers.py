@@ -35,7 +35,6 @@ with cloaca.WorkflowBuilder("file_processor") as builder:
     builder.description("Process incoming files with monitoring")
 
     @cloaca.task(
-        id="validate_file",
         on_success=on_task_success,
         on_failure=on_task_failure
     )
@@ -47,7 +46,6 @@ with cloaca.WorkflowBuilder("file_processor") as builder:
         return context
 
     @cloaca.task(
-        id="process_file",
         dependencies=["validate_file"],
         on_success=on_task_success,
         on_failure=on_task_failure
@@ -97,7 +95,7 @@ def file_watcher():
 with cloaca.WorkflowBuilder("queue_handler") as builder:
     builder.description("Handle queue overflow")
 
-    @cloaca.task(id="drain_queue")
+    @cloaca.task()
     def drain_queue(context):
         """Drain and process queue messages."""
         queue_depth = context.get("queue_depth", 0)

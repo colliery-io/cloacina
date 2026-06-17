@@ -18,6 +18,13 @@ you run. APIs for Rust and Python, the `cloacinactl` CLI, the HTTP and WebSocket
 protocols, configuration and environment variables, the metrics catalog, client
 SDKs, the glossary, and troubleshooting.
 
+**Who this is for:** readers looking up a specific API, flag, endpoint, or config
+value — not learning a concept for the first time.
+
+**Prerequisites:** none. This is lookup material; start from
+**[Start Here]({{< ref "/start" >}})** or **[Engine & Primitives]({{< ref "/engine" >}})**
+if you need the concepts behind a symbol.
+
 {{< toc-tree >}}
 
 ## Generated API reference

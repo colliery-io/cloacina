@@ -183,8 +183,8 @@ impl<'a> ScheduleDAL<'a> {
         )
     }
 
-    /// Upserts a cron schedule by its identity (workflow_name + cron_expression
-    /// + timezone). Idempotent: re-registering the same packaged cron trigger
+    /// Upserts a cron schedule by its identity (workflow_name, cron_expression,
+    /// timezone). Idempotent: re-registering the same packaged cron trigger
     /// (e.g. on every reconcile re-load) updates the existing row's next-run
     /// time instead of inserting a duplicate (CLOACI-T-0669). Returns the
     /// resulting schedule.

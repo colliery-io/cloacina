@@ -21,7 +21,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use syn::{
     parse::{Parse, ParseStream},
-    Expr, FnArg, Ident, ItemFn, LitStr, Pat, Result as SynResult, Token,
+    Expr, FnArg, GenericArgument, Ident, ItemFn, LitStr, Pat, PathArguments, Result as SynResult,
+    ReturnType, Token, Type,
 };
 
 use crate::registry::{get_registry, TaskInfo};
@@ -41,6 +42,7 @@ use crate::registry::{get_registry, TaskInfo};
 /// * `trigger_rules` - Rules that determine when the task should be executed
 /// * `on_success` - Function to call on successful task completion: `async fn(&str, &Context<Value>)`
 /// * `on_failure` - Function to call on task failure: `async fn(&str, &TaskError, &Context<Value>)`
+#[derive(Default)]
 pub struct TaskAttributes {
     pub id: String,
     pub dependencies: Vec<String>, // Will need to convert to TaskNamespace during code generation
@@ -202,9 +204,10 @@ impl Parse for TaskAttributes {
             }
         }
 
-        let id = id.ok_or_else(|| {
-            syn::Error::new(Span::call_site(), "task macro requires 'id' attribute")
-        })?;
+        // `id` is optional (CLOACI-T-0732): when omitted it defaults to the
+        // function name. The default is resolved at expansion time where the fn
+        // ident is available (an empty string here is the "not provided" sentinel).
+        let id = id.unwrap_or_default();
 
         Ok(TaskAttributes {
             id,
@@ -639,12 +642,46 @@ pub fn to_pascal_case(s: &str) -> String {
 /// # Returns
 ///
 /// A `TokenStream2` containing the generated task implementation
+/// Normalize a task function's return type so authors can write a bare
+/// `-> Result<()>` (or `-> Result<T>`) and have the error type default to
+/// `TaskError` (CLOACI-T-0734). A return type that is a single-argument
+/// `Result<T>` is rewritten to `Result<T, ::cloacina_workflow::TaskError>`;
+/// anything else (already two-arg `Result<T, E>`, `-> ()`, no return, etc.) is
+/// emitted verbatim, so this is purely additive.
+fn normalize_task_return_type(output: &ReturnType) -> TokenStream2 {
+    if let ReturnType::Type(arrow, ty) = output {
+        if let Type::Path(type_path) = &**ty {
+            if let Some(seg) = type_path.path.segments.last() {
+                if seg.ident == "Result" {
+                    if let PathArguments::AngleBracketed(args) = &seg.arguments {
+                        // Count only type arguments (ignore lifetimes etc.).
+                        let type_args: Vec<&GenericArgument> = args
+                            .args
+                            .iter()
+                            .filter(|a| matches!(a, GenericArgument::Type(_)))
+                            .collect();
+                        if type_args.len() == 1 {
+                            let ok_ty = type_args[0];
+                            return quote! {
+                                #arrow ::std::result::Result<#ok_ty, ::cloacina_workflow::TaskError>
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    quote! { #output }
+}
+
 pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 {
     let fn_name = &input.sig.ident;
     let fn_vis = &input.vis;
     let fn_block = &input.block;
     let fn_inputs = &input.sig.inputs;
     let fn_output = &input.sig.output;
+    // Bare `-> Result<()>` → `-> Result<(), TaskError>` (CLOACI-T-0734).
+    let normalized_output = normalize_task_return_type(fn_output);
     let fn_asyncness = &input.sig.asyncness;
 
     // Calculate code fingerprint
@@ -873,7 +910,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 
     quote! {
         // Keep the original function for testing
-        #fn_vis #fn_asyncness fn #fn_name(#fn_inputs) #fn_output #fn_block
+        #fn_vis #fn_asyncness fn #fn_name(#fn_inputs) #normalized_output #fn_block
 
         // Generate the task struct
         #[derive(Debug)]
@@ -1016,6 +1053,17 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
             .to_compile_error()
             .into();
         }
+    };
+
+    // Default `id` to the function name when not explicitly provided
+    // (CLOACI-T-0732). Resolved here, where both the parsed attrs and the
+    // function ident are available, so a bare `#[task]` is valid.
+    let attrs = {
+        let mut attrs = attrs;
+        if attrs.id.is_empty() {
+            attrs.id = input_fn.sig.ident.to_string();
+        }
+        attrs
     };
 
     // PHASE 1: Register task in compile-time registry and validate

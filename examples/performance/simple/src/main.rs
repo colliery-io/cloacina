@@ -46,10 +46,7 @@ pub mod simple_workflow {
     use super::*;
 
     /// A simple task that just logs a message
-    #[task(
-        id = "hello_world",
-        dependencies = []
-    )]
+    #[task]
     pub async fn hello_world(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         // Add some data to context for demonstration
         context.insert("message", json!("Hello World!"))?;

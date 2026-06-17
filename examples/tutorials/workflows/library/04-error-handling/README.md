@@ -76,8 +76,6 @@ Add callbacks to your task definitions using the `on_success` and `on_failure` p
 
 ```rust
 #[task(
-    id = "critical_task",
-    dependencies = [],
     on_success = log_completion,
     on_failure = alert_team
 )]

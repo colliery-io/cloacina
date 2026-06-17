@@ -165,15 +165,13 @@ documented in [Deploying the API Server]({{< ref "/service/how-to/deploying-the-
 For signature enforcement, the server accepts `--require-signatures`
 and `--verification-org-id <UUID>` (per I-0103) to enforce
 fail-closed package-signature verification at the canonical load
-path; the dedicated `require-signed-packages` how-to is written by
-DOC-C of the CLOACI-I-0112 initiative.
+path. For the operator-side setup, see
+[Require Signed Packages]({{< ref "/service/how-to/require-signed-packages" >}}).
 
 For tenant decommissioning, `DELETE /v1/tenants/{name}` performs the
 4-step teardown orchestration (revoke keys → evict runner cache →
 evict DB cache → drop schema) per I-0106 / T-0581, gated by
-`--tenant-deletion-drain-timeout-s`. The dedicated
-`decommission-a-tenant` how-to is written by DOC-C of the
-CLOACI-I-0112 initiative.
+`--tenant-deletion-drain-timeout-s`.
 
 ## Observability
 

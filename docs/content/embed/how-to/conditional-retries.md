@@ -37,8 +37,6 @@ workflows — no closure or trait-object plumbing.
 
 ```rust
 #[task(
-    id = "flaky_api_call",
-    dependencies = [],
     retry_attempts = 3,
     retry_delay_ms = 100,
     retry_condition = "transient",
@@ -49,8 +47,6 @@ async fn flaky_api_call(context: &mut Context<Value>) -> Result<(), TaskError> {
 }
 
 #[task(
-    id = "validation_check",
-    dependencies = [],
     retry_attempts = 3,
     retry_condition = "never",
 )]
@@ -70,7 +66,6 @@ import cloaca
 
 with cloaca.WorkflowBuilder("flaky_pipeline") as builder:
     @cloaca.task(
-        id="flaky_api_call",
         retry_attempts=3,
         retry_delay_ms=100,
         retry_condition="transient",
@@ -79,7 +74,6 @@ with cloaca.WorkflowBuilder("flaky_pipeline") as builder:
         raise RuntimeError("connection refused (simulated)")  # retried
 
     @cloaca.task(
-        id="validation_check",
         retry_attempts=3,
         retry_condition="never",
     )

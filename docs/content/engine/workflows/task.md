@@ -29,7 +29,7 @@ A task with one dependency, declared in each interface:
 ```rust
 use cloacina::{task, Context, TaskError};
 
-#[task(id = "transform", dependencies = ["fetch"])]
+#[task(dependencies = ["fetch"])]
 async fn transform(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
     let raw = context.get("raw").cloned().unwrap_or_default();
     context.insert("transformed", raw)?;
@@ -41,7 +41,7 @@ async fn transform(context: &mut Context<serde_json::Value>) -> Result<(), TaskE
 ```python
 import cloaca
 
-@cloaca.task(id="transform", dependencies=["fetch"])
+@cloaca.task(dependencies=["fetch"])
 def transform(context):
     context.set("transformed", context.get("raw"))
     return context
@@ -60,8 +60,6 @@ Retry behavior is configured on the task itself. The discrete knobs:
 {{< tab "Rust" >}}
 ```rust
 #[task(
-    id = "flaky",
-    dependencies = [],
     retry_attempts = 5,
     retry_backoff = "exponential",
     retry_delay_ms = 1000,
@@ -75,7 +73,6 @@ async fn flaky(context: &mut Context<serde_json::Value>) -> Result<(), TaskError
 {{< tab "Python" >}}
 ```python
 @cloaca.task(
-    id="flaky",
     retry_attempts=5,
     retry_backoff="exponential",
     retry_delay_ms=1000,

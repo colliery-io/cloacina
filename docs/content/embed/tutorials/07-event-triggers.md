@@ -27,7 +27,7 @@ passes in via context.
 pub mod file_processing {
     use super::*;
 
-    #[task(id = "validate_file", dependencies = [])]
+    #[task]
     pub async fn validate_file(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let filename = ctx.get("filename").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
         ctx.insert("validated", serde_json::json!(true))?;
@@ -35,7 +35,7 @@ pub mod file_processing {
         Ok(())
     }
 
-    #[task(id = "process_file", dependencies = ["validate_file"])]
+    #[task(dependencies = ["validate_file"])]
     pub async fn process_file(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let filename = ctx.get("filename").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
         ctx.insert("processed", serde_json::json!(true))?;
@@ -50,14 +50,14 @@ pub mod file_processing {
 with cloaca.WorkflowBuilder("file_processing") as builder:
     builder.description("Process incoming files")
 
-    @cloaca.task(id="validate_file")
+    @cloaca.task()
     def validate_file(context):
         filename = context.get("filename", "unknown")
         context.set("validated", True)
         print(f"Validated: {filename}")
         return context
 
-    @cloaca.task(id="process_file", dependencies=["validate_file"])
+    @cloaca.task(dependencies=["validate_file"])
     def process_file(context):
         filename = context.get("filename", "unknown")
         print(f"Processing: {filename}")

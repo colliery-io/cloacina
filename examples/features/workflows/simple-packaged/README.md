@@ -77,7 +77,7 @@ use cloacina_workflow::{workflow, task, Context, TaskError};
     author = "Your Team"
 )]
 pub mod data_processing {
-    #[task(id = "collect_data", dependencies = [])]
+    #[task]
     pub async fn collect_data(context: &mut Context<Value>) -> Result<(), TaskError> {
         // Implementation
     }

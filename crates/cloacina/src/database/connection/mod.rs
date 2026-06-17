@@ -79,6 +79,26 @@ use deadpool_diesel::sqlite::{
     Manager as SqliteManager, Pool as SqlitePool, Runtime as SqliteRuntime,
 };
 
+/// SQLite connection-pool size, unified across the sqlite-only and
+/// postgres+sqlite builds (CLOACI-T-0649 follow-up).
+///
+/// CLOACI-T-0622 bumped the postgres+sqlite path from 1 → 4 to clear macOS-CI
+/// contention that "looked like a deadlock", but the sqlite-only path was left
+/// at 1 and kept hitting the same hang (the flaky `task_callbacks` sqlite
+/// integration timeout). Both paths now share this constant so they can't drift
+/// again. Safe with the `:memory:`-as-tempfile materialisation + WAL +
+/// `busy_timeout=30000` applied on every checkout.
+#[cfg(feature = "sqlite")]
+const SQLITE_POOL_SIZE: usize = 4;
+
+/// Bounded wait for a pool connection. Without it, an exhausted or contended
+/// pool (especially the small SQLite pool) waits *indefinitely* for a
+/// connection — a reentrant/contended checkout then stalls until some outer
+/// timeout kills the process (the 180s scenario-kill behind the sqlite flake).
+/// With a bounded wait the same condition surfaces as a fast, actionable
+/// `pool timeout` error that names the checkout site instead of hanging.
+const POOL_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Errors that can occur during database operations.
 ///
 /// This error type covers connection pool creation, URL parsing,
@@ -281,6 +301,8 @@ impl Database {
                 let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
                 let pool = PgPool::builder(manager)
                     .max_size(max_size as usize)
+                    .runtime(PgRuntime::Tokio1)
+                    .wait_timeout(Some(POOL_WAIT_TIMEOUT))
                     .build()
                     .map_err(|e| DatabaseError::PoolCreation {
                         backend: "PostgreSQL",
@@ -319,9 +341,11 @@ impl Database {
                 // poll + firings pruner, both added under I-0100/T-0602),
                 // which on macOS CI was producing contention severe
                 // enough to look like a deadlock.
-                let sqlite_pool_size = 4;
+                let sqlite_pool_size = SQLITE_POOL_SIZE;
                 let pool = SqlitePool::builder(manager)
                     .max_size(sqlite_pool_size)
+                    .runtime(SqliteRuntime::Tokio1)
+                    .wait_timeout(Some(POOL_WAIT_TIMEOUT))
                     .build()
                     .map_err(|e| DatabaseError::PoolCreation {
                         backend: "SQLite",
@@ -349,6 +373,8 @@ impl Database {
             let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
             let pool = PgPool::builder(manager)
                 .max_size(max_size as usize)
+                .runtime(PgRuntime::Tokio1)
+                .wait_timeout(Some(POOL_WAIT_TIMEOUT))
                 .build()
                 .map_err(|e| DatabaseError::PoolCreation {
                     backend: "PostgreSQL",
@@ -377,9 +403,11 @@ impl Database {
             let (connection_url, memory_tempfile) =
                 Self::materialize_sqlite_connection(connection_string)?;
             let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
-            let sqlite_pool_size = 1;
+            let sqlite_pool_size = SQLITE_POOL_SIZE;
             let pool = SqlitePool::builder(manager)
                 .max_size(sqlite_pool_size)
+                .runtime(SqliteRuntime::Tokio1)
+                .wait_timeout(Some(POOL_WAIT_TIMEOUT))
                 .build()
                 .map_err(|e| DatabaseError::PoolCreation {
                     backend: "SQLite",
@@ -440,9 +468,21 @@ impl Database {
     }
 
     /// Builds a PostgreSQL connection URL.
+    ///
+    /// Respects an explicit database name already present in `base_url` (e.g.
+    /// `postgres://host/mydb`); only falls back to the `database_name`
+    /// parameter when the URL carries no database (empty path or just `/`).
+    ///
+    /// Previously this unconditionally called `set_path(database_name)`, so a
+    /// `--database-url postgres://…/mydb` silently connected to the
+    /// caller-supplied `database_name` (the server hardcodes `"cloacina"`)
+    /// while logging `mydb` — data landed in the wrong database (CLOACI-T-0649).
     fn build_postgres_url(base_url: &str, database_name: &str) -> Result<String, url::ParseError> {
         let mut url = Url::parse(base_url)?;
-        url.set_path(database_name);
+        let has_explicit_db = !url.path().trim_start_matches('/').is_empty();
+        if !has_explicit_db {
+            url.set_path(database_name);
+        }
         Ok(url.to_string())
     }
 
@@ -839,6 +879,35 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // CLOACI-T-0649: build_postgres_url must respect an explicit database name
+    // in the URL and only fall back to the parameter when the URL has none.
+    #[test]
+    fn build_postgres_url_respects_explicit_dbname() {
+        // Explicit dbname in the URL is preserved (NOT overridden by the param).
+        let url =
+            Database::build_postgres_url("postgres://u:p@host:5432/mydb", "cloacina").unwrap();
+        assert!(
+            url.contains("/mydb") && !url.contains("/cloacina"),
+            "explicit dbname must win: {url}"
+        );
+    }
+
+    #[test]
+    fn build_postgres_url_falls_back_when_no_dbname() {
+        // No path → fall back to the parameter.
+        let url = Database::build_postgres_url("postgres://u:p@host:5432", "cloacina").unwrap();
+        assert!(
+            url.contains("/cloacina"),
+            "should fall back to param: {url}"
+        );
+        // Bare "/" path also counts as "no database".
+        let url2 = Database::build_postgres_url("postgres://u:p@host:5432/", "cloacina").unwrap();
+        assert!(
+            url2.contains("/cloacina"),
+            "bare slash should fall back: {url2}"
+        );
+    }
 
     // -----------------------------------------------------------------------
     // CLOACI-T-0582: strict-search-path flag toggle

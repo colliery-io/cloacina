@@ -82,7 +82,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -102,7 +102,7 @@ jobs:
           pip install angreal
 
       - name: Install PostgreSQL (macOS)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-latest'
         run: |
           brew install postgresql@14
           echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
@@ -138,7 +138,7 @@ jobs:
       fail-fast: false
       matrix:
         backend: [postgres, sqlite]
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -189,7 +189,7 @@ jobs:
           echo "Core limit: $(ulimit -c)"
 
       - name: Install PostgreSQL dev libs (macOS)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-latest'
         run: |
           # Always install libpq on macOS - workspace examples need it even for SQLite tests
           brew install postgresql@14
@@ -198,7 +198,7 @@ jobs:
           echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
 
       - name: Start PostgreSQL services (macOS)
-        if: matrix.backend == 'postgres' && matrix.os == 'macos-14'
+        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
         run: |
           brew services start postgresql@14
           sleep 5
@@ -210,7 +210,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          if [ "${{ matrix.os }}" = "macos-14" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
+          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
             angreal test integration --backend ${{ matrix.backend }} --skip-docker
           elif [ "${{ env.ACT }}" = "true" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
             # Running under act - use host's PostgreSQL, skip docker

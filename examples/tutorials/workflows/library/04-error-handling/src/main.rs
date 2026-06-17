@@ -95,8 +95,6 @@ pub mod resilient_pipeline {
     // Task 1: Fetch data from external source with retries
     // Demonstrates: retry policies with exponential backoff AND on_failure callback
     #[task(
-        id = "fetch_data",
-        dependencies = [],
         retry_attempts = 3,
         retry_delay_ms = 1000,
         retry_backoff = "exponential",
@@ -139,7 +137,6 @@ pub mod resilient_pipeline {
 
     // Task 2: Fallback to cached data when fetch fails
     #[task(
-        id = "cached_data",
         dependencies = ["fetch_data"],
         trigger_rules = task_failed("fetch_data")
     )]
@@ -168,7 +165,6 @@ pub mod resilient_pipeline {
     // Task 3: Process the data and evaluate quality
     // Demonstrates: both on_success and on_failure callbacks on the same task
     #[task(
-        id = "process_data",
         dependencies = ["fetch_data", "cached_data"],
         on_success = on_task_success,
         on_failure = on_task_failure
@@ -211,7 +207,6 @@ pub mod resilient_pipeline {
 
     // Task 4: High quality processing path
     #[task(
-        id = "high_quality_processing",
         dependencies = ["process_data"],
         trigger_rules = all(
             task_success("process_data"),
@@ -251,7 +246,6 @@ pub mod resilient_pipeline {
 
     // Task 5: Low quality processing path
     #[task(
-        id = "low_quality_processing",
         dependencies = ["process_data"],
         trigger_rules = all(
             task_success("process_data"),
@@ -291,7 +285,6 @@ pub mod resilient_pipeline {
 
     // Task 6: Failure notification
     #[task(
-        id = "failure_notification",
         dependencies = ["fetch_data", "cached_data"],
         trigger_rules = all(
             task_failed("fetch_data"),
@@ -319,7 +312,6 @@ pub mod resilient_pipeline {
     // Task 7: Final report generation
     // Demonstrates: on_success callback for completion notification
     #[task(
-        id = "final_report",
         dependencies = ["high_quality_processing", "low_quality_processing"],
         trigger_rules = any(
             task_success("high_quality_processing"),

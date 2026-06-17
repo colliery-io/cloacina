@@ -50,7 +50,7 @@ use tracing::{debug, warn};
 /// let user_id = context.get("user_id").unwrap();
 /// ```
 #[derive(Debug)]
-pub struct Context<T>
+pub struct Context<T = serde_json::Value>
 where
     T: Serialize + for<'de> Deserialize<'de> + Debug,
 {
@@ -302,6 +302,128 @@ where
     }
 }
 
+/// Typed accessors for the task context (`Context<serde_json::Value>`).
+///
+/// Task bodies operate on a `Context<serde_json::Value>`, so reading an input
+/// otherwise means `get(...).and_then(|v| v.as_*()).ok_or_else(...)?` plus a
+/// `serde_json::from_value` round-trip, and writing means wrapping every value
+/// in `serde_json::json!(...)`. These helpers fold that boilerplate and return
+/// a [`TaskError`] so they compose with `?` in a task body (CLOACI-T-0733).
+///
+/// This mirrors the ergonomics Python authors already get from
+/// `context.get(key, default)` / `context.set(key, value)`.
+impl Context<serde_json::Value> {
+    /// Get a value by key and deserialize it into `V`.
+    ///
+    /// Returns `Ok(None)` when the key is absent, `Ok(Some(value))` when it is
+    /// present and deserializes cleanly, and `Err(TaskError::ValidationFailed)`
+    /// when the stored JSON does not match `V` (the message names the key and
+    /// target type).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use cloacina_workflow::Context;
+    ///
+    /// let mut ctx = Context::new();
+    /// ctx.insert("count", serde_json::json!(7)).unwrap();
+    /// let n: Option<i64> = ctx.get_as("count").unwrap();
+    /// assert_eq!(n, Some(7));
+    /// assert_eq!(ctx.get_as::<i64>("missing").unwrap(), None);
+    /// ```
+    pub fn get_as<V>(&self, key: &str) -> Result<Option<V>, crate::error::TaskError>
+    where
+        V: serde::de::DeserializeOwned,
+    {
+        match self.data.get(key) {
+            None => Ok(None),
+            Some(value) => serde_json::from_value(value.clone())
+                .map(Some)
+                .map_err(|e| crate::error::TaskError::ValidationFailed {
+                    message: format!(
+                        "context key '{}' could not be read as {}: {}",
+                        key,
+                        std::any::type_name::<V>(),
+                        e
+                    ),
+                }),
+        }
+    }
+
+    /// Get a value by key, deserialize it into `V`, and error if the key is
+    /// missing.
+    ///
+    /// `Err(TaskError::ValidationFailed)` when the key is absent or the stored
+    /// JSON does not match `V`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use cloacina_workflow::Context;
+    ///
+    /// let mut ctx = Context::new();
+    /// ctx.insert("name", serde_json::json!("ada")).unwrap();
+    /// let name: String = ctx.get_required("name").unwrap();
+    /// assert_eq!(name, "ada");
+    /// assert!(ctx.get_required::<String>("missing").is_err());
+    /// ```
+    pub fn get_required<V>(&self, key: &str) -> Result<V, crate::error::TaskError>
+    where
+        V: serde::de::DeserializeOwned,
+    {
+        match self.get_as(key)? {
+            Some(value) => Ok(value),
+            None => Err(crate::error::TaskError::ValidationFailed {
+                message: format!(
+                    "required context key '{}' is missing (expected {})",
+                    key,
+                    std::any::type_name::<V>()
+                ),
+            }),
+        }
+    }
+
+    /// Serialize a value and write it under `key`, **upserting** (insert or
+    /// overwrite).
+    ///
+    /// Folds the `serde_json::json!(...)` / `to_value` wrapping — and the
+    /// "exists? update : insert" dance — that every context write otherwise
+    /// repeats. Upsert semantics mirror Python's `context.set(key, value)`
+    /// (unlike the lower-level [`Context::insert`], which errors on an existing
+    /// key). Errors with `TaskError::ValidationFailed` only if the value cannot
+    /// be serialized.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use cloacina_workflow::Context;
+    ///
+    /// let mut ctx = Context::new();
+    /// ctx.insert_as("total", 42u32).unwrap();
+    /// assert_eq!(ctx.get_as::<u32>("total").unwrap(), Some(42));
+    /// // Upserts — overwriting an existing key is fine.
+    /// ctx.insert_as("total", 100u32).unwrap();
+    /// assert_eq!(ctx.get_as::<u32>("total").unwrap(), Some(100));
+    /// ```
+    pub fn insert_as<V>(
+        &mut self,
+        key: impl Into<String>,
+        value: V,
+    ) -> Result<(), crate::error::TaskError>
+    where
+        V: serde::Serialize,
+    {
+        let key = key.into();
+        let json =
+            serde_json::to_value(value).map_err(|e| crate::error::TaskError::ValidationFailed {
+                message: format!("context key '{}' could not be serialized: {}", key, e),
+            })?;
+        // Upsert: overwrite if present, insert otherwise.
+        self.data.insert(key, json);
+        Ok(())
+    }
+}
+
 impl<T> Default for Context<T>
 where
     T: Serialize + for<'de> Deserialize<'de> + Debug,
@@ -385,5 +507,42 @@ mod tests {
 
         let data = context.into_data();
         assert_eq!(data.get("key"), Some(&42));
+    }
+
+    // CLOACI-T-0733: typed accessors on Context<serde_json::Value>.
+    #[test]
+    fn test_typed_accessors_roundtrip() {
+        let mut ctx = Context::new();
+        ctx.insert_as("count", 7u32).unwrap();
+        ctx.insert_as("name", "ada").unwrap();
+
+        // get_as: present + absent
+        assert_eq!(ctx.get_as::<u32>("count").unwrap(), Some(7));
+        assert_eq!(ctx.get_as::<String>("missing").unwrap(), None);
+
+        // get_required: present
+        let name: String = ctx.get_required("name").unwrap();
+        assert_eq!(name, "ada");
+
+        // insert_as upserts (overwrites) without erroring
+        ctx.insert_as("count", 100u32).unwrap();
+        assert_eq!(ctx.get_as::<u32>("count").unwrap(), Some(100));
+    }
+
+    #[test]
+    fn test_typed_accessor_errors_are_actionable() {
+        let mut ctx = Context::new();
+        ctx.insert("count", serde_json::json!("not-a-number"))
+            .unwrap();
+
+        // Type mismatch names the key and target type.
+        let err = ctx.get_as::<u32>("count").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("count"), "msg should name the key: {msg}");
+
+        // Missing required key errors and names the key.
+        let err = ctx.get_required::<u32>("absent").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("absent"), "msg should name the key: {msg}");
     }
 }

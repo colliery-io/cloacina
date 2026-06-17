@@ -34,8 +34,6 @@ pub mod etl_workflow {
 
     /// Extract numbers from the input context
     #[task(
-        id = "extract_numbers",
-        dependencies = [],
         retry_attempts = 2,
         retry_backoff = "fixed",
         retry_delay_ms = 1000
@@ -63,7 +61,6 @@ pub mod etl_workflow {
 
     /// Transform the numbers (multiply by 2)
     #[task(
-        id = "transform_numbers",
         dependencies = ["extract_numbers"],
         retry_attempts = 2,
         retry_backoff = "fixed",
@@ -99,7 +96,6 @@ pub mod etl_workflow {
 
     /// Load the transformed numbers
     #[task(
-        id = "load_numbers",
         dependencies = ["transform_numbers"],
         retry_attempts = 2,
         retry_backoff = "fixed",

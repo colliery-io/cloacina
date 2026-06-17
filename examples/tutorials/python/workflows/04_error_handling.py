@@ -64,7 +64,7 @@ with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
 
     # Tasks are automatically registered when defined within WorkflowBuilder context
     # Tasks demonstrating different error handling patterns
-    @cloaca.task(id="fetch_external_data")
+    @cloaca.task()
     def fetch_external_data(context):
         """Fetch data from external service with basic error handling."""
         print("Fetching data from external service...")
@@ -135,7 +135,7 @@ with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
 
         return context
 
-    @cloaca.task(id="retry_failed_fetches", dependencies=["fetch_external_data"])
+    @cloaca.task(dependencies=["fetch_external_data"])
     def retry_failed_fetches(context):
         """Retry failed fetches with exponential backoff."""
         print("Retrying failed fetches...")
@@ -204,7 +204,7 @@ with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
         print(f"Retry completed: {len(retry_successful)} recovered, {len(still_failed)} still failed")
         return context
 
-    @cloaca.task(id="validate_and_process", dependencies=["retry_failed_fetches"])
+    @cloaca.task(dependencies=["retry_failed_fetches"])
     def validate_and_process(context):
         """Validate fetched data and process with error handling."""
         print("Validating and processing data...")
@@ -297,7 +297,7 @@ with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
 
         return context
 
-    @cloaca.task(id="generate_error_report", dependencies=["validate_and_process"])
+    @cloaca.task(dependencies=["validate_and_process"])
     def generate_error_report(context):
         """Generate comprehensive error report and recovery recommendations."""
         print("Generating error report...")

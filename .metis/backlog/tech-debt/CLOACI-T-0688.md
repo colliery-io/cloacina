@@ -31,6 +31,11 @@ Surfaced during the CLOACI-I-0120 docs work (interface-parity review,
 2026-06-15). Per the "Python is a core capability" stance, these gaps are
 documented in the primitive docs AND tracked here so we remember to close them.
 
+This task is also **item 10 of the [[CLOACI-I-0125]]** authoring-cruft
+decomposition (the [[CLOACI-T-0720]] sweep's T9 parity-failure theme); the two
+hard parity *failures* (no Python `@state_accumulator`, no packaged cron
+`@trigger`) live here rather than under I-0125 to avoid duplication.
+
 ## Known gaps (code-cited, 2026-06-15)
 
 1. **State accumulators — Rust-only.** `#[state_accumulator(capacity=…)]` exists

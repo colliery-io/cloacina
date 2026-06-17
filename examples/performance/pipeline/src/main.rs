@@ -46,10 +46,7 @@ pub mod etl_workflow {
     use super::*;
 
     /// Extract numbers from the input context
-    #[task(
-        id = "extract_numbers",
-        dependencies = []
-    )]
+    #[task]
     pub async fn extract_numbers(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
@@ -60,7 +57,6 @@ pub mod etl_workflow {
 
     /// Transform the numbers (multiply by 2)
     #[task(
-        id = "transform_numbers",
         dependencies = ["extract_numbers"]
     )]
     pub async fn transform_numbers(
@@ -81,7 +77,6 @@ pub mod etl_workflow {
 
     /// Load the transformed numbers
     #[task(
-        id = "load_numbers",
         dependencies = ["transform_numbers"]
     )]
     pub async fn load_numbers(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {

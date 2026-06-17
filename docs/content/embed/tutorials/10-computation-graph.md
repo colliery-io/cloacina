@@ -293,7 +293,7 @@ In Python `execute()` takes a dict where each key is a source name and each valu
 ## Expected output
 
 ```
-=== Tutorial 07: Your First Computation Graph ===
+=== Tutorial 10: Your First Computation Graph ===
 
 Input: OrderBookSnapshot { best_bid: 100.5, best_ask: 100.55, timestamp: 1234567890 }
 
@@ -302,7 +302,7 @@ Graph completed with 1 terminal output(s)
   Mid price: 100.52
   Spread: 4.9 bps
 
-=== Tutorial 07 Complete ===
+=== Tutorial 10 Complete ===
 ```
 
 ---

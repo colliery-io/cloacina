@@ -55,7 +55,7 @@ The historical "isolation gaps" framing that pre-2026 versions of this document 
 
 The "restart `cloacina-server` to reclaim the cache after a tenant delete" workaround documented in pre-I-0106 versions of this page is **gone** — both `TenantRunnerCache` and `TenantDatabaseCache` are evicted as part of the teardown.
 
-For the operational mechanics (how to actually decommission a tenant), see the `decommission-a-tenant.md` how-to (DOC-C deliverable in CLOACI-I-0112). For the trust-model implications of multi-tenancy and what it does *not* protect against (CPU side-channels, privileged-key compromise, Postgres-level RLS), see [Security Model]({{< ref "security-model" >}}).
+For the operational mechanics (how to actually decommission a tenant), see [Decommission a Tenant]({{< ref "/service/how-to/decommission-a-tenant" >}}). For the trust-model implications of multi-tenancy and what it does *not* protect against (CPU side-channels, privileged-key compromise, Postgres-level RLS), see [Security Model]({{< ref "security-model" >}}).
 
 ## How It Works
 

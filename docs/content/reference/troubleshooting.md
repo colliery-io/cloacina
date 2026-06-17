@@ -884,12 +884,12 @@ This is typically caused by:
 
 #### Native crash troubleshooting (historical)
 
-> **Historical document, merged from `docs/SIGSEGV_TROUBLESHOOTING.md`
-> during CLOACI-I-0112 (DOC-H operations fold-in).** The `#[ctor]`-based
-> OpenSSL early-init workaround described above was removed during the
-> I-0096 ctor → inventory flip. The historical root-cause notes and
-> alternative approaches are preserved here in case the failure mode
-> resurfaces in CI or with a different libpq/OpenSSL combination.
+> **Historical document, merged from `docs/SIGSEGV_TROUBLESHOOTING.md`.**
+> The `#[ctor]`-based OpenSSL early-init workaround described above was
+> removed when the crate moved from `ctor`-based to inventory-based
+> registration. The historical root-cause notes and alternative
+> approaches are preserved here in case the failure mode resurfaces in
+> CI or with a different libpq/OpenSSL combination.
 
 **Historical root cause.** Tests that call `package_workflow()` spawn
 cargo subprocesses via `fork()`. When this happens after the database

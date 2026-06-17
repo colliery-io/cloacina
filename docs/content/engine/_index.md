@@ -11,6 +11,13 @@ apply whether you **[embed the library]({{< ref "/embed" >}})** or
 **[run the service]({{< ref "/service" >}})** — each object is described once,
 with both its Rust and Python interfaces.
 
+**Who this is for:** anyone learning the engine primitives — workflows,
+computation graphs, scheduling, and packaging — regardless of language. This
+material is language-agnostic.
+
+**Prerequisites:** basic familiarity with the concepts from
+**[Start Here]({{< ref "/start" >}})**.
+
 The core primitives:
 
 - **Workflow** — a durable, database-backed DAG; the task is the unit of scheduling.

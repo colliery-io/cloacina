@@ -24,13 +24,13 @@ container that flows through a workflow. One task writes; a downstream task read
 pub mod pipeline {
     use super::*;
 
-    #[task(id = "produce", dependencies = [])]
+    #[task]
     pub async fn produce(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         ctx.insert("numbers", serde_json::json!([1, 2, 3]))?;
         Ok(())
     }
 
-    #[task(id = "consume", dependencies = ["produce"])]
+    #[task(dependencies = ["produce"])]
     pub async fn consume(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let nums = ctx.get("numbers").cloned().unwrap_or_default();
         ctx.insert("sum", serde_json::json!(/* sum of nums */ 6))?;
@@ -44,12 +44,12 @@ pub mod pipeline {
 with cloaca.WorkflowBuilder("pipeline") as builder:
     builder.description("Pass data downstream")
 
-    @cloaca.task(id="produce")
+    @cloaca.task()
     def produce(context):
         context.set("numbers", [1, 2, 3])
         return context
 
-    @cloaca.task(id="consume", dependencies=["produce"])
+    @cloaca.task(dependencies=["produce"])
     def consume(context):
         nums = context.get("numbers")
         context.set("sum", sum(nums))

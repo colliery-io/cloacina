@@ -114,8 +114,6 @@ Notice how tasks are defined with the `#[task]` macro:
 
 ```rust
 #[task(
-    id = "fetch_raw_data",
-    dependencies = [],
     retry_attempts = 5,
     retry_backoff = "exponential",
     retry_delay_ms = 1000,

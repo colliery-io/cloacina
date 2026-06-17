@@ -33,8 +33,6 @@ pub mod compiler_broken_workflow {
     use super::*;
 
     #[task(
-        id = "broken",
-        dependencies = [],
         retry_attempts = 0
     )]
     pub async fn broken(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
