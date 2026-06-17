@@ -4,14 +4,14 @@ level: initiative
 title: "Audience-first docs restructure (3/3): Doors, migration & cutover"
 short_code: "CLOACI-I-0123"
 created_at: 2026-06-15T14:15:40.355556+00:00
-updated_at: 2026-06-15T14:15:40.355556+00:00
-parent:
+updated_at: 2026-06-17T11:38:32.236348+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

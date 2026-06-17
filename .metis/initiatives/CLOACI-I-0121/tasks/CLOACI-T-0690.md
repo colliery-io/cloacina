@@ -4,14 +4,14 @@ level: task
 title: "Orientation-hub + door entry shells (/start children, per-door quick-start)"
 short_code: "CLOACI-T-0690"
 created_at: 2026-06-15T14:17:36.188582+00:00
-updated_at: 2026-06-15T14:17:36.188582+00:00
+updated_at: 2026-06-17T11:37:34.936883+00:00
 parent: CLOACI-I-0121
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -67,6 +67,10 @@ in I-0123. Additive; does not touch existing pages or nav. See [[CLOACI-I-0121]]
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -139,3 +143,8 @@ in I-0123. Additive; does not touch existing pages or nav. See [[CLOACI-I-0121]]
 ## Status Updates **[REQUIRED]**
 
 *To be added during implementation*
+- 2026-06-17: **Completed (mostly superseded by I-0123).** The /start hub + 5
+  children, two-door home page, and /embed quick-start were all built as real
+  pages by the completed T-0697/0698/0699/0700 series — obviating the shells this
+  task scoped. The one genuine gap (no /service quick-start) is now filled:
+  created service/quick-start.md grounded on 01-deploy-a-server. hugo clean.

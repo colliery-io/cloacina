@@ -4,14 +4,14 @@ level: task
 title: "P3 — Reference gap-fill + API reference index/regeneration"
 short_code: "CLOACI-T-0685"
 created_at: 2026-06-15T03:17:09.730633+00:00
-updated_at: 2026-06-15T03:17:09.730633+00:00
+updated_at: 2026-06-17T11:37:32.694542+00:00
 parent: CLOACI-I-0120
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0120
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,8 @@ initiative_id: CLOACI-I-0120
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+*To be added during implementation*- 2026-06-17: **Completed (was already done; closing stale).** Verified the P3
+  reference gap-fill shipped in commit 7cbfa008 (PR #126): the two missing
+  api-reference/_index.md pages, CORS env vars, and the CLI/config/error-envelope/
+  WS reference surface all exist and are complete. No new work needed; ticket was
+  never transitioned out of todo.

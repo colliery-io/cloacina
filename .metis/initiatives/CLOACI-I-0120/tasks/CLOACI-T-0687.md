@@ -4,14 +4,14 @@ level: task
 title: "Split workflow-builder.md: move how-to/best-practices body into a how-to guide"
 short_code: "CLOACI-T-0687"
 created_at: 2026-06-15T13:06:44.116985+00:00
-updated_at: 2026-06-15T13:06:44.116985+00:00
+updated_at: 2026-06-17T11:37:33.637827+00:00
 parent: CLOACI-I-0120
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -46,6 +46,10 @@ hint block, so the structural split was deferred here rather than expanded into
 T-0686. T-0686 already fixed the two concrete factual errors in this file
 (`Workflow.can_run_parallel` does not exist; `build()` raises only `ValueError`,
 not `KeyError`).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -158,3 +162,8 @@ not `KeyError`).
 ## Status Updates **[REQUIRED]**
 
 *To be added during implementation*
+- 2026-06-17: **Completed.** Split reference/python-api/workflow-builder.md
+  (587→191 lines, neutral API only) into a new how-to guide
+  engine/workflows/how-to/build-workflows-with-the-builder.md (+_index.md),
+  cross-linked both ways. Diátaxis boundary restored (best-practices / Good-Avoid
+  / advanced-patterns moved out of reference). hugo clean.

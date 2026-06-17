@@ -4,14 +4,14 @@ level: initiative
 title: "Documentation overhaul — orientation, correctness, IA, and usefulness across the docs tree"
 short_code: "CLOACI-I-0120"
 created_at: 2026-06-15T03:15:47.264703+00:00
-updated_at: 2026-06-15T03:17:43.366643+00:00
+updated_at: 2026-06-17T11:38:04.738719+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

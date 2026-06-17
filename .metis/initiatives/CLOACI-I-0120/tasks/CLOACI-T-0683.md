@@ -4,14 +4,14 @@ level: task
 title: "P1 — Correctness & accuracy sweep: fix status drift, finish/cut deferred docs, stale CG reference"
 short_code: "CLOACI-T-0683"
 created_at: 2026-06-15T03:17:07.095319+00:00
-updated_at: 2026-06-15T03:17:07.095319+00:00
+updated_at: 2026-06-17T11:37:30.887289+00:00
 parent: CLOACI-I-0120
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0120
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,8 @@ initiative_id: CLOACI-I-0120
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+*To be added during implementation*- 2026-06-17: **Completed.** Audited vs the live docs tree: headline correctness
+  (status drift, stale pre-I-0102 CG syntax, deferred Python docs) was already
+  done; only ~5 residual stale cross-refs / leaked internal task-IDs remained —
+  fixed in security-model, compiler-deployment-runbook, multi-tenancy,
+  troubleshooting, subscribe-workflow-to-reactor. hugo builds clean.

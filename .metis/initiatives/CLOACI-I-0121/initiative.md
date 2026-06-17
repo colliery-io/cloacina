@@ -4,14 +4,14 @@ level: initiative
 title: "Audience-first docs restructure (1/3): IA spine & redirects"
 short_code: "CLOACI-I-0121"
 created_at: 2026-06-15T13:52:54.733035+00:00
-updated_at: 2026-06-15T13:52:54.733035+00:00
-parent:
+updated_at: 2026-06-17T11:38:30.696427+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

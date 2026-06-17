@@ -4,14 +4,14 @@ level: task
 title: "P2 — IA & usefulness: audience/prereqs, tutorial numbering, de-silo Python, cross-cutting topics"
 short_code: "CLOACI-T-0684"
 created_at: 2026-06-15T03:17:08.475928+00:00
-updated_at: 2026-06-15T03:17:08.475928+00:00
+updated_at: 2026-06-17T11:37:31.756278+00:00
 parent: CLOACI-I-0120
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0120
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,9 @@ initiative_id: CLOACI-I-0120
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+*To be added during implementation*- 2026-06-17: **Completed.** Python de-silo + cross-cutting-topic discoverability
+  were already satisfied. Fixed the two real remainders: tutorial-numbering drift
+  (CG tutorial file 10 was mislabeled "Tutorial 07" incl. its printed output;
+  relabeled across tutorial + cross-refs, plus two stray 09→07/12 fixes) and
+  added audience/prerequisites blocks to the embed/engine/service/reference
+  landings. hugo clean.

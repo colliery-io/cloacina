@@ -4,14 +4,14 @@ level: initiative
 title: "Documentation review and refresh — drift audit, gap coverage, and Diataxis compliance for the May 2026 release batch"
 short_code: "CLOACI-I-0112"
 created_at: 2026-05-18T15:47:20.059714+00:00
-updated_at: 2026-05-18T18:19:10.316183+00:00
+updated_at: 2026-06-17T11:38:12.723621+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -218,6 +218,10 @@ Final cluster count and boundaries get pinned in Phase 2.
 **Phase 4 — Review (~4 days).** Four parallel review-agent tasks. Triage findings into Phase-3 task tasks or backlog. Spec compliance verification (S-0011) is part of the Diataxis-Compliance reviewer's lens; nomenclature drift in any doc fails the review.
 
 **Close.** Transition initiative to `completed` after all review findings are dispositioned and CI builds the Hugo site green.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
