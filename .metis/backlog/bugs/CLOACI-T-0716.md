@@ -4,7 +4,7 @@ level: task
 title: "Execution-agent fleet cannot run Python workflows (dlopen of empty artifact fails)"
 short_code: "CLOACI-T-0716"
 created_at: 2026-06-17T02:16:21.921546+00:00
-updated_at: 2026-06-17T02:45:24.332088+00:00
+updated_at: 2026-06-17T03:25:40.235570+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
