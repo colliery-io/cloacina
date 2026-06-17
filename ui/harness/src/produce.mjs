@@ -60,6 +60,9 @@ const GENERATORS = {
   pricing: pricingEvent,
   alpha: alphaEvent,
   py_alpha: bidAskEvent,
+  // demo_py_state `py_window`: same {bid, ask} order-book tick — the Python
+  // state accumulator buffers a bounded rolling window of these (CLOACI-T-0688).
+  py_window: bidAskEvent,
 };
 
 /** Socket accumulators to feed over WS, from `cfg.wsAccumulators` (a comma list;

@@ -28,6 +28,37 @@ pub struct AccumulatorStatus {
     pub status: serde_json::Value,
 }
 
+/// One row in `GET /v1/health/reactors` (CLOACI-T-0742). Reactor-first view:
+/// reactors are standalone (a graph binds to a reactor, not vice versa), so a
+/// reactor with no graph bound appears here but not in `GET /v1/health/graphs`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ReactorStatus {
+    pub name: String,
+    /// Reactor health snapshot; `{"state": "running" | "stopped"}` when no
+    /// detailed health is available. Free-form JSON, mirroring `GraphStatus`.
+    pub health: serde_json::Value,
+    /// Accumulators this reactor consumes (its inputs).
+    pub accumulators: Vec<String>,
+    /// Firing criteria: `"when_any"` | `"when_all"`.
+    #[serde(default)]
+    pub reaction_mode: Option<String>,
+    /// Input strategy: `"latest"` | `"sequential"`.
+    #[serde(default)]
+    pub input_strategy: Option<String>,
+    /// Graphs bound to this reactor; empty when the reactor has no graph yet.
+    #[serde(default)]
+    pub bound_graphs: Vec<String>,
+    /// Pause state of the reactor.
+    pub paused: bool,
+    /// Total fires since load (the reactor's live fire counter, WS-10).
+    #[serde(default)]
+    pub fires: u64,
+    /// RFC 3339 timestamp of the last fire; `null` if it hasn't fired yet.
+    #[serde(default)]
+    pub last_fired_at: Option<String>,
+}
+
 /// One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
 /// response body.
 #[derive(Debug, Clone, Serialize, Deserialize)]

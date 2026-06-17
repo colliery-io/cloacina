@@ -98,5 +98,12 @@ pack_rust_ws demo-pipeline-rust
 pack_python demo-py-workflow "$WS/examples/fixtures/demo-py-workflow" 0.1.0
 pack_python demo-py-graph "$WS/examples/fixtures/demo-py-graph" 0.1.0
 
+# --- Python parity (CLOACI-T-0688): a state accumulator (bounded rolling
+#     window) feeding a reactor-bound CG, and a cron-triggered task workflow.
+#     These exercise the two Python authoring surfaces closed in T-0688
+#     (@cloaca.state_accumulator + packaged cron @cloaca.trigger). ---
+pack_python demo-py-state "$WS/examples/fixtures/demo-py-state" 0.1.0
+pack_python demo-py-cron "$WS/examples/fixtures/demo-py-cron" 0.1.0
+
 echo "demo fixtures packed to ${OUT}:"
 ls -la "$OUT"

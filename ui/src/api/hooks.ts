@@ -48,5 +48,6 @@ export const queryKeys = {
   trigger: (tenant: string, name: string) => ["triggers", tenant, name] as const,
   keys: (tenant: string) => ["keys", tenant] as const,
   accumulators: (tenant: string) => ["accumulators", tenant] as const,
+  reactors: (tenant: string) => ["reactors", tenant] as const,
   graphs: (tenant: string) => ["graphs", tenant] as const,
 } as const;

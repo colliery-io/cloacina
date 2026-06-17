@@ -1,0 +1,21 @@
+# Demo Python state-accumulator fixture (CLOACI-T-0688). A *state* accumulator
+# (@cloaca.state_accumulator(capacity=N)) + reactor + computation graph defined
+# in Python, so the UI's Accumulators + Graphs views show the Python state
+# accumulator's bounded rolling window. This exercises the Rust↔Python parity
+# surface closed in T-0688 (Python had no state accumulator before). The module
+# tree MUST live under workflow/ — the reconciler's Python CG extraction
+# requires it (a top-level module fails with "Missing workflow source directory").
+[package]
+name = "demo-py-state"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "demo_py_state"
+language = "python"
+description = "demo python state accumulator — bounded rolling window over a market feed"
+entry_module = "demo_py_state.graph"
+reaction_mode = "when_any"
+input_strategy = "latest"

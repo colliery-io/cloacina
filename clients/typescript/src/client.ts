@@ -383,6 +383,10 @@ export class CloacinaClient {
     return unwrap(await this.api.GET("/v1/health/accumulators"));
   }
 
+  async listReactors(): Promise<schemas["ListResponse_ReactorStatus"]> {
+    return unwrap(await this.api.GET("/v1/health/reactors"));
+  }
+
   async listGraphs(): Promise<schemas["ListResponse_GraphStatus"]> {
     return unwrap(await this.api.GET("/v1/health/graphs"));
   }

@@ -1185,6 +1185,10 @@ fn build_router(state: AppState) -> Router {
             get(crate::routes::health_graphs::list_accumulators),
         )
         .route(
+            "/health/reactors",
+            get(crate::routes::health_graphs::list_reactors),
+        )
+        .route(
             "/health/graphs",
             get(crate::routes::health_graphs::list_graphs),
         )

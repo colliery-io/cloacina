@@ -143,6 +143,10 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
         computation_graph::batch_accumulator_decorator,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::state_accumulator_decorator,
+        m
+    )?)?;
 
     #[cfg(feature = "postgres")]
     {
@@ -237,6 +241,11 @@ mod tests {
             assert!(cloaca_mod.hasattr("stream_accumulator").unwrap());
             assert!(cloaca_mod.hasattr("polling_accumulator").unwrap());
             assert!(cloaca_mod.hasattr("batch_accumulator").unwrap());
+            // CLOACI-T-0688: state accumulator must be in the SERVER's synthetic
+            // module too, not just the maturin #[pymodule] — the demo stack caught
+            // this drift (server reconciler: "module 'cloaca' has no attribute
+            // 'state_accumulator'") because ensure_cloaca_module omitted it.
+            assert!(cloaca_mod.hasattr("state_accumulator").unwrap());
             assert!(cloaca_mod.hasattr("node").unwrap());
             assert!(cloaca_mod.hasattr("ComputationGraphBuilder").unwrap());
             // Variable registry

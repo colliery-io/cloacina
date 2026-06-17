@@ -44,6 +44,15 @@ pub struct PythonTriggerDef {
     pub poll_interval: Duration,
     pub allow_concurrent: bool,
     pub python_function: PyObject,
+    /// Workflow this trigger fires, from `@cloaca.trigger(on=…)`. Mirrors the
+    /// Rust `#[trigger(on = "…")]` binding (CLOACI-T-0688). Empty for legacy
+    /// poll triggers that bind via `#[workflow(triggers=[…])]` subscription.
+    pub workflow_name: String,
+    /// Cron expression from `@cloaca.trigger(cron=…)`. When set, the reconciler
+    /// routes this to the cron scheduler instead of the poll registry.
+    pub cron_expression: Option<String>,
+    /// Timezone for the cron schedule (`@cloaca.trigger(timezone=…)`).
+    pub timezone: Option<String>,
 }
 
 /// Collect all registered Python triggers and clear the registry.
@@ -65,6 +74,9 @@ pub struct TriggerDecorator {
     name: Option<String>,
     poll_interval: Duration,
     allow_concurrent: bool,
+    workflow_name: String,
+    cron_expression: Option<String>,
+    timezone: Option<String>,
 }
 
 #[pymethods]
@@ -81,6 +93,9 @@ impl TriggerDecorator {
             poll_interval: self.poll_interval,
             allow_concurrent: self.allow_concurrent,
             python_function: func.clone_ref(py),
+            workflow_name: self.workflow_name.clone(),
+            cron_expression: self.cron_expression.clone(),
+            timezone: self.timezone.clone(),
         };
 
         PYTHON_TRIGGER_REGISTRY.lock().push(def);
@@ -93,21 +108,51 @@ impl TriggerDecorator {
 }
 
 /// `@cloaca.trigger(...)` decorator factory.
+///
+/// Mirrors the Rust `#[trigger]` macro (CLOACI-T-0688). Two modes:
+/// - **Custom poll** — `poll_interval` + a function body that returns a
+///   `TriggerResult`.
+/// - **Cron** — `cron` (+ optional `timezone`); the framework schedules the
+///   `on` workflow on that cron expression (the function body is unused). The
+///   reconciler routes `cron_expression`-bearing triggers to the cron scheduler.
+///
+/// `on` names the workflow the trigger fires; it is **required for cron**
+/// triggers. `cron` and `poll_interval` are mutually exclusive.
 #[pyfunction]
-#[pyo3(signature = (*, name = None, poll_interval = "30s".to_string(), allow_concurrent = false))]
+#[pyo3(signature = (*, name = None, on = None, poll_interval = None, cron = None, timezone = None, allow_concurrent = false))]
 pub fn trigger(
     name: Option<String>,
-    poll_interval: String,
+    on: Option<String>,
+    poll_interval: Option<String>,
+    cron: Option<String>,
+    timezone: Option<String>,
     allow_concurrent: bool,
 ) -> PyResult<TriggerDecorator> {
-    let interval = parse_duration_str(&poll_interval).map_err(|e| {
-        PyValueError::new_err(format!("Invalid poll_interval '{}': {}", poll_interval, e))
+    // Mirror the Rust macro's validation.
+    if cron.is_some() && poll_interval.is_some() {
+        return Err(PyValueError::new_err(
+            "@cloaca.trigger cannot set both 'cron' and 'poll_interval' — pick one",
+        ));
+    }
+    if cron.is_some() && on.is_none() {
+        return Err(PyValueError::new_err(
+            "@cloaca.trigger(cron=…) requires 'on' (the workflow the cron schedule fires)",
+        ));
+    }
+
+    // Poll interval still defaults to 30s for the poll path; ignored for cron.
+    let interval_str = poll_interval.unwrap_or_else(|| "30s".to_string());
+    let interval = parse_duration_str(&interval_str).map_err(|e| {
+        PyValueError::new_err(format!("Invalid poll_interval '{}': {}", interval_str, e))
     })?;
 
     Ok(TriggerDecorator {
         name,
         poll_interval: interval,
         allow_concurrent,
+        workflow_name: on.unwrap_or_default(),
+        cron_expression: cron,
+        timezone,
     })
 }
 
@@ -117,6 +162,8 @@ pub struct PythonTriggerWrapper {
     poll_interval: Duration,
     allow_concurrent: bool,
     python_function: PyObject,
+    workflow_name: String,
+    cron_expression: Option<String>,
 }
 
 // SAFETY: PythonTriggerWrapper holds a PyObject which is not Send/Sync.
@@ -133,6 +180,8 @@ impl PythonTriggerWrapper {
             poll_interval: def.poll_interval,
             allow_concurrent: def.allow_concurrent,
             python_function: function,
+            workflow_name: def.workflow_name.clone(),
+            cron_expression: def.cron_expression.clone(),
         }
     }
 }
@@ -158,6 +207,14 @@ impl Trigger for PythonTriggerWrapper {
 
     fn allow_concurrent(&self) -> bool {
         self.allow_concurrent
+    }
+
+    fn workflow_name(&self) -> &str {
+        &self.workflow_name
+    }
+
+    fn cron_expression(&self) -> Option<String> {
+        self.cron_expression.clone()
     }
 
     async fn poll(&self) -> Result<RustTriggerResult, TriggerError> {
@@ -217,8 +274,15 @@ mod tests {
             // Clear any previous state
             drain_python_triggers();
 
-            let decorator =
-                trigger(Some("test_poll".to_string()), "5s".to_string(), false).unwrap();
+            let decorator = trigger(
+                Some("test_poll".to_string()),
+                None,
+                Some("5s".to_string()),
+                None,
+                None,
+                false,
+            )
+            .unwrap();
 
             let func = py.eval(c_str!("lambda: None"), None, None).unwrap();
             decorator.__call__(py, func.into()).unwrap();
@@ -237,7 +301,8 @@ mod tests {
         Python::with_gil(|py| {
             drain_python_triggers();
 
-            let decorator = trigger(None, "10s".to_string(), false).unwrap();
+            let decorator =
+                trigger(None, None, Some("10s".to_string()), None, None, false).unwrap();
 
             // Create a named function
             py.run(c_str!("def check_status(): pass"), None, None)
@@ -251,6 +316,60 @@ mod tests {
         });
     }
 
+    // CLOACI-T-0688: @cloaca.trigger(on=…, cron=…) mirrors the Rust
+    // #[trigger(on=…, cron=…)] cron form. The wrapper must expose
+    // workflow_name + cron_expression so build_view_python emits them and the
+    // reconciler routes the trigger to the cron scheduler.
+    #[test]
+    fn test_cron_trigger_decorator_carries_cron_and_workflow() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            drain_python_triggers();
+
+            let decorator = trigger(
+                Some("nightly".to_string()),
+                Some("reports_workflow".to_string()),
+                None,
+                Some("0 9 * * *".to_string()),
+                Some("UTC".to_string()),
+                false,
+            )
+            .unwrap();
+
+            let func = py.eval(c_str!("lambda: None"), None, None).unwrap();
+            decorator.__call__(py, func.into()).unwrap();
+
+            let triggers = drain_python_triggers();
+            assert_eq!(triggers.len(), 1);
+            let def = &triggers[0];
+            assert_eq!(def.name, "nightly");
+            assert_eq!(def.workflow_name, "reports_workflow");
+            assert_eq!(def.cron_expression.as_deref(), Some("0 9 * * *"));
+            assert_eq!(def.timezone.as_deref(), Some("UTC"));
+
+            // The Trigger-trait surface the host reads in build_view_python.
+            let wrapper = PythonTriggerWrapper::new(def);
+            assert_eq!(wrapper.workflow_name(), "reports_workflow");
+            assert_eq!(wrapper.cron_expression().as_deref(), Some("0 9 * * *"));
+        });
+    }
+
+    #[test]
+    fn test_cron_trigger_validation_mirrors_rust() {
+        // cron requires `on`
+        assert!(trigger(None, None, None, Some("0 9 * * *".to_string()), None, false).is_err());
+        // cron and poll_interval are mutually exclusive
+        assert!(trigger(
+            None,
+            Some("wf".to_string()),
+            Some("30s".to_string()),
+            Some("0 9 * * *".to_string()),
+            None,
+            false
+        )
+        .is_err());
+    }
+
     #[tokio::test]
     async fn test_python_trigger_wrapper_skip() {
         pyo3::prepare_freethreaded_python();
@@ -262,6 +381,9 @@ mod tests {
                 poll_interval: Duration::from_secs(1),
                 allow_concurrent: false,
                 python_function: func.into(),
+                workflow_name: String::new(),
+                cron_expression: None,
+                timezone: None,
             }
         });
 
@@ -283,6 +405,9 @@ mod tests {
                 poll_interval: Duration::from_secs(1),
                 allow_concurrent: false,
                 python_function: func.into(),
+                workflow_name: String::new(),
+                cron_expression: None,
+                timezone: None,
             }
         });
 
@@ -308,6 +433,9 @@ mod tests {
                 poll_interval: Duration::from_secs(1),
                 allow_concurrent: false,
                 python_function: func.into(),
+                workflow_name: String::new(),
+                cron_expression: None,
+                timezone: None,
             }
         });
 

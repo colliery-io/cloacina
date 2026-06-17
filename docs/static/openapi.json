@@ -511,6 +511,42 @@
         ]
       }
     },
+    "/v1/health/reactors": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/reactors — list loaded reactors visible to the caller\n(CLOACI-T-0742). Reactor-first: includes reactors with no graph bound, which\n`list_graphs` omits. Visibility reuses the same tenant gate as graphs.",
+        "operationId": "list_reactors",
+        "responses": {
+          "200": {
+            "description": "Loaded reactors visible to the caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_ReactorStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants": {
       "get": {
         "tags": [
@@ -2636,6 +2672,86 @@
           }
         }
       },
+      "ListResponse_ReactorStatus": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One row in `GET /v1/health/reactors` (CLOACI-T-0742). Reactor-first view:\nreactors are standalone (a graph binds to a reactor, not vice versa), so a\nreactor with no graph bound appears here but not in `GET /v1/health/graphs`.",
+              "required": [
+                "name",
+                "health",
+                "accumulators",
+                "paused"
+              ],
+              "properties": {
+                "accumulators": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Accumulators this reactor consumes (its inputs)."
+                },
+                "bound_graphs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Graphs bound to this reactor; empty when the reactor has no graph yet."
+                },
+                "fires": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Total fires since load (the reactor's live fire counter, WS-10).",
+                  "minimum": 0
+                },
+                "health": {
+                  "description": "Reactor health snapshot; `{\"state\": \"running\" | \"stopped\"}` when no\ndetailed health is available. Free-form JSON, mirroring `GraphStatus`."
+                },
+                "input_strategy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Input strategy: `\"latest\"` | `\"sequential\"`."
+                },
+                "last_fired_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp of the last fire; `null` if it hasn't fired yet."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "paused": {
+                  "type": "boolean",
+                  "description": "Pause state of the reactor."
+                },
+                "reaction_mode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Firing criteria: `\"when_any\"` | `\"when_all\"`."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "ListResponse_TenantSummary": {
         "type": "object",
         "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
@@ -2677,6 +2793,69 @@
             "format": "binary",
             "description": "The `.cloacina` package archive.",
             "contentMediaType": "application/octet-stream"
+          }
+        }
+      },
+      "ReactorStatus": {
+        "type": "object",
+        "description": "One row in `GET /v1/health/reactors` (CLOACI-T-0742). Reactor-first view:\nreactors are standalone (a graph binds to a reactor, not vice versa), so a\nreactor with no graph bound appears here but not in `GET /v1/health/graphs`.",
+        "required": [
+          "name",
+          "health",
+          "accumulators",
+          "paused"
+        ],
+        "properties": {
+          "accumulators": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Accumulators this reactor consumes (its inputs)."
+          },
+          "bound_graphs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Graphs bound to this reactor; empty when the reactor has no graph yet."
+          },
+          "fires": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total fires since load (the reactor's live fire counter, WS-10).",
+            "minimum": 0
+          },
+          "health": {
+            "description": "Reactor health snapshot; `{\"state\": \"running\" | \"stopped\"}` when no\ndetailed health is available. Free-form JSON, mirroring `GraphStatus`."
+          },
+          "input_strategy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Input strategy: `\"latest\"` | `\"sequential\"`."
+          },
+          "last_fired_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp of the last fire; `null` if it hasn't fired yet."
+          },
+          "name": {
+            "type": "string"
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Pause state of the reactor."
+          },
+          "reaction_mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Firing criteria: `\"when_any\"` | `\"when_all\"`."
           }
         }
       },

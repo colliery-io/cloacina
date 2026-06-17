@@ -28,8 +28,8 @@ use tokio::task::JoinHandle;
 use cloacina_workflow_plugin::{GraphExecutionRequest, GraphPackageMetadata};
 
 use super::accumulator::{
-    accumulator_runtime, accumulator_runtime_with_source, AccumulatorContext,
-    AccumulatorRuntimeConfig, BoundarySender,
+    accumulator_runtime, accumulator_runtime_with_source, state_accumulator_runtime,
+    AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender, StateAccumulator,
 };
 use super::reactor::{CompiledGraphFn, InputStrategy, ReactionCriteria};
 use super::scheduler::{
@@ -206,6 +206,9 @@ pub fn build_declaration_from_ffi(
                 "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
                     acc_entry.config.clone(),
                 )),
+                "state" => Arc::new(StateAccumulatorFactory::new(state_capacity_from_config(
+                    &acc_entry.config,
+                ))),
                 _ => Arc::new(PassthroughAccumulatorFactory),
             };
             AccumulatorDeclaration {
@@ -540,6 +543,68 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
     }
 }
 
+/// A state-backed accumulator factory for FFI-loaded / Python packages.
+///
+/// Spawns `state_accumulator_runtime::<serde_json::Value>` with a bounded
+/// `VecDeque` of the given capacity. This is the host-side wiring for
+/// `@cloaca.state_accumulator(capacity=N)` (and Rust's
+/// `#[state_accumulator(capacity=…)]`): values pushed over the socket are
+/// buffered, persisted to the DAL on every write, and the full list is emitted
+/// back as the boundary so the graph can feed its own state on the next fire.
+///
+/// Capacity semantics (see `StateAccumulator`):
+/// - `> 0`: bounded — evicts oldest when at capacity
+/// - `< 0`: unbounded — grows without limit
+/// - `0`:  write-only sink — no history emitted back
+pub struct StateAccumulatorFactory {
+    capacity: i32,
+}
+
+impl StateAccumulatorFactory {
+    pub fn new(capacity: i32) -> Self {
+        Self { capacity }
+    }
+}
+
+impl AccumulatorFactory for StateAccumulatorFactory {
+    fn spawn(
+        &self,
+        name: String,
+        boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+        shutdown_rx: watch::Receiver<bool>,
+        config: AccumulatorSpawnConfig,
+    ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+        let (socket_tx, socket_rx) = mpsc::channel(1024);
+
+        let checkpoint = config.dal.map(|dal| {
+            super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
+        });
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: name.clone(),
+            shutdown: shutdown_rx,
+            checkpoint,
+            health: config.health_tx,
+        };
+
+        let acc = StateAccumulator::<serde_json::Value>::new(self.capacity);
+        let handle = tokio::spawn(state_accumulator_runtime(acc, ctx, socket_rx));
+
+        (socket_tx, handle)
+    }
+}
+
+/// Parse a state accumulator's capacity from its String-keyed config map.
+/// Defaults to `0` (write-only sink) when absent or unparsable.
+fn state_capacity_from_config(config: &std::collections::HashMap<String, String>) -> i32 {
+    config
+        .get("capacity")
+        .and_then(|c| c.parse::<i32>().ok())
+        .unwrap_or(0)
+}
+
 // ---------------------------------------------------------------------------
 // T-0545 M3a: dispatch reactors registered in a Runtime into a scheduler
 // ---------------------------------------------------------------------------
@@ -582,6 +647,9 @@ pub async fn dispatch_runtime_reactors_into_scheduler(
                     Some(override_cfg) => match override_cfg.accumulator_type.as_str() {
                         "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
                             override_cfg.config.clone(),
+                        )),
+                        "state" => Arc::new(StateAccumulatorFactory::new(
+                            state_capacity_from_config(&override_cfg.config),
                         )),
                         _ => Arc::new(PassthroughAccumulatorFactory),
                     },
@@ -649,12 +717,18 @@ pub async fn dispatch_package_reactors_into_scheduler(
                         "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
                             override_cfg.config.clone(),
                         )),
+                        "state" => Arc::new(StateAccumulatorFactory::new(
+                            state_capacity_from_config(&override_cfg.config),
+                        )),
                         _ => Arc::new(PassthroughAccumulatorFactory),
                     },
                     None => match acc.accumulator_type.as_str() {
                         "stream" => {
                             Arc::new(StreamBackendAccumulatorFactory::new(acc.config.clone()))
                         }
+                        "state" => Arc::new(StateAccumulatorFactory::new(
+                            state_capacity_from_config(&acc.config),
+                        )),
                         _ => Arc::new(PassthroughAccumulatorFactory),
                     },
                 };

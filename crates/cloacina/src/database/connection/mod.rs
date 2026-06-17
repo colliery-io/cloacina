@@ -80,14 +80,16 @@ use deadpool_diesel::sqlite::{
 };
 
 /// SQLite connection-pool size, unified across the sqlite-only and
-/// postgres+sqlite builds (CLOACI-T-0649 follow-up).
+/// postgres+sqlite builds.
 ///
-/// CLOACI-T-0622 bumped the postgres+sqlite path from 1 → 4 to clear macOS-CI
-/// contention that "looked like a deadlock", but the sqlite-only path was left
-/// at 1 and kept hitting the same hang (the flaky `task_callbacks` sqlite
-/// integration timeout). Both paths now share this constant so they can't drift
-/// again. Safe with the `:memory:`-as-tempfile materialisation + WAL +
-/// `busy_timeout=30000` applied on every checkout.
+/// Must be > 1: the engine holds multiple sqlite connections concurrently
+/// (scheduler loop + executor + heartbeat), so a pool of 1 deadlocks/times-out
+/// the executor. CLOACI-T-0741 tried pool=1 to kill the multi-connection
+/// contention flake (`database is locked` + WAL-lock hangs) and it
+/// **deterministically broke 27 executor integration tests** — serializing is
+/// not an option here. Kept at 4 (CLOACI-T-0622); the flake must be addressed
+/// another way (WAL/checkpoint tuning, connection-scope discipline, or the
+/// retry-on-timeout mitigation) — see [[CLOACI-T-0741]].
 #[cfg(feature = "sqlite")]
 const SQLITE_POOL_SIZE: usize = 4;
 
