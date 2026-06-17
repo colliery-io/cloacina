@@ -80,16 +80,19 @@ use deadpool_diesel::sqlite::{
 };
 
 /// SQLite connection-pool size, unified across the sqlite-only and
-/// postgres+sqlite builds (CLOACI-T-0649 follow-up).
+/// postgres+sqlite builds.
 ///
-/// CLOACI-T-0622 bumped the postgres+sqlite path from 1 → 4 to clear macOS-CI
-/// contention that "looked like a deadlock", but the sqlite-only path was left
-/// at 1 and kept hitting the same hang (the flaky `task_callbacks` sqlite
-/// integration timeout). Both paths now share this constant so they can't drift
-/// again. Safe with the `:memory:`-as-tempfile materialisation + WAL +
-/// `busy_timeout=30000` applied on every checkout.
+/// **CLOACI-T-0741: set back to 1 (serialize).** CLOACI-T-0622 had bumped this
+/// to 4, but a multi-connection sqlite pool under WAL is the source of the
+/// chronic integration flake — both `database is locked` errors (concurrent
+/// writers) and 180s hangs (WAL/lock contention). SQLite is single-writer; a
+/// pool of 1 serialises access and removes the contention entirely. The
+/// original reason T-0622 left 1 ("looked like a deadlock" on macOS CI) was an
+/// *unbounded* wait on a reentrant/contended checkout — now bounded by
+/// `POOL_WAIT_TIMEOUT`, so a true reentrant checkout surfaces as a fast error
+/// instead of an infinite hang rather than forcing us onto a contended pool.
 #[cfg(feature = "sqlite")]
-const SQLITE_POOL_SIZE: usize = 4;
+const SQLITE_POOL_SIZE: usize = 1;
 
 /// Bounded wait for a pool connection. Without it, an exhausted or contended
 /// pool (especially the small SQLite pool) waits *indefinitely* for a
