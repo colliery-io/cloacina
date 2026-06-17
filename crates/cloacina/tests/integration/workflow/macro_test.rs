@@ -69,6 +69,37 @@ fn test_workflow_macro_basic() {
     );
 }
 
+// CLOACI-T-0732 regression guard: bare `#[task]` (no id, no deps) INSIDE a
+// `#[workflow]` module. The workflow macro builds the compile-time DAG by
+// reading the task attrs directly, so the id-defaults-to-fn-name behavior must
+// hold here too — a downstream task can depend on a bare task by its fn name.
+// (This path is what broke when only the task macro applied the default.)
+#[workflow(name = "bare_task_workflow")]
+pub mod bare_task_workflow {
+    use super::*;
+
+    #[task]
+    pub async fn produce(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        Ok(())
+    }
+
+    #[task(dependencies = ["produce"])]
+    pub async fn consume(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_workflow_with_bare_tasks_registers() {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let runtime = cloacina::Runtime::new();
+    let wf = runtime
+        .get_workflow("bare_task_workflow")
+        .expect("bare_task_workflow should auto-register with id-defaulted bare tasks");
+    assert_eq!(wf.name(), "bare_task_workflow");
+}
+
 #[workflow(name = "parallel_execution")]
 pub mod parallel_execution {
     use super::*;

@@ -112,30 +112,18 @@ pub mod parallel_processing {
     pub async fn partition_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         info!("Partitioning product data");
 
-        let products: Vec<Product> = context
-            .get("products")
-            .ok_or_else(|| TaskError::ValidationFailed {
-                message: "Missing products in context".to_string(),
-            })?
-            .as_array()
-            .ok_or_else(|| TaskError::ValidationFailed {
-                message: "Products is not an array".to_string(),
-            })?
-            .iter()
-            .map(|v| serde_json::from_value(v.clone()))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| TaskError::ValidationFailed {
-                message: format!("Failed to deserialize products: {}", e),
-            })?;
+        // Typed read (CLOACI-T-0733): get_as/get_required fold the
+        // get → as_array → from_value boilerplate into one line.
+        let products: Vec<Product> = context.get_required("products")?;
 
         let chunk_size = products.len() / 3;
 
         let (chunk1, remainder) = products.split_at(chunk_size);
         let (chunk2, chunk3) = remainder.split_at(chunk_size);
 
-        context.insert("partition_1", json!(chunk1.to_vec()))?;
-        context.insert("partition_2", json!(chunk2.to_vec()))?;
-        context.insert("partition_3", json!(chunk3.to_vec()))?;
+        context.insert_as("partition_1", chunk1.to_vec())?;
+        context.insert_as("partition_2", chunk2.to_vec())?;
+        context.insert_as("partition_3", chunk3.to_vec())?;
 
         info!(
             "Data partitioned into 3 chunks of {} products each",
@@ -153,21 +141,8 @@ pub mod parallel_processing {
     pub async fn process_partition_1(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
-        let products: Vec<Product> = context
-            .get("partition_1")
-            .ok_or_else(|| TaskError::ValidationFailed {
-                message: "Missing partition_1 in context".to_string(),
-            })?
-            .as_array()
-            .ok_or_else(|| TaskError::ValidationFailed {
-                message: "Partition_1 is not an array".to_string(),
-            })?
-            .iter()
-            .map(|v| serde_json::from_value(v.clone()))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| TaskError::ValidationFailed {
-                message: format!("Failed to deserialize partition_1: {}", e),
-            })?;
+        // CLOACI-T-0733: one-line typed read replaces the 15-line dance.
+        let products: Vec<Product> = context.get_required("partition_1")?;
 
         info!("Processing partition 1: {} products", products.len());
 

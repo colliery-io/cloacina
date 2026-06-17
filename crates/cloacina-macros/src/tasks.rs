@@ -41,6 +41,7 @@ use crate::registry::{get_registry, TaskInfo};
 /// * `trigger_rules` - Rules that determine when the task should be executed
 /// * `on_success` - Function to call on successful task completion: `async fn(&str, &Context<Value>)`
 /// * `on_failure` - Function to call on task failure: `async fn(&str, &TaskError, &Context<Value>)`
+#[derive(Default)]
 pub struct TaskAttributes {
     pub id: String,
     pub dependencies: Vec<String>, // Will need to convert to TaskNamespace during code generation

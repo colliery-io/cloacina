@@ -122,3 +122,10 @@ Each child starts by writing its "minimal author" example as the regression guar
   swept (52 deps + 155 Rust id + 57 Python id removed). Surfaced a correction to
   the T-0720 T1 finding — Python `return context` is NOT redundant (the wrapper
   discards in-body mutations on a `None` return); recorded in T-0732 + T-0720.
+- 2026-06-17: **[[CLOACI-T-0733]] (T2) complete + verified**: typed Context
+  accessors `get_as`/`get_required`/`insert_as` on `Context<serde_json::Value>`
+  (unit + doc tests pass); `03-dependencies` example rewritten (15-line reads →
+  1 line) and compiled. Building that example also surfaced + fixed a latent
+  T-0732 bug: a bare `#[task]` (no parens) inside `#[workflow]` was dropped from
+  the DAG; fixed in `workflow_attr.rs` (+`#[derive(Default)]` on TaskAttributes)
+  with a workflow-level guard. 10/10 macro tests green. 2 of 9 tasks done.

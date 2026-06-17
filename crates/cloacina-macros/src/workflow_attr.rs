@@ -178,12 +178,33 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
             if let syn::Item::Fn(item_fn) = item {
                 for attr in &item_fn.attrs {
                     if attr.path().is_ident("task") {
-                        if let Ok(task_attrs) = attr.parse_args::<TaskAttributes>() {
-                            let fn_name = &item_fn.sig.ident;
-                            detected_tasks.insert(task_attrs.id.clone(), fn_name.clone());
-                            task_dependencies
-                                .insert(task_attrs.id.clone(), task_attrs.dependencies.clone());
-                        }
+                        let fn_name = &item_fn.sig.ident;
+                        // A bare `#[task]` (no parens) is a `Meta::Path`, so
+                        // `parse_args` fails — fall back to default attrs rather
+                        // than dropping the task from the DAG entirely
+                        // (CLOACI-T-0732). `#[task(...)]` parses normally.
+                        let task_attrs = match &attr.meta {
+                            syn::Meta::Path(_) => TaskAttributes::default(),
+                            _ => match attr.parse_args::<TaskAttributes>() {
+                                Ok(a) => a,
+                                Err(_) => {
+                                    break;
+                                }
+                            },
+                        };
+                        // `id` defaults to the function name when omitted
+                        // (CLOACI-T-0732). The task proc-macro applies the same
+                        // default at expansion; the workflow macro reads the
+                        // attrs directly to build the compile-time DAG, so it
+                        // must resolve the default here too — otherwise a bare
+                        // `#[task]` registers under an empty id.
+                        let task_id = if task_attrs.id.is_empty() {
+                            fn_name.to_string()
+                        } else {
+                            task_attrs.id.clone()
+                        };
+                        detected_tasks.insert(task_id.clone(), fn_name.clone());
+                        task_dependencies.insert(task_id, task_attrs.dependencies.clone());
                         break;
                     }
                 }

@@ -50,8 +50,6 @@ the taught common case.
   (`task.rs:642-659`).
 
 ## Acceptance Criteria
-
-## Acceptance Criteria
 - [x] A bare `#[task]` (no `id`, no `dependencies`) compiles and registers with
       `id` defaulted to the fn name and empty deps. ✅
 - [x] Examples/tutorials no longer write `dependencies = []` or `id = "<fn>"`
@@ -98,3 +96,9 @@ the defaults hold end to end (compile + register + run).
   noted for follow-up but out of scope here.) Python empty-`dependencies=[]`
   removal was also deferred (low value; needs confirmation of the binding
   default first).
+- 2026-06-17 (follow-up under [[CLOACI-T-0733]]): the bare-`#[task]` support
+  here was **incomplete** — it worked standalone but a bare `#[task]` (no parens)
+  *inside* a `#[workflow]` module was silently dropped from the DAG (the workflow
+  macro's `parse_args` fails on a `Meta::Path`). Fixed in `workflow_attr.rs`
+  (handle `Meta::Path` → `TaskAttributes::default()` + id default) with a new
+  workflow-level regression guard. Bare `#[task]` now works in both paths.
