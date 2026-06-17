@@ -1,10 +1,10 @@
 ---
 id: authoring-surface-cruft-sweep-let
 level: task
-title: 'Authoring-surface cruft sweep — let workflow authors get away with "just types" (minimize required boilerplate)'
+title: "Authoring-surface cruft sweep — let workflow authors get away with just types (minimize required boilerplate)"
 short_code: "CLOACI-T-0720"
 created_at: 2026-06-17T03:15:23.168112+00:00
-updated_at: 2026-06-17T03:18:14.316300+00:00
+updated_at: 2026-06-17T11:48:01.312927+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -59,6 +59,10 @@ derive?*
   required boilerplate widen. Risk of *over*-correcting: too much magic/inference
   can hurt explicitness and debuggability — the sweep must distinguish
   "ceremony that buys nothing" from "explicitness that earns its keep."
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -336,4 +340,10 @@ Ordered by ROI. Items 1, 4 are near-pure docs/loader wins; the rest are scoped c
   already-optional attrs from examples; T4 default the constant `package.toml`
   fields). Two hard Rust↔Python parity *failures* surfaced (no Python
   `@state_accumulator`, no cron `@trigger`) — routed to [[CLOACI-T-0688]]. Next:
-  decompose the 10 follow-ups into their own tasks (or an initiative) when picked up.
+  decompose the 10 follow-ups into their own tasks (or an initiative) when picked up.- 2026-06-17: **Completed (research done).** This sweep's job — audit the
+  authoring surface and produce ranked, file:line-grounded recommendations — is
+  finished (see Sweep Findings above). It was decomposed into initiative
+  [[CLOACI-I-0125]]; 4 of those follow-ups landed (T-0732/0733/0734/0739) and the
+  packaging/FFI cluster (T-0735/0736/0737/0738/0740) is blocked pending the fidius
+  wasm-traits direction ([[project_fidius_wasm_authoring_shift]]). Closing the
+  research task; execution tracking lives under I-0125.
