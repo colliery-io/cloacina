@@ -4,14 +4,14 @@ level: task
 title: "Embedded CG runtime builder — absorb the manual main() wiring block"
 short_code: "CLOACI-T-0738"
 created_at: 2026-06-17T05:33:14.790133+00:00
-updated_at: 2026-06-17T05:33:14.790133+00:00
+updated_at: 2026-06-17T11:18:59.835593+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/blocked"
 
 
 exit_criteria_met: false
@@ -58,4 +58,9 @@ already does. Relates to reactor defaults [[CLOACI-T-0740]] (shared `InputStrate
 / channel defaults).
 
 ## Status Updates
-- 2026-06-17: Filed from the T-0720 decomposition. Not started.
+- 2026-06-17: Filed from the T-0720 decomposition. Not started.- 2026-06-17: **BLOCKED — deferred pending fidius wasm traits.** fidius is
+  introducing a wasm implementation of traits that may significantly reshape the
+  authoring/packaging story (cdylib + FFI + build-shell model). Per the user,
+  defer this cluster so we don't build something the wasm direction reworks.
+  Unblock = fidius wasm-traits direction settles. See
+  [[project_fidius_wasm_authoring_shift]].

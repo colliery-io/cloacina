@@ -4,14 +4,14 @@ level: task
 title: "package.toml minimization — default the constant fields, infer language/entry_module"
 short_code: "CLOACI-T-0735"
 created_at: 2026-06-17T05:33:09.700128+00:00
-updated_at: 2026-06-17T11:05:00.899747+00:00
+updated_at: 2026-06-17T11:18:29.211763+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/blocked"
 
 
 exit_criteria_met: false
@@ -45,8 +45,6 @@ infer `language`/`entry_module`, so a minimal Python `package.toml` can shrink t
   This field already caused a costly drift bug ([[CLOACI-T-0666]]).
 - `entry_module` is conventionally `<module>.tasks`/`.graph` (`new.rs:176,217`).
 - `requires_python` is unused at build (`crates/cloacina-compiler/src/build.rs:217-223`).
-
-## Acceptance Criteria
 
 ## Acceptance Criteria
 - [ ] Omitting `interface`/`interface_version`/`extension` loads with the correct
@@ -88,3 +86,10 @@ deriving `workflow_name`/`description` from code is the separate, larger
 
 ## Status Updates
 - 2026-06-17: Filed from the T-0720 decomposition. Not started.
+- 2026-06-17: **BLOCKED — deferred pending fidius wasm traits.** fidius is
+  introducing a wasm implementation of traits that may significantly reshape the
+  authoring/packaging story (the cdylib + FFI + manifest model this task targets).
+  Per the user, hold off on the metadata/packaging work so we don't build
+  something the wasm direction would rework. Unblock = fidius wasm-traits
+  direction settles. Investigation above is preserved for resumption. See
+  [[project_fidius_wasm_authoring_shift]].

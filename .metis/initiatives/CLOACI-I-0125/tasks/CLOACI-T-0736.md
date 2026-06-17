@@ -4,14 +4,14 @@ level: task
 title: "FFI-derive manifest metadata (workflow_name/description/reaction_mode/input_strategy) from code — kill the T-0666 drift class"
 short_code: "CLOACI-T-0736"
 created_at: 2026-06-17T05:33:11.481213+00:00
-updated_at: 2026-06-17T05:33:11.481213+00:00
+updated_at: 2026-06-17T11:18:58.673710+00:00
 parent: CLOACI-I-0125
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/blocked"
 
 
 exit_criteria_met: false
@@ -58,4 +58,9 @@ minimization and the code-derivation land coherently. Larger than T-0735 —
 touches the build/packaging FFI path.
 
 ## Status Updates
-- 2026-06-17: Filed from the T-0720 decomposition. Not started.
+- 2026-06-17: Filed from the T-0720 decomposition. Not started.- 2026-06-17: **BLOCKED — deferred pending fidius wasm traits.** fidius is
+  introducing a wasm implementation of traits that may significantly reshape the
+  authoring/packaging story (cdylib + FFI + build-shell model). Per the user,
+  defer this cluster so we don't build something the wasm direction reworks.
+  Unblock = fidius wasm-traits direction settles. See
+  [[project_fidius_wasm_authoring_shift]].

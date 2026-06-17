@@ -148,3 +148,12 @@ Each child starts by writing its "minimal author" example as the regression guar
   its doc) but not yet implemented — `[metadata]` is already mostly optional, the
   real win is inferring `language` from layout; deferred. Checkpoint: remaining 5
   (0735/0736/0737/0738/0740) are the heavy packaging/compiler/CG + breaking tier.
+- 2026-06-17: **Remaining 5 tasks BLOCKED — deferred pending fidius wasm traits.**
+  Per the user: fidius is introducing a wasm implementation of traits that may
+  significantly reshape the authoring/packaging story (cdylib + FFI + build-shell
+  + manifest model). Building the packaging/FFI/authoring-shell cluster now risks
+  throwaway work, so T-0735/0736/0737/0738/0740 are transitioned to `#phase/blocked`
+  until that direction settles. The 4 landed tasks are general ergonomics that
+  survive regardless. Initiative effectively paused at 4/9 done + 5 blocked. See
+  [[project_fidius_wasm_authoring_shift]]. Branch `authoring-cruft-i0125` holds
+  the verified slice (integration-green) ready for a PR when desired.
