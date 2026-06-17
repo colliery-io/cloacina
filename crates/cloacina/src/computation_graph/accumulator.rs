@@ -1672,4 +1672,105 @@ mod tests {
         shutdown_tx.send(true).unwrap();
         handle.await.unwrap();
     }
+
+    // --- State accumulator runtime tests (CLOACI-T-0688) ---
+    //
+    // These exercise the RUNTIME wiring that `@cloaca.state_accumulator(capacity=N)`
+    // (and `StateAccumulatorFactory`) drive: values pushed over the socket are
+    // appended to a bounded `VecDeque`, oldest entries are evicted past capacity,
+    // and the full bounded history is emitted back as the boundary on every write.
+    // The boundary wire-type is `Vec<T>` (see `state_accumulator_runtime`), so we
+    // decode boundaries as `Vec<serde_json::Value>` to mirror the
+    // `serde_json::Value` instantiation used by `StateAccumulatorFactory`.
+
+    /// Build a minimal socket-driven AccumulatorContext (no DAL/checkpoint, no
+    /// health) mirroring the embedded/test wiring used by the other runtime tests.
+    fn make_state_ctx(
+        name: &str,
+    ) -> (
+        AccumulatorContext,
+        mpsc::Receiver<(SourceName, Vec<u8>)>,
+        watch::Sender<bool>,
+    ) {
+        let (boundary_tx, boundary_rx) = mpsc::channel(32);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+        let ctx = AccumulatorContext {
+            output: BoundarySender::new(boundary_tx, SourceName::new(name)),
+            name: name.to_string(),
+            shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
+        };
+        (ctx, boundary_rx, shutdown_tx)
+    }
+
+    /// Drive `state_accumulator_runtime::<serde_json::Value>` over the socket and
+    /// assert that a bounded capacity evicts the oldest entries and emits the
+    /// retained history (newest `capacity` values) as each boundary.
+    #[tokio::test]
+    async fn test_state_accumulator_runtime_bounded_evicts_and_emits_history() {
+        let capacity = 2;
+        let (socket_tx, socket_rx) = mpsc::channel::<Vec<u8>>(32);
+        let (ctx, mut boundary_rx, shutdown_tx) = make_state_ctx("state_bounded");
+        let acc = StateAccumulator::<serde_json::Value>::new(capacity);
+        let handle = tokio::spawn(state_accumulator_runtime(acc, ctx, socket_rx));
+
+        // Feed 3 values (> capacity 2): 1, 2, 3.
+        for v in [1_i64, 2, 3] {
+            socket_tx
+                .send(serde_json::to_vec(&serde_json::json!(v)).unwrap())
+                .await
+                .unwrap();
+        }
+
+        // Expect 3 boundaries, each the bounded history after that write:
+        //   after 1 -> [1]
+        //   after 2 -> [1, 2]
+        //   after 3 -> [2, 3]   (oldest "1" evicted)
+        let expected: Vec<Vec<i64>> = vec![vec![1], vec![1, 2], vec![2, 3]];
+        for exp in expected {
+            let (name, bytes) =
+                tokio::time::timeout(std::time::Duration::from_secs(2), boundary_rx.recv())
+                    .await
+                    .expect("boundary should arrive within 2s")
+                    .expect("boundary channel open");
+            assert_eq!(name, SourceName::new("state_bounded"));
+            let list: Vec<i64> = types::deserialize(&bytes).unwrap();
+            assert_eq!(
+                list, exp,
+                "bounded history mismatch (capacity={})",
+                capacity
+            );
+        }
+
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    }
+
+    /// `capacity == 0` is a write-only sink: values are buffered but NO boundary
+    /// is emitted back to the reactor.
+    #[tokio::test]
+    async fn test_state_accumulator_runtime_write_only_emits_nothing() {
+        let (socket_tx, socket_rx) = mpsc::channel::<Vec<u8>>(32);
+        let (ctx, mut boundary_rx, shutdown_tx) = make_state_ctx("state_write_only");
+        let acc = StateAccumulator::<serde_json::Value>::new(0);
+        let handle = tokio::spawn(state_accumulator_runtime(acc, ctx, socket_rx));
+
+        for v in [10_i64, 20, 30] {
+            socket_tx
+                .send(serde_json::to_vec(&serde_json::json!(v)).unwrap())
+                .await
+                .unwrap();
+        }
+
+        // Give the runtime time to process; assert no boundary was emitted.
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(
+            boundary_rx.try_recv().is_err(),
+            "write-only (capacity==0) state accumulator must not emit a boundary"
+        );
+
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    }
 }

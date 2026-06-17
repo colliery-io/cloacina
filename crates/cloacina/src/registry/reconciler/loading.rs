@@ -2221,6 +2221,200 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // CLOACI-T-0688: cron-trigger reconciler-path (Rust↔Python parity).
+    //
+    // `@cloaca.trigger(on=, cron=)` produces a runtime `Trigger` whose
+    // `cron_expression()`/`workflow_name()` are overridden (see
+    // `PythonTriggerWrapper`). These tests drive the host-side path that
+    // consumes that: `build_view_python` must emit a `TriggerPackageMetadata`
+    // carrying `cron_expression: Some(...)` + the `workflow_name` binding, and
+    // `step_load_cron_triggers` must select only cron-bearing triggers and
+    // register them against their TARGET workflow.
+    // -----------------------------------------------------------------------
+
+    /// A minimal cron-shaped `Trigger` impl mirroring what `PythonTriggerWrapper`
+    /// presents to the reconciler: a name distinct from its target workflow, an
+    /// overridden `cron_expression()`, and an overridden `workflow_name()`.
+    #[derive(Debug)]
+    struct MockCronTrigger {
+        name: String,
+        workflow: String,
+        cron: String,
+    }
+
+    #[async_trait::async_trait]
+    impl cloacina_workflow::Trigger for MockCronTrigger {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn poll_interval(&self) -> std::time::Duration {
+            // Ignored for cron triggers; reconciler routes by cron_expression().
+            std::time::Duration::from_secs(60)
+        }
+        fn allow_concurrent(&self) -> bool {
+            false
+        }
+        async fn poll(
+            &self,
+        ) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
+            Ok(cloacina_workflow::TriggerResult::Skip)
+        }
+        fn cron_expression(&self) -> Option<String> {
+            Some(self.cron.clone())
+        }
+        fn workflow_name(&self) -> &str {
+            &self.workflow
+        }
+    }
+
+    /// A custom-poll trigger (no cron expression) — exercises the `None` branch
+    /// so we can assert `step_load_cron_triggers` ignores it.
+    #[derive(Debug)]
+    struct MockPollTrigger {
+        name: String,
+    }
+
+    #[async_trait::async_trait]
+    impl cloacina_workflow::Trigger for MockPollTrigger {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn poll_interval(&self) -> std::time::Duration {
+            std::time::Duration::from_secs(30)
+        }
+        fn allow_concurrent(&self) -> bool {
+            true
+        }
+        async fn poll(
+            &self,
+        ) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
+            Ok(cloacina_workflow::TriggerResult::Skip)
+        }
+        // cron_expression() / workflow_name() default (None / "").
+    }
+
+    /// In-memory cron registrar that records every `register_cron_workflow`
+    /// call so tests can assert what the reconciler routed to the cron path —
+    /// no DB required.
+    #[derive(Default)]
+    struct RecordingCronRegistrar {
+        calls: std::sync::Mutex<Vec<(String, String, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::registry::reconciler::CronWorkflowRegistrar for RecordingCronRegistrar {
+        async fn register_cron_workflow(
+            &self,
+            workflow_name: &str,
+            cron_expression: &str,
+            timezone: &str,
+        ) -> Result<String, String> {
+            let mut calls = self.calls.lock().unwrap();
+            calls.push((
+                workflow_name.to_string(),
+                cron_expression.to_string(),
+                timezone.to_string(),
+            ));
+            Ok(format!("schedule-{}", calls.len()))
+        }
+        async fn unregister_cron_workflow(&self, _schedule_id: &str) -> Result<(), String> {
+            Ok(())
+        }
+        // register_poll_trigger uses the trait default (errors loudly); the
+        // cron path under test never calls it.
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn build_view_python_emits_cron_metadata_for_runtime_trigger() {
+        let reconciler = make_test_reconciler();
+        let runtime = runtime_of(&reconciler);
+        runtime.register_trigger("nightly_cron".to_string(), || {
+            Arc::new(MockCronTrigger {
+                name: "nightly_cron".to_string(),
+                workflow: "etl_workflow".to_string(),
+                cron: "0 0 * * *".to_string(),
+            })
+        });
+
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("cron-pkg", &pre_r, &pre_t, &pre_g, &[]);
+
+        assert_eq!(view.triggers.len(), 1, "one runtime trigger expected");
+        let t = &view.triggers[0];
+        assert_eq!(t.name, "nightly_cron");
+        assert_eq!(t.package_name, "cron-pkg");
+        // The two new RUNTIME-wired fields: cron expression + workflow binding.
+        assert_eq!(
+            t.cron_expression.as_deref(),
+            Some("0 0 * * *"),
+            "build_view_python must carry the runtime trigger's cron_expression()"
+        );
+        assert_eq!(
+            t.workflow_name, "etl_workflow",
+            "build_view_python must carry the runtime trigger's workflow_name() binding"
+        );
+        assert!(!t.allow_concurrent);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn step_load_cron_triggers_selects_cron_bearing_triggers() {
+        let registrar = Arc::new(RecordingCronRegistrar::default());
+        let reconciler = make_test_reconciler().with_cron_registrar(registrar.clone());
+        let runtime = runtime_of(&reconciler);
+
+        // One cron trigger (should be registered) + one custom-poll trigger
+        // (cron_expression() == None, must be ignored by the cron step).
+        runtime.register_trigger("nightly_cron".to_string(), || {
+            Arc::new(MockCronTrigger {
+                name: "nightly_cron".to_string(),
+                workflow: "etl_workflow".to_string(),
+                cron: "0 0 * * *".to_string(),
+            })
+        });
+        runtime.register_trigger("file_watch".to_string(), || {
+            Arc::new(MockPollTrigger {
+                name: "file_watch".to_string(),
+            })
+        });
+
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("cron-pkg", &pre_r, &pre_t, &pre_g, &[]);
+        assert_eq!(
+            view.triggers.len(),
+            2,
+            "both triggers should be in the view"
+        );
+
+        let metadata = make_test_metadata();
+        let ids = reconciler
+            .step_load_cron_triggers(&metadata, &view)
+            .await
+            .expect("step_load_cron_triggers should succeed");
+
+        // Exactly one cron schedule registered (the custom-poll one is skipped).
+        assert_eq!(
+            ids.len(),
+            1,
+            "only the cron-bearing trigger should register"
+        );
+
+        let calls = registrar.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        // Registered against the TARGET workflow (workflow_name), not the
+        // trigger's own name — and carrying the cron expression + UTC tz.
+        assert_eq!(
+            calls[0],
+            (
+                "etl_workflow".to_string(),
+                "0 0 * * *".to_string(),
+                "UTC".to_string()
+            )
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // T-0554 Phase 2 + T-0553 deferred AC: cross-package contract validation
     // and reverse-order unload pipeline e2e (in-crate scaffolding).
     // -----------------------------------------------------------------------
