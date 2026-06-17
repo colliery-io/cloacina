@@ -4,14 +4,14 @@ level: initiative
 title: "Web UI visibility overhaul — operations health, execution drill-down, graph-as-source-of-truth"
 short_code: "CLOACI-I-0124"
 created_at: 2026-06-16T01:38:34.599962+00:00
-updated_at: 2026-06-16T01:38:34.599962+00:00
-parent:
+updated_at: 2026-06-17T12:04:31.659395+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -155,3 +155,11 @@ Definition of done: an operator can answer "why did this run do that," "is my
 deployment healthy," and "what does this node do" from the UI; the graph shows
 triggers/reactors/accumulators as nodes; non-cron triggers surface; the audit's
 naive-confusion bugs are gone; each surface re-passes the Playwright walk.
+
+## Status Updates
+- 2026-06-17: **Completed.** All WS-* children (T-0702–T-0714) landed and are
+  marked completed; the operations-health view, execution drill-down, graph-as-
+  source-of-truth nodes, non-cron triggers, node detail drawer, list-page health,
+  meaningful event log, and richer demo CG data all shipped on branch
+  `authoring-cruft-i0125`. Closing the initiative (was stuck in discovery while
+  its tasks were all done).
