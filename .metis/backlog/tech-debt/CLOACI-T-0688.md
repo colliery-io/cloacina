@@ -4,15 +4,15 @@ level: task
 title: "Close Rust↔Python interface parity gaps (state accumulators, packaged cron-trigger authoring)"
 short_code: "CLOACI-T-0688"
 created_at: 2026-06-15T13:46:31.557405+00:00
-updated_at: 2026-06-15T13:46:31.557405+00:00
-parent:
+updated_at: 2026-06-17T15:19:21.592385+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -109,6 +109,10 @@ hard parity *failures* (no Python `@state_accumulator`, no packaged cron
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] `@cloaca.state_accumulator` implemented with parity to `#[state_accumulator]` (incl. DAL-backed history/capacity)
 - [ ] Python `@cloaca.trigger` (or a packaged-cron path) supports cron expression + timezone authoring
 - [ ] Decision recorded on `TaskHandle.defer_until()` (surface in Rust vs. document as Python-only)
@@ -179,3 +183,83 @@ hard parity *failures* (no Python `@state_accumulator`, no packaged cron
 ## Status Updates **[REQUIRED]**
 
 *To be added during implementation*
+
+## Implementation Plan (2026-06-17) — plan-first, awaiting approval to build
+
+Unblocked from the fidius-wasm deferral: these are **PyO3 binding** changes
+(exposing existing Rust functionality to Python), independent of the cdylib/FFI
+plugin-loading path the wasm work reshapes (see [[project_fidius_wasm_authoring_shift]]).
+On branch `py-parity-t0688` (off main; #131's files are untouched here).
+
+### Verified seams
+- Python accumulator decorators: `crates/cloacina-python/src/computation_graph.rs`
+  — `register_accumulator` + `PyAccumulatorRegistration { accumulator_type }`;
+  four decorators today (passthrough/stream/polling/batch).
+- Packaged accumulator factory: `packaging_bridge.rs:205` matches
+  `accumulator_type` → only `"stream"` + a passthrough fallback (so polling/
+  batch/state all currently fall through to passthrough). `AccumulatorFactory`
+  trait `spawn(...)` at `:336`/`:469`.
+- Rust state accumulator: `accumulator.rs:889` `StateAccumulator<T>`, `:907`
+  `state_accumulator_runtime<T: Serialize+DeserializeOwned+Send+Clone>(capacity, …)`.
+  Capacity: `>0` bounded (evict oldest), `<0` unbounded, `==0` write-only sink.
+- Python trigger decorator: `trigger.rs` `trigger()` pyfunction (`poll_interval`,
+  `allow_concurrent`) + `PythonTriggerDef { poll_interval }`.
+- Python trigger → manifest emission: `cloacina-python/src/loader.rs:315`
+  consumes `drain_python_triggers()` and emits trigger metadata.
+- **Host cron plumbing already exists end-to-end**: `ffi_trigger.rs:52`
+  `cron_expression: Option<String>`, `package_loader.rs:441`
+  `TriggerPackageMetadata`, reconciler `register_cron_workflow` (mod.rs:183).
+  Rust macro `trigger_attr.rs:40` carries `cron`/`timezone`.
+
+### Part A — `@cloaca.state_accumulator(capacity=N)` (M, the harder half)
+1. Decorator in `computation_graph.rs`: `state_accumulator_decorator(capacity)` →
+   register with `accumulator_type="state"`; add a `capacity: i32` field to
+   `PyAccumulatorRegistration`.
+2. `StateAccumulatorFactory` in `packaging_bridge.rs` implementing
+   `AccumulatorFactory::spawn`, launching
+   `state_accumulator_runtime::<serde_json::Value>(capacity, …)`. Wire `"state"`
+   into the `accumulator_type` match at `:205` (and the override matches at
+   `:582`/`:644`).
+3. Embedded (in-process cloaca) path: the graph builder that drains
+   `drain_accumulators()` must also handle `"state"`.
+4. **Open question (main risk):** reconcile `AccumulatorFactory::spawn`'s contract
+   (boundary sender + DAL handle + shutdown) with `state_accumulator_runtime`'s
+   loop shape (persists history to DAL, emits the full list as boundary). This
+   wiring — dynamic `serde_json::Value` output + DAL persistence in the packaged
+   factory — is the biggest unknown.
+
+### Part B — cron `@cloaca.trigger(cron=…, timezone=…)` (M, more tractable)
+1. Decorator in `trigger.rs`: add `cron: Option<String>`, `timezone:
+   Option<String>` to `trigger()` + `PythonTriggerDef`. `cron` set ⇒ cron trigger
+   (no poll body); mutually exclusive with `poll_interval`.
+2. Manifest emission `loader.rs:315`: emit `cron_expression` (+ timezone) in the
+   `TriggerPackageMetadata` when `cron` is set.
+3. Runtime: **no new host work** — `ffi_trigger`/`package_loader`/reconciler
+   already register cron schedules from `cron_expression`. Verify the
+   poll-vs-cron branch keys on `cron_expression` presence.
+4. Open question: scope to packaged/decorator authoring (the documented gap);
+   Python already has runner-level cron scheduling via `register_cron_workflow`.
+
+### Part C — `TaskHandle.defer_until()` reverse gap (XS)
+Decision only: document as an intentional Python convenience (cite
+`cloacina-python/src/task.rs:34`) vs. add a Rust equivalent for symmetry.
+Recommend: document as Python-only unless symmetry is explicitly wanted.
+
+### Test strategy (per AC + the SDK-live-server memory)
+- New Python scenario tests against a **live runner**: a state-accumulator
+  scenario (bounded capacity eviction + history emission) and a packaged
+  cron-trigger scenario (authored via decorator, fires on schedule).
+- Build packaged fixtures exercising both; verify register + fire end-to-end.
+- Remove the "Rust-only" caveats from the primitive docs as each gap closes.
+
+### Recommended sequencing
+Part B first (host plumbing exists → lower risk, faster win) → Part A (factory
+wiring, the real unknown) → Part C decision. Each its own commit; verify via
+`angreal test integration` (Python scenarios) before moving on.
+
+## Status Updates
+- 2026-06-17: Unblocked (PyO3 bindings independent of the fidius-wasm plugin
+  path, per user). Plan-first per request: implementation plan above, grounded
+  in verified seams; **awaiting approval to build.** Key finding: Part B (cron
+  trigger) is mostly Python-side wiring since the host cron plumbing already
+  exists; Part A (state accumulator) needs a new packaged `StateAccumulatorFactory`.
