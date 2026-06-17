@@ -119,8 +119,12 @@ fn drain_nodes() -> HashMap<String, PyObject> {
 #[derive(Debug, Clone)]
 pub struct PyAccumulatorRegistration {
     pub name: String,
-    pub accumulator_type: String, // "passthrough", "stream", "polling", "batch"
+    pub accumulator_type: String, // "passthrough", "stream", "polling", "batch", "state"
     pub config: HashMap<String, String>,
+    /// Capacity for `state` accumulators (bounded buffer). `> 0` bounded,
+    /// `< 0` unbounded, `0` write-only sink. Defaults to `0` for the other
+    /// accumulator types, which ignore it.
+    pub capacity: i32,
 }
 
 static ACCUMULATOR_REGISTRY: Lazy<Mutex<HashMap<String, (PyObject, PyAccumulatorRegistration)>>> =
@@ -163,6 +167,7 @@ pub fn passthrough_accumulator_decorator(py: Python<'_>, func: PyObject) -> PyRe
         name: func_name.clone(),
         accumulator_type: "passthrough".to_string(),
         config: HashMap::new(),
+        capacity: 0,
     };
     register_accumulator(func_name, func.clone_ref(py), reg);
     Ok(func)
@@ -209,6 +214,7 @@ pub fn stream_accumulator_decorator(
                 name: func_name.clone(),
                 accumulator_type: "stream".to_string(),
                 config,
+                capacity: 0,
             };
             register_accumulator(func_name, func.clone().unbind(), reg);
             Ok(func.clone().unbind())
@@ -246,6 +252,7 @@ pub fn polling_accumulator_decorator(py: Python<'_>, interval: String) -> PyResu
                 name: func_name.clone(),
                 accumulator_type: "polling".to_string(),
                 config,
+                capacity: 0,
             };
             register_accumulator(func_name, func.clone().unbind(), reg);
             Ok(func.clone().unbind())
@@ -291,6 +298,57 @@ pub fn batch_accumulator_decorator(
                 name: func_name.clone(),
                 accumulator_type: "batch".to_string(),
                 config,
+                capacity: 0,
+            };
+            register_accumulator(func_name, func.clone().unbind(), reg);
+            Ok(func.clone().unbind())
+        },
+    )?;
+
+    Ok(decorator.into())
+}
+
+// ---------------------------------------------------------------------------
+// @cloaca.state_accumulator(capacity=N) decorator
+// ---------------------------------------------------------------------------
+
+/// Factory for `@cloaca.state_accumulator(capacity=N)`.
+///
+/// Registers a function as a *state* accumulator: a bounded `VecDeque` that
+/// receives values, persists to the DAL on every write, and emits the full
+/// list back as the boundary (enabling cyclic feedback patterns). Mirrors
+/// Rust's `#[state_accumulator(capacity=…)]`.
+///
+/// Capacity semantics (see `StateAccumulator` in cloacina core):
+/// - `> 0`: bounded — evicts oldest when at capacity
+/// - `< 0`: unbounded — grows without limit
+/// - `0`:  write-only sink — no history emitted back
+#[pyfunction]
+#[pyo3(name = "state_accumulator", signature = (*, capacity))]
+pub fn state_accumulator_decorator(py: Python<'_>, capacity: i32) -> PyResult<PyObject> {
+    let config_capacity = capacity;
+
+    let decorator = PyCFunction::new_closure(
+        py,
+        None,
+        None,
+        move |args: &Bound<'_, PyTuple>,
+              _kwargs: Option<&Bound<'_, PyDict>>|
+              -> PyResult<PyObject> {
+            let _py = args.py();
+            let func = args.get_item(0)?;
+            let func_name: String = func.getattr("__name__")?.extract()?;
+
+            // Mirror capacity into config too, so it survives the
+            // String-keyed config map used at the FFI/override boundary.
+            let mut config = HashMap::new();
+            config.insert("capacity".to_string(), config_capacity.to_string());
+
+            let reg = PyAccumulatorRegistration {
+                name: func_name.clone(),
+                accumulator_type: "state".to_string(),
+                config,
+                capacity: config_capacity,
             };
             register_accumulator(func_name, func.clone().unbind(), reg);
             Ok(func.clone().unbind())
@@ -749,7 +807,7 @@ pub fn build_python_graph_declaration(
     accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
 ) -> Option<cloacina::computation_graph::scheduler::ComputationGraphDeclaration> {
     use cloacina::computation_graph::packaging_bridge::{
-        PassthroughAccumulatorFactory, StreamBackendAccumulatorFactory,
+        PassthroughAccumulatorFactory, StateAccumulatorFactory, StreamBackendAccumulatorFactory,
     };
     use cloacina::computation_graph::reactor::{InputStrategy, ReactionCriteria};
     use cloacina::computation_graph::scheduler::{
@@ -797,6 +855,13 @@ pub fn build_python_graph_declaration(
                     match override_cfg.accumulator_type.as_str() {
                         "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
                             override_cfg.config.clone(),
+                        )),
+                        "state" => Arc::new(StateAccumulatorFactory::new(
+                            override_cfg
+                                .config
+                                .get("capacity")
+                                .and_then(|c| c.parse::<i32>().ok())
+                                .unwrap_or(0),
                         )),
                         _ => Arc::new(PassthroughAccumulatorFactory),
                     }
@@ -1381,4 +1446,48 @@ fn compute_execution_order(nodes: &[PyNodeDecl]) -> Vec<String> {
     }
 
     sorted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `@cloaca.state_accumulator(capacity=N)` registers the decorated function
+    /// as a `state` accumulator carrying the requested capacity (both on the
+    /// struct field and mirrored into config).
+    #[test]
+    fn test_state_accumulator_decorator_registers_state_with_capacity() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            // Clear any registry state leaked from other tests in this process.
+            let _ = drain_accumulators();
+
+            // Build the decorator with capacity=5.
+            let decorator = state_accumulator_decorator(py, 5).unwrap();
+
+            // A trivial Python function to decorate; its __name__ becomes the key.
+            let func = py
+                .eval(
+                    pyo3::ffi::c_str!("type('f', (), {'__name__': 'my_state'})()"),
+                    None,
+                    None,
+                )
+                .unwrap();
+
+            // Apply the decorator: decorator(func) -> func (transparent).
+            let args = PyTuple::new(py, [func]).unwrap();
+            decorator.call1(py, args).unwrap();
+
+            let regs = get_registered_accumulators();
+            let reg = regs
+                .iter()
+                .find(|r| r.name == "my_state")
+                .expect("state accumulator should be registered under its __name__");
+            assert_eq!(reg.accumulator_type, "state");
+            assert_eq!(reg.capacity, 5);
+            assert_eq!(reg.config.get("capacity").map(String::as_str), Some("5"));
+
+            let _ = drain_accumulators();
+        });
+    }
 }

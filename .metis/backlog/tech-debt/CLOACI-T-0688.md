@@ -262,4 +262,19 @@ wiring, the real unknown) → Part C decision. Each its own commit; verify via
   path, per user). Plan-first per request: implementation plan above, grounded
   in verified seams; **awaiting approval to build.** Key finding: Part B (cron
   trigger) is mostly Python-side wiring since the host cron plumbing already
-  exists; Part A (state accumulator) needs a new packaged `StateAccumulatorFactory`.
+  exists; Part A (state accumulator) needs a new packaged `StateAccumulatorFactory`.- 2026-06-17: **Part A (state accumulator) built + verified.** Added
+  `@cloaca.state_accumulator(capacity=N)` (mirrors the stream decorator) and a
+  `StateAccumulatorFactory` in `packaging_bridge.rs` that spawns
+  `state_accumulator_runtime::<serde_json::Value>(capacity)` — wired into all
+  three `accumulator_type` matches (FFI metadata + both override paths); capacity
+  flows decorator → `config["capacity"]` → factory. No contract mismatch (the
+  state runtime fits `AccumulatorFactory::spawn` exactly like the others).
+  `cargo check` (cloacina + cloacina-python, default features) green; unit test
+  `test_state_accumulator_decorator_registers_state_with_capacity` passes.
+- 2026-06-17: **Part B (cron trigger) — design question found in-code, NOT a
+  simple wiring change.** `@cloaca.trigger` produces a *poll* trigger
+  (`PythonTriggerWrapper.poll()`); cron is a different mechanism
+  (`TriggerPackageMetadata.cron_expression` → cron scheduler, not the poll
+  registry). So `@cloaca.trigger(cron=…)` needs an API decision: what it
+  decorates and how it ties to a workflow (Rust uses `#[trigger(on=wf, cron=…)]`).
+  Deferred pending that decision; not guessed.

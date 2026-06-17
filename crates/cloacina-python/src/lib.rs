@@ -143,6 +143,10 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
         computation_graph::batch_accumulator_decorator,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(
+        computation_graph::state_accumulator_decorator,
+        m
+    )?)?;
 
     #[cfg(feature = "postgres")]
     {
