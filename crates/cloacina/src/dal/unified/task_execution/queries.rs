@@ -367,6 +367,103 @@ impl<'a> TaskExecutionDAL<'a> {
         )
     }
 
+    /// Load every task's status for a set of workflow executions in ONE query,
+    /// grouped by execution: `execution_id -> { task_name -> status }`
+    /// (CLOACI-T-0745). The scheduler tick uses this to resolve task-dependency
+    /// gating, status-based trigger conditions, AND workflow completion entirely
+    /// in memory — replacing the previous O(active_executions × pending_tasks)
+    /// per-task `get_by_id` + `get_task_statuses_batch` + per-execution
+    /// `check_workflow_completion` round-trips that stalled the loop under load.
+    pub async fn get_all_task_statuses_for_executions(
+        &self,
+        workflow_execution_ids: Vec<UniversalUuid>,
+    ) -> Result<std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>, ValidationError>
+    {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_all_task_statuses_for_executions_postgres(workflow_execution_ids)
+                .await,
+            self.get_all_task_statuses_for_executions_sqlite(workflow_execution_ids)
+                .await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn get_all_task_statuses_for_executions_postgres(
+        &self,
+        workflow_execution_ids: Vec<UniversalUuid>,
+    ) -> Result<std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>, ValidationError>
+    {
+        use std::collections::HashMap;
+        if workflow_execution_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let rows: Vec<(UniversalUuid, String, String)> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::workflow_execution_id.eq_any(&workflow_execution_ids))
+                    .select((
+                        task_executions::workflow_execution_id,
+                        task_executions::task_name,
+                        task_executions::status,
+                    ))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        let mut grouped: HashMap<UniversalUuid, HashMap<String, String>> = HashMap::new();
+        for (exec_id, name, status) in rows {
+            grouped.entry(exec_id).or_default().insert(name, status);
+        }
+        Ok(grouped)
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn get_all_task_statuses_for_executions_sqlite(
+        &self,
+        workflow_execution_ids: Vec<UniversalUuid>,
+    ) -> Result<std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>, ValidationError>
+    {
+        use std::collections::HashMap;
+        if workflow_execution_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let rows: Vec<(UniversalUuid, String, String)> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::workflow_execution_id.eq_any(&workflow_execution_ids))
+                    .select((
+                        task_executions::workflow_execution_id,
+                        task_executions::task_name,
+                        task_executions::status,
+                    ))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        let mut grouped: HashMap<UniversalUuid, HashMap<String, String>> = HashMap::new();
+        for (exec_id, name, status) in rows {
+            grouped.entry(exec_id).or_default().insert(name, status);
+        }
+        Ok(grouped)
+    }
+
     #[cfg(feature = "postgres")]
     async fn get_task_statuses_batch_postgres(
         &self,

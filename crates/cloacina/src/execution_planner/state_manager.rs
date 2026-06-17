@@ -22,12 +22,13 @@
 
 use tracing::{debug, info, warn};
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::dal::DAL;
-use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
+use crate::models::workflow_execution::WorkflowExecutionRecord;
 use crate::Runtime;
 
 use super::context_manager::ContextManager;
@@ -52,15 +53,21 @@ impl<'a> StateManager<'a> {
     /// dispatch_ready_tasks() method.
     pub async fn update_workflow_task_readiness(
         &self,
-        workflow_execution_id: UniversalUuid,
+        workflow_execution: &WorkflowExecutionRecord,
         pending_tasks: &[TaskExecution],
+        statuses: &HashMap<String, String>,
     ) -> Result<(), ValidationError> {
+        let workflow_execution_id = workflow_execution.id;
         for task_execution in pending_tasks {
-            let dependencies_satisfied = self.check_task_dependencies(task_execution).await?;
+            // CLOACI-T-0745: dependency gating resolves from the pre-loaded
+            // per-execution status map — no per-task DB round-trips.
+            let dependencies_satisfied =
+                self.check_task_dependencies(task_execution, workflow_execution, statuses)?;
 
             if dependencies_satisfied {
                 // All dependencies are in terminal states, now evaluate trigger rules
-                let trigger_rules_satisfied = self.evaluate_trigger_rules(task_execution).await?;
+                let trigger_rules_satisfied =
+                    self.evaluate_trigger_rules(task_execution, statuses).await?;
 
                 if trigger_rules_satisfied {
                     // Mark ready in database - dispatch is handled separately by scheduler_loop
@@ -88,16 +95,17 @@ impl<'a> StateManager<'a> {
     /// Checks if all dependencies for a task are satisfied.
     /// Dependencies are satisfied when all dependency tasks are in terminal states
     /// (Completed, Failed, or Skipped).
-    pub async fn check_task_dependencies(
+    ///
+    /// CLOACI-T-0745: synchronous + map-driven. The caller supplies the
+    /// already-loaded `WorkflowExecutionRecord` (no per-task `get_by_id`) and a
+    /// `task_name -> status` map for the whole execution (no per-task status
+    /// query), so this does zero DB round-trips.
+    pub fn check_task_dependencies(
         &self,
         task_execution: &TaskExecution,
+        workflow_execution: &WorkflowExecutionRecord,
+        statuses: &HashMap<String, String>,
     ) -> Result<bool, ValidationError> {
-        // Get workflow to check dependencies
-        let workflow_execution = self
-            .dal
-            .workflow_execution()
-            .get_by_id(task_execution.workflow_execution_id)
-            .await?;
         let workflow = match self.runtime.get_workflow(&workflow_execution.workflow_name) {
             Some(wf) => wf,
             None => {
@@ -119,17 +127,9 @@ impl<'a> StateManager<'a> {
             return Ok(true);
         }
 
-        // Batch fetch all dependency statuses in a single query
-        let dependency_names = dependencies.iter().map(|ns| ns.to_string()).collect();
-        let status_map = self
-            .dal
-            .task_execution()
-            .get_task_statuses_batch(task_execution.workflow_execution_id, dependency_names)
-            .await?;
-
-        // Check that all dependencies exist and are in terminal states
+        // Resolve dependency statuses from the pre-loaded per-execution map.
         let all_satisfied = dependencies.iter().all(|dependency| {
-            status_map
+            statuses
                 .get(&dependency.to_string())
                 .map(|status| matches!(status.as_str(), "Completed" | "Failed" | "Skipped"))
                 .unwrap_or_else(|| {
@@ -148,6 +148,7 @@ impl<'a> StateManager<'a> {
     pub async fn evaluate_trigger_rules(
         &self,
         task_execution: &TaskExecution,
+        statuses: &HashMap<String, String>,
     ) -> Result<bool, ValidationError> {
         let trigger_rule: TriggerRule = serde_json::from_str(&task_execution.trigger_rules)
             .map_err(|e| ValidationError::InvalidTriggerRule(e.to_string()))?;
@@ -168,7 +169,7 @@ impl<'a> StateManager<'a> {
                 );
                 for (i, condition) in conditions.iter().enumerate() {
                     let condition_result =
-                        self.evaluate_condition(condition, task_execution).await?;
+                        self.evaluate_condition(condition, task_execution, statuses).await?;
                     debug!(
                         "  └─ Condition {}: {:?} -> {}",
                         i + 1,
@@ -194,7 +195,7 @@ impl<'a> StateManager<'a> {
                 );
                 for (i, condition) in conditions.iter().enumerate() {
                     let condition_result =
-                        self.evaluate_condition(condition, task_execution).await?;
+                        self.evaluate_condition(condition, task_execution, statuses).await?;
                     debug!(
                         "  └─ Condition {}: {:?} -> {}",
                         i + 1,
@@ -220,7 +221,7 @@ impl<'a> StateManager<'a> {
                 );
                 for (i, condition) in conditions.iter().enumerate() {
                     let condition_result =
-                        self.evaluate_condition(condition, task_execution).await?;
+                        self.evaluate_condition(condition, task_execution, statuses).await?;
                     debug!(
                         "  └─ Condition {}: {:?} -> {}",
                         i + 1,
@@ -246,6 +247,7 @@ impl<'a> StateManager<'a> {
         &self,
         condition: &TriggerCondition,
         task_execution: &TaskExecution,
+        statuses: &HashMap<String, String>,
     ) -> Result<bool, ValidationError> {
         match condition {
             TriggerCondition::TaskSuccess { task_name } => {
@@ -253,11 +255,17 @@ impl<'a> StateManager<'a> {
                     "[DEBUG] Scheduler evaluating TaskSuccess trigger rule: looking up task_name '{}' in workflow execution {}",
                     task_name, task_execution.workflow_execution_id
                 );
-                let status = self
-                    .dal
-                    .task_execution()
-                    .get_task_status(task_execution.workflow_execution_id, task_name)
-                    .await?;
+                // CLOACI-T-0745: read from the pre-loaded per-execution status
+                // map; fall back to a query only if a referenced task is absent.
+                let status = match statuses.get(task_name) {
+                    Some(s) => s.clone(),
+                    None => {
+                        self.dal
+                            .task_execution()
+                            .get_task_status(task_execution.workflow_execution_id, task_name)
+                            .await?
+                    }
+                };
                 let result = status == "Completed";
                 debug!(
                     "    TaskSuccess('{}') -> {} (status: {})",
@@ -270,11 +278,17 @@ impl<'a> StateManager<'a> {
                     "[DEBUG] Scheduler evaluating TaskFailed trigger rule: looking up task_name '{}' in workflow execution {}",
                     task_name, task_execution.workflow_execution_id
                 );
-                let status = self
-                    .dal
-                    .task_execution()
-                    .get_task_status(task_execution.workflow_execution_id, task_name)
-                    .await?;
+                // CLOACI-T-0745: read from the pre-loaded per-execution status
+                // map; fall back to a query only if a referenced task is absent.
+                let status = match statuses.get(task_name) {
+                    Some(s) => s.clone(),
+                    None => {
+                        self.dal
+                            .task_execution()
+                            .get_task_status(task_execution.workflow_execution_id, task_name)
+                            .await?
+                    }
+                };
                 let result = status == "Failed";
                 debug!(
                     "    TaskFailed('{}') -> {} (status: {})",
@@ -287,11 +301,17 @@ impl<'a> StateManager<'a> {
                     "[DEBUG] Scheduler evaluating TaskSkipped trigger rule: looking up task_name '{}' in workflow execution {}",
                     task_name, task_execution.workflow_execution_id
                 );
-                let status = self
-                    .dal
-                    .task_execution()
-                    .get_task_status(task_execution.workflow_execution_id, task_name)
-                    .await?;
+                // CLOACI-T-0745: read from the pre-loaded per-execution status
+                // map; fall back to a query only if a referenced task is absent.
+                let status = match statuses.get(task_name) {
+                    Some(s) => s.clone(),
+                    None => {
+                        self.dal
+                            .task_execution()
+                            .get_task_status(task_execution.workflow_execution_id, task_name)
+                            .await?
+                    }
+                };
                 let result = status == "Skipped";
                 debug!(
                     "    TaskSkipped('{}') -> {} (status: {})",

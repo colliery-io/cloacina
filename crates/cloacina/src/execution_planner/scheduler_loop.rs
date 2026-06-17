@@ -214,7 +214,7 @@ impl<'a> SchedulerLoop<'a> {
         let all_pending_tasks = self
             .dal
             .task_execution()
-            .get_pending_tasks_batch(execution_ids)
+            .get_pending_tasks_batch(execution_ids.clone())
             .await?;
 
         // Group tasks by workflow execution ID for processing
@@ -226,31 +226,54 @@ impl<'a> SchedulerLoop<'a> {
                 .push(task);
         }
 
+        // CLOACI-T-0745: one query for the full task-status map per execution.
+        // Dependency gating + status-based trigger conditions resolve from this
+        // in memory, replacing the previous per-task `get_by_id` + per-task
+        // status queries that made each tick O(executions × pending_tasks).
+        let status_by_execution = self
+            .dal
+            .task_execution()
+            .get_all_task_statuses_for_executions(execution_ids)
+            .await?;
+        let empty_statuses: HashMap<String, String> = HashMap::new();
+
         let state_manager = StateManager::new(self.dal, self.runtime.clone());
 
         // Process each workflow execution's tasks
         for execution in &active_executions {
-            if let Some(execution_tasks) = tasks_by_execution.get(&execution.id) {
-                if let Err(e) = state_manager
-                    .update_workflow_task_readiness(execution.id, execution_tasks)
-                    .await
-                {
-                    error!(
-                        "Failed to update task readiness for workflow execution {}: {}",
-                        execution.id, e
-                    );
-                    continue;
-                }
-            }
+            let statuses = status_by_execution
+                .get(&execution.id)
+                .unwrap_or(&empty_statuses);
 
-            // Check if workflow execution is complete
-            if self
-                .dal
-                .task_execution()
-                .check_workflow_completion(execution.id)
-                .await?
-            {
-                self.complete_execution(execution).await?;
+            match tasks_by_execution.get(&execution.id) {
+                // Has pending tasks → by definition NOT complete: update task
+                // readiness only, and skip the completion query entirely
+                // (CLOACI-T-0745 — this was an unconditional per-execution query).
+                Some(execution_tasks) => {
+                    if let Err(e) = state_manager
+                        .update_workflow_task_readiness(execution, execution_tasks, statuses)
+                        .await
+                    {
+                        error!(
+                            "Failed to update task readiness for workflow execution {}: {}",
+                            execution.id, e
+                        );
+                        continue;
+                    }
+                }
+                // No pending tasks → candidate for completion. Only here do we
+                // run check_workflow_completion (its semantics are unchanged), so
+                // completion queries are bounded by idle executions, not total.
+                None => {
+                    if self
+                        .dal
+                        .task_execution()
+                        .check_workflow_completion(execution.id)
+                        .await?
+                    {
+                        self.complete_execution(execution).await?;
+                    }
+                }
             }
         }
 
