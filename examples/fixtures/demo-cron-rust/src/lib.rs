@@ -43,10 +43,22 @@ pub mod demo_cron_wf {
 
     #[task(id = "demo_cron_step", dependencies = [])]
     pub async fn demo_cron_step(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-        // Sleep so each cron run lingers visibly in the Running state — the
-        // task was instantaneous, so the UI never showed a running (blue) run
-        // (CLOACI-I-0124 / WS-10 demo liveness).
-        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+        // Sleep a *jittered* duration so each cron run lingers visibly in the
+        // Running state (CLOACI-I-0124 / WS-10 demo liveness) AND so the steady
+        // stream of scheduled runs builds a real duration distribution for the
+        // UI's runtime view — a flat 6s every time showed nothing interesting.
+        // ~2–10s, seeded from the wall clock (xorshift64, no `rand` dep).
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(1)
+            | 1;
+        let mut x = seed;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let ms = 2_000 + x % 8_001; // [2000, 10000]
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
         context.insert("demo_cron_ran", serde_json::json!(true))?;
         Ok(())
     }

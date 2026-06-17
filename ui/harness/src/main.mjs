@@ -48,7 +48,6 @@ const cfg = {
   packageDir: env.HARNESS_PACKAGE_DIR ?? "./packages",
   mode: (env.HARNESS_MODE ?? "seed").toLowerCase(),
   intervalMs: intEnv("HARNESS_INTERVAL_MS", 8000),
-  stepSeconds: intEnv("HARNESS_STEP_SECONDS", 4),
   slowWorkflow: env.HARNESS_SLOW_WORKFLOW ?? "demo_slow_workflow",
   failWorkflow: env.HARNESS_FAIL_WORKFLOW ?? "demo_fail_workflow",
   healthTimeoutMs: intEnv("HARNESS_HEALTH_TIMEOUT_MS", 60000),
@@ -126,7 +125,10 @@ async function uploadPackages(client) {
   try {
     entries = (await readdir(cfg.packageDir)).filter((f) => f.endsWith(".cloacina"));
   } catch (err) {
-    throw new Error(`cannot read package dir '${cfg.packageDir}': ${err}`);
+    // No package dir is fine for a driver-only role (loop mode against an
+    // already-seeded server): there's nothing to upload, just fire workflows.
+    log(`no package dir '${cfg.packageDir}' (${err.code ?? err}) — skipping upload`);
+    return;
   }
   if (entries.length === 0) {
     log(`WARNING: no .cloacina packages found in ${cfg.packageDir} — nothing to upload`);
@@ -191,9 +193,11 @@ async function waitForTerminal(client, execId) {
 async function seed(client) {
   log("seed mode: building a deterministic completed / failed / in-flight state");
 
-  // 1) COMPLETED — slow workflow with no per-step pause finishes promptly.
-  //    executeReady absorbs the post-upload build/registration race.
-  const doneId = await executeReady(client, cfg.slowWorkflow, { step_seconds: 0 });
+  // 1) COMPLETED — slow workflow at its natural (jittered) pace. We omit
+  //    step_seconds so the fixture's per-task variability shows through
+  //    instead of a flat pinned duration. executeReady absorbs the
+  //    post-upload build/registration race.
+  const doneId = await executeReady(client, cfg.slowWorkflow, {});
   log(`completed-run: ${doneId} (waiting for terminal…)`);
   const doneStatus = await waitForTerminal(client, doneId);
   log(`completed-run: ${doneId} → ${doneStatus}`);
@@ -204,9 +208,9 @@ async function seed(client) {
   const failStatus = await waitForTerminal(client, failId);
   log(`failed-run: ${failId} → ${failStatus}`);
 
-  // 3) IN-FLIGHT — slow workflow with per-step pause is still running on exit.
-  const liveId = await executeReady(client, cfg.slowWorkflow, { step_seconds: cfg.stepSeconds });
-  log(`in-flight-run: ${liveId} (left running, ~${cfg.stepSeconds * 5}s total)`);
+  // 3) IN-FLIGHT — another natural-pace slow run, left running on exit.
+  const liveId = await executeReady(client, cfg.slowWorkflow, {});
+  log(`in-flight-run: ${liveId} (left running at natural pace)`);
 
   log("seed complete:");
   log(`  completed = ${doneId} (${doneStatus})`);
@@ -245,11 +249,13 @@ async function loop(client) {
         const id = await executeReady(client, cfg.failWorkflow);
         log(`tick ${n}: failing run ${id}`);
       } else {
-        // Alternate quick and watchable-slow runs so the dashboard shows a
-        // mix of in-flight + completing executions.
-        const secs = n % 2 === 0 ? cfg.stepSeconds : 1;
-        const id = await executeReady(client, cfg.slowWorkflow, { step_seconds: secs });
-        log(`tick ${n}: slow run ${id} (step_seconds=${secs})`);
+        // Fire the slow workflow at its natural (jittered) pace — no pinned
+        // step_seconds — so the dashboard accumulates a realistic spread of
+        // task spans and inter-task waits across runs (the distribution views).
+        // Ticks faster than a run completes, so runs overlap and contend,
+        // which is itself part of the demo's variability.
+        const id = await executeReady(client, cfg.slowWorkflow, {});
+        log(`tick ${n}: slow run ${id}`);
       }
     } catch (err) {
       log(`tick ${n}: execute failed — ${err instanceof Error ? err.message : err}`);

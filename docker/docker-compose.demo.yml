@@ -163,7 +163,6 @@ services:
       # completed/failed/in-flight run, then exit. The cron trigger keeps the
       # Triggers view live on its own schedule — no continuous harness loop.
       HARNESS_MODE: "seed"
-      HARNESS_STEP_SECONDS: "4"
       HARNESS_PACKAGE_DIR: "/packages"
     depends_on:
       server:
@@ -203,6 +202,29 @@ services:
         condition: service_started
       kafka:
         condition: service_healthy
+      harness:
+        condition: service_completed_successfully
+    restart: on-failure
+
+  # Continuous workflow driver (CLOACI-I-0124). The seed leaves a deterministic
+  # completed/failed/in-flight state; this keeps firing demo_slow_workflow at
+  # its natural (jittered) pace so the runtime / Gantt / combined-timeline
+  # distribution views keep accumulating believable, varied multi-task runs.
+  # Ticks faster than a run completes, so runs overlap and contend — part of
+  # the variability the demo is meant to show.
+  driver:
+    build:
+      context: ..
+      dockerfile: ui/harness/Dockerfile
+    environment:
+      HARNESS_SERVER_URL: "http://server:8080"
+      HARNESS_API_KEY: *bootstrap_key
+      HARNESS_TENANT: "public"
+      HARNESS_MODE: "loop"
+      HARNESS_INTERVAL_MS: "15000"
+    depends_on:
+      server:
+        condition: service_started
       harness:
         condition: service_completed_successfully
     restart: on-failure
