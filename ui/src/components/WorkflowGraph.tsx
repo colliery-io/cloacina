@@ -26,9 +26,19 @@ export interface TaskGraphNode {
 /**
  * Interactive workflow DAG (CLOACI-T-0663). Renders the task dependency graph;
  * edges point from each dependency to the dependent task.
+ *
+ * With `statusByTask` (local task id → execution status) the nodes are coloured
+ * by per-task state — the live execution DAG (CLOACI-T-0719). Without it, the
+ * graph shows structure only (the workflow-detail view).
  */
-export function WorkflowGraph({ tasks }: { tasks: TaskGraphNode[] }) {
-  const nodes: DagNode[] = tasks.map((t) => ({ id: t.id }));
+export function WorkflowGraph({
+  tasks,
+  statusByTask,
+}: {
+  tasks: TaskGraphNode[];
+  statusByTask?: Record<string, string>;
+}) {
+  const nodes: DagNode[] = tasks.map((t) => ({ id: t.id, status: statusByTask?.[t.id] }));
   const edges: DagEdge[] = tasks.flatMap((t) =>
     t.dependencies.map((dep) => ({ from: dep, to: t.id })),
   );

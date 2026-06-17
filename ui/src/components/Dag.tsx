@@ -27,6 +27,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
+import { executionStatusColor } from "../util/status";
+
 /** Node role — drives styling so triggers/reactors/accumulators read as
  *  distinct from the compute nodes (CLOACI-I-0124 / WS-4). */
 export type DagNodeKind = "compute" | "accumulator" | "reactor" | "trigger";
@@ -38,6 +40,27 @@ export interface DagNode {
   label?: string;
   /** Role of the node; defaults to `compute`. */
   kind?: DagNodeKind;
+  /** Per-task execution status (CLOACI-T-0719). When set, colours the node by
+   *  state (running/completed/failed/skipped/…) and overrides `kind` styling —
+   *  the execution DAG is coloured live as tasks transition. */
+  status?: string;
+}
+
+/** Execution-state fill/border for a node, mirroring `StatusBadge` colours.
+ *  `skipped` is rendered distinctly (dashed, dimmed) so a branch-not-taken
+ *  reads as neither failed nor completed. */
+function statusStyle(status: string): { background: string; border: string } {
+  if (status.toLowerCase() === "skipped") {
+    return {
+      background: "var(--mantine-color-gray-1)",
+      border: "1px dashed var(--mantine-color-gray-5)",
+    };
+  }
+  const c = executionStatusColor(status);
+  return {
+    background: `var(--mantine-color-${c}-light)`,
+    border: `1px solid var(--mantine-color-${c}-5)`,
+  };
 }
 
 /** Per-kind fill/border (Mantine light-variant CSS vars). */
@@ -121,7 +144,7 @@ export function Dag({
           borderRadius: 8,
           border: "1px solid var(--mantine-color-default-border)",
           padding: "8px 10px",
-          ...KIND_STYLE[n.kind ?? "compute"],
+          ...(n.status ? statusStyle(n.status) : KIND_STYLE[n.kind ?? "compute"]),
         },
       };
     });

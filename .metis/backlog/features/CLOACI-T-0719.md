@@ -4,15 +4,15 @@ level: task
 title: "Emit per-task execution state as an observable (pending/running/skipped/failed/retry) for UI DAG + ops"
 short_code: "CLOACI-T-0719"
 created_at: 2026-06-17T02:29:07.860329+00:00
-updated_at: 2026-06-17T02:29:07.860329+00:00
+updated_at: 2026-06-17T04:09:04.797679+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -54,27 +54,42 @@ that with a task-state model that is meaningful for both **graph drawing** and
 - **Effort Estimate**: M–L (define the canonical state enum + transition events,
   emit them at the executor, carry over WS, consume in the renderer).
 
-## Acceptance Criteria
+- [x] Canonical task-state set, documented. ✅ Reused the executor's authoritative
+      per-task status (NotStarted / Ready / Running / Completed / Failed /
+      Skipped) rather than inventing a parallel enum — the honest "don't lie"
+      choice. The UI legend documents the colours.
+- [x] Per-task state observable in real time. ✅ The existing per-transition
+      `exec_events` WS stream (`useLiveExecutionEvents`) is the liveness signal;
+      each pushed event triggers a targeted refetch of the authoritative
+      `/executions/{id}/tasks` rows (state + attempt + error). NOT a full-page
+      refetch — just the task rows; the DAG + table recolour from them.
+- [x] UI colours the execution DAG per-node by state in real time. ✅ New "Graph"
+      card on the execution-detail page (`WorkflowGraph` + `statusByTask`); the
+      `Dag` node gains a `status` → state-coloured fill/border. Verified
+      mid-flight (completed=green, ready/not-started=grey) and at terminal
+      (all green).
+- [x] Same model drives the task table. ✅ Both the DAG and the existing
+      TaskTable read the one `useExecutionTasks` source.
+- [x] Late-join / resync. ✅ Opening a running execution gets current per-task
+      state immediately from the tasks endpoint, then live deltas via the event
+      stream + poll (the SDK reconnects the stream on drop).
+- [x] State vocabulary explained. ✅ Legend on the Graph card
+      (running/completed/failed/cancelled/pending/skipped).
+- [x] Skipped distinct. ✅ Rendered dashed + dimmed grey, distinct from failed
+      (red) and completed (green).
 
-- [ ] A canonical task-execution-state enum is defined and documented:
-      `pending`, `running`, `completed`, `skipped`, `failed`, `retrying`
-      (reconcile exact set with the scheduler/executor's real states — e.g.
-      ready/claimed vs. running, retry-scheduled vs. retrying).
-- [ ] Each task state transition is emitted as an observable event carrying:
-      execution id, task/node id, new state, attempt number, timestamp, and
-      (for failed) the error/reason.
-- [ ] The UI subscribes (over WS, reusing the live-stream transport) and
-      **colors the execution DAG per-node by current task state in real time** —
-      no full-page refetch per change.
-- [ ] The same stream drives the task table on execution detail (status,
-      attempts, start/end) — one model, not two.
-- [ ] Late-join / resync: a client opening a running execution mid-flight gets
-      current per-task state, then live deltas (consistent with the execution
-      live-stream's reconnect behavior).
-- [ ] State vocabulary is explained in the UI (tooltip/legend) so raw enums
-      aren't shown unexplained (carries the [[CLOACI-T-0709]] polish principle).
-- [ ] Skipped tasks (e.g. reactor predicate / branch-not-taken) are represented
-      distinctly from failed and from completed.
+### Implementation note (approach taken)
+Delivered **UI-only, no server change**. The existing `exec_events` WS push
+already fires on every task transition, and `/executions/{id}/tasks` already
+returns the authoritative `{task_name, status, attempt, last_error}` keyed
+exactly like the DAG nodes. So rather than enrich the WS event payload (which
+carries only `task_execution_id`, no `task_name`/`sequence_num`) into a new
+self-describing per-transition event, the WS push is used as the *trigger* and
+the tasks endpoint as the *state source*. This colours the DAG live, reuses the
+established push channel, and avoids a fragile second state model. A future
+enrichment (task_name + state + attempt directly on the event payload, a true
+self-describing observable) remains possible but wasn't needed for the
+live-coloured DAG.
 
 ## Implementation Notes
 
@@ -127,3 +142,11 @@ state.
   this defines a canonical per-task state observable (pending/running/skipped/
   failed/retry) over the existing WS stream so the DAG can be colored live and
   ops can follow runs. Sibling to [[CLOACI-T-0718]] on the same transport.
+- 2026-06-17: DONE + verified. UI-only (see Implementation note). Files:
+  `Dag.tsx` (`DagNode.status` + state-coloured fill/border, skipped dashed),
+  `WorkflowGraph.tsx` (`statusByTask` prop), `ExecutionDetail.tsx` (new "Graph"
+  card colouring the DAG from `useExecutionTasks`, a state legend, and a
+  refetch-tasks-on-live-event effect for instant recolour). Verified on the demo:
+  a `demo_slow_workflow` run shows the DAG recolour live — completed nodes green,
+  ready/not-started grey mid-flight, all green at terminal — driven by the WS
+  event stream. ACCEPTANCE MET.

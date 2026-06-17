@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-import { Anchor, Badge, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Badge, Box, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
 import { useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -28,6 +28,7 @@ import { EventLog } from "../components/EventLog";
 import { StatusBadge } from "../components/StatusBadge";
 import { TaskGantt } from "../components/TaskGantt";
 import { TaskTable } from "../components/TaskTable";
+import { WorkflowGraph } from "../components/WorkflowGraph";
 import { ErrorState, Loading } from "../components/states/States";
 import { useExecuteWorkflow, useWorkflow } from "../api/workflows";
 import { mergeEvents } from "../util/events";
@@ -87,6 +88,15 @@ export function ExecutionDetail() {
     .filter((n) => !Number.isNaN(n));
   const endedAt = terminal && ends.length ? new Date(Math.max(...ends)).toISOString() : null;
 
+  // Per-task state for colouring the execution DAG (CLOACI-T-0719). The DAG
+  // nodes are keyed by the local task id (last `::` segment); map each to its
+  // current status from the task rows. This is the authoritative per-task state
+  // — the live event stream below just triggers a refresh so the colours update
+  // the instant a task transitions, rather than waiting on the 2s poll.
+  const localId = (name: string) => name.split("::").pop() || name;
+  const statusByTask: Record<string, string> = {};
+  for (const t of taskList) statusByTask[localId(t.task_name)] = t.status;
+
   const reExecute = useExecuteWorkflow();
   function onReRun() {
     if (!workflowName) return;
@@ -106,6 +116,14 @@ export function ExecutionDetail() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminal]);
+
+  // Each pushed live event means a task just transitioned — pull the authoritative
+  // per-task rows so the DAG + table recolour immediately (CLOACI-T-0719), instead
+  // of waiting up to one 2s poll. Cheap: only while the run is in progress.
+  useEffect(() => {
+    if (!terminal && liveEvents.length > 0) tasks.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveEvents.length]);
 
   const merged = mergeEvents(events.data?.events ?? [], liveEvents);
 
@@ -158,6 +176,28 @@ export function ExecutionDetail() {
             <Field label={terminal ? "Duration" : "Elapsed"}>
               <Text size="sm">{formatDuration(startedAt, endedAt)}</Text>
             </Field>
+          </Group>
+        </Card>
+      )}
+
+      {workflow.data?.task_graph && workflow.data.task_graph.length > 0 && (
+        <Card withBorder padding="lg">
+          <Group justify="space-between" mb="sm">
+            <Title order={4}>Graph</Title>
+            {!terminal && (
+              <Text size="xs" c="blue">
+                live
+              </Text>
+            )}
+          </Group>
+          <WorkflowGraph tasks={workflow.data.task_graph} statusByTask={statusByTask} />
+          <Group gap="md" mt="xs">
+            <StateKey color="blue" label="running" />
+            <StateKey color="green" label="completed" />
+            <StateKey color="red" label="failed" />
+            <StateKey color="orange" label="cancelled" />
+            <StateKey color="gray" label="pending" />
+            <StateKey color="gray" label="skipped" dashed />
           </Group>
         </Card>
       )}
@@ -216,6 +256,28 @@ export function ExecutionDetail() {
         )}
       </Card>
     </Stack>
+  );
+}
+
+/** A legend swatch for the execution-DAG state colours. */
+function StateKey({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
+  return (
+    <Group gap={4}>
+      <Box
+        style={{
+          width: 12,
+          height: 12,
+          borderRadius: 3,
+          background: `var(--mantine-color-${color}-light)`,
+          border: dashed
+            ? `1px dashed var(--mantine-color-${color}-5)`
+            : `1px solid var(--mantine-color-${color}-5)`,
+        }}
+      />
+      <Text size="xs" c="dimmed">
+        {label}
+      </Text>
+    </Group>
   );
 }
 
