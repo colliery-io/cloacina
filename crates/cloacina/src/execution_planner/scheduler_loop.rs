@@ -312,54 +312,56 @@ impl<'a> SchedulerLoop<'a> {
             return Ok(());
         }
 
-        // Dispatch concurrently (CLOACI-T-0745). `dispatch()` blocks until the
-        // task completes, so a serial loop ran tasks one-at-a-time; dispatching
-        // up to MAX_CONCURRENT_DISPATCH at once lets the fleet run them in
-        // parallel. The batch is awaited here, so every dispatched task is
-        // claimed (marked Running) before the next tick reads Ready tasks again —
-        // no double-dispatch. Overflow past executor capacity returns
-        // NoCapacity (expected) and the task stays Ready for a later tick.
-        // Bound the number dispatched per tick to MAX_CONCURRENT_DISPATCH: each
-        // dispatch blocks until its task completes, so draining the WHOLE ready
-        // set in one call would block the loop (and starve completion accounting
-        // + new-readiness marking) for as long as the slowest batch takes. Taking
-        // a bounded slice keeps the loop cycling: dispatch ≤N, return, re-tick to
-        // finalize completions and mark more ready. Remaining Ready tasks are
-        // picked up on subsequent ticks.
-        use futures::stream::StreamExt;
-        futures::stream::iter(ready_tasks.into_iter().take(MAX_CONCURRENT_DISPATCH))
-            .for_each_concurrent(MAX_CONCURRENT_DISPATCH, |task| {
-                let dispatcher = dispatcher.clone();
-                async move {
-                    let event = TaskReadyEvent::new(
-                        task.id,
-                        task.workflow_execution_id,
-                        task.task_name.clone(),
-                        task.attempt,
-                    );
-                    match dispatcher.dispatch(event).await {
-                        Ok(()) => {}
-                        Err(DispatchError::NoCapacity(_)) => {
-                            // Expected backpressure — the task remains Ready and
-                            // is retried on a later tick once a slot frees up.
-                            debug!(
-                                task_id = %task.id,
-                                task_name = %task.task_name,
-                                "Dispatch deferred: executor at capacity"
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                task_id = %task.id,
-                                task_name = %task.task_name,
-                                error = %e,
-                                "Failed to dispatch ready task"
-                            );
-                        }
+        // Fire-and-forget dispatch (CLOACI-T-0745). `dispatcher.dispatch()` blocks
+        // until the task COMPLETES (the fleet executor waits on the result channel
+        // up to RESULT_WAIT_TIMEOUT), so awaiting it — even concurrently — coupled
+        // the scheduler loop's cadence to task duration: a batch of long tasks
+        // stalled completion accounting and new-readiness marking. Instead, spawn
+        // each dispatch on its own task so the loop returns immediately and keeps
+        // cycling at full cadence regardless of how long tasks run.
+        //
+        // Correctness: `claim_for_runner`'s atomic CAS (`WHERE claimed_by IS NULL`)
+        // is the exactly-once guard, and `get_ready_for_retry` now excludes
+        // claimed tasks — so an in-flight dispatch isn't re-selected. In the small
+        // window before a spawned dispatch claims its task, a second tick could
+        // re-select and re-spawn it; the CAS lets only one claim win and the other
+        // dispatch no-ops, so there is no double execution.
+        //
+        // Spawns are bounded per tick (`take`) so a large fresh backlog doesn't
+        // spawn unboundedly in a single tick; the remainder is picked up on
+        // subsequent ticks. Tasks beyond executor capacity get NoCapacity, don't
+        // claim, and stay Ready for a later tick (backpressure).
+        for task in ready_tasks.into_iter().take(MAX_CONCURRENT_DISPATCH) {
+            let dispatcher = dispatcher.clone();
+            tokio::spawn(async move {
+                let event = TaskReadyEvent::new(
+                    task.id,
+                    task.workflow_execution_id,
+                    task.task_name.clone(),
+                    task.attempt,
+                );
+                match dispatcher.dispatch(event).await {
+                    Ok(()) => {}
+                    Err(DispatchError::NoCapacity(_)) => {
+                        // Expected backpressure — task stays Ready (unclaimed) and
+                        // is retried on a later tick once a slot frees up.
+                        debug!(
+                            task_id = %task.id,
+                            task_name = %task.task_name,
+                            "Dispatch deferred: executor at capacity"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            task_id = %task.id,
+                            task_name = %task.task_name,
+                            error = %e,
+                            "Failed to dispatch ready task"
+                        );
                     }
                 }
-            })
-            .await;
+            });
+        }
 
         Ok(())
     }
