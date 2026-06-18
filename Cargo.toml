@@ -4,7 +4,7 @@ exclude = ["examples/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 authors = ["Dylan Storey <dylan.storey@gmail.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/colliery-io/cloacina"
@@ -19,10 +19,10 @@ async-trait = { version = "0.1" }
 inventory = { version = "0.3" }
 once_cell = { version = "1.19.0" }
 serde_json = { version = "1.0" }
-cloacina-api-types = { version = "0.7.0", path = "crates/cloacina-api-types" }
-cloacina-client = { version = "0.7.0", path = "crates/cloacina-client" }
-cloacina-macros = { version = "0.7.0", path = "crates/cloacina-macros" }
-cloacina-workflow = { version = "0.7.0", path = "crates/cloacina-workflow" }
+cloacina-api-types = { version = "0.8.0", path = "crates/cloacina-api-types" }
+cloacina-client = { version = "0.8.0", path = "crates/cloacina-client" }
+cloacina-macros = { version = "0.8.0", path = "crates/cloacina-macros" }
+cloacina-workflow = { version = "0.8.0", path = "crates/cloacina-workflow" }
 clap = { version = "4.0", features = ["derive", "env"] }
 anyhow = { version = "1.0" }
 toml = { version = "0.8" }

@@ -1,6 +1,6 @@
 {
   "name": "@cloacina/client",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "TypeScript SDK for cloacina-server — typed REST client and WebSocket execution-event streams. Version-locked to the cloacina server release.",
   "license": "Apache-2.0",
   "repository": {
