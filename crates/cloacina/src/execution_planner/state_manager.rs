@@ -66,8 +66,9 @@ impl<'a> StateManager<'a> {
 
             if dependencies_satisfied {
                 // All dependencies are in terminal states, now evaluate trigger rules
-                let trigger_rules_satisfied =
-                    self.evaluate_trigger_rules(task_execution, statuses).await?;
+                let trigger_rules_satisfied = self
+                    .evaluate_trigger_rules(task_execution, statuses)
+                    .await?;
 
                 if trigger_rules_satisfied {
                     // Mark ready in database - dispatch is handled separately by scheduler_loop
@@ -168,8 +169,9 @@ impl<'a> StateManager<'a> {
                     task_execution.task_name
                 );
                 for (i, condition) in conditions.iter().enumerate() {
-                    let condition_result =
-                        self.evaluate_condition(condition, task_execution, statuses).await?;
+                    let condition_result = self
+                        .evaluate_condition(condition, task_execution, statuses)
+                        .await?;
                     debug!(
                         "  └─ Condition {}: {:?} -> {}",
                         i + 1,
@@ -194,8 +196,9 @@ impl<'a> StateManager<'a> {
                     task_execution.task_name
                 );
                 for (i, condition) in conditions.iter().enumerate() {
-                    let condition_result =
-                        self.evaluate_condition(condition, task_execution, statuses).await?;
+                    let condition_result = self
+                        .evaluate_condition(condition, task_execution, statuses)
+                        .await?;
                     debug!(
                         "  └─ Condition {}: {:?} -> {}",
                         i + 1,
@@ -220,8 +223,9 @@ impl<'a> StateManager<'a> {
                     task_execution.task_name
                 );
                 for (i, condition) in conditions.iter().enumerate() {
-                    let condition_result =
-                        self.evaluate_condition(condition, task_execution, statuses).await?;
+                    let condition_result = self
+                        .evaluate_condition(condition, task_execution, statuses)
+                        .await?;
                     debug!(
                         "  └─ Condition {}: {:?} -> {}",
                         i + 1,

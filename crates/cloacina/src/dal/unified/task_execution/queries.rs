@@ -377,8 +377,10 @@ impl<'a> TaskExecutionDAL<'a> {
     pub async fn get_all_task_statuses_for_executions(
         &self,
         workflow_execution_ids: Vec<UniversalUuid>,
-    ) -> Result<std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>, ValidationError>
-    {
+    ) -> Result<
+        std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>,
+        ValidationError,
+    > {
         crate::dispatch_backend!(
             self.dal.backend(),
             self.get_all_task_statuses_for_executions_postgres(workflow_execution_ids)
@@ -392,8 +394,10 @@ impl<'a> TaskExecutionDAL<'a> {
     async fn get_all_task_statuses_for_executions_postgres(
         &self,
         workflow_execution_ids: Vec<UniversalUuid>,
-    ) -> Result<std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>, ValidationError>
-    {
+    ) -> Result<
+        std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>,
+        ValidationError,
+    > {
         use std::collections::HashMap;
         if workflow_execution_ids.is_empty() {
             return Ok(HashMap::new());
@@ -430,8 +434,10 @@ impl<'a> TaskExecutionDAL<'a> {
     async fn get_all_task_statuses_for_executions_sqlite(
         &self,
         workflow_execution_ids: Vec<UniversalUuid>,
-    ) -> Result<std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>, ValidationError>
-    {
+    ) -> Result<
+        std::collections::HashMap<UniversalUuid, std::collections::HashMap<String, String>>,
+        ValidationError,
+    > {
         use std::collections::HashMap;
         if workflow_execution_ids.is_empty() {
             return Ok(HashMap::new());

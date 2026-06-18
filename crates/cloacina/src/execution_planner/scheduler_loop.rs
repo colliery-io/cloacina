@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
-use crate::dispatcher::{Dispatcher, DispatchError, TaskReadyEvent};
+use crate::dispatcher::{DispatchError, Dispatcher, TaskReadyEvent};
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
 use crate::models::workflow_execution::WorkflowExecutionRecord;

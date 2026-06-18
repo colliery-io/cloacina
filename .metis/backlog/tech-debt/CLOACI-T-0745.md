@@ -217,4 +217,58 @@ re-fetch), not pool/lock contention. Restarting a backed-up server makes it wors
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-06-17: **Implemented on #133 (`timer-driven-cron`) per user — two layered
+  fixes, both load-validated.**
+  - **Batched reads (commit 8647e74e):** new DAL
+    `get_all_task_statuses_for_executions(ids)` (one query → `task_name→status`
+    map per execution, pg+sqlite). `check_task_dependencies` is now sync + map-
+    driven (no per-task `get_by_id`, no per-task status query);
+    `evaluate_condition` resolves TaskSuccess/Failed/Skipped from the map (query
+    fallback only if a referenced task is absent). `process_executions_batch`
+    loads the map once/tick, runs readiness only for executions with pending
+    tasks, and runs `check_workflow_completion` ONLY for idle executions
+    (a pending-having execution can't be complete). Per-tick reads: O(N×T) → ~3
+    fixed queries.
+  - **Concurrent dispatch (commit bda2b42d):** the live re-test showed the
+    batched-reads fix alone DIDN'T saturate the fleet — the real ceiling was
+    `dispatch_ready_tasks` awaiting `dispatcher.dispatch()` SERIALLY, and
+    `dispatch()` blocks until the task completes (fleet `execute` waits on the
+    result channel, `fleet_executor.rs:468`). So tasks ran one-at-a-time; 48
+    slots never used concurrently. Now dispatches up to `MAX_CONCURRENT_DISPATCH`
+    (64) ready tasks concurrently via `for_each_concurrent`, **bounded per tick**
+    (`take(64)`) so the loop keeps cycling. Claim-before-next-tick prevents
+    double-dispatch; overflow → `NoCapacity` backpressure (task stays Ready).
+    (First cut omitted the per-tick bound and blocked the loop for minutes
+    draining a huge ready set — caught via the frozen gauge + 67–80s task
+    durations = agent queue inflation; fixed with `take`.)
+  - **Validation:** 33 scheduler integration tests pass on sqlite throughout
+    (dep gating, trigger rules, basic/cron scheduling, stale claims). Live load
+    test: throughput ~0.3–0.5 tasks/s → **~56/s under flood** (837 agent results
+    /15s); under sustained moderate load (driver @1s) `active_workflows` holds
+    steady at ~20 with normal 3–8s task durations — keeps up, no pileup/freeze
+    (old behavior accumulated unboundedly).
+- 2026-06-17: **AC status:** per-tick O(N×T)→O(1) reads ✓; completion not run for
+  pending-having executions ✓; batched dependency/trigger resolution ✓; no
+  regression (33 tests) ✓; load-test fleet utilization ✓. **Acceptable known
+  limitation / follow-up:** the loop still *awaits* its bounded dispatch batch,
+  coupling tick cadence to task duration under load. The fully-decoupled design —
+  fire-and-forget dispatch with atomic claim so the loop never blocks on task
+  execution — is the better end state; deferred (needs claim-before-spawn +
+  connection-pool/deadlock analysis). Cron timing is unaffected (separate
+  `cron_trigger_scheduler`).
+- 2026-06-17: **Fire-and-forget dispatch landed (commit 5d8c0220) — the deferred
+  follow-up is now DONE, not deferred.** `dispatch_ready_tasks` now `tokio::spawn`s
+  each dispatch so the scheduler loop NEVER blocks on task execution. Safe because
+  `claim_for_runner` is an atomic CAS (`WHERE claimed_by IS NULL`) — the
+  exactly-once guard — and `get_ready_for_retry` now filters `claimed_by IS NULL`
+  so in-flight dispatches aren't re-selected (verified the claim is released on
+  every executor exit BEFORE `schedule_retry` re-marks a task Ready, so fresh +
+  retried tasks are still selected). Spawns bounded per tick (`take`).
+  **LIVE FLOOD RESULT (driver @500ms) — the decisive before/after:**
+  bounded-await froze `active_workflows` at 1191 with Task-ready=0 (loop blocked);
+  fire-and-forget holds `active_workflows` **bounded ~55–63** with **Task-ready
+  ~106/15s (loop cycling)**, **~157 workflows completed/15s**, **~275 task
+  results/15s**. Zero double-exec signals, zero already-claimed churn; the ERROR
+  stream under load is the expected `demo_fail` "boom" failures. 33 scheduler
+  integration tests pass. **All ACs now met, including the load-test saturation
+  one, with no remaining known limitation.**
