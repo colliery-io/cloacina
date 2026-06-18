@@ -849,6 +849,16 @@ impl<'a> TaskExecutionDAL<'a> {
                             .is_null()
                             .or(task_executions::retry_at.le(now)),
                     )
+                    // CLOACI-T-0745: exclude already-claimed (in-flight) tasks so
+                    // fire-and-forget dispatch doesn't re-select a task whose
+                    // dispatch is still running. `claim_for_runner` only sets
+                    // claimed_by (status stays Ready until the agent reports), and
+                    // the claim is released (claimed_by -> NULL) on every executor
+                    // exit BEFORE a retry re-marks the task Ready — so fresh and
+                    // retried Ready tasks (claimed_by NULL) are still selected,
+                    // while in-flight ones are skipped. claim_for_runner's atomic
+                    // CAS remains the exactly-once guard for the residual race.
+                    .filter(task_executions::claimed_by.is_null())
                     .load(conn)
             })
             .await
@@ -876,6 +886,16 @@ impl<'a> TaskExecutionDAL<'a> {
                             .is_null()
                             .or(task_executions::retry_at.le(now)),
                     )
+                    // CLOACI-T-0745: exclude already-claimed (in-flight) tasks so
+                    // fire-and-forget dispatch doesn't re-select a task whose
+                    // dispatch is still running. `claim_for_runner` only sets
+                    // claimed_by (status stays Ready until the agent reports), and
+                    // the claim is released (claimed_by -> NULL) on every executor
+                    // exit BEFORE a retry re-marks the task Ready — so fresh and
+                    // retried Ready tasks (claimed_by NULL) are still selected,
+                    // while in-flight ones are skipped. claim_for_runner's atomic
+                    // CAS remains the exactly-once guard for the residual race.
+                    .filter(task_executions::claimed_by.is_null())
                     .load(conn)
             })
             .await

@@ -344,3 +344,11 @@ wiring, the real unknown) → Part C decision. Each its own commit; verify via
   This satisfies the AC "Tests cover the new Python authoring surfaces against a
   live runner". **Remaining AC:** Part C decision (`defer_until`) + remove the
   "Rust-only" caveats from the primitive docs.
+- 2026-06-17: **Merged to main (#132, squash commit b4b3197b).** Core parity work
+  (Parts A + B), the 4 runtime tests, the demo fixtures, the synthetic-module fix,
+  AND the reactor-first CG view (CLOACI-T-0742) all landed. CI green after a
+  re-run of the known T-0741 sqlite flake (macos `database is locked` on
+  scenario_26, unrelated to this diff). **Two AC tails remain, both minor:**
+  (1) Part C `defer_until` decision — recommend documenting as an intentional
+  Python convenience; (2) remove the "Rust-only" caveats from the primitive docs
+  now that both gaps are closed. Neither blocks; track as a small doc follow-up.

@@ -29,7 +29,8 @@ use uuid::Uuid;
 
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
-use crate::dispatcher::{Dispatcher, TaskReadyEvent};
+use crate::database::BackendType;
+use crate::dispatcher::{DispatchError, Dispatcher, TaskReadyEvent};
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
 use crate::models::workflow_execution::WorkflowExecutionRecord;
@@ -39,6 +40,46 @@ use super::state_manager::StateManager;
 
 /// Maximum backoff interval during sustained errors (30 seconds).
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Max ready tasks dispatched concurrently per tick (CLOACI-T-0745).
+/// `dispatcher.dispatch()` blocks until the task COMPLETES (the fleet executor
+/// waits on the result channel), so dispatching serially ran tasks one-at-a-time
+/// and the executor's slots were never used concurrently. We dispatch up to this
+/// many at once so the fleet actually saturates; tasks beyond the executor's
+/// capacity get `NoCapacity` (expected backpressure) and stay Ready for a later
+/// tick. Set comfortably above typical fleet aggregate capacity.
+const MAX_CONCURRENT_DISPATCH: usize = 64;
+
+/// Dispatch a single Ready task and log the outcome (CLOACI-T-0745). Shared by
+/// the postgres (spawned, concurrent) and sqlite (serial) dispatch paths.
+/// NoCapacity is expected backpressure (the task stays Ready, retried later);
+/// other errors are surfaced as warnings.
+async fn dispatch_one(dispatcher: &Arc<dyn Dispatcher>, task: TaskExecution) {
+    let event = TaskReadyEvent::new(
+        task.id,
+        task.workflow_execution_id,
+        task.task_name.clone(),
+        task.attempt,
+    );
+    match dispatcher.dispatch(event).await {
+        Ok(()) => {}
+        Err(DispatchError::NoCapacity(_)) => {
+            debug!(
+                task_id = %task.id,
+                task_name = %task.task_name,
+                "Dispatch deferred: executor at capacity"
+            );
+        }
+        Err(e) => {
+            warn!(
+                task_id = %task.id,
+                task_name = %task.task_name,
+                error = %e,
+                "Failed to dispatch ready task"
+            );
+        }
+    }
+}
 
 /// Number of consecutive errors before logging a circuit-open warning.
 const CIRCUIT_OPEN_THRESHOLD: u32 = 5;
@@ -214,7 +255,7 @@ impl<'a> SchedulerLoop<'a> {
         let all_pending_tasks = self
             .dal
             .task_execution()
-            .get_pending_tasks_batch(execution_ids)
+            .get_pending_tasks_batch(execution_ids.clone())
             .await?;
 
         // Group tasks by workflow execution ID for processing
@@ -226,31 +267,54 @@ impl<'a> SchedulerLoop<'a> {
                 .push(task);
         }
 
+        // CLOACI-T-0745: one query for the full task-status map per execution.
+        // Dependency gating + status-based trigger conditions resolve from this
+        // in memory, replacing the previous per-task `get_by_id` + per-task
+        // status queries that made each tick O(executions × pending_tasks).
+        let status_by_execution = self
+            .dal
+            .task_execution()
+            .get_all_task_statuses_for_executions(execution_ids)
+            .await?;
+        let empty_statuses: HashMap<String, String> = HashMap::new();
+
         let state_manager = StateManager::new(self.dal, self.runtime.clone());
 
         // Process each workflow execution's tasks
         for execution in &active_executions {
-            if let Some(execution_tasks) = tasks_by_execution.get(&execution.id) {
-                if let Err(e) = state_manager
-                    .update_workflow_task_readiness(execution.id, execution_tasks)
-                    .await
-                {
-                    error!(
-                        "Failed to update task readiness for workflow execution {}: {}",
-                        execution.id, e
-                    );
-                    continue;
-                }
-            }
+            let statuses = status_by_execution
+                .get(&execution.id)
+                .unwrap_or(&empty_statuses);
 
-            // Check if workflow execution is complete
-            if self
-                .dal
-                .task_execution()
-                .check_workflow_completion(execution.id)
-                .await?
-            {
-                self.complete_execution(execution).await?;
+            match tasks_by_execution.get(&execution.id) {
+                // Has pending tasks → by definition NOT complete: update task
+                // readiness only, and skip the completion query entirely
+                // (CLOACI-T-0745 — this was an unconditional per-execution query).
+                Some(execution_tasks) => {
+                    if let Err(e) = state_manager
+                        .update_workflow_task_readiness(execution, execution_tasks, statuses)
+                        .await
+                    {
+                        error!(
+                            "Failed to update task readiness for workflow execution {}: {}",
+                            execution.id, e
+                        );
+                        continue;
+                    }
+                }
+                // No pending tasks → candidate for completion. Only here do we
+                // run check_workflow_completion (its semantics are unchanged), so
+                // completion queries are bounded by idle executions, not total.
+                None => {
+                    if self
+                        .dal
+                        .task_execution()
+                        .check_workflow_completion(execution.id)
+                        .await?
+                    {
+                        self.complete_execution(execution).await?;
+                    }
+                }
             }
         }
 
@@ -264,7 +328,7 @@ impl<'a> SchedulerLoop<'a> {
     /// if their retry_at time has passed (or is null).
     async fn dispatch_ready_tasks(&self) -> Result<(), ValidationError> {
         let dispatcher = match &self.dispatcher {
-            Some(d) => d,
+            Some(d) => d.clone(),
             None => return Ok(()),
         };
 
@@ -280,21 +344,41 @@ impl<'a> SchedulerLoop<'a> {
             return Ok(());
         }
 
-        for task in ready_tasks {
-            let event = TaskReadyEvent::new(
-                task.id,
-                task.workflow_execution_id,
-                task.task_name.clone(),
-                task.attempt,
-            );
+        // Backend-aware dispatch (CLOACI-T-0745).
+        //
+        // `dispatcher.dispatch()` blocks until the task COMPLETES (the fleet
+        // executor waits on the result channel up to RESULT_WAIT_TIMEOUT).
+        //
+        // - **Postgres** tolerates many concurrent writers, so dispatch
+        //   fire-and-forget: spawn each so the scheduler loop returns immediately
+        //   and keeps marking tasks Ready / finalizing completions at full cadence
+        //   regardless of how long tasks run — this is what lets the fleet
+        //   saturate under load.
+        // - **SQLite** is single-writer: concurrent dispatch writes (claim /
+        //   mark-running / result) contend with the loop's readiness writes and
+        //   surface as "database is locked". So dispatch SERIALLY (one writer at a
+        //   time) — the embedded-safe original behavior. Embedded runs are
+        //   single-process/low-concurrency, so the serial cost is a non-issue.
+        //
+        // Exactly-once holds for both: `claim_for_runner`'s atomic CAS
+        // (`WHERE claimed_by IS NULL`) is the guard, and `get_ready_for_retry` now
+        // excludes claimed (in-flight) tasks. In the small window before a spawned
+        // dispatch claims, a re-select could re-spawn it; the CAS lets one claim
+        // win, the other no-ops. Spawns/serial dispatch are bounded per tick
+        // (`take`); the remainder is picked up on later ticks (backpressure).
+        let concurrent = match self.dal.backend() {
+            #[cfg(feature = "postgres")]
+            BackendType::Postgres => true,
+            #[cfg(feature = "sqlite")]
+            BackendType::Sqlite => false,
+        };
 
-            if let Err(e) = dispatcher.dispatch(event).await {
-                warn!(
-                    task_id = %task.id,
-                    task_name = %task.task_name,
-                    error = %e,
-                    "Failed to dispatch ready task"
-                );
+        for task in ready_tasks.into_iter().take(MAX_CONCURRENT_DISPATCH) {
+            let dispatcher = dispatcher.clone();
+            if concurrent {
+                tokio::spawn(async move { dispatch_one(&dispatcher, task).await });
+            } else {
+                dispatch_one(&dispatcher, task).await;
             }
         }
 

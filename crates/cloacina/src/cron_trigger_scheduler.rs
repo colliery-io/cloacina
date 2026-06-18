@@ -57,13 +57,19 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::watch;
+use tokio::sync::{watch, Notify};
 use tracing::{debug, error, info, warn};
 
 /// Configuration for the unified scheduler.
 #[derive(Debug, Clone)]
 pub struct SchedulerConfig {
-    /// How often to check for due cron schedules.
+    /// Backstop for the timer-driven cron loop (CLOACI-T-0743). The scheduler
+    /// sleeps until the next due schedule's exact instant; this caps that sleep
+    /// so the loop still re-checks the DB at least this often even absent a
+    /// change notification — a safety net for missed notifies and the
+    /// multi-instance case (an in-process notify only wakes the local replica).
+    /// It is NOT a fixed poll: when the next fire is sooner than this, the loop
+    /// wakes exactly at the fire time, not on this interval.
     pub cron_poll_interval: Duration,
     /// Maximum number of missed executions to run in catchup mode.
     pub max_catchup_executions: usize,
@@ -139,8 +145,11 @@ pub struct Scheduler {
     runtime: Arc<Runtime>,
     /// Tracks when each trigger was last polled (by trigger name).
     last_poll_times: HashMap<String, Instant>,
-    /// Tracks when cron schedules were last checked.
-    last_cron_check: Option<Instant>,
+    /// Wakes the timer-driven cron loop when schedules change (registered,
+    /// enabled/disabled, deleted) so a new schedule fires on time instead of
+    /// waiting for the backstop (CLOACI-T-0743). Shared with the cron registrar
+    /// / runner cron API, which call `notify_one` after mutating schedules.
+    cron_change: Arc<Notify>,
     /// Tracks when reactor subscriptions were last polled
     /// (CLOACI-I-0100 / T-0599).
     last_reactor_poll: Option<Instant>,
@@ -160,6 +169,25 @@ pub struct Scheduler {
 type PredicateCache =
     Arc<parking_lot::Mutex<HashMap<UniversalUuid, (String, Arc<cel_interpreter::Program>)>>>;
 
+/// How long the timer-driven cron loop should sleep before its next check
+/// (CLOACI-T-0743), given the next due instant, the current time, and the
+/// backstop. Pure so it's deterministically testable:
+/// - next due in the future, sooner than the backstop → sleep until it
+/// - next due in the future, beyond the backstop → sleep the backstop (re-check)
+/// - next due now/past → `ZERO` (fire immediately)
+/// - no schedules (`None`) → sleep the backstop
+fn compute_cron_sleep_delay(
+    next_due: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+    backstop: Duration,
+) -> Duration {
+    match next_due {
+        Some(t) if t <= now => Duration::ZERO,
+        Some(t) => (t - now).to_std().unwrap_or(Duration::ZERO).min(backstop),
+        None => backstop,
+    }
+}
+
 impl Scheduler {
     /// Creates a new unified scheduler.
     ///
@@ -174,6 +202,7 @@ impl Scheduler {
         config: SchedulerConfig,
         shutdown: watch::Receiver<bool>,
         runtime: Arc<Runtime>,
+        cron_change: Arc<Notify>,
     ) -> Self {
         Self {
             dal,
@@ -181,8 +210,8 @@ impl Scheduler {
             config,
             shutdown,
             runtime,
+            cron_change,
             last_poll_times: HashMap::new(),
-            last_cron_check: None,
             last_reactor_poll: None,
             last_reactor_prune: None,
             predicate_cache: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -196,7 +225,14 @@ impl Scheduler {
         shutdown: watch::Receiver<bool>,
         runtime: Arc<Runtime>,
     ) -> Self {
-        Self::new(dal, executor, SchedulerConfig::default(), shutdown, runtime)
+        Self::new(
+            dal,
+            executor,
+            SchedulerConfig::default(),
+            shutdown,
+            runtime,
+            Arc::new(Notify::new()),
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -220,29 +256,26 @@ impl Scheduler {
         let mut interval = tokio::time::interval(self.config.trigger_base_poll_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+        // Timer-driven cron (CLOACI-T-0743): instead of sweeping every
+        // `cron_poll_interval`, cache the next due instant and sleep until it.
+        // Recomputed only after a fire or a `cron_change` notification, so the
+        // 1 s trigger/reactor tick does NOT re-query the DB for cron.
+        let mut next_cron_due = self.query_next_cron_due().await;
+
         loop {
+            let cron_delay = self.cron_sleep_delay(next_cron_due);
+            let cron_sleep = tokio::time::sleep(cron_delay);
+            tokio::pin!(cron_sleep);
+
             tokio::select! {
                 _ = interval.tick() => {
-                    // --- Cron ---
-                    let now = Instant::now();
-                    let should_check_cron = match self.last_cron_check {
-                        Some(last) => now.duration_since(last) >= self.config.cron_poll_interval,
-                        None => true,
-                    };
-
-                    if should_check_cron {
-                        self.last_cron_check = Some(now);
-                        if let Err(e) = self.check_and_execute_cron_schedules().await {
-                            error!("Error processing cron schedules: {}", e);
-                        }
-                    }
-
                     // --- Triggers ---
                     if let Err(e) = self.check_and_process_triggers().await {
                         error!("Error processing triggers: {}", e);
                     }
 
                     // --- Reactor subscriptions (CLOACI-I-0100 / T-0599) ---
+                    let now = Instant::now();
                     let should_poll_reactors = match self.last_reactor_poll {
                         Some(last) => now.duration_since(last) >= self.config.reactor_poll_interval,
                         None => true,
@@ -266,6 +299,18 @@ impl Scheduler {
                         self.prune_reactor_firings().await;
                     }
                 }
+                // --- Cron: wake exactly at the next due instant (or backstop) ---
+                _ = &mut cron_sleep => {
+                    if let Err(e) = self.check_and_execute_cron_schedules().await {
+                        error!("Error processing cron schedules: {}", e);
+                    }
+                    next_cron_due = self.query_next_cron_due().await;
+                }
+                // --- Cron schedule changed (registered/enabled/deleted): re-arm ---
+                _ = self.cron_change.notified() => {
+                    debug!("Cron change notification — recomputing next due time");
+                    next_cron_due = self.query_next_cron_due().await;
+                }
                 _ = self.shutdown.changed() => {
                     if *self.shutdown.borrow() {
                         info!("Unified scheduler received shutdown signal");
@@ -277,6 +322,28 @@ impl Scheduler {
 
         info!("Unified scheduler polling loop stopped");
         Ok(())
+    }
+
+    /// Query the earliest `next_run_at` over enabled cron schedules. Errors are
+    /// logged and treated as "unknown" (`None`) so a transient DB hiccup falls
+    /// back to the backstop rather than stalling the loop (CLOACI-T-0743).
+    async fn query_next_cron_due(&self) -> Option<DateTime<Utc>> {
+        match self.dal.schedule().next_cron_due_time().await {
+            Ok(due) => due,
+            Err(e) => {
+                warn!("Failed to query next cron due time: {}", e);
+                None
+            }
+        }
+    }
+
+    /// How long to sleep before the next cron check, given the cached next-due
+    /// instant. Sleeps exactly until the due time when it's known and sooner
+    /// than the backstop; otherwise caps at `cron_poll_interval` (the backstop)
+    /// so the loop still re-checks periodically. A due time in the past yields
+    /// `ZERO` (fire immediately). (CLOACI-T-0743)
+    fn cron_sleep_delay(&self, next_due: Option<DateTime<Utc>>) -> Duration {
+        compute_cron_sleep_delay(next_due, Utc::now(), self.config.cron_poll_interval)
     }
 
     // -----------------------------------------------------------------------
@@ -304,10 +371,22 @@ impl Scheduler {
 
         info!("Found {} due cron schedule(s)", due_schedules.len());
 
+        // Process each due schedule on its own task (CLOACI-T-0743). The handoff
+        // `executor.execute(...)` blocks until the workflow runs, so processing
+        // sequentially made a second schedule due at the same instant wait for
+        // the first workflow's entire execution before it was even picked up
+        // (observed: ~3–10s, the first workflow's run time). Spawning keeps the
+        // scheduler loop non-blocking ("move on immediately" per this module's
+        // contract) so co-due schedules dispatch concurrently and the loop
+        // returns to its sleep immediately. Per-row `claim_and_update_cron` is
+        // atomic, so concurrent processing of distinct schedules is safe.
         for schedule in due_schedules {
-            if let Err(e) = self.process_cron_schedule(&schedule, now).await {
-                error!("Failed to process cron schedule {}: {}", schedule.id, e);
-            }
+            let this = self.clone();
+            tokio::spawn(async move {
+                if let Err(e) = this.process_cron_schedule(&schedule, now).await {
+                    error!("Failed to process cron schedule {}: {}", schedule.id, e);
+                }
+            });
         }
 
         Ok(())
@@ -1638,5 +1717,48 @@ mod tests {
         // what `ReactorSubscriptionsDAL::subscribe` relies on to reject
         // bad predicates before the row is written.
         assert!(cel_interpreter::Program::compile("this is &&& not valid").is_err());
+    }
+
+    // --- Timer-driven cron sleep math (CLOACI-T-0743) ---
+
+    #[test]
+    fn cron_sleep_due_soon_sleeps_until_due_not_backstop() {
+        let now = Utc::now();
+        let backstop = Duration::from_secs(30);
+        // Next fire in 3s, well under the 30s backstop → sleep ~3s.
+        let due = now + chrono::Duration::seconds(3);
+        let delay = compute_cron_sleep_delay(Some(due), now, backstop);
+        assert!(
+            delay >= Duration::from_millis(2500) && delay <= Duration::from_secs(3),
+            "expected ~3s, got {:?}",
+            delay
+        );
+    }
+
+    #[test]
+    fn cron_sleep_due_far_is_capped_at_backstop() {
+        let now = Utc::now();
+        let backstop = Duration::from_secs(30);
+        // Next fire in 1 hour → capped at the 30s backstop (periodic re-check).
+        let due = now + chrono::Duration::hours(1);
+        assert_eq!(compute_cron_sleep_delay(Some(due), now, backstop), backstop);
+    }
+
+    #[test]
+    fn cron_sleep_due_in_past_is_zero() {
+        let now = Utc::now();
+        let backstop = Duration::from_secs(30);
+        let due = now - chrono::Duration::seconds(5);
+        assert_eq!(
+            compute_cron_sleep_delay(Some(due), now, backstop),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn cron_sleep_no_schedules_uses_backstop() {
+        let now = Utc::now();
+        let backstop = Duration::from_secs(45);
+        assert_eq!(compute_cron_sleep_delay(None, now, backstop), backstop);
     }
 }

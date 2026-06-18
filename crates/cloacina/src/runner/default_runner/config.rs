@@ -777,6 +777,7 @@ impl DefaultRunnerBuilder {
             config: self.config.clone(),
             scheduler: Arc::new(scheduler),
             service_manager: Arc::new(RwLock::new(ServiceManager::new())),
+            cron_change: Arc::new(tokio::sync::Notify::new()),
         };
 
         // Start the background services immediately

@@ -221,6 +221,7 @@ async fn test_predicate_filters_dispatch_and_advances_watermark_for_skips() {
         },
         shutdown_rx,
         runtime,
+        Arc::new(tokio::sync::Notify::new()),
     );
 
     let tenant = format!("tenant-{}", Uuid::new_v4());

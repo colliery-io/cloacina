@@ -135,6 +135,7 @@ impl DefaultRunner {
             scheduler_config,
             inner_rx,
             self.runtime.clone(),
+            self.cron_change.clone(),
         );
         let unified_scheduler = Arc::new(unified_scheduler);
 
@@ -261,7 +262,10 @@ impl DefaultRunner {
         // explicitly in that case.
         if self.config.enable_cron_scheduling() {
             use crate::runner::default_runner::cron_api::DalCronRegistrar;
-            let registrar = std::sync::Arc::new(DalCronRegistrar::new(self.database.clone()));
+            let registrar = std::sync::Arc::new(DalCronRegistrar::new(
+                self.database.clone(),
+                self.cron_change.clone(),
+            ));
             registry_reconciler.set_cron_registrar(registrar);
         }
 
