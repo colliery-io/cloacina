@@ -60,12 +60,13 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use cloacina_api_types::{
-    AccumulatorStatus, CreateKeyRequest, CreateTenantRequest, ExecuteRequest, ExecuteResponse,
-    ExecutionDetail, ExecutionEventsResponse, ExecutionSummary, GraphStatus, KeyCreatedResponse,
-    KeyInfo, KeyRevokedResponse, KeyRole, ListResponse, TenantCreatedResponse, TenantListResponse,
-    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerScheduleSummary,
-    WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowUploadedResponse,
-    WsTicketResponse,
+    AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateTenantRequest,
+    ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse,
+    ExecutionTasksResponse, ExecutionSummary, GraphStatus, KeyCreatedResponse, KeyInfo,
+    KeyRevokedResponse, KeyRole, ListResponse, ReactorStatus, TenantCreatedResponse,
+    TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
+    TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary,
+    WorkflowUploadedResponse, WsTicketResponse,
 };
 
 /// Builder for [`Client`].
@@ -491,6 +492,17 @@ impl Client {
             .await
     }
 
+    pub async fn get_execution_tasks(
+        &self,
+        tenant_id: &str,
+        exec_id: &str,
+    ) -> Result<ExecutionTasksResponse, ClientError> {
+        self.get_json(&format!(
+            "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks"
+        ))
+        .await
+    }
+
     // ---- computation-graph health ----
 
     pub async fn list_accumulators(&self) -> Result<ListResponse<AccumulatorStatus>, ClientError> {
@@ -503,6 +515,20 @@ impl Client {
 
     pub async fn get_graph(&self, name: &str) -> Result<GraphStatus, ClientError> {
         self.get_json(&format!("/v1/health/graphs/{name}")).await
+    }
+
+    pub async fn list_reactors(&self) -> Result<ListResponse<ReactorStatus>, ClientError> {
+        self.get_json("/v1/health/reactors").await
+    }
+
+    // ---- fleet / compiler ----
+
+    pub async fn list_agents(&self) -> Result<ListResponse<AgentInfo>, ClientError> {
+        self.get_json("/v1/agents").await
+    }
+
+    pub async fn compiler_status(&self) -> Result<CompilerStatus, ClientError> {
+        self.get_json("/v1/compiler/status").await
     }
 
     // ---- WebSocket (substrate delivery) ----

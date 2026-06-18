@@ -21,13 +21,21 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from ._generated import AuthenticatedClient
+from ._generated.api.agents import list_agents
+from ._generated.api.compiler import compiler_status
 from ._generated.api.executions import (
     execute_workflow,
     get_execution,
     get_execution_events,
+    get_execution_tasks,
     list_executions,
 )
-from ._generated.api.graph_health import get_graph, list_accumulators, list_graphs
+from ._generated.api.graph_health import (
+    get_graph,
+    list_accumulators,
+    list_graphs,
+    list_reactors,
+)
 from ._generated.api.keys import (
     create_key,
     create_tenant_key,
@@ -318,6 +326,11 @@ class Client(_Base):
             )
         )
 
+    def get_execution_tasks(self, tenant_id: str, exec_id: str):
+        return _unwrap(
+            get_execution_tasks.sync_detailed(tenant_id, exec_id, client=self._gen)
+        )
+
     # ---- computation-graph health ----
 
     def list_accumulators(self):
@@ -328,6 +341,19 @@ class Client(_Base):
 
     def get_graph(self, name: str):
         return _unwrap(get_graph.sync_detailed(name, client=self._gen))
+
+    def list_reactors(self):
+        return _unwrap(list_reactors.sync_detailed(client=self._gen))
+
+    # ---- agents ----
+
+    def list_agents(self):
+        return _unwrap(list_agents.sync_detailed(client=self._gen))
+
+    # ---- compiler ----
+
+    def compiler_status(self):
+        return _unwrap(compiler_status.sync_detailed(client=self._gen))
 
 
 class AsyncClient(_Base):
@@ -430,6 +456,28 @@ class AsyncClient(_Base):
                 self.tenant_segment(tenant), exec_id, client=self._gen
             )
         )
+
+    async def get_execution_tasks(self, tenant_id: str, exec_id: str):
+        return _unwrap(
+            await get_execution_tasks.asyncio_detailed(
+                tenant_id, exec_id, client=self._gen
+            )
+        )
+
+    # ---- computation-graph health ----
+
+    async def list_reactors(self):
+        return _unwrap(await list_reactors.asyncio_detailed(client=self._gen))
+
+    # ---- agents ----
+
+    async def list_agents(self):
+        return _unwrap(await list_agents.asyncio_detailed(client=self._gen))
+
+    # ---- compiler ----
+
+    async def compiler_status(self):
+        return _unwrap(await compiler_status.asyncio_detailed(client=self._gen))
 
     # ---- WebSocket (substrate delivery) ----
 
