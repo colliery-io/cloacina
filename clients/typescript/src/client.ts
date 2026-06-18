@@ -377,6 +377,32 @@ export class CloacinaClient {
     );
   }
 
+  async getExecutionTasks(
+    tenant: string,
+    execId: string,
+  ): Promise<schemas["ExecutionTasksResponse"]> {
+    return unwrap(
+      await this.api.GET(
+        "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks",
+        {
+          params: {
+            path: { tenant_id: this.#tenant(tenant), exec_id: execId },
+          },
+        },
+      ),
+    );
+  }
+
+  // ---- fleet & compiler ----
+
+  async listAgents(): Promise<schemas["ListResponse_AgentInfo"]> {
+    return unwrap(await this.api.GET("/v1/agents"));
+  }
+
+  async compilerStatus(): Promise<schemas["CompilerStatus"]> {
+    return unwrap(await this.api.GET("/v1/compiler/status"));
+  }
+
   // ---- computation-graph health ----
 
   async listAccumulators(): Promise<schemas["ListResponse_AccumulatorStatus"]> {
