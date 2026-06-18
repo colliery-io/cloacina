@@ -29,6 +29,7 @@ use uuid::Uuid;
 
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
+use crate::database::BackendType;
 use crate::dispatcher::{DispatchError, Dispatcher, TaskReadyEvent};
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
@@ -48,6 +49,37 @@ const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// capacity get `NoCapacity` (expected backpressure) and stay Ready for a later
 /// tick. Set comfortably above typical fleet aggregate capacity.
 const MAX_CONCURRENT_DISPATCH: usize = 64;
+
+/// Dispatch a single Ready task and log the outcome (CLOACI-T-0745). Shared by
+/// the postgres (spawned, concurrent) and sqlite (serial) dispatch paths.
+/// NoCapacity is expected backpressure (the task stays Ready, retried later);
+/// other errors are surfaced as warnings.
+async fn dispatch_one(dispatcher: &Arc<dyn Dispatcher>, task: TaskExecution) {
+    let event = TaskReadyEvent::new(
+        task.id,
+        task.workflow_execution_id,
+        task.task_name.clone(),
+        task.attempt,
+    );
+    match dispatcher.dispatch(event).await {
+        Ok(()) => {}
+        Err(DispatchError::NoCapacity(_)) => {
+            debug!(
+                task_id = %task.id,
+                task_name = %task.task_name,
+                "Dispatch deferred: executor at capacity"
+            );
+        }
+        Err(e) => {
+            warn!(
+                task_id = %task.id,
+                task_name = %task.task_name,
+                error = %e,
+                "Failed to dispatch ready task"
+            );
+        }
+    }
+}
 
 /// Number of consecutive errors before logging a circuit-open warning.
 const CIRCUIT_OPEN_THRESHOLD: u32 = 5;
@@ -312,55 +344,42 @@ impl<'a> SchedulerLoop<'a> {
             return Ok(());
         }
 
-        // Fire-and-forget dispatch (CLOACI-T-0745). `dispatcher.dispatch()` blocks
-        // until the task COMPLETES (the fleet executor waits on the result channel
-        // up to RESULT_WAIT_TIMEOUT), so awaiting it — even concurrently — coupled
-        // the scheduler loop's cadence to task duration: a batch of long tasks
-        // stalled completion accounting and new-readiness marking. Instead, spawn
-        // each dispatch on its own task so the loop returns immediately and keeps
-        // cycling at full cadence regardless of how long tasks run.
+        // Backend-aware dispatch (CLOACI-T-0745).
         //
-        // Correctness: `claim_for_runner`'s atomic CAS (`WHERE claimed_by IS NULL`)
-        // is the exactly-once guard, and `get_ready_for_retry` now excludes
-        // claimed tasks — so an in-flight dispatch isn't re-selected. In the small
-        // window before a spawned dispatch claims its task, a second tick could
-        // re-select and re-spawn it; the CAS lets only one claim win and the other
-        // dispatch no-ops, so there is no double execution.
+        // `dispatcher.dispatch()` blocks until the task COMPLETES (the fleet
+        // executor waits on the result channel up to RESULT_WAIT_TIMEOUT).
         //
-        // Spawns are bounded per tick (`take`) so a large fresh backlog doesn't
-        // spawn unboundedly in a single tick; the remainder is picked up on
-        // subsequent ticks. Tasks beyond executor capacity get NoCapacity, don't
-        // claim, and stay Ready for a later tick (backpressure).
+        // - **Postgres** tolerates many concurrent writers, so dispatch
+        //   fire-and-forget: spawn each so the scheduler loop returns immediately
+        //   and keeps marking tasks Ready / finalizing completions at full cadence
+        //   regardless of how long tasks run — this is what lets the fleet
+        //   saturate under load.
+        // - **SQLite** is single-writer: concurrent dispatch writes (claim /
+        //   mark-running / result) contend with the loop's readiness writes and
+        //   surface as "database is locked". So dispatch SERIALLY (one writer at a
+        //   time) — the embedded-safe original behavior. Embedded runs are
+        //   single-process/low-concurrency, so the serial cost is a non-issue.
+        //
+        // Exactly-once holds for both: `claim_for_runner`'s atomic CAS
+        // (`WHERE claimed_by IS NULL`) is the guard, and `get_ready_for_retry` now
+        // excludes claimed (in-flight) tasks. In the small window before a spawned
+        // dispatch claims, a re-select could re-spawn it; the CAS lets one claim
+        // win, the other no-ops. Spawns/serial dispatch are bounded per tick
+        // (`take`); the remainder is picked up on later ticks (backpressure).
+        let concurrent = match self.dal.backend() {
+            #[cfg(feature = "postgres")]
+            BackendType::Postgres => true,
+            #[cfg(feature = "sqlite")]
+            BackendType::Sqlite => false,
+        };
+
         for task in ready_tasks.into_iter().take(MAX_CONCURRENT_DISPATCH) {
             let dispatcher = dispatcher.clone();
-            tokio::spawn(async move {
-                let event = TaskReadyEvent::new(
-                    task.id,
-                    task.workflow_execution_id,
-                    task.task_name.clone(),
-                    task.attempt,
-                );
-                match dispatcher.dispatch(event).await {
-                    Ok(()) => {}
-                    Err(DispatchError::NoCapacity(_)) => {
-                        // Expected backpressure — task stays Ready (unclaimed) and
-                        // is retried on a later tick once a slot frees up.
-                        debug!(
-                            task_id = %task.id,
-                            task_name = %task.task_name,
-                            "Dispatch deferred: executor at capacity"
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            task_id = %task.id,
-                            task_name = %task.task_name,
-                            error = %e,
-                            "Failed to dispatch ready task"
-                        );
-                    }
-                }
-            });
+            if concurrent {
+                tokio::spawn(async move { dispatch_one(&dispatcher, task).await });
+            } else {
+                dispatch_one(&dispatcher, task).await;
+            }
         }
 
         Ok(())
