@@ -22,14 +22,14 @@ path = "src/main.rs"
 # other members; the stricter NFR-002 (truly no diesel link) is a
 # carry-forward that extracts the protocol DTOs to a no-deps `cloacina-fleet-protocol`
 # crate. See T-0632 status notes.
-cloacina = { version = "0.7.0", path = "../cloacina", default-features = false, features = ["sqlite"] }
+cloacina = { version = "0.8.0", path = "../cloacina", default-features = false, features = ["sqlite"] }
 
 # Python runtime (PyO3) so the agent can run Python-packaged workflows, not just
 # Rust cdylibs — the agent fetches a Python package's source archive and imports
 # it via this runtime. `default-features = false` (NOT extension-module) embeds
 # the interpreter into the binary; the agent image carries libpython +
 # python3-dev. (CLOACI-T-0716)
-cloacina-python = { version = "0.7.0", path = "../cloacina-python", default-features = false }
+cloacina-python = { version = "0.8.0", path = "../cloacina-python", default-features = false }
 
 # HTTP client for REST endpoints (register/heartbeat/result/ws-ticket/artifact).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

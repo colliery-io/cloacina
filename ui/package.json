@@ -1,6 +1,6 @@
 {
   "name": "@cloacina/ui",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "description": "Cloacina web UI — tenant-scoped control plane (CLOACI-I-0117). React SPA over @cloacina/client.",

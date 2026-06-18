@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cloacina-client"
-version = "0.7.0"
+version = "0.8.0"
 description = "Python SDK for cloacina-server — typed REST client and WebSocket execution-event streams. Version-locked to the cloacina server release. (Service client; the embedded runtime is the separate `cloaca` package.)"
 readme = "README.md"
 license = "Apache-2.0"
