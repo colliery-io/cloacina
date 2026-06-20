@@ -46,10 +46,18 @@ reactors already carry the types in code; workflow context does not).
    `schemars`-*derived projection* of the declared Rust types — not a hand-written
    schema. This preserves the principle in [[CLOACI-I-0116]]'s decision #2 while
    replacing its `type_name`-string descriptor with the richer JSON Schema form.
-4. **Carry = compiler-side** into the package metadata JSON (the
-   `workflow_packages.metadata` column), NOT through the bincode FFI wire struct
-   — consistent with [[CLOACI-T-0752]] and avoiding the in-flux fidius/FFI
-   authoring shift + the blocked [[CLOACI-T-0736]].
+4. **Carry = a dedicated FFI descriptor entrypoint** (decided 2026-06-20). The
+   macro emits a `schemars`-derived input-interface descriptor; a **new, dedicated
+   FFI function** on the built cdylib returns it as JSON, and the compiler
+   captures it at build-success into the package metadata JSON
+   (`workflow_packages.metadata`). This gets **full `schemars` fidelity for both
+   workflow params and accumulator/reactor boundaries** (rich structs, not just
+   scalars), uniformly. It deliberately does **NOT** modify the drift-prone
+   `TaskMetadataEntry` bincode wire struct — which is what the "no FFI" guidance
+   was really protecting (the [[CLOACI-T-0736]] drift class). Refines the earlier
+   "compiler-side, no FFI" wording: a clean separate entrypoint is fine; changing
+   the drift-prone metadata struct is not. (Source-parse-of-scalars was rejected
+   because it can't describe accumulator/reactor struct boundaries.)
 5. **Validation = server-side at inject time.** Execute context / reactor fire /
    accumulator event are validated against the declared schema; mismatch returns
    a typed `*_input_invalid` error. Client-side validation is an additive UI

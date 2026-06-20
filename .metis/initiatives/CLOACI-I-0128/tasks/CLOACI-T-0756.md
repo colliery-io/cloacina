@@ -20,117 +20,56 @@ initiative_id: CLOACI-I-0128
 
 # Workflow params — workflow(params) authoring + compiler-side carry + API exposure
 
-*This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
+Task B of [[CLOACI-I-0128]]. Spec [[CLOACI-S-0013]]; decisions [[CLOACI-A-0007]].
+Depends on [[CLOACI-T-0755]] (done: `InputSlot` + `schema_for`).
 
-## Parent Initiative **[CONDITIONAL: Assigned Task]**
+## Objective
 
-[[CLOACI-I-0128]]
+Let a workflow author declare typed params, and surface them as `InputSlot`s on
+the workflow API — via the **dedicated FFI descriptor entrypoint** carry path
+(ADR-0007 decision #4), so it works for rich types and shares one mechanism with
+the accumulator/reactor surfaces (Task D).
 
-## Objective **[REQUIRED]**
+## Technical approach (grounded anchors)
 
-{Clear statement of what this task accomplishes}
+1. **Authoring (macro)** — extend `UnifiedWorkflowAttributes`
+   (`crates/cloacina-macros/src/workflow_attr.rs:50`) to parse
+   `#[workflow(params( name: Type [= default], … ))]` (dup/unknown rejection).
+2. **Descriptor entrypoint (FFI)** — the macro emits a **new dedicated plugin
+   method** (e.g. `get_input_interface() -> InputInterfaceDescriptor`) alongside
+   the existing `get_task_metadata()` (`workflow_attr.rs:797`). The descriptor is
+   a **new type** (its own (de)serialization) in `cloacina-workflow-plugin` —
+   NOT a field on `PackageTasksMetadata` (the drift-prone struct). Schema per
+   param via `schema_for::<T>()` (T-0755).
+3. **Host extraction** — call the new entrypoint where the host reads plugin
+   metadata (`crates/cloacina/src/registry/loader/package_loader.rs`
+   `extract_metadata`); tolerate older packages that lack the method (Option/None).
+4. **Compiler capture** — at build success, capture the descriptor into
+   `workflow_packages.metadata` JSON alongside the existing merge
+   (`registry/workflow_registry/database.rs` `extract_and_merge_build_metadata`),
+   under a new `declared_params` field on `PackageMetadata` (`#[serde(default)]`).
+5. **API exposure** — `declared_params: Vec<InputSlot>` on `WorkflowMetadata`
+   (`registry/types.rs`) + `WorkflowDetail` (`cloacina-api-types/workflows.rs`),
+   populated at the list/inspect build sites; OpenAPI regen.
 
-## Backlog Item Details **[CONDITIONAL: Backlog Item]**
+## Acceptance Criteria
 
-{Delete this section when task is assigned to an initiative}
+- [ ] `#[workflow(params(...))]` parses typed params with optional defaults;
+      no-params workflows are unchanged.
+- [ ] A dedicated FFI descriptor entrypoint returns per-param `InputSlot`s
+      (JSON-Schema via `schema_for`), independent of `PackageTasksMetadata`.
+- [ ] Declared params land in `workflow_packages.metadata` at build success and
+      surface on `WorkflowDetail.declared_params`; undeclared → empty list.
+- [ ] Back-compat: packages without the entrypoint deserialize/resolve to empty.
+- [ ] `angreal test unit` + `angreal test integration` green; OpenAPI in sync.
 
-### Type
-- [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement
-- [ ] Tech Debt - Code improvement or refactoring
-- [ ] Chore - Maintenance or setup work
+## Notes / risks
+- This is the macro + plugin-FFI + host + compiler + API vertical — the largest
+  single I-0128 task. Build incrementally (macro parse → entrypoint → host →
+  compiler → API), `cargo check` after each layer.
+- Coordinates with I-0116 (it reuses this `declared_params` descriptor for its
+  `WorkflowInstance` partials).
 
-### Priority
-- [ ] P0 - Critical (blocks users/revenue)
-- [ ] P1 - High (important for user experience)
-- [ ] P2 - Medium (nice to have)
-- [ ] P3 - Low (when time permits)
-
-### Impact Assessment **[CONDITIONAL: Bug]**
-- **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**:
-  1. {Step 1}
-  2. {Step 2}
-  3. {Step 3}
-- **Expected vs Actual**: {What should happen vs what happens}
-
-### Business Justification **[CONDITIONAL: Feature]**
-- **User Value**: {Why users need this}
-- **Business Value**: {Impact on metrics/revenue}
-- **Effort Estimate**: {Rough size - S/M/L/XL}
-
-### Technical Debt Impact **[CONDITIONAL: Tech Debt]**
-- **Current Problems**: {What's difficult/slow/buggy now}
-- **Benefits of Fixing**: {What improves after refactoring}
-- **Risk Assessment**: {Risks of not addressing this}
-
-## Acceptance Criteria **[REQUIRED]**
-
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
-
-## Test Cases **[CONDITIONAL: Testing Task]**
-
-{Delete unless this is a testing task}
-
-### Test Case 1: {Test Case Name}
-- **Test ID**: TC-001
-- **Preconditions**: {What must be true before testing}
-- **Steps**:
-  1. {Step 1}
-  2. {Step 2}
-  3. {Step 3}
-- **Expected Results**: {What should happen}
-- **Actual Results**: {To be filled during execution}
-- **Status**: {Pass/Fail/Blocked}
-
-### Test Case 2: {Test Case Name}
-- **Test ID**: TC-002
-- **Preconditions**: {What must be true before testing}
-- **Steps**:
-  1. {Step 1}
-  2. {Step 2}
-- **Expected Results**: {What should happen}
-- **Actual Results**: {To be filled during execution}
-- **Status**: {Pass/Fail/Blocked}
-
-## Documentation Sections **[CONDITIONAL: Documentation Task]**
-
-{Delete unless this is a documentation task}
-
-### User Guide Content
-- **Feature Description**: {What this feature does and why it's useful}
-- **Prerequisites**: {What users need before using this feature}
-- **Step-by-Step Instructions**:
-  1. {Step 1 with screenshots/examples}
-  2. {Step 2 with screenshots/examples}
-  3. {Step 3 with screenshots/examples}
-
-### Troubleshooting Guide
-- **Common Issue 1**: {Problem description and solution}
-- **Common Issue 2**: {Problem description and solution}
-- **Error Messages**: {List of error messages and what they mean}
-
-### API Documentation **[CONDITIONAL: API Documentation]**
-- **Endpoint**: {API endpoint description}
-- **Parameters**: {Required and optional parameters}
-- **Example Request**: {Code example}
-- **Example Response**: {Expected response format}
-
-## Implementation Notes **[CONDITIONAL: Technical Task]**
-
-{Keep for technical tasks, delete for non-technical. Technical details, approach, or important considerations}
-
-### Technical Approach
-{How this will be implemented}
-
-### Dependencies
-{Other tasks or systems this depends on}
-
-### Risk Considerations
-{Technical risks and mitigation strategies}
-
-## Status Updates **[REQUIRED]**
+## Status Updates
 
 *To be added during implementation*
