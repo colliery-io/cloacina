@@ -4,14 +4,14 @@ level: task
 title: "Workflow execute validation — validate context against declared params"
 short_code: "CLOACI-T-0757"
 created_at: 2026-06-20T16:45:59.944758+00:00
-updated_at: 2026-06-20T16:45:59.944758+00:00
+updated_at: 2026-06-20T18:39:49.252459+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,21 @@ initiative_id: CLOACI-I-0128
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-20 — DONE + VERIFIED
+
+Task C of [[CLOACI-I-0128]]. The execute chokepoint
+(`cloacina-server/src/routes/executions.rs::execute_workflow`) now validates the
+provided context against the workflow's declared params (from B/T-0756):
+- New registry accessor `get_workflow_declared_params(name)` (mirrors
+  `is_workflow_paused`).
+- `validate_declared_params` checks **required-presence** + a **top-level
+  JSON-Schema `type`** match; on failure returns **`400 workflow_input_invalid`**
+  with per-field messages. Undeclared workflows (empty params) accept free-form
+  context (fallback). Registry errors fail open.
+- v1 limitation: top-level scalar `type` check only; full nested JSON-Schema
+  validation (e.g. via the `jsonschema` crate) is a follow-up. Compound schemas
+  (enums/oneOf) are accepted rather than rejected.
+
+Verified: `cargo check -p cloacina-server` clean; 5 new unit tests pass
+(missing-required, optional-with-default, wrong-type, correct-input,
+undeclared-skips). No OpenAPI change (reuses the existing 400 `ErrorBody`).

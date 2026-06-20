@@ -185,6 +185,22 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .unwrap_or(false))
     }
 
+    /// Declared input params for the workflow addressed by `name` (its
+    /// `workflow_name` or `package_name`), or empty when the workflow is unknown
+    /// or declares none (CLOACI-I-0128). The execute chokepoint validates the
+    /// provided context against these.
+    pub async fn get_workflow_declared_params(
+        &self,
+        name: &str,
+    ) -> Result<Vec<cloacina_api_types::InputSlot>, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        Ok(workflows
+            .into_iter()
+            .find(|w| w.workflow_name == name || w.package_name == name)
+            .map(|w| w.declared_params)
+            .unwrap_or_default())
+    }
+
     /// Pause or resume the workflow addressed by `name` (CLOACI-T-0749).
     /// Resolves `name` against the active package list (by `workflow_name` or
     /// `package_name`) and sets its `paused` flag. Returns the affected package
