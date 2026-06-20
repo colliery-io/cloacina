@@ -21,6 +21,8 @@ cloacina-workflow = { path = "../../../crates/cloacina-workflow", features = ["p
 cloacina-workflow-plugin = { path = "../../../crates/cloacina-workflow-plugin" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# CLOACI-I-0128: opt into typed reactor/accumulator boundary schemas.
+schemars = "0.8"
 async-trait = "0.1"
 chrono = "0.4"
 tokio = { version = "1", features = ["time"] }

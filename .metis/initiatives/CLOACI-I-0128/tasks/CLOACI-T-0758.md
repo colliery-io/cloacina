@@ -4,14 +4,14 @@ level: task
 title: "Accumulator and reactor input interface derivation + API exposure"
 short_code: "CLOACI-T-0758"
 created_at: 2026-06-20T16:46:01.362198+00:00
-updated_at: 2026-06-20T18:49:16.892697+00:00
+updated_at: 2026-06-20T23:09:53.879575+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/blocked"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

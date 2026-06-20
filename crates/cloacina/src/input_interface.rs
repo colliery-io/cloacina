@@ -24,4 +24,6 @@
 //!
 //! Spec: [CLOACI-S-0013]; descriptor decision: [CLOACI-A-0007].
 
-pub use cloacina_workflow::input_interface::{default_json, schema_for, slots_to_json, InputSlot};
+pub use cloacina_workflow::input_interface::{
+    default_json, schema_for, slots_to_json, InputSlot, ProbeFallback, ProbeTyped, SchemaProbe,
+};

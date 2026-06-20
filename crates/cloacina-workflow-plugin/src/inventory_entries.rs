@@ -137,6 +137,15 @@ pub struct ComputationGraphEntry {
     /// `#[computation_graph]` macro so `get_graph_metadata` can surface the DAG
     /// to the API/UI. Empty string when not emitted. (CLOACI-T-0673)
     pub graph_data_json: &'static str,
+    /// CLOACI-I-0128 (T-0758): JSON array of `InputSlot` — one per cache source
+    /// (accumulator name → boundary type), derived from the graph's node fn
+    /// signatures. Boundary types that derive `schemars::JsonSchema` get a rich
+    /// schema; others degrade to a permissive `{}` (opt-in typing via the
+    /// `SchemaProbe` autoref specialization). Returns `"[]"` for graphs with no
+    /// cache sources (e.g. trigger-less graphs). The `package!` shell joins this
+    /// source→schema map with reactor declarations to answer
+    /// `get_input_interface`.
+    pub input_interface: fn() -> ::std::string::String,
 }
 inventory::collect!(ComputationGraphEntry);
 

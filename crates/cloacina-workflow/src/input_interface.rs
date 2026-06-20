@@ -44,6 +44,63 @@ pub fn default_json<T: serde::Serialize>(value: T) -> Option<serde_json::Value> 
     serde_json::to_value(value).ok()
 }
 
+/// Opt-in schema derivation for accumulator/reactor boundary types (CLOACI-I-0128
+/// Task D).
+///
+/// Unlike workflow params (whose types we control via `#[workflow(params(...))]`),
+/// computation-graph **boundary types** are defined in the author's crate and may
+/// or may not derive [`schemars::JsonSchema`]. We do NOT want to force the derive
+/// — so the `#[computation_graph]` macro can't unconditionally call
+/// [`schema_for`] (that needs the bound at compile time).
+///
+/// Instead the macro emits a probe over [`SchemaProbe<T>`] that, via **autoref
+/// specialization** (the stable-Rust dtolnay pattern), resolves to the real
+/// schema when `T: JsonSchema` and to a permissive `{}` ("any") schema otherwise.
+/// Authors opt a boundary type into rich typing simply by adding
+/// `#[derive(schemars::JsonSchema)]`; types without it degrade to name-only slots
+/// rather than failing to compile.
+///
+/// ## Usage (what the macro emits)
+/// ```ignore
+/// {
+///     use ::cloacina_workflow::input_interface::{ProbeTyped as _, ProbeFallback as _};
+///     (&::cloacina_workflow::input_interface::SchemaProbe::<MyType>::new())
+///         .probe_input_schema()
+/// }
+/// ```
+pub struct SchemaProbe<T>(core::marker::PhantomData<T>);
+
+impl<T> SchemaProbe<T> {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        SchemaProbe(core::marker::PhantomData)
+    }
+}
+
+/// Specific arm of the probe: selected when `T: JsonSchema` (zero autorefs on a
+/// `&SchemaProbe<T>` receiver), yielding the real derived schema.
+pub trait ProbeTyped {
+    fn probe_input_schema(&self) -> serde_json::Value;
+}
+impl<T: schemars::JsonSchema> ProbeTyped for SchemaProbe<T> {
+    fn probe_input_schema(&self) -> serde_json::Value {
+        schema_for::<T>()
+    }
+}
+
+/// Fallback arm of the probe: selected for any `T` (one autoref on a
+/// `&SchemaProbe<T>` receiver), yielding a permissive "any" schema. Method
+/// resolution prefers [`ProbeTyped`] whenever its `T: JsonSchema` bound holds.
+pub trait ProbeFallback {
+    fn probe_input_schema(&self) -> serde_json::Value;
+}
+impl<T> ProbeFallback for &SchemaProbe<T> {
+    fn probe_input_schema(&self) -> serde_json::Value {
+        // Empty object = "accept anything"; the slot is name-only (untyped).
+        serde_json::json!({})
+    }
+}
+
 /// Serialize a slot list to the JSON array string carried across the FFI
 /// descriptor entrypoint (`InputInterfaceEntry::slots_json`). Falls back to an
 /// empty array on serialization failure.
@@ -85,6 +142,43 @@ mod tests {
         assert!(props.contains_key("order_id"));
         assert!(props.contains_key("limit"));
         assert!(props.contains_key("enabled"));
+    }
+
+    // A type that deliberately does NOT derive JsonSchema (only serde).
+    #[derive(Serialize, Deserialize)]
+    #[allow(dead_code)]
+    struct UntypedBoundary {
+        raw: Vec<u8>,
+    }
+
+    #[test]
+    fn probe_typed_boundary_yields_real_schema() {
+        use super::{ProbeFallback as _, ProbeTyped as _};
+        // SampleBoundary derives JsonSchema → the typed arm wins.
+        let schema = (&SchemaProbe::<SampleBoundary>::new()).probe_input_schema();
+        assert!(
+            schema.get("properties").is_some(),
+            "JsonSchema boundary should yield a real object schema, got: {schema}"
+        );
+    }
+
+    #[test]
+    fn probe_untyped_boundary_falls_back_to_any() {
+        use super::{ProbeFallback as _, ProbeTyped as _};
+        // UntypedBoundary does NOT derive JsonSchema → fallback arm → permissive {}.
+        let schema = (&SchemaProbe::<UntypedBoundary>::new()).probe_input_schema();
+        assert_eq!(
+            schema,
+            serde_json::json!({}),
+            "non-JsonSchema boundary should fall back to a permissive schema, got: {schema}"
+        );
+    }
+
+    #[test]
+    fn probe_scalar_typed_yields_schema() {
+        use super::{ProbeFallback as _, ProbeTyped as _};
+        let schema = (&SchemaProbe::<String>::new()).probe_input_schema();
+        assert_eq!(schema.get("type").and_then(|t| t.as_str()), Some("string"));
     }
 
     #[test]

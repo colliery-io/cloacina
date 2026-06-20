@@ -690,6 +690,57 @@ macro_rules! package {
                             slots_json: (d.params)(),
                         });
                     }
+
+                    // CLOACI-I-0128 (T-0758): computation-graph surfaces. Each CG
+                    // contributes a "graph" entry (its per-source boundary slots)
+                    // and, when reactor-triggered, a "reactor" entry under the
+                    // reactor's name (the reactor fires with exactly the CG's
+                    // sources). Track those reactor names so the ReactorEntry pass
+                    // below doesn't duplicate them.
+                    let mut __cg_reactor_names: ::std::vec::Vec<::std::string::String> =
+                        ::std::vec::Vec::new();
+                    for cg in $crate::inventory::iter::<$crate::ComputationGraphEntry> {
+                        let slots_json = (cg.input_interface)();
+                        entries.push($crate::InputInterfaceEntry {
+                            surface_kind: "graph".to_string(),
+                            surface_name: cg.name.to_string(),
+                            slots_json: slots_json.clone(),
+                        });
+                        let reg = (cg.constructor)();
+                        if let ::core::option::Option::Some(reactor) = reg.trigger_reactor {
+                            __cg_reactor_names.push(reactor.clone());
+                            entries.push($crate::InputInterfaceEntry {
+                                surface_kind: "reactor".to_string(),
+                                surface_name: reactor,
+                                slots_json,
+                            });
+                        }
+                    }
+
+                    // Reactors with no CG in this package (e.g. a reactor declared
+                    // standalone, its graph living elsewhere) get a names-only
+                    // interface — one permissive slot per declared accumulator.
+                    for entry in $crate::inventory::iter::<$crate::ReactorEntry> {
+                        let reg = (entry.constructor)();
+                        if __cg_reactor_names.iter().any(|n| n == &reg.name) {
+                            continue;
+                        }
+                        let slots: ::std::vec::Vec<::cloacina_workflow::input_interface::InputSlot> =
+                            reg.accumulator_names
+                                .iter()
+                                .map(|n| ::cloacina_workflow::input_interface::InputSlot::optional(
+                                    n.clone(),
+                                    ::serde_json::json!({}),
+                                    ::core::option::Option::None,
+                                ))
+                                .collect();
+                        entries.push($crate::InputInterfaceEntry {
+                            surface_kind: "reactor".to_string(),
+                            surface_name: reg.name,
+                            slots_json: ::cloacina_workflow::input_interface::slots_to_json(&slots),
+                        });
+                    }
+
                     Ok($crate::InputInterfaceDescriptor { entries })
                 }
             }
