@@ -44,6 +44,7 @@ async fn test_store_and_get_package_metadata() {
         architecture: "x86_64".to_string(),
         symbols: vec!["cloacina_execute_task".to_string()],
         workflow_triggers: vec![],
+        declared_params: vec![],
     };
 
     // Create a corresponding workflow_registry entry first
@@ -103,6 +104,7 @@ async fn test_store_duplicate_package_metadata() {
         architecture: "x86_64".to_string(),
         symbols: vec![],
         workflow_triggers: vec![],
+        declared_params: vec![],
     };
 
     // Create a corresponding workflow_registry entry first
@@ -181,6 +183,7 @@ async fn test_list_all_packages() {
             architecture: "x86_64".to_string(),
             symbols: vec![],
             workflow_triggers: vec![],
+            declared_params: vec![],
         };
 
         package_names.push(test_metadata.package_name.clone());
@@ -231,6 +234,7 @@ async fn test_delete_package_metadata() {
         architecture: "x86_64".to_string(),
         symbols: vec![],
         workflow_triggers: vec![],
+        declared_params: vec![],
     };
 
     // Create a corresponding workflow_registry entry first
@@ -365,6 +369,7 @@ async fn test_store_package_with_complex_metadata() {
             "cloacina_get_task_metadata".to_string(),
         ],
         workflow_triggers: vec![],
+        declared_params: vec![],
     };
 
     // Create a corresponding workflow_registry entry first
@@ -439,6 +444,7 @@ async fn test_store_package_with_invalid_uuid() {
         architecture: "x86_64".to_string(),
         symbols: vec![],
         workflow_triggers: vec![],
+        declared_params: vec![],
     };
 
     // Try to store with invalid UUID
@@ -500,6 +506,7 @@ async fn test_package_versioning() {
         architecture: "x86_64".to_string(),
         symbols: vec![],
         workflow_triggers: vec![],
+        declared_params: vec![],
     };
     workflow_packages_dal
         .store_package_metadata(&registry_id, &meta_v1, storage_type, None)

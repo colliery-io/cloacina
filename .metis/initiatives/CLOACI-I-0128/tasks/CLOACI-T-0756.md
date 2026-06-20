@@ -4,14 +4,14 @@ level: task
 title: "Workflow params — workflow(params) authoring + compiler-side carry + API exposure"
 short_code: "CLOACI-T-0756"
 created_at: 2026-06-20T16:45:58.531737+00:00
-updated_at: 2026-06-20T17:43:08.373753+00:00
+updated_at: 2026-06-20T18:34:32.324884+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -51,6 +51,8 @@ the accumulator/reactor surfaces (Task D).
 5. **API exposure** — `declared_params: Vec<InputSlot>` on `WorkflowMetadata`
    (`registry/types.rs`) + `WorkflowDetail` (`cloacina-api-types/workflows.rs`),
    populated at the list/inspect build sites; OpenAPI regen.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -162,3 +164,37 @@ field (the macro's embedded + packaged emission; any test fixtures).
 Verify: `angreal check crate` per crate, then `angreal test unit` +
 `angreal test integration` (the only lane that build+loads packaged workflows —
 required to validate the new FFI method end-to-end).
+
+### 2026-06-20 — DONE + VERIFIED
+
+Built the full atomic vertical and the canonical-home refactor:
+- **schema_for relocated** to `cloacina-workflow` (`input_interface` module:
+  `schema_for`, `slots_to_json`, `default_json`, `InputSlot` re-export) so
+  packaged cdylibs reach it; core `cloacina::input_interface` re-exports it
+  (dropped core's direct `schemars` dep).
+- **Plugin ABI**: `InputInterfaceDescriptor`/`InputInterfaceEntry` wire types;
+  `CloacinaPlugin` bumped to **version 3**; `#[optional(since=3)]
+  get_input_interface` (method index 9); `package!` impl walks
+  `WorkflowDescriptorEntry` → entries. `WorkflowDescriptorEntry` gained
+  `params: fn() -> String`.
+- **Macro**: `#[workflow(params( name: Type [= default], … ))]` parsing (dup/
+  unknown rejection) + per-context `params` fn emission (embedded via
+  `::cloacina::input_interface`, packaged via `::cloacina_workflow::input_interface`).
+- **Host**: `package_loader` calls method 9 (NotImplemented→empty), parses
+  workflow `slots_json` → `PackageMetadata.declared_params`.
+- **Carry/API**: `declared_params` on `PackageMetadata`/`WorkflowMetadata`
+  (all build sites) → `extract_and_merge_build_metadata` persists it →
+  `WorkflowDetail.declared_params`; `InputSlot` registered in OpenAPI; spec in
+  sync.
+
+Verified: all crates `cargo check` clean; **`angreal test unit` 709+50 green**
+(incl. relocated input_interface tests); **`angreal test integration` 312+93+6,
+0 failed** — fixtures build with the new macro codegen, the **version-3 ABI
+loads**, `get_input_interface` runs on package load, and `test_plugin_info_populated`
+confirms version 3 + 10 methods.
+
+**Verified scope:** the empty-params path is exercised E2E (fixtures declare no
+params yet); the param helpers (`schema_for`/`slots_to_json`/`InputSlot`) are
+unit-tested. **Carried to Task G (T-0761):** an end-to-end fixture that declares
+`#[workflow(params(...))]` and asserts `declared_params` surfaces through the API
+(exercises the populated-codegen path).

@@ -32,13 +32,13 @@ use cloacina_api_types::{
     AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateTenantRequest, ErrorBody,
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
     ExecutionSummary, ExecutionTasksResponse, FireMode, FireReactorRequest, FireReactorResponse,
-    GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode, KeyCreatedResponse, KeyInfo,
-    KeyRevokedResponse, KeyRole, ListResponse, ReactorStatus, TaskExecutionDetail,
-    TenantCreatedResponse, TenantListResponse, TenantRemovedResponse, TenantSummary,
-    TriggerDetailResponse, TriggerExecution, TriggerPauseResponse, TriggerScheduleInfo,
-    TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse,
-    WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode,
-    WorkflowUploadedResponse, WsTicketResponse,
+    GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode, InputSlot,
+    KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse, ReactorStatus,
+    TaskExecutionDetail, TenantCreatedResponse, TenantListResponse, TenantRemovedResponse,
+    TenantSummary, TriggerDetailResponse, TriggerExecution, TriggerPauseResponse,
+    TriggerScheduleInfo, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
+    WorkflowPauseResponse, WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary,
+    WorkflowTaskNode, WorkflowUploadedResponse, WsTicketResponse,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -144,6 +144,7 @@ impl Modify for SecurityAddon {
         WorkflowSourceResponse,
         WorkflowSourceFile,
         WorkflowPauseResponse,
+        InputSlot,
         WorkflowDeletedResponse,
         TenantListResponse<WorkflowSummary>,
         TriggerScheduleSummary,

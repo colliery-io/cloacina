@@ -116,6 +116,11 @@ pub struct WorkflowDescriptorEntry {
     /// Trigger names this workflow subscribes to (from
     /// `#[workflow(triggers = ["..."])]`).
     pub triggers: fn() -> ::std::vec::Vec<::std::string::String>,
+    /// CLOACI-I-0128: declared input params as a JSON array of
+    /// `cloacina_api_types::InputSlot` (serialized). Generated at runtime by the
+    /// `#[workflow(params(...))]` macro via `cloacina_workflow::schema_for`.
+    /// Returns `"[]"` for workflows that declare no params.
+    pub params: fn() -> ::std::string::String,
 }
 inventory::collect!(WorkflowDescriptorEntry);
 

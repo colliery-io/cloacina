@@ -108,6 +108,12 @@ pub struct WorkflowMetadata {
     /// older serialized data and non-DB registry backends.
     #[serde(default)]
     pub paused: bool,
+
+    /// CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the
+    /// workflow accepts at execute time. Empty when the workflow declares none
+    /// or predates the input-interface entrypoint.
+    #[serde(default)]
+    pub declared_params: Vec<cloacina_api_types::InputSlot>,
 }
 
 /// A single source file extracted from a package's retained `.cloacina`

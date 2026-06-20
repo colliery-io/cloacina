@@ -69,6 +69,12 @@ pub struct PackageMetadata {
     /// each named trigger to the workflow at load time.
     #[serde(default)]
     pub workflow_triggers: Vec<String>,
+    /// CLOACI-I-0128 / T-0756: declared workflow params (named, JSON-Schema-typed
+    /// input slots) from `#[workflow(params(...))]`, read via the input-interface
+    /// FFI entrypoint at extraction time. Empty for packages that declare none or
+    /// predate the entrypoint.
+    #[serde(default)]
+    pub declared_params: Vec<cloacina_api_types::InputSlot>,
 }
 
 /// Individual task metadata.
@@ -264,9 +270,31 @@ impl PackageLoader {
                 reason: format!("Failed to call get_task_metadata: {}", e),
             })?;
 
-        // Keep the handle alive — dropping it triggers dlclose which corrupts
-        // the inventory linked list (see struct-level docs).
-        // PluginHandle holds an Arc<Library> that keeps the dylib mapped.
+        // CLOACI-I-0128 / T-0756: pull the declared input interface (method index
+        // 9, optional since v3). Older packages return NotImplemented → no
+        // declared params. The workflow-surface entry's `slots_json` is a JSON
+        // array of InputSlot.
+        let iface_result: Result<
+            cloacina_workflow_plugin::InputInterfaceDescriptor,
+            fidius_host::CallError,
+        > = handle.call_method(cloacina_workflow_plugin::METHOD_GET_INPUT_INTERFACE, &());
+        let declared_params: Vec<cloacina_api_types::InputSlot> = match iface_result {
+            Ok(desc) => desc
+                .entries
+                .into_iter()
+                .filter(|e| e.surface_kind == "workflow")
+                .flat_map(|e| {
+                    serde_json::from_str::<Vec<cloacina_api_types::InputSlot>>(&e.slots_json)
+                        .unwrap_or_default()
+                })
+                .collect(),
+            Err(fidius_host::CallError::NotImplemented { .. }) => Vec::new(),
+            Err(e) => {
+                tracing::warn!("get_input_interface failed: {:?}; treating as no params", e);
+                Vec::new()
+            }
+        };
+
         // Keep the handle alive — dropping it triggers dlclose which corrupts
         // the inventory linked list (see struct-level docs).
         // PluginHandle holds an Arc<Library> that keeps the dylib mapped.
@@ -274,7 +302,9 @@ impl PackageLoader {
             cache.push(handle);
         }
 
-        self.convert_plugin_metadata_to_rust(ffi_metadata)
+        let mut pkg = self.convert_plugin_metadata_to_rust(ffi_metadata)?;
+        pkg.declared_params = declared_params;
+        Ok(pkg)
     }
 
     /// Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
@@ -342,6 +372,9 @@ impl PackageLoader {
             architecture,
             symbols: vec!["fidius_get_registry".to_string()],
             workflow_triggers: meta.triggers,
+            // Populated by the caller via the input-interface entrypoint
+            // (extract_metadata_from_so); empty here.
+            declared_params: Vec::new(),
         })
     }
 

@@ -393,6 +393,9 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             architecture: std::env::consts::ARCH.to_string(),
             symbols: vec![],
             workflow_triggers: vec![],
+            // Filled at build success from the cdylib's input-interface
+            // entrypoint (CLOACI-I-0128); empty at upload.
+            declared_params: vec![],
         };
 
         let registry_id = self.storage.store_binary(package_data).await?;
@@ -465,6 +468,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             // This load path is for execution, not the pause gate; the gate
             // reads paused via the list/inspect paths. (CLOACI-T-0749)
             paused: false,
+            declared_params: package_metadata.declared_params.clone(),
         };
 
         Ok(Some(LoadedWorkflow {

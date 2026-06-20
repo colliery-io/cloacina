@@ -946,6 +946,7 @@ mod tests {
             architecture: "x86_64".to_string(),
             symbols: vec![],
             workflow_triggers: vec![],
+            declared_params: vec![],
         }
     }
 

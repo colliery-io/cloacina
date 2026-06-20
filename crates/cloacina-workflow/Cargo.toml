@@ -33,6 +33,10 @@ packaged = []
 
 [dependencies]
 cloacina-macros = { workspace = true, optional = true }
+# CLOACI-T-0756 / I-0128: InputSlot contract + JSON Schema generation, callable
+# from packaged cdylibs (which depend on cloacina-workflow, not core cloacina).
+cloacina-api-types = { workspace = true }
+schemars = { version = "0.8" }
 async-trait = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"

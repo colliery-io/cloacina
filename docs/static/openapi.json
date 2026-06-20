@@ -2877,6 +2877,36 @@
           }
         }
       },
+      "InputSlot": {
+        "type": "object",
+        "description": "One declared input slot of an injectable surface: a named, typed value the\nsurface accepts. `schema` is a JSON Schema fragment (the type descriptor —\n`schemars`-derived for Rust, type-hint-derived for Python) that the UI can\nrender a form from and the server can validate an injection against.\n\n`required` slots must be supplied; `default` (when present) is applied when a\nslot is omitted. A surface with no declared interface exposes an empty slot\nlist (the \"undeclared\" state) and accepts free-form input.",
+        "required": [
+          "name",
+          "schema",
+          "required"
+        ],
+        "properties": {
+          "default": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Optional default applied when the slot is omitted."
+          },
+          "name": {
+            "type": "string",
+            "description": "Slot name — the context key (workflows) or source/event name\n(accumulators/reactors)."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether this slot must be supplied for the injection to be accepted."
+          },
+          "schema": {
+            "type": "object",
+            "description": "JSON Schema fragment describing the accepted value's type."
+          }
+        }
+      },
       "KeyCreatedResponse": {
         "type": "object",
         "description": "`201 Created` body for a new API key. The plaintext `key` is returned\nexactly once — it cannot be retrieved again.",
@@ -4060,6 +4090,13 @@
           "created_at": {
             "type": "string",
             "description": "RFC 3339 timestamp."
+          },
+          "declared_params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InputSlot"
+            },
+            "description": "CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the\nworkflow accepts at execute time. Empty when undeclared. Lets the UI\nrender a typed execute form and the server validate context."
           },
           "description": {
             "type": [

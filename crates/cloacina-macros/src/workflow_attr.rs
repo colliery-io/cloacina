@@ -56,6 +56,18 @@ pub struct UnifiedWorkflowAttributes {
     /// reconciler binds each named trigger → this workflow at load time
     /// (replaces the manifest-side `[[triggers]]` table that T-E removes).
     pub triggers: Vec<String>,
+    /// CLOACI-I-0128 / T-0756: declared workflow params from
+    /// `#[workflow(params( name: Type [= default], … ))]`. Surfaced as
+    /// `InputSlot`s (JSON-Schema typed) via the input-interface FFI entrypoint.
+    pub params: Vec<WorkflowParam>,
+}
+
+/// One declared workflow parameter (CLOACI-I-0128). `default = None` means the
+/// param is required; `Some(expr)` makes it optional with that default.
+pub struct WorkflowParam {
+    pub name: String,
+    pub ty: syn::Type,
+    pub default: Option<syn::Expr>,
 }
 
 impl Parse for UnifiedWorkflowAttributes {
@@ -65,9 +77,48 @@ impl Parse for UnifiedWorkflowAttributes {
         let mut description = None;
         let mut author = None;
         let mut triggers: Vec<String> = Vec::new();
+        let mut params: Vec<WorkflowParam> = Vec::new();
 
         while !input.is_empty() {
             let field_name: Ident = input.parse()?;
+
+            // CLOACI-I-0128: `params( name: Type [= default], … )` uses call
+            // syntax (parens), not `field = value` — handle it before the `=`.
+            if field_name == "params" {
+                let content;
+                syn::parenthesized!(content in input);
+                while !content.is_empty() {
+                    let pname: Ident = content.parse()?;
+                    content.parse::<Token![:]>()?;
+                    let ty: syn::Type = content.parse()?;
+                    let default = if content.peek(Token![=]) {
+                        content.parse::<Token![=]>()?;
+                        Some(content.parse::<syn::Expr>()?)
+                    } else {
+                        None
+                    };
+                    let pname_str = pname.to_string();
+                    if params.iter().any(|p| p.name == pname_str) {
+                        return Err(syn::Error::new(
+                            pname.span(),
+                            format!("duplicate workflow param: '{}'", pname_str),
+                        ));
+                    }
+                    params.push(WorkflowParam {
+                        name: pname_str,
+                        ty,
+                        default,
+                    });
+                    if !content.is_empty() {
+                        content.parse::<Token![,]>()?;
+                    }
+                }
+                if !input.is_empty() {
+                    input.parse::<Token![,]>()?;
+                }
+                continue;
+            }
+
             input.parse::<Token![=]>()?;
 
             match field_name.to_string().as_str() {
@@ -103,7 +154,7 @@ impl Parse for UnifiedWorkflowAttributes {
                     return Err(syn::Error::new(
                         field_name.span(),
                         format!(
-                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author, triggers",
+                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author, triggers, params",
                             field_name
                         ),
                     ));
@@ -125,6 +176,7 @@ impl Parse for UnifiedWorkflowAttributes {
             description,
             author,
             triggers,
+            params,
         })
     }
 }
@@ -283,6 +335,44 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
     // `cloacina` re-exports `cloacina_workflow_plugin` for library mode;
     // packaged cdylibs depend on `cloacina-workflow-plugin` directly.
     let triggers_vec: Vec<String> = attrs.triggers.clone();
+
+    // CLOACI-I-0128 / T-0756: build the `params` descriptor fn for the
+    // WorkflowDescriptorEntry. Emitted once per crate-path context — embedded
+    // resolves through `cloacina`'s re-export, packaged through
+    // `cloacina-workflow` directly. The fn runs at metadata-extraction time and
+    // produces a JSON array of `InputSlot` (schemars-typed) for the params.
+    let make_params_fn = |prefix: TokenStream2| -> TokenStream2 {
+        let slot_exprs: Vec<TokenStream2> = attrs
+            .params
+            .iter()
+            .map(|p| {
+                let pname = &p.name;
+                let ty = &p.ty;
+                match &p.default {
+                    None => quote! {
+                        #prefix::InputSlot::required(#pname, #prefix::schema_for::<#ty>())
+                    },
+                    Some(def) => quote! {
+                        #prefix::InputSlot::optional(
+                            #pname,
+                            #prefix::schema_for::<#ty>(),
+                            #prefix::default_json(#def),
+                        )
+                    },
+                }
+            })
+            .collect();
+        quote! {
+            || {
+                let slots: ::std::vec::Vec<#prefix::InputSlot> =
+                    ::std::vec![ #(#slot_exprs),* ];
+                #prefix::slots_to_json(&slots)
+            }
+        }
+    };
+    let params_fn_embedded = make_params_fn(quote! { ::cloacina::input_interface });
+    let params_fn_packaged = make_params_fn(quote! { ::cloacina_workflow::input_interface });
+
     let workflow_descriptor_entry = quote! {
         #[cfg(not(feature = "packaged"))]
         ::cloacina::cloacina_workflow_plugin::inventory::submit! {
@@ -293,6 +383,7 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
                 fingerprint: #fingerprint,
                 graph_data_json: #graph_data_json,
                 triggers: || vec![#(#triggers_vec.to_string()),*],
+                params: #params_fn_embedded,
             }
         }
 
@@ -305,6 +396,7 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
                 fingerprint: #fingerprint,
                 graph_data_json: #graph_data_json,
                 triggers: || vec![#(#triggers_vec.to_string()),*],
+                params: #params_fn_packaged,
             }
         }
     };

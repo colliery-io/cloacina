@@ -349,6 +349,7 @@ pub async fn get_workflow(
                     build_status: ins.build_status,
                     build_error: ins.build_error,
                     paused: ins.metadata.paused,
+                    declared_params: ins.metadata.declared_params.clone(),
                 })
                 .into_response();
             }
@@ -399,6 +400,7 @@ pub async fn get_workflow(
                             build_status: ins.build_status,
                             build_error: ins.build_error,
                             paused: ins.metadata.paused,
+                            declared_params: ins.metadata.declared_params.clone(),
                         })
                         .into_response(),
                         Ok(None) => ApiError::not_found(

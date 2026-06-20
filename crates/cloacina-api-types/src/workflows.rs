@@ -148,6 +148,11 @@ pub struct WorkflowDetail {
     /// new executions until resumed.
     #[serde(default)]
     pub paused: bool,
+    /// CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the
+    /// workflow accepts at execute time. Empty when undeclared. Lets the UI
+    /// render a typed execute form and the server validate context.
+    #[serde(default)]
+    pub declared_params: Vec<crate::InputSlot>,
 }
 
 /// `POST /tenants/{tenant_id}/workflows/{name}/pause` and `/resume` response

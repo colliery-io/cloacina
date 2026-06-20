@@ -409,6 +409,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
+                declared_params: package_metadata.declared_params.clone(),
             });
         }
 
@@ -467,6 +468,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
+                declared_params: package_metadata.declared_params.clone(),
             });
         }
 
@@ -627,6 +629,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
+                declared_params: package_metadata.declared_params.clone(),
             };
 
             Ok(Some((
@@ -699,6 +702,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
+                declared_params: package_metadata.declared_params.clone(),
             };
 
             Ok(Some((
@@ -1012,6 +1016,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
+                declared_params: package_metadata.declared_params.clone(),
             },
             build_status: record.build_status,
             build_error: record.build_error,
@@ -1498,6 +1503,9 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         merged.architecture = extracted.architecture;
         merged.symbols = extracted.symbols;
         merged.workflow_triggers = extracted.workflow_triggers;
+        // CLOACI-I-0128: persist the declared input params from the cdylib's
+        // input-interface entrypoint.
+        merged.declared_params = extracted.declared_params;
 
         // CLOACI-T-0752: overlay compiler-parsed doc-comment "what & why" onto
         // the cdylib-extracted task list, matched by local id. FFI metadata
@@ -2185,6 +2193,7 @@ mod tests {
             architecture: "x86_64".to_string(),
             symbols: vec![],
             workflow_triggers: vec![],
+            declared_params: vec![],
         }
     }
 
