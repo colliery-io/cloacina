@@ -4,14 +4,14 @@ level: task
 title: "Injectable interfaces — docs + angreal test coverage"
 short_code: "CLOACI-T-0761"
 created_at: 2026-06-20T16:46:04.794689+00:00
-updated_at: 2026-06-20T16:46:04.794689+00:00
+updated_at: 2026-06-20T19:12:32.206998+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,34 @@ initiative_id: CLOACI-I-0128
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-20 — DONE + VERIFIED (workflow-params scope)
+
+Task G of [[CLOACI-I-0128]] — docs + test coverage for the shipped surface
+(workflow params A/B/C + accumulator inject T-0753). The accumulator/reactor
+*schema* coverage (D/E) and Python (F) parts are blocked, so this covers what's
+landed.
+
+**Tests:**
+- Closed B's deferred gap: the `analytics_workflow` example
+  (`examples/features/workflows/packaged-workflows`) now declares
+  `params(source_id: String, batch_size: u32 = 500)`, exercising the macro's
+  *populated* params codegen in packaged context.
+- New integration test `fidius_validation::test_input_interface_populated` —
+  loads the built cdylib, calls `get_input_interface` (method 9), and asserts the
+  workflow entry's slots: `source_id` (required, `string`) + `batch_size`
+  (optional, `integer`, default `500`). **Green** in the integration lane
+  (313 passed, 0 failed).
+- Execute-time validation already unit-tested in T-0757
+  (`input_validation_tests`, 5 cases).
+
+**Docs:** new how-to `docs/content/embed/how-to/declare-workflow-inputs.md` —
+`#[workflow(params(...))]` authoring (required vs optional+default), how params
+surface as `declared_params` `InputSlot`s, the `400 workflow_input_invalid`
+execute validation + its v1 scope, and the operator reactor-fire /
+accumulator-inject endpoints.
+
+Verified: `angreal test unit` + `angreal test integration` green; OpenAPI in sync.
+
+Follow-ups (not in scope here, tracked on their tasks): accumulator/reactor
+schema + validation docs/tests land with D (T-0758) / E (T-0759); Python docs +
+tests land with F (T-0760).

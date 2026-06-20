@@ -4,14 +4,14 @@ level: task
 title: "Python parity — type-hints to JSON Schema for params and boundaries"
 short_code: "CLOACI-T-0760"
 created_at: 2026-06-20T16:46:03.673640+00:00
-updated_at: 2026-06-20T16:46:03.673640+00:00
+updated_at: 2026-06-20T19:05:21.721870+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/blocked"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +135,33 @@ initiative_id: CLOACI-I-0128
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-20 — Scoped; BLOCKED on a Python authoring-model decision (+ D for boundaries)
+
+Task F of [[CLOACI-I-0128]] — Python parity for declared params (and boundaries).
+Recon of the Python authoring path:
+- Python workflows are built via `PyWorkflowBuilder`
+  (`crates/cloacina-python/src/workflow.rs`): `new(name, *, tenant, package,
+  workflow)`, `.description()`, `.tag()`, `.add_task()`, `.build()`. It wraps the
+  **embedded** `cloacina::Workflow::builder` — NOT the packaged cdylib FFI, so
+  Python params can't reuse B's `get_input_interface` entrypoint; they need their
+  own carry into `WorkflowMetadata.declared_params`.
+- There is **no param-declaration surface** today, and the builder has no
+  type-hinted input signature to read (Python workflows operate on a context
+  dict). So "type-hints → JSON Schema" needs a concrete decision on the
+  declaration mechanism + the schema source:
+
+**Decision needed (Python authoring-model):**
+1. How params are declared — a builder method (`.param(name, schema, default)` /
+   `params=` kwarg) vs a typed input model the author attaches.
+2. The type→JSON-Schema mechanism — **pydantic** (`model_json_schema()`, natural
+   + rich, adds a dep/expectation) vs **dataclass + a hand-rolled mapping**
+   (lean, limited) vs author-supplied raw JSON Schema (no inference).
+
+This is a real design call, and Python is a core capability ([[project_python_is_core]]),
+so it shouldn't be invented unilaterally. The **boundaries** half additionally
+depends on D ([[CLOACI-T-0758]], blocked). The Rust workflow-params path (B/C) is
+the reference; once the Python model is chosen, the carry into `declared_params`
++ the execute-time validation (mirroring T-0757) port directly.
+
+**Blocked** pending the authoring-model decision (params half) and D (boundaries
+half).

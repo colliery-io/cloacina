@@ -52,7 +52,13 @@ cloacina_workflow_plugin::package!();
 #[workflow(
     name = "analytics_workflow",
     description = "Analytics and data processing pipeline",
-    author = "Analytics Team <analytics@company.com>"
+    author = "Analytics Team <analytics@company.com>",
+    // CLOACI-I-0128: declared input params — surfaced as JSON-Schema-typed
+    // InputSlots via the input-interface FFI entrypoint and validated at execute.
+    params(
+        source_id: String,
+        batch_size: u32 = 500,
+    )
 )]
 pub mod analytics_workflow {
     use super::*;
@@ -61,10 +67,7 @@ pub mod analytics_workflow {
     ///
     /// This task handles data ingestion from various sources including databases,
     /// APIs, and file systems. Data is normalized and prepared for processing.
-    #[task(
-        retry_attempts = 3,
-        retry_backoff = "exponential"
-    )]
+    #[task(retry_attempts = 3, retry_backoff = "exponential")]
     pub async fn extract_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         println!("🔍 Extracting data from sources...");
 

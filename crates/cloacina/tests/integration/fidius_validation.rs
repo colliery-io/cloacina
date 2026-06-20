@@ -20,7 +20,9 @@
 //! wire format validation, graceful rejection of non-fidius dylibs) work
 //! correctly in the cloacina context.
 
-use cloacina_workflow_plugin::{PackageTasksMetadata, TaskExecutionRequest, TaskExecutionResult};
+use cloacina_workflow_plugin::{
+    InputInterfaceDescriptor, PackageTasksMetadata, TaskExecutionRequest, TaskExecutionResult,
+};
 
 /// Find the pre-built debug dylib for the packaged-workflows example.
 fn find_packaged_workflow_dylib() -> Option<std::path::PathBuf> {
@@ -256,4 +258,60 @@ fn test_plugin_info_populated() {
         plugin.method_count, 10,
         "Should have 10 methods (get_task_metadata, execute_task, get_graph_metadata, execute_graph, get_reactor_metadata, get_trigger_metadata, invoke_trigger_poll, get_triggerless_graph_metadata, invoke_triggerless_graph, get_input_interface)"
     );
+}
+
+/// CLOACI-I-0128 / T-0756 (verified in T-0761): the `get_input_interface` FFI
+/// entrypoint returns the workflow's declared params as JSON-Schema-typed
+/// `InputSlot`s. Exercises the macro's *populated* params codegen end-to-end
+/// (the `analytics_workflow` fixture declares `params(source_id: String,
+/// batch_size: u32 = 500)`).
+#[test]
+fn test_input_interface_populated() {
+    let dylib_path = match find_packaged_workflow_dylib() {
+        Some(p) => p,
+        None => {
+            eprintln!("Skipping: packaged-workflows example not built");
+            return;
+        }
+    };
+
+    let loaded =
+        fidius_host::loader::load_library(&dylib_path).expect("Failed to load plugin library");
+    let plugin = loaded.plugins.into_iter().next().unwrap();
+    let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+    // Method index 9 = get_input_interface (optional since interface v3).
+    let desc: InputInterfaceDescriptor = handle
+        .call_method(cloacina_workflow_plugin::METHOD_GET_INPUT_INTERFACE, &())
+        .expect("Failed to call get_input_interface");
+
+    let wf = desc
+        .entries
+        .iter()
+        .find(|e| e.surface_kind == "workflow")
+        .expect("expected a workflow input-interface entry");
+
+    let slots: Vec<serde_json::Value> =
+        serde_json::from_str(&wf.slots_json).expect("slots_json should be a JSON array");
+    assert_eq!(
+        slots.len(),
+        2,
+        "expected 2 declared params, got {:?}",
+        slots
+    );
+
+    let source_id = slots
+        .iter()
+        .find(|s| s["name"] == "source_id")
+        .expect("source_id slot present");
+    assert_eq!(source_id["required"], serde_json::json!(true));
+    assert_eq!(source_id["schema"]["type"], serde_json::json!("string"));
+
+    let batch_size = slots
+        .iter()
+        .find(|s| s["name"] == "batch_size")
+        .expect("batch_size slot present");
+    assert_eq!(batch_size["required"], serde_json::json!(false));
+    assert_eq!(batch_size["schema"]["type"], serde_json::json!("integer"));
+    assert_eq!(batch_size["default"], serde_json::json!(500));
 }

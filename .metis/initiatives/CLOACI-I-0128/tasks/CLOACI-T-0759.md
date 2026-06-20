@@ -4,14 +4,14 @@ level: task
 title: "Typed injection validation — reactor fire + accumulator inject against derived schema"
 short_code: "CLOACI-T-0759"
 created_at: 2026-06-20T16:46:02.725645+00:00
-updated_at: 2026-06-20T16:46:02.725645+00:00
+updated_at: 2026-06-20T19:04:02.672457+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/blocked"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +135,17 @@ initiative_id: CLOACI-I-0128
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-20 — BLOCKED on T-0758 (D)
+
+Task E of [[CLOACI-I-0128]] — validate reactor-fire / accumulator-inject payloads
+against the surfaces' **derived schemas**. Those schemas come from D
+([[CLOACI-T-0758]]), which is **blocked** on the boundary-`JsonSchema` authoring
+decision. Without derived accumulator/reactor schemas there is nothing to
+validate against.
+
+The injection surfaces themselves exist and accept **untyped** JSON today
+(reactor fire = T-0751; accumulator inject = [[CLOACI-T-0753]], done). The
+validation helper pattern is already proven for workflows
+(`validate_declared_params` in `routes/executions.rs`, T-0757) and will port
+directly to the CG-health handlers once D supplies the schemas. Unblock D, then
+this is a small, mechanical follow-on.
