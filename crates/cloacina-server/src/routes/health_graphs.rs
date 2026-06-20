@@ -36,7 +36,7 @@ use cloacina::computation_graph::types::{serialize as serialize_boundary, InputC
 use cloacina::security::audit;
 use cloacina_api_types::{
     AccumulatorStatus, FireMode, FireReactorRequest, FireReactorResponse, GraphStatus,
-    ListResponse, ReactorStatus,
+    InjectAccumulatorRequest, InjectAccumulatorResponse, ListResponse, ReactorStatus,
 };
 
 use crate::routes::auth::AuthenticatedKey;
@@ -425,6 +425,88 @@ pub async fn fire_reactor(
             )
             .into_response()
         }
+    }
+}
+
+/// POST /v1/health/accumulators/{name}/inject — push a single typed event into
+/// a running accumulator (CLOACI-T-0753).
+///
+/// Operator-facing REST analogue of the WS accumulator-push path. The typed JSON
+/// `event` is serialized to the boundary wire encoding server-side (same framing
+/// as the front-door accumulator socket), so operators never craft raw
+/// `Vec<u8>`. Authorization reuses the accumulator endpoint policy — the same
+/// gate the WS accumulator endpoint enforces. Successful injects are
+/// audit-logged and marked `operator_injected` since they bypass the real event
+/// source.
+#[utoipa::path(
+    post,
+    path = "/v1/health/accumulators/{name}/inject",
+    tag = "graph-health",
+    params(("name" = String, Path, description = "Accumulator name")),
+    request_body = InjectAccumulatorRequest,
+    responses(
+        (status = 200, description = "Event injected", body = InjectAccumulatorResponse),
+        (status = 400, description = "Invalid event payload", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Not authorized for this accumulator", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Accumulator not found", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn inject_accumulator(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path(name): Path<String>,
+    Json(req): Json<InjectAccumulatorRequest>,
+) -> impl IntoResponse {
+    let ctx = key_context(&auth);
+
+    // Endpoint authZ — same policy the WS accumulator endpoint enforces.
+    if state
+        .endpoint_registry
+        .check_accumulator_auth(&name, &ctx)
+        .await
+        .is_err()
+    {
+        return ApiError::forbidden(
+            "accumulator_access_denied",
+            format!("not authorized for accumulator '{}'", name),
+        )
+        .into_response();
+    }
+
+    // Serialize the typed JSON event to the boundary wire encoding server-side.
+    let boundary = match encode_boundary_input(&req.event) {
+        Ok(b) => b,
+        Err(e) => return ApiError::bad_request("invalid_input", e).into_response(),
+    };
+
+    match state
+        .endpoint_registry
+        .send_to_accumulator(&name, boundary)
+        .await
+    {
+        Ok(delivered) => {
+            audit::log_accumulator_manual_inject(
+                &name,
+                auth.key_id.into(),
+                &auth.name,
+                auth.tenant_id.as_deref(),
+                delivered,
+            );
+            Json(InjectAccumulatorResponse {
+                accumulator: name,
+                delivered,
+            })
+            .into_response()
+        }
+        // The registry only fails here if the accumulator isn't registered or
+        // its channels are closed — surface as not-found.
+        Err(e) => ApiError::not_found(
+            "accumulator_not_found",
+            format!("accumulator '{}' not available: {}", name, e),
+        )
+        .into_response(),
     }
 }
 

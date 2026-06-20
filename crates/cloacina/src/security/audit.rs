@@ -85,6 +85,11 @@ pub mod events {
     /// because a manual fire bypasses the real event source — the audit
     /// trail must mark the graph activity as operator-injected.
     pub const REACTOR_MANUAL_FIRE: &str = "reactor.manual_fire";
+
+    /// Operator manually injected an event into an accumulator over REST
+    /// (CLOACI-T-0753). Like the reactor manual-fire, this bypasses the real
+    /// event source, so the audit trail marks it operator-injected.
+    pub const ACCUMULATOR_MANUAL_INJECT: &str = "accumulator.manual_inject";
 }
 
 /// Log a signing key creation event.
@@ -407,6 +412,26 @@ pub fn log_reactor_manual_fire(
         sources = %sources.join(","),
         operator_injected = true,
         "Operator manually fired reactor"
+    );
+}
+
+/// Audit an operator's manual REST injection into an accumulator (CLOACI-T-0753).
+pub fn log_accumulator_manual_inject(
+    accumulator: &str,
+    key_id: UniversalUuid,
+    key_name: &str,
+    tenant_id: Option<&str>,
+    delivered: usize,
+) {
+    tracing::warn!(
+        event_type = events::ACCUMULATOR_MANUAL_INJECT,
+        accumulator = %accumulator,
+        key_id = %key_id,
+        key_name = %key_name,
+        tenant_id = tenant_id.unwrap_or("<none>"),
+        delivered = delivered,
+        operator_injected = true,
+        "Operator manually injected an accumulator event"
     );
 }
 

@@ -33,7 +33,8 @@ mod shared;
 use shared::error::CliError;
 
 use nouns::{
-    compiler, daemon, execution, graph, key, package, reactor, server, tenant, trigger, workflow,
+    accumulator, compiler, daemon, execution, graph, key, package, reactor, server, tenant,
+    trigger, workflow,
 };
 
 /// cloacinactl — Cloacina task orchestration engine
@@ -129,6 +130,9 @@ enum Commands {
 
     /// Reactor — operator manual fire (force-fire / fire-with typed input)
     Reactor(reactor::ReactorCmd),
+
+    /// Accumulator — operator manual event inject (typed JSON)
+    Accumulator(accumulator::AccumulatorCmd),
 
     /// Execution — runtime instances of a workflow
     Execution(execution::ExecutionCmd),
@@ -250,6 +254,7 @@ async fn run() -> std::result::Result<(), CliError> {
         Commands::Compiler(cmd) => cmd.run(&cli.globals).await,
         Commands::Graph(cmd) => return cmd.run(&cli.globals).await,
         Commands::Reactor(cmd) => return cmd.run(&cli.globals).await,
+        Commands::Accumulator(cmd) => return cmd.run(&cli.globals).await,
         Commands::Package(cmd) => return cmd.run(&cli.globals).await,
         Commands::Workflow(cmd) => return cmd.run(&cli.globals).await,
         Commands::Execution(cmd) => return cmd.run(&cli.globals).await,

@@ -1217,6 +1217,12 @@ fn build_router(state: AppState) -> Router {
             "/health/reactors/{name}/fire",
             post(crate::routes::health_graphs::fire_reactor),
         )
+        // Operator manual accumulator inject (CLOACI-T-0753) — REST analogue of
+        // the WS accumulator-push path; typed JSON event, server-side encoding.
+        .route(
+            "/health/accumulators/{name}/inject",
+            post(crate::routes::health_graphs::inject_accumulator),
+        )
         .route(
             "/health/graphs",
             get(crate::routes::health_graphs::list_graphs),

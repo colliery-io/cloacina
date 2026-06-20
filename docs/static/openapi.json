@@ -418,6 +418,94 @@
         ]
       }
     },
+    "/v1/health/accumulators/{name}/inject": {
+      "post": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "POST /v1/health/accumulators/{name}/inject — push a single typed event into\na running accumulator (CLOACI-T-0753).",
+        "description": "Operator-facing REST analogue of the WS accumulator-push path. The typed JSON\n`event` is serialized to the boundary wire encoding server-side (same framing\nas the front-door accumulator socket), so operators never craft raw\n`Vec<u8>`. Authorization reuses the accumulator endpoint policy — the same\ngate the WS accumulator endpoint enforces. Successful injects are\naudit-logged and marked `operator_injected` since they bypass the real event\nsource.",
+        "operationId": "inject_accumulator",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Accumulator name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InjectAccumulatorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Event injected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InjectAccumulatorResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid event payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized for this accumulator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Accumulator not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/health/graphs": {
       "get": {
         "tags": [
@@ -2874,6 +2962,37 @@
               "type": "string"
             },
             "description": "Accumulator names this node reads from the input cache (entry nodes)."
+          }
+        }
+      },
+      "InjectAccumulatorRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/health/accumulators/{name}/inject` (CLOACI-T-0753)\n— push a single typed event into a running accumulator, the operator-facing\nREST analogue of the WS accumulator-push path. The JSON `event` is serialized\nto the boundary wire encoding server-side, so operators never craft raw\n`Vec<u8>`.",
+        "required": [
+          "event"
+        ],
+        "properties": {
+          "event": {
+            "description": "The event payload (any JSON) to push to the accumulator."
+          }
+        }
+      },
+      "InjectAccumulatorResponse": {
+        "type": "object",
+        "description": "Response body for a successful accumulator inject (CLOACI-T-0753).",
+        "required": [
+          "accumulator",
+          "delivered"
+        ],
+        "properties": {
+          "accumulator": {
+            "type": "string",
+            "description": "Echoes the accumulator name the event was pushed to."
+          },
+          "delivered": {
+            "type": "integer",
+            "description": "Number of receivers the event was delivered to.",
+            "minimum": 0
           }
         }
       },

@@ -100,3 +100,25 @@ pub struct FireReactorResponse {
     /// Source names whose values were injected (empty for `force_fire`).
     pub sources_injected: Vec<String>,
 }
+
+/// Request body for `POST /v1/health/accumulators/{name}/inject` (CLOACI-T-0753)
+/// — push a single typed event into a running accumulator, the operator-facing
+/// REST analogue of the WS accumulator-push path. The JSON `event` is serialized
+/// to the boundary wire encoding server-side, so operators never craft raw
+/// `Vec<u8>`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct InjectAccumulatorRequest {
+    /// The event payload (any JSON) to push to the accumulator.
+    pub event: serde_json::Value,
+}
+
+/// Response body for a successful accumulator inject (CLOACI-T-0753).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct InjectAccumulatorResponse {
+    /// Echoes the accumulator name the event was pushed to.
+    pub accumulator: String,
+    /// Number of receivers the event was delivered to.
+    pub delivered: usize,
+}

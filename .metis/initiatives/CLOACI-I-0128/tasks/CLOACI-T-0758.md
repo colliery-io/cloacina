@@ -4,14 +4,14 @@ level: task
 title: "Accumulator and reactor input interface derivation + API exposure"
 short_code: "CLOACI-T-0758"
 created_at: 2026-06-20T16:46:01.362198+00:00
-updated_at: 2026-06-20T18:41:05.073405+00:00
+updated_at: 2026-06-20T18:49:16.892697+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/blocked"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -169,3 +171,34 @@ hard de-risking (FFI entrypoint, schema_for, wire types) is already done in A/B.
 **Paused here** at a clean boundary — A/B/C (workflow vertical) shipped + verified
 + committed; D is a fresh focused vertical, resumable from this grounded spec.
 Gates E (T-0759) typed accumulator/reactor injection validation.
+
+### 2026-06-20 — BLOCKED: boundary types need `JsonSchema` (CG authoring change)
+
+Deeper recon found a genuine wall, distinct from B's. The reactor/accumulator
+**boundary types are captured at the `#[computation_graph]` macro** (node-fn
+signatures, e.g. `compute(alpha: Option<&AlphaIn>) -> ReactorOutput` → source
+`alpha` has type `AlphaIn`), NOT via `#[passthrough_accumulator]` (mixed-rust
+doesn't use it; `accumulators=[alpha]` is name-only and packaged
+`AccumulatorDeclarationEntry` is `{name, type-category, config}` — no Rust type).
+
+The blocker: those boundary types (`AlphaIn`, `ReactorOutput`, …) derive only
+`Serialize`/`Deserialize` — **not `schemars::JsonSchema`**. `schema_for::<T>()`
+requires `T: JsonSchema` at compile time, with no stable way to do it
+opportunistically. So deriving accumulator/reactor schemas requires **making
+`JsonSchema` a required bound on every CG boundary type** — a breaking change to
+the CG authoring contract + `#[derive(JsonSchema)]` across all CG examples/
+fixtures. That is the in-flux fidius/CG authoring surface, and it's a
+maintainer-level authoring decision (unlike B's clean optional method).
+
+**Options:**
+1. Require boundary types to derive `JsonSchema` (macro requires/auto-adds it;
+   update all CG fixtures). Sizable; changes the CG authoring contract.
+2. Defer D until the CG authoring settles (fidius shift); ship accumulator/
+   reactor surfaces as **names-only** (no rich schema) for now, or not at all.
+3. Best-effort schemas — not feasible: `schema_for` needs the compile-time bound;
+   no stable specialization to skip types lacking it.
+
+Gates **E (T-0759)** (typed accumulator/reactor injection validation). Does NOT
+gate **T-0753** (untyped accumulator injection endpoint), **F** (workflow-params
+Python), or **G** (workflow docs/tests) — the loop continues on those.
+Blocked pending the maintainer's call on the boundary-`JsonSchema` requirement.

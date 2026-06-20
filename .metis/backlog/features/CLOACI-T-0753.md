@@ -4,15 +4,15 @@ level: task
 title: "Operator-facing accumulator injection (REST) — open the design phase"
 short_code: "CLOACI-T-0753"
 created_at: 2026-06-20T14:58:36.073841+00:00
-updated_at: 2026-06-20T14:58:36.073841+00:00
+updated_at: 2026-06-20T19:02:58.604640+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -75,6 +75,12 @@ validate against.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] Documented design for operator-facing accumulator injection (endpoint
       shape, input typing, auth, audit), agreed with the maintainer.
 - [ ] (Implementation, once design lands) REST endpoint + optional CLI verb that
@@ -89,4 +95,26 @@ validate against.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-06-20 — DONE + VERIFIED (folded into the I-0128 PR)
+
+Operator-facing accumulator inject surface, mirroring the reactor fire endpoint
+(T-0751):
+- **REST**: `POST /v1/health/accumulators/{name}/inject`
+  (`health_graphs.rs::inject_accumulator`) — typed JSON `event` serialized to the
+  boundary encoding server-side (`encode_boundary_input`), pushed via
+  `EndpointRegistry::send_to_accumulator`. Reuses `check_accumulator_auth` (same
+  gate as the WS path); 400 invalid / 403 denied / 404 not-found.
+- **api-types**: `InjectAccumulatorRequest { event }` /
+  `InjectAccumulatorResponse { accumulator, delivered }` (+ OpenAPI; spec in sync).
+- **Audit**: `audit::log_accumulator_manual_inject` + event
+  `accumulator.manual_inject`, marked `operator_injected`.
+- **CLI**: `cloacinactl accumulator inject <name> --event <json>` (new
+  `accumulator` noun, parallels `reactor`).
+
+Verified: `cargo check` clean (cloacina/api-types/server/cloacinactl);
+`angreal test unit` + `angreal test integration` (312+98+6, 0 failed) green;
+OpenAPI regenerated + in sync.
+
+Note: this is the **untyped** inject surface (any JSON event). Validating the
+event against the accumulator's declared schema is **CLOACI-T-0759 (E)**, gated
+on **T-0758 (D)** (blocked on the boundary-`JsonSchema` authoring decision).
