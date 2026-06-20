@@ -56,6 +56,9 @@ parking_lot = { version = "0.12" }
 rdkafka = { version = "0.39", features = ["tokio"], optional = true }
 petgraph = { version = "0.6" }
 rand = { version = "0.8" }
+# CLOACI-T-0755 / I-0128: derive JSON Schema from Rust types for the injectable
+# input interface (workflow params, accumulator/reactor boundaries).
+schemars = { version = "0.8" }
 serde = { version = "1.0", features = ["derive"] }
 base64 = { version = "0.22" }
 dirs = { version = "5.0" }

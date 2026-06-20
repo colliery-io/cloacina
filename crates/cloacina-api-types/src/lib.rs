@@ -38,6 +38,7 @@ pub mod error;
 pub mod executions;
 pub mod fleet;
 pub mod health;
+pub mod input_interface;
 pub mod keys;
 pub mod operations;
 pub mod reactor;
@@ -58,6 +59,7 @@ pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
     ReactorStatus,
 };
+pub use input_interface::InputSlot;
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
 };
