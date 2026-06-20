@@ -1210,6 +1210,13 @@ fn build_router(state: AppState) -> Router {
             "/health/reactors",
             get(crate::routes::health_graphs::list_reactors),
         )
+        // Operator manual reactor fire (CLOACI-T-0751) — REST surface over the
+        // existing reactor ForceFire/FireWith mechanics. Per-op authZ + audit
+        // live in the handler; the route-layer auth below supplies the key.
+        .route(
+            "/health/reactors/{name}/fire",
+            post(crate::routes::health_graphs::fire_reactor),
+        )
         .route(
             "/health/graphs",
             get(crate::routes::health_graphs::list_graphs),

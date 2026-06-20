@@ -62,7 +62,9 @@ pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
 };
 pub use operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
-pub use reactor::{ReactorCommand, ReactorResponse};
+pub use reactor::{
+    FireMode, FireReactorRequest, FireReactorResponse, ReactorCommand, ReactorResponse,
+};
 pub use tenants::{
     CreateTenantRequest, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,
 };

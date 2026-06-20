@@ -30,8 +30,14 @@ use axum::{
     Extension, Json,
 };
 
-use cloacina::computation_graph::registry::KeyContext;
-use cloacina_api_types::{AccumulatorStatus, GraphStatus, ListResponse, ReactorStatus};
+use cloacina::computation_graph::reactor::ManualCommand;
+use cloacina::computation_graph::registry::{KeyContext, ReactorOp};
+use cloacina::computation_graph::types::{serialize as serialize_boundary, InputCache, SourceName};
+use cloacina::security::audit;
+use cloacina_api_types::{
+    AccumulatorStatus, FireMode, FireReactorRequest, FireReactorResponse, GraphStatus,
+    ListResponse, ReactorStatus,
+};
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
@@ -267,6 +273,161 @@ pub async fn get_graph(
     }
 }
 
+/// Encode one typed operator input into the boundary wire frame the reactor's
+/// `InputCache` holds (CLOACI-T-0751).
+///
+/// This reproduces the front-door encoding exactly: the passthrough
+/// accumulator forwards the raw event bytes (JSON text from the WebSocket) and
+/// the `BoundarySender` bincode-serializes them as `Vec<u8>`. The FFI bridge
+/// then recovers the original bytes via `bincode::deserialize::<Vec<u8>>` and
+/// reads them as UTF-8 JSON (see `packaging_bridge::execute_graph_via_ffi`).
+/// So the frame an operator's typed value must become is
+/// `bincode(serde_json::to_vec(value))`.
+fn encode_boundary_input(value: &serde_json::Value) -> Result<Vec<u8>, String> {
+    let json_bytes =
+        serde_json::to_vec(value).map_err(|e| format!("failed to encode JSON: {}", e))?;
+    serialize_boundary(&json_bytes).map_err(|e| format!("failed to encode boundary: {}", e))
+}
+
+/// POST /v1/health/reactors/{name}/fire — manually fire a running reactor
+/// (CLOACI-T-0751).
+///
+/// Operator-facing REST surface over the existing reactor `ForceFire` /
+/// `FireWith` mechanics (previously WebSocket-only). Two modes:
+///
+/// - `force_fire`: fire the graph with the reactor's current cache, untouched.
+/// - `fire_with`: replace the reactor's cache with the supplied typed `inputs`
+///   then fire. Full-replace only (mirrors the engine's `replace_all`); there
+///   is no partial/merge mode in v1.
+///
+/// Typed JSON `inputs` are serialized to the boundary wire encoding
+/// server-side so operators never deal in raw `Vec<u8>`. Each source value is
+/// encoded exactly as the front-door accumulator path encodes it: the JSON is
+/// rendered to UTF-8 bytes, then those bytes are bincode-wrapped
+/// (`bincode(Vec<u8>)`) — the format the passthrough accumulator and the FFI
+/// bridge expect.
+///
+/// Authorization reuses the existing per-op reactor policy
+/// (`ReactorOp::ForceFire` / `ReactorOp::FireWith`), the same gate the WS
+/// reactor endpoint enforces. Successful fires are audit-logged and marked
+/// `operator_injected` since they bypass the real event source.
+#[utoipa::path(
+    post,
+    path = "/v1/health/reactors/{name}/fire",
+    tag = "graph-health",
+    params(("name" = String, Path, description = "Reactor name")),
+    request_body = FireReactorRequest,
+    responses(
+        (status = 200, description = "Reactor fired", body = FireReactorResponse),
+        (status = 400, description = "Invalid input payload", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Operation not permitted on this reactor", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Reactor not found", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn fire_reactor(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path(name): Path<String>,
+    Json(req): Json<FireReactorRequest>,
+) -> impl IntoResponse {
+    let ctx = key_context(&auth);
+
+    // Per-op authZ — reuse the same policy the WS reactor endpoint enforces.
+    let op = match req.mode {
+        FireMode::ForceFire => ReactorOp::ForceFire,
+        FireMode::FireWith => ReactorOp::FireWith,
+    };
+    if state
+        .endpoint_registry
+        .check_reactor_op_auth(&name, &ctx, &op)
+        .await
+        .is_err()
+    {
+        // 403 (not 404) mirrors the WS path, which reports the op as not
+        // permitted rather than concealing the reactor's existence. Auth is
+        // already required by the route layer, so the caller is known.
+        return ApiError::forbidden(
+            "reactor_op_denied",
+            format!("operation {:?} not permitted on reactor '{}'", op, name),
+        )
+        .into_response();
+    }
+
+    // Build the manual command. For `fire_with`, serialize each typed JSON
+    // value to the boundary encoding server-side.
+    let (command, sources_injected) = match req.mode {
+        FireMode::ForceFire => (ManualCommand::ForceFire, Vec::new()),
+        FireMode::FireWith => {
+            if req.inputs.is_empty() {
+                return ApiError::bad_request(
+                    "empty_inputs",
+                    "mode 'fire_with' requires a non-empty 'inputs' map",
+                )
+                .into_response();
+            }
+
+            let mut cache = InputCache::new();
+            let mut sources: Vec<String> = Vec::with_capacity(req.inputs.len());
+            for (source, value) in req.inputs {
+                // Render the typed JSON to bytes, then wrap in the bincode
+                // boundary frame the accumulator/FFI bridge expects.
+                let boundary = match encode_boundary_input(&value) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return ApiError::bad_request(
+                            "invalid_input",
+                            format!("source '{}': {}", source, e),
+                        )
+                        .into_response();
+                    }
+                };
+                cache.update(SourceName::new(&source), boundary);
+                sources.push(source);
+            }
+            sources.sort();
+            (ManualCommand::FireWith(cache), sources)
+        }
+    };
+
+    match state
+        .endpoint_registry
+        .send_to_reactor(&name, command)
+        .await
+    {
+        Ok(()) => {
+            audit::log_reactor_manual_fire(
+                &name,
+                auth.key_id.into(),
+                &auth.name,
+                auth.tenant_id.as_deref(),
+                if matches!(req.mode, FireMode::ForceFire) {
+                    "force_fire"
+                } else {
+                    "fire_with"
+                },
+                &sources_injected,
+            );
+            Json(FireReactorResponse {
+                reactor: name,
+                mode: req.mode,
+                sources_injected,
+            })
+            .into_response()
+        }
+        Err(e) => {
+            // The registry only fails here if the reactor isn't registered
+            // or its command channel is closed — surface as not-found.
+            ApiError::not_found(
+                "reactor_not_found",
+                format!("reactor '{}' not available: {}", name, e),
+            )
+            .into_response()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,5 +464,21 @@ mod tests {
         let a = auth(None, false);
         assert!(graph_visible(&a, None));
         assert!(!graph_visible(&a, Some("acme")));
+    }
+
+    /// The boundary frame a typed input becomes must round-trip back to the
+    /// same JSON the FFI bridge reads: bincode-decode to `Vec<u8>`, then parse
+    /// as UTF-8 JSON. CLOACI-T-0751.
+    #[test]
+    fn boundary_input_roundtrips_like_ffi_bridge() {
+        let value = serde_json::json!({"symbol": "ABC", "price": 12.5, "live": true});
+        let frame = encode_boundary_input(&value).expect("encode");
+
+        // Mirror packaging_bridge::execute_graph_via_ffi.
+        let original_bytes: Vec<u8> = bincode::deserialize(&frame).expect("bincode decode");
+        let json_str = String::from_utf8(original_bytes).expect("utf8");
+        let decoded: serde_json::Value = serde_json::from_str(&json_str).expect("json parse");
+
+        assert_eq!(decoded, value);
     }
 }

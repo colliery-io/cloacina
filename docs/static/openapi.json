@@ -547,6 +547,94 @@
         ]
       }
     },
+    "/v1/health/reactors/{name}/fire": {
+      "post": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "POST /v1/health/reactors/{name}/fire — manually fire a running reactor\n(CLOACI-T-0751).",
+        "description": "Operator-facing REST surface over the existing reactor `ForceFire` /\n`FireWith` mechanics (previously WebSocket-only). Two modes:\n\n- `force_fire`: fire the graph with the reactor's current cache, untouched.\n- `fire_with`: replace the reactor's cache with the supplied typed `inputs`\n  then fire. Full-replace only (mirrors the engine's `replace_all`); there\n  is no partial/merge mode in v1.\n\nTyped JSON `inputs` are serialized to the boundary wire encoding\nserver-side so operators never deal in raw `Vec<u8>`. Each source value is\nencoded exactly as the front-door accumulator path encodes it: the JSON is\nrendered to UTF-8 bytes, then those bytes are bincode-wrapped\n(`bincode(Vec<u8>)`) — the format the passthrough accumulator and the FFI\nbridge expect.\n\nAuthorization reuses the existing per-op reactor policy\n(`ReactorOp::ForceFire` / `ReactorOp::FireWith`), the same gate the WS\nreactor endpoint enforces. Successful fires are audit-logged and marked\n`operator_injected` since they bypass the real event source.",
+        "operationId": "fire_reactor",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Reactor name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FireReactorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reactor fired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FireReactorResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operation not permitted on this reactor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Reactor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants": {
       "get": {
         "tags": [
@@ -2595,6 +2683,58 @@
           },
           "tenant_id": {
             "type": "string"
+          }
+        }
+      },
+      "FireMode": {
+        "type": "string",
+        "description": "How a manual REST fire should populate the reactor's input cache.\n\nCLOACI-T-0751. Mirrors the two WS write commands (`ForceFire` /\n`FireWith`) but with operator-friendly, typed input.",
+        "enum": [
+          "force_fire",
+          "fire_with"
+        ]
+      },
+      "FireReactorRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/health/reactors/{name}/fire` (CLOACI-T-0751).\n\nOperators supply typed JSON per source; the server serializes each value\nto the boundary wire encoding so callers never deal in raw `Vec<u8>`.",
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "description": "Per-source typed payloads, keyed by accumulator source name. Each\nJSON value is serialized to the boundary encoding server-side.\nRequired (and non-empty) when `mode` is `fire_with`; ignored for\n`force_fire`. Each value may be any JSON.",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "$ref": "#/components/schemas/FireMode",
+            "description": "Whether to fire with the current cache (`force_fire`) or to inject\n`inputs` first (`fire_with`). Defaults to `force_fire`."
+          }
+        }
+      },
+      "FireReactorResponse": {
+        "type": "object",
+        "description": "Response body for a successful manual reactor fire (CLOACI-T-0751).",
+        "required": [
+          "reactor",
+          "mode",
+          "sources_injected"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/FireMode",
+            "description": "The mode that was applied."
+          },
+          "reactor": {
+            "type": "string",
+            "description": "Echoes the reactor name that was fired."
+          },
+          "sources_injected": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Source names whose values were injected (empty for `force_fire`)."
           }
         }
       },
