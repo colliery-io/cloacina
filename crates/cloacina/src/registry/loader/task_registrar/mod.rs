@@ -297,6 +297,8 @@ mod tests {
                 dependencies: Vec::new(),
                 description: format!("Test task {}", i),
                 source_location: "test.rs:1".to_string(),
+                doc_what: None,
+                doc_why: None,
             })
             .collect();
 

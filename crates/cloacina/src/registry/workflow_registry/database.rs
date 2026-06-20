@@ -49,6 +49,8 @@ pub(super) fn build_task_graph(
             } else {
                 Some(t.description.clone())
             },
+            doc_what: t.doc_what.clone(),
+            doc_why: t.doc_why.clone(),
         })
         .collect()
 }
@@ -406,6 +408,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
+                paused: record.paused.is_true(),
             });
         }
 
@@ -463,6 +466,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
+                paused: record.paused.is_true(),
             });
         }
 
@@ -622,6 +626,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
+                paused: record.paused.is_true(),
             };
 
             Ok(Some((
@@ -693,6 +698,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
+                paused: record.paused.is_true(),
             };
 
             Ok(Some((
@@ -1005,6 +1011,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 schedules: Vec::new(),
                 created_at: record.created_at.0,
                 updated_at: record.updated_at.0,
+                paused: record.paused.is_true(),
             },
             build_status: record.build_status,
             build_error: record.build_error,
@@ -1201,6 +1208,23 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         package_id: Uuid,
         compiled: Vec<u8>,
     ) -> Result<(), RegistryError> {
+        self.mark_build_success_with_docs(package_id, compiled, std::collections::HashMap::new())
+            .await
+    }
+
+    /// Like [`Self::mark_build_success`] but also overlays compiler-parsed
+    /// per-task "what & why" documentation (CLOACI-T-0752) onto the persisted
+    /// metadata. `task_docs` is keyed by task local id; unmatched ids are
+    /// ignored and tasks absent from the map keep `None` docs.
+    pub async fn mark_build_success_with_docs(
+        &self,
+        package_id: Uuid,
+        compiled: Vec<u8>,
+        task_docs: std::collections::HashMap<
+            String,
+            crate::registry::loader::package_loader::TaskDocs,
+        >,
+    ) -> Result<(), RegistryError> {
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::{
             UniversalBinary, UniversalTimestamp, UniversalUuid,
@@ -1218,7 +1242,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         // workflow by name when package name ≠ workflow name.
         // (CLOACI-T-0671 / CLOACI-T-0663)
         let merged_metadata_json: Option<String> = match self
-            .extract_and_merge_build_metadata(package_id, &compiled)
+            .extract_and_merge_build_metadata(package_id, &compiled, &task_docs)
             .await
         {
             Ok(json) => json,
@@ -1321,6 +1345,69 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(())
     }
 
+    /// Set the `paused` flag on a package row by id (CLOACI-T-0749). Returns
+    /// `true` if a row was updated. A paused package refuses new executions at
+    /// the execute chokepoint; in-flight executions are unaffected.
+    pub async fn set_package_paused(
+        &self,
+        package_id: Uuid,
+        paused: bool,
+    ) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
+
+        let pid = UniversalUuid(package_id);
+        let now = UniversalTimestamp::now();
+        let paused_val = UniversalBool::from(paused);
+        let paused_at_val: Option<UniversalTimestamp> = if paused { Some(now) } else { None };
+
+        let updated: usize = crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set((
+                            workflow_packages::paused.eq(paused_val),
+                            workflow_packages::paused_at.eq(paused_at_val),
+                            workflow_packages::updated_at.eq(now),
+                        ))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    use diesel::prelude::*;
+                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                        .set((
+                            workflow_packages::paused.eq(paused_val),
+                            workflow_packages::paused_at.eq(paused_at_val),
+                            workflow_packages::updated_at.eq(now),
+                        ))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+
+        Ok(updated > 0)
+    }
+
     /// Extract metadata from freshly compiled cdylib bytes and merge the
     /// authoritative fields (workflow name, tasks, graph data, triggers) into
     /// the row's stored `PackageMetadata`, returning the re-serialized JSON.
@@ -1334,6 +1421,10 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         &self,
         package_id: Uuid,
         compiled: &[u8],
+        task_docs: &std::collections::HashMap<
+            String,
+            crate::registry::loader::package_loader::TaskDocs,
+        >,
     ) -> Result<Option<String>, RegistryError> {
         use crate::dal::unified::models::UnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
@@ -1407,6 +1498,18 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         merged.architecture = extracted.architecture;
         merged.symbols = extracted.symbols;
         merged.workflow_triggers = extracted.workflow_triggers;
+
+        // CLOACI-T-0752: overlay compiler-parsed doc-comment "what & why" onto
+        // the cdylib-extracted task list, matched by local id. FFI metadata
+        // carries no docs, so this is the only place they land.
+        if !task_docs.is_empty() {
+            for task in merged.tasks.iter_mut() {
+                if let Some(docs) = task_docs.get(&task.local_id) {
+                    task.doc_what = docs.what.clone();
+                    task.doc_why = docs.why.clone();
+                }
+            }
+        }
 
         let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
         Ok(Some(json))
@@ -1493,6 +1596,9 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 dependencies: deps.clone(),
                 description: String::new(),
                 source_location: String::new(),
+                // Python doc carry is a deferred follow-up (CLOACI-T-0752).
+                doc_what: None,
+                doc_why: None,
             })
             .collect();
 
@@ -2072,6 +2178,8 @@ mod tests {
                 dependencies: vec![],
                 description: "a task".to_string(),
                 source_location: "lib.rs:1".to_string(),
+                doc_what: None,
+                doc_why: None,
             }],
             graph_data: None,
             architecture: "x86_64".to_string(),
@@ -2109,6 +2217,63 @@ mod tests {
         assert_eq!(reg_id, registry_id);
         assert_eq!(retrieved.package_name, "reg-pkg");
         assert_eq!(retrieved.version, "1.0.0");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_workflow_pause_resume() {
+        // CLOACI-T-0749: pause/resume a workflow by name and observe the flag
+        // through list_all_packages + is_workflow_paused (the execute gate's
+        // source of truth).
+        let registry = create_test_registry().await;
+        let registry_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("pause-pkg", "1.0.0");
+        let pkg_id = registry
+            .store_package_metadata(&registry_id, &meta)
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap();
+        registry
+            .mark_build_success(pkg_id, Vec::new())
+            .await
+            .unwrap();
+
+        // Not paused on registration.
+        assert!(!registry.is_workflow_paused("pause-pkg").await.unwrap());
+        assert!(registry
+            .list_all_packages()
+            .await
+            .unwrap()
+            .iter()
+            .all(|w| !w.paused));
+
+        // Pause by name → flag set everywhere the gate / API read it.
+        let affected = registry
+            .set_workflow_paused("pause-pkg", true)
+            .await
+            .unwrap();
+        assert_eq!(affected, Some(pkg_id));
+        assert!(registry.is_workflow_paused("pause-pkg").await.unwrap());
+        assert!(registry
+            .list_all_packages()
+            .await
+            .unwrap()
+            .iter()
+            .any(|w| w.package_name == "pause-pkg" && w.paused));
+
+        // Resume clears it.
+        registry
+            .set_workflow_paused("pause-pkg", false)
+            .await
+            .unwrap();
+        assert!(!registry.is_workflow_paused("pause-pkg").await.unwrap());
+
+        // Unknown workflow: not paused, and set is a no-op returning None.
+        assert!(!registry.is_workflow_paused("nope").await.unwrap());
+        assert_eq!(
+            registry.set_workflow_paused("nope", true).await.unwrap(),
+            None
+        );
     }
 
     #[cfg(feature = "sqlite")]

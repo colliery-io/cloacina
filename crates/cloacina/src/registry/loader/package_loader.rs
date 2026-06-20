@@ -86,6 +86,28 @@ pub struct TaskMetadata {
     pub description: String,
     /// Source location information
     pub source_location: String,
+    /// CLOACI-T-0752 "what" — a short summary of what the task does, parsed
+    /// from the author's doc-comment / docstring at build time. `None` when the
+    /// task is undocumented. `#[serde(default)]` keeps older stored metadata
+    /// deserializable.
+    #[serde(default)]
+    pub doc_what: Option<String>,
+    /// CLOACI-T-0752 "why" — the rationale for the task (why it exists / when it
+    /// matters), parsed from the doc-comment / docstring. `None` when absent.
+    #[serde(default)]
+    pub doc_why: Option<String>,
+}
+
+/// Structured "what & why" documentation for a single task (CLOACI-T-0752),
+/// parsed compiler-side from the author's source (Rust doc-comments / Python
+/// docstrings) and overlaid onto the persisted [`TaskMetadata`]. Keyed by the
+/// task's local id.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskDocs {
+    /// Short summary of what the task does.
+    pub what: Option<String>,
+    /// Rationale — why the task exists / when it matters.
+    pub why: Option<String>,
 }
 
 /// Package loader for extracting metadata from workflow library files.
@@ -271,6 +293,10 @@ impl PackageLoader {
                 dependencies: t.dependencies,
                 description: t.description,
                 source_location: t.source_location,
+                // FFI metadata carries no docs; the compiler overlays parsed
+                // doc-comments at build success (CLOACI-T-0752).
+                doc_what: None,
+                doc_why: None,
             })
             .collect();
 

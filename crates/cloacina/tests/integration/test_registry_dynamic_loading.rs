@@ -195,6 +195,8 @@ async fn test_loader_error_handling() {
         dependencies: vec![],
         description: "Test task".to_string(),
         source_location: "test.rs:1".to_string(),
+        doc_what: None,
+        doc_why: None,
     };
 
     let package_metadata = PackageMetadata {

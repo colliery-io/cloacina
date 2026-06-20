@@ -208,6 +208,8 @@ mod unified_schema {
             build_error -> Nullable<Text>,
             build_claimed_at -> Nullable<DbTimestamp>,
             compiled_at -> Nullable<DbTimestamp>,
+            paused -> DbBool,
+            paused_at -> Nullable<DbTimestamp>,
         }
     }
 
@@ -237,6 +239,8 @@ mod unified_schema {
             last_poll_at -> Nullable<DbTimestamp>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            paused -> DbBool,
+            paused_at -> Nullable<DbTimestamp>,
         }
     }
 

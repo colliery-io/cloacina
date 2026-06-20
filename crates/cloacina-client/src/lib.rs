@@ -61,12 +61,11 @@ use serde_json::Value;
 
 use cloacina_api_types::{
     AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateTenantRequest,
-    ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse,
-    ExecutionTasksResponse, ExecutionSummary, GraphStatus, KeyCreatedResponse, KeyInfo,
-    KeyRevokedResponse, KeyRole, ListResponse, ReactorStatus, TenantCreatedResponse,
-    TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
-    TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary,
-    WorkflowUploadedResponse, WsTicketResponse,
+    ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse, ExecutionSummary,
+    ExecutionTasksResponse, GraphStatus, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
+    ListResponse, ReactorStatus, TenantCreatedResponse, TenantListResponse, TenantRemovedResponse,
+    TenantSummary, TriggerDetailResponse, TriggerScheduleSummary, WorkflowDeletedResponse,
+    WorkflowDetail, WorkflowSummary, WorkflowUploadedResponse, WsTicketResponse,
 };
 
 /// Builder for [`Client`].

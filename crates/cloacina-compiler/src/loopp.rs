@@ -72,13 +72,21 @@ async fn run_build_with_heartbeat(
     let _ = heartbeat.await;
 
     match outcome {
-        crate::build::BuildOutcome::Success(bytes) => {
+        crate::build::BuildOutcome::Success {
+            artifact,
+            task_docs,
+        } => {
             metrics::counter!(
                 "cloacina_compiler_builds_total",
                 "status" => "ok",
             )
             .increment(1);
-            if let Err(e) = registry.mark_build_success(package_id, bytes).await {
+            // CLOACI-T-0752: carry compiler-parsed per-task docs into the
+            // persisted metadata alongside the compiled artifact.
+            if let Err(e) = registry
+                .mark_build_success_with_docs(package_id, artifact, task_docs)
+                .await
+            {
                 warn!(%e, %package_id, "mark_build_success failed");
             }
         }

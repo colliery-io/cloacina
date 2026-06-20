@@ -341,6 +341,8 @@ async fn test_store_package_with_complex_metadata() {
                 dependencies: vec!["task2".to_string()],
                 description: "First task".to_string(),
                 source_location: "src/task1.rs:10".to_string(),
+                doc_what: None,
+                doc_why: None,
             },
             cloacina::registry::loader::package_loader::TaskMetadata {
                 index: 1,
@@ -349,6 +351,8 @@ async fn test_store_package_with_complex_metadata() {
                 dependencies: vec![],
                 description: "Second task".to_string(),
                 source_location: "src/task2.rs:20".to_string(),
+                doc_what: None,
+                doc_why: None,
             },
         ],
         graph_data: Some(serde_json::json!({

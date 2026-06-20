@@ -24,7 +24,9 @@ use axum::{
 };
 use tracing::{info, warn};
 
+use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::executor::WorkflowExecutor;
+use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::Context;
 use cloacina_api_types::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
@@ -101,6 +103,28 @@ pub async fn execute_workflow(
                 .into_response();
         }
     };
+    // CLOACI-T-0749: refuse to start a new execution for a paused workflow.
+    // Pause is a deliberate operator hold; in-flight runs are unaffected, only
+    // new ones are blocked. Registry-init / lookup failures fail open (proceed)
+    // so a transient registry error never wedges execution.
+    {
+        let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+        if let Ok(registry) = WorkflowRegistryImpl::new(storage, tenant_db.clone()) {
+            match registry.is_workflow_paused(&name).await {
+                Ok(true) => {
+                    return ApiError::new(
+                        StatusCode::CONFLICT,
+                        "workflow_paused",
+                        format!("workflow '{}' is paused; resume it before executing", name),
+                    )
+                    .into_response();
+                }
+                Ok(false) => {}
+                Err(e) => warn!("paused-check failed for workflow '{}': {}", name, e),
+            }
+        }
+    }
+
     // "public" maps to the admin DB/schema, which the GLOBAL runner already
     // operates on (fleet executor registered, reconciler populating the shared
     // Runtime). Reuse it rather than building a redundant per-tenant runner: a

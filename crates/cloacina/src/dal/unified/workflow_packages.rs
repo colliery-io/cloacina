@@ -939,6 +939,8 @@ mod tests {
                 dependencies: vec![],
                 description: "test task".to_string(),
                 source_location: "test.rs:1".to_string(),
+                doc_what: None,
+                doc_why: None,
             }],
             graph_data: None,
             architecture: "x86_64".to_string(),

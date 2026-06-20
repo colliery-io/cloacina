@@ -54,6 +54,7 @@ pub type WorkflowPackageId = Uuid;
 ///     schedules: vec!["daily_analytics".to_string()],
 ///     created_at: Utc::now(),
 ///     updated_at: Utc::now(),
+///     paused: false,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -101,6 +102,27 @@ pub struct WorkflowMetadata {
 
     /// When this package metadata was last updated
     pub updated_at: DateTime<Utc>,
+
+    /// Whether this workflow is paused (CLOACI-T-0749). When true, new
+    /// executions are refused at the execute chokepoint. Defaults to false for
+    /// older serialized data and non-DB registry backends.
+    #[serde(default)]
+    pub paused: bool,
+}
+
+/// A single source file extracted from a package's retained `.cloacina`
+/// archive for read-only display (CLOACI-T-0750).
+///
+/// `path` is relative to the package source root (e.g. `"src/lib.rs"`,
+/// `"package.toml"`) and always uses forward slashes. Only UTF-8 text files
+/// are represented; binary and oversized files are omitted by the extractor.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowSourceFile {
+    /// Path relative to the package source root, using forward slashes.
+    pub path: String,
+
+    /// UTF-8 file contents.
+    pub contents: String,
 }
 
 /// One node in a workflow's task dependency graph (CLOACI-T-0663).
@@ -114,6 +136,16 @@ pub struct WorkflowTaskNode {
 
     /// Optional human-readable task description.
     pub description: Option<String>,
+
+    /// CLOACI-T-0752 "what" — short summary parsed from the task's
+    /// doc-comment/docstring. `None` when undocumented.
+    #[serde(default)]
+    pub doc_what: Option<String>,
+
+    /// CLOACI-T-0752 "why" — rationale parsed from the doc-comment/docstring.
+    /// `None` when undocumented.
+    #[serde(default)]
+    pub doc_why: Option<String>,
 }
 
 /// Package metadata extracted from a .cloacina file.

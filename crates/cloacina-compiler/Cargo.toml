@@ -31,6 +31,9 @@ dirs = "6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
+# CLOACI-T-0752: parse Rust doc-comments out of package source at build time.
+syn = { version = "2.0", features = ["full"] }
+proc-macro2 = "1.0"
 axum = { version = "0.8" }
 tower = { version = "0.5", features = ["util"] }
 tokio = { version = "1.0", features = ["full"] }

@@ -29,7 +29,8 @@ use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
 use cloacina_api_types::{
-    TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowTaskNode,
+    TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse,
+    WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode,
     WorkflowUploadedResponse,
 };
 
@@ -262,6 +263,7 @@ pub async fn list_workflows(
                     description: w.description,
                     tasks: w.tasks,
                     created_at: w.created_at.to_rfc3339(),
+                    paused: w.paused,
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
@@ -339,11 +341,14 @@ pub async fn get_workflow(
                             id: n.id,
                             dependencies: n.dependencies,
                             description: n.description,
+                            doc_what: n.doc_what,
+                            doc_why: n.doc_why,
                         })
                         .collect(),
                     created_at: ins.metadata.created_at.to_rfc3339(),
                     build_status: ins.build_status,
                     build_error: ins.build_error,
+                    paused: ins.metadata.paused,
                 })
                 .into_response();
             }
@@ -386,11 +391,14 @@ pub async fn get_workflow(
                                     id: n.id,
                                     dependencies: n.dependencies,
                                     description: n.description,
+                                    doc_what: n.doc_what,
+                                    doc_why: n.doc_why,
                                 })
                                 .collect(),
                             created_at: ins.metadata.created_at.to_rfc3339(),
                             build_status: ins.build_status,
                             build_error: ins.build_error,
+                            paused: ins.metadata.paused,
                         })
                         .into_response(),
                         Ok(None) => ApiError::not_found(
@@ -410,6 +418,126 @@ pub async fn get_workflow(
         }
         Err(e) => ApiError::internal(format!("{}", e)).into_response(),
     }
+}
+
+/// GET /tenants/:tenant_id/workflows/:name/source — read-only source view.
+///
+/// Surfaces the original source retained in the package's `.cloacina` archive
+/// (CLOACI-T-0750). `name` may be a package name or a package UUID, matching
+/// `get_workflow`. Source is independent of build state, so it is available
+/// even while a package is building or after a failed build.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}/source",
+    tag = "workflows",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Package name, or package UUID"),
+    ),
+    responses(
+        (status = 200, description = "Workflow source files", body = WorkflowSourceResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Workflow not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn get_workflow_source(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
+    let tenant_db: cloacina::database::Database = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
+        Ok(r) => r,
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+    };
+
+    // Resolve `name` to a package UUID. Mirrors get_workflow: a UUID path is
+    // used directly; otherwise scan the workflow list by package name.
+    let package_id = if let Ok(pkg_id) = uuid::Uuid::parse_str(&name) {
+        pkg_id
+    } else {
+        match registry.list_workflows().await {
+            Ok(workflows) => match workflows.into_iter().find(|w| w.package_name == name) {
+                Some(w) => w.id,
+                None => {
+                    return ApiError::not_found(
+                        "workflow_not_found",
+                        format!("workflow '{}' not found", name),
+                    )
+                    .into_response();
+                }
+            },
+            Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        }
+    };
+
+    match registry.get_workflow_source(package_id).await {
+        Ok(Some((metadata, files))) => Json(WorkflowSourceResponse {
+            tenant_id,
+            id: metadata.id.to_string(),
+            package_name: metadata.package_name,
+            workflow_name: metadata.workflow_name,
+            version: metadata.version,
+            files: files
+                .into_iter()
+                .map(|f| WorkflowSourceFile {
+                    language: detect_source_language(&f.path),
+                    path: f.path,
+                    contents: f.contents,
+                })
+                .collect(),
+        })
+        .into_response(),
+        Ok(None) => ApiError::not_found(
+            "workflow_not_found",
+            format!("workflow '{}' not found", name),
+        )
+        .into_response(),
+        Err(e) => {
+            warn!(
+                "Failed to read source for workflow '{}' (tenant '{}'): {}",
+                name, tenant_id, e
+            );
+            ApiError::internal(format!("{}", e)).into_response()
+        }
+    }
+}
+
+/// Best-effort language id from a file extension, for client-side syntax
+/// highlighting. `None` when the extension is unknown.
+fn detect_source_language(path: &str) -> Option<String> {
+    let ext = std::path::Path::new(path).extension()?.to_str()?;
+    let lang = match ext {
+        "rs" => "rust",
+        "py" => "python",
+        "pyi" => "python",
+        "toml" => "toml",
+        "json" => "json",
+        "yaml" | "yml" => "yaml",
+        "md" => "markdown",
+        "txt" => "text",
+        "cfg" | "ini" => "ini",
+        "sh" => "shell",
+        _ => return None,
+    };
+    Some(lang.to_string())
 }
 
 /// DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
@@ -481,6 +609,129 @@ pub async fn delete_workflow(
                 name, version, tenant_id, e
             );
             ApiError::not_found("workflow_not_found", format!("{}", e)).into_response()
+        }
+    }
+}
+
+/// POST /tenants/:tenant_id/workflows/:name/pause — pause a workflow (CLOACI-T-0749).
+///
+/// Blocks new executions of the workflow (manual and triggered) until resumed.
+/// In-flight executions are unaffected. `name` may be the workflow name or
+/// package name.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}/pause",
+    tag = "workflows",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Workflow or package name"),
+    ),
+    responses(
+        (status = 200, description = "Workflow paused", body = WorkflowPauseResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Workflow not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn pause_workflow(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    set_workflow_paused(state, auth, tenant_id, name, true).await
+}
+
+/// POST /tenants/:tenant_id/workflows/:name/resume — resume a paused workflow
+/// (CLOACI-T-0749). New executions are accepted again.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/workflows/{name}/resume",
+    tag = "workflows",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Workflow or package name"),
+    ),
+    responses(
+        (status = 200, description = "Workflow resumed", body = WorkflowPauseResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Workflow not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn resume_workflow(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    set_workflow_paused(state, auth, tenant_id, name, false).await
+}
+
+/// Shared pause/resume implementation for workflows (CLOACI-T-0749).
+async fn set_workflow_paused(
+    state: AppState,
+    auth: AuthenticatedKey,
+    tenant_id: String,
+    name: String,
+    pause: bool,
+) -> axum::response::Response {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+    if !auth.can_write() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
+
+    let tenant_db: cloacina::database::Database = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database error: {}", e)).into_response()
+        }
+    };
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
+        Ok(r) => r,
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+    };
+
+    match registry.set_workflow_paused(&name, pause).await {
+        Ok(Some(id)) => {
+            info!(
+                "{} workflow '{}' for tenant '{}'",
+                if pause { "Paused" } else { "Resumed" },
+                name,
+                tenant_id
+            );
+            Json(WorkflowPauseResponse {
+                tenant_id,
+                id: id.to_string(),
+                name,
+                status: if pause { "paused" } else { "resumed" }.to_string(),
+                paused: pause,
+            })
+            .into_response()
+        }
+        Ok(None) => ApiError::not_found(
+            "workflow_not_found",
+            format!("workflow '{}' not found", name),
+        )
+        .into_response(),
+        Err(e) => {
+            warn!(
+                "Failed to {} workflow '{}' for tenant '{}': {}",
+                if pause { "pause" } else { "resume" },
+                name,
+                tenant_id,
+                e
+            );
+            ApiError::internal(format!("{}", e)).into_response()
         }
     }
 }

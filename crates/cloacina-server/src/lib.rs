@@ -1137,6 +1137,19 @@ fn build_router(state: AppState) -> Router {
             get(crate::routes::workflows::get_workflow),
         )
         .route(
+            "/tenants/{tenant_id}/workflows/{name}/source",
+            get(crate::routes::workflows::get_workflow_source),
+        )
+        // Pause / resume a workflow (block new executions) — CLOACI-T-0749.
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/pause",
+            post(crate::routes::workflows::pause_workflow),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/resume",
+            post(crate::routes::workflows::resume_workflow),
+        )
+        .route(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
             delete(crate::routes::workflows::delete_workflow),
         )
@@ -1148,6 +1161,15 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/tenants/{tenant_id}/triggers/{name}",
             get(crate::routes::triggers::get_trigger),
+        )
+        // Pause / resume a schedule (cron or trigger) — CLOACI-T-0749.
+        .route(
+            "/tenants/{tenant_id}/triggers/{name}/pause",
+            post(crate::routes::triggers::pause_trigger),
+        )
+        .route(
+            "/tenants/{tenant_id}/triggers/{name}/resume",
+            post(crate::routes::triggers::resume_trigger),
         )
         // Executions (tenant-scoped)
         .route(

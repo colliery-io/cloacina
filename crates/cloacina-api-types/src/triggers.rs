@@ -47,6 +47,13 @@ pub struct TriggerScheduleSummary {
     pub last_run_at: Option<String>,
     /// RFC 3339 timestamp.
     pub created_at: String,
+    /// Whether the schedule is paused (CLOACI-T-0749). A paused schedule is not
+    /// fired by the scheduler until resumed; distinct from `enabled`.
+    #[serde(default)]
+    pub paused: bool,
+    /// RFC 3339 timestamp of when it was paused, if paused.
+    #[serde(default)]
+    pub paused_at: Option<String>,
 }
 
 /// Schedule fields in the trigger detail response.
@@ -65,6 +72,28 @@ pub struct TriggerScheduleInfo {
     /// custom-poll cadence). `None` for cron schedules. Lets the Triggers
     /// detail view show "polls every Ns" (CLOACI-I-0124 / WS-6).
     pub poll_interval_ms: Option<i64>,
+    /// Whether the schedule is paused (CLOACI-T-0749).
+    #[serde(default)]
+    pub paused: bool,
+    /// RFC 3339 timestamp of when it was paused, if paused.
+    #[serde(default)]
+    pub paused_at: Option<String>,
+}
+
+/// `POST /tenants/{tenant_id}/triggers/{name}/pause` and `/resume` response
+/// (CLOACI-T-0749).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TriggerPauseResponse {
+    pub tenant_id: String,
+    /// Schedule UUID.
+    pub id: String,
+    /// The name the schedule was addressed by (trigger or workflow name).
+    pub name: String,
+    /// `"paused"` or `"resumed"`.
+    pub status: String,
+    /// Current paused state after the operation.
+    pub paused: bool,
 }
 
 /// One row in `recent_executions` of the trigger detail response.

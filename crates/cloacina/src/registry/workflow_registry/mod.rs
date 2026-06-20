@@ -28,14 +28,23 @@ pub use database::{build_queue_stats, reconciler_stats, BuildQueueStats, Reconci
 
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::path::Path;
 use uuid::Uuid;
 
 use crate::database::Database;
 use crate::registry::error::RegistryError;
 use crate::registry::loader::{PackageLoader, TaskRegistrar};
 use crate::registry::traits::{RegistryStorage, WorkflowRegistry};
-use crate::registry::types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackageId};
+use crate::registry::types::{
+    LoadedWorkflow, WorkflowMetadata, WorkflowPackageId, WorkflowSourceFile,
+};
 use crate::task::TaskNamespace;
+
+/// Per-file size cap when extracting source for display (CLOACI-T-0750).
+/// Files larger than this are omitted rather than streamed wholesale through
+/// the API — workflow source files are small and a generous cap keeps a
+/// pathological archive from ballooning a response.
+const MAX_SOURCE_FILE_BYTES: u64 = 1024 * 1024;
 
 /// Complete implementation of the workflow registry.
 ///
@@ -131,6 +140,69 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             }
         };
         Ok(Some((ins.metadata, package_data)))
+    }
+
+    /// Extract the human-readable source files from a package's retained
+    /// `.cloacina` archive for read-only display (CLOACI-T-0750).
+    ///
+    /// The original source tree is always kept in registry storage (the
+    /// compiler unpacks it to build), independent of build status — so this
+    /// works for `building` and `failed` rows too, not just `success`. The
+    /// archive is unpacked in a temp dir and every UTF-8 text file is returned
+    /// (path relative to the source root + contents); binary and oversized
+    /// files (> `MAX_SOURCE_FILE_BYTES`) are skipped. Returns `None` when no
+    /// inspectable package exists for `package_id`.
+    pub async fn get_workflow_source(
+        &self,
+        package_id: Uuid,
+    ) -> Result<Option<(WorkflowMetadata, Vec<WorkflowSourceFile>)>, RegistryError> {
+        let (metadata, archive_bytes) = match self.get_source_for_build(package_id).await? {
+            Some(pair) => pair,
+            None => return Ok(None),
+        };
+
+        // Unpacking (bzip2 + tar + filesystem walk) is blocking work; keep it
+        // off the async runtime's worker threads.
+        let files = tokio::task::spawn_blocking(move || extract_source_files(&archive_bytes))
+            .await
+            .map_err(|e| {
+                RegistryError::Internal(format!("source extraction task panicked: {}", e))
+            })??;
+
+        Ok(Some((metadata, files)))
+    }
+
+    /// Whether the workflow addressed by `name` (its executable `workflow_name`
+    /// or `package_name`) is paused (CLOACI-T-0749). Unknown workflows are
+    /// treated as not paused so resolution/“not found” is handled downstream by
+    /// the executor. Used by the execute chokepoint to refuse new runs.
+    pub async fn is_workflow_paused(&self, name: &str) -> Result<bool, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        Ok(workflows
+            .into_iter()
+            .find(|w| w.workflow_name == name || w.package_name == name)
+            .map(|w| w.paused)
+            .unwrap_or(false))
+    }
+
+    /// Pause or resume the workflow addressed by `name` (CLOACI-T-0749).
+    /// Resolves `name` against the active package list (by `workflow_name` or
+    /// `package_name`) and sets its `paused` flag. Returns the affected package
+    /// id, or `None` if no matching active workflow exists.
+    pub async fn set_workflow_paused(
+        &self,
+        name: &str,
+        paused: bool,
+    ) -> Result<Option<Uuid>, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        let Some(target) = workflows
+            .into_iter()
+            .find(|w| w.workflow_name == name || w.package_name == name)
+        else {
+            return Ok(None);
+        };
+        self.set_package_paused(target.id, paused).await?;
+        Ok(Some(target.id))
     }
 
     /// Get a workflow package by its UUID.
@@ -390,6 +462,9 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             schedules: Vec::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            // This load path is for execution, not the pause gate; the gate
+            // reads paused via the list/inspect paths. (CLOACI-T-0749)
+            paused: false,
         };
 
         Ok(Some(LoadedWorkflow {
@@ -459,6 +534,77 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             ))),
         }
     }
+}
+
+/// Unpack a `.cloacina` source archive in a temp dir and collect its UTF-8
+/// text files for display (CLOACI-T-0750). Binary, oversized, and unreadable
+/// files are skipped; the result is sorted by path. The temp dir is removed
+/// when the returned `TempDir` guard drops at end of scope.
+fn extract_source_files(archive_bytes: &[u8]) -> Result<Vec<WorkflowSourceFile>, RegistryError> {
+    let work_dir = tempfile::TempDir::new()
+        .map_err(|e| RegistryError::Internal(format!("Failed to create temp dir: {}", e)))?;
+    let archive_path = work_dir.path().join("pkg.cloacina");
+    std::fs::write(&archive_path, archive_bytes)
+        .map_err(|e| RegistryError::Internal(format!("Failed to write archive: {}", e)))?;
+    let extract_dir = work_dir.path().join("source");
+    std::fs::create_dir_all(&extract_dir)
+        .map_err(|e| RegistryError::Internal(format!("Failed to create extract dir: {}", e)))?;
+
+    let source_dir =
+        fidius_core::package::unpack_package(&archive_path, &extract_dir).map_err(|e| {
+            RegistryError::ValidationError {
+                reason: format!("Failed to unpack source archive: {}", e),
+            }
+        })?;
+
+    let mut files = Vec::new();
+    collect_source_files(&source_dir, &source_dir, &mut files)?;
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+
+/// Recursively walk `dir`, pushing each UTF-8 text file (path relative to
+/// `root`) into `out`. Binary, oversized, and unreadable files are silently
+/// skipped so a single odd file never fails the whole request.
+fn collect_source_files(
+    root: &Path,
+    dir: &Path,
+    out: &mut Vec<WorkflowSourceFile>,
+) -> Result<(), RegistryError> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| RegistryError::Internal(format!("Failed to read source dir: {}", e)))?;
+    for entry in entries {
+        let entry = entry
+            .map_err(|e| RegistryError::Internal(format!("Failed to read dir entry: {}", e)))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|e| RegistryError::Internal(format!("Failed to stat dir entry: {}", e)))?;
+
+        if file_type.is_dir() {
+            collect_source_files(root, &path, out)?;
+        } else if file_type.is_file() {
+            // Skip oversized files without reading them into memory.
+            if let Ok(meta) = entry.metadata() {
+                if meta.len() > MAX_SOURCE_FILE_BYTES {
+                    continue;
+                }
+            }
+            // Only surface valid UTF-8; binary files are skipped.
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(contents) = String::from_utf8(bytes) else {
+                continue;
+            };
+            let rel = path.strip_prefix(root).unwrap_or(&path);
+            out.push(WorkflowSourceFile {
+                path: rel.to_string_lossy().replace('\\', "/"),
+                contents,
+            });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

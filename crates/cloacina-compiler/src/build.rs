@@ -34,7 +34,14 @@ use crate::config::{BuildRlimits, CompilerConfig};
 
 /// Result of a single build attempt.
 pub enum BuildOutcome {
-    Success(Vec<u8>),
+    Success {
+        /// Compiled cdylib bytes (empty for pure-Python packages).
+        artifact: Vec<u8>,
+        /// CLOACI-T-0752: per-task "what & why" docs parsed from the package
+        /// source, keyed by task local id. Empty when nothing was documented.
+        task_docs:
+            std::collections::HashMap<String, cloacina::registry::loader::package_loader::TaskDocs>,
+    },
     Failed(String),
     /// The cargo subprocess exceeded `CompilerConfig::build_timeout` and was
     /// killed. The build row's heartbeat stops and the stale-build sweeper
@@ -99,7 +106,10 @@ pub async fn execute_build(
     config: &CompilerConfig,
 ) -> BuildOutcome {
     match run_build(registry, package_id, config).await {
-        Ok(bytes) => BuildOutcome::Success(bytes),
+        Ok((artifact, task_docs)) => BuildOutcome::Success {
+            artifact,
+            task_docs,
+        },
         Err(BuildError::Failed { reason, .. }) => BuildOutcome::Failed(reason),
         Err(BuildError::TimedOut { elapsed }) => BuildOutcome::TimedOut { elapsed },
     }
@@ -137,11 +147,14 @@ fn signal_name(num: i32) -> String {
     }
 }
 
+type TaskDocsMap =
+    std::collections::HashMap<String, cloacina::registry::loader::package_loader::TaskDocs>;
+
 async fn run_build(
     registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
     package_id: uuid::Uuid,
     config: &CompilerConfig,
-) -> Result<Vec<u8>, BuildError> {
+) -> Result<(Vec<u8>, TaskDocsMap), BuildError> {
     let build_started_at = std::time::Instant::now();
     let build_claim_id = UniversalUuid(package_id);
 
@@ -185,6 +198,10 @@ async fn run_build(
 
     let manifest = load_manifest(&source_dir).map_err(BuildError::internal)?;
     let language = manifest_language(&manifest);
+
+    // CLOACI-T-0752: parse "what & why" docs from the unpacked source while we
+    // still have it. Best-effort and independent of the cargo build.
+    let task_docs = crate::doc_parse::parse_task_docs(&source_dir, &language);
 
     info!(
         %package_id,
@@ -230,7 +247,7 @@ async fn run_build(
         .elapsed()
         .as_millis()
         .min(u128::from(u64::MAX)) as u64;
-    let final_result: Result<Vec<u8>, BuildError> = match result {
+    let final_result: Result<(Vec<u8>, TaskDocsMap), BuildError> = match result {
         Ok(success) => {
             audit::log_compiler_build_finished(
                 build_claim_id,
@@ -248,9 +265,10 @@ async fn run_build(
             info!(
                 %package_id,
                 artifact_bytes = success.artifact.len(),
+                documented_tasks = task_docs.len(),
                 "build succeeded"
             );
-            Ok(success.artifact)
+            Ok((success.artifact, task_docs))
         }
         Err(BuildError::Failed {
             reason,

@@ -19,6 +19,7 @@
 
 mod build;
 mod config;
+mod doc_parse;
 mod health;
 mod loopp;
 

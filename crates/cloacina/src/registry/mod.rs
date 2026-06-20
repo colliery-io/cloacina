@@ -79,6 +79,8 @@ pub use reconciler::{
     ReconcilerStatus, RegistryReconciler,
 };
 pub use traits::{RegistryStorage, WorkflowRegistry};
-pub use types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackage, WorkflowPackageId};
+pub use types::{
+    LoadedWorkflow, WorkflowMetadata, WorkflowPackage, WorkflowPackageId, WorkflowSourceFile,
+};
 pub use workflow_registry::filesystem::FilesystemWorkflowRegistry;
 pub use workflow_registry::WorkflowRegistryImpl;
