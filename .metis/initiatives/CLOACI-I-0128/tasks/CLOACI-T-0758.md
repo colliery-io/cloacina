@@ -4,14 +4,14 @@ level: task
 title: "Accumulator and reactor input interface derivation + API exposure"
 short_code: "CLOACI-T-0758"
 created_at: 2026-06-20T16:46:01.362198+00:00
-updated_at: 2026-06-20T16:46:01.362198+00:00
+updated_at: 2026-06-20T18:41:05.073405+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +135,37 @@ initiative_id: CLOACI-I-0128
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-20 — Scoped + grounded (ready to build); paused for focused resume
+
+Task D of [[CLOACI-I-0128]]. Builds on B's `get_input_interface` entrypoint
+(which currently emits only `surface_kind:"workflow"` entries) + the
+`schema_for` helper (T-0755) + the `InputInterfaceEntry`/`Descriptor` wire types.
+
+Recon findings (anchors):
+- Accumulator boundary types ARE known at macro-expansion time:
+  `crates/cloacina-macros/src/computation_graph/accumulator_macros.rs` —
+  `extract_return_type(output)` yields `output_type` (the boundary `Output`), and
+  the source fn is `fn name(event: EventType) -> OutputType` so `EventType` (the
+  injected event) is also available. So both schemas are derivable via
+  `schema_for::<EventType>()` / `schema_for::<OutputType>()`.
+- Inventory entries (`cloacina-workflow-plugin/src/inventory_entries.rs`):
+  `ReactorEntry` / `ComputationGraphEntry` carry accumulator **names**
+  (`accumulator_names`) + `reaction_mode` but NOT boundary **types**. D must add
+  a schema-bearing field (e.g. `fn() -> String` slots, like
+  `WorkflowDescriptorEntry::params`) populated by the accumulator/CG macro.
+
+Plan:
+1. Accumulator/CG macros (`accumulator_macros.rs` + `codegen.rs`) emit a
+   `schema_for::<…>()`-built slots JSON into the relevant inventory entry
+   (accumulator input = EventType; reactor per-source = upstream Output).
+2. Extend `package!` `get_input_interface` to also walk reactor/accumulator
+   inventory and push `surface_kind:"accumulator"`/`"reactor"` entries.
+3. Host: the descriptor parse already handles all entries; route the
+   accumulator/reactor entries to the CG-health detail responses
+   (`routes/health_graphs.rs` + `cloacina-api-types` accumulator/reactor types).
+
+Size: comparable to Task B (deep CG-macro + ABI-walk + API). Tractable; the
+hard de-risking (FFI entrypoint, schema_for, wire types) is already done in A/B.
+**Paused here** at a clean boundary — A/B/C (workflow vertical) shipped + verified
++ committed; D is a fresh focused vertical, resumable from this grounded spec.
+Gates E (T-0759) typed accumulator/reactor injection validation.
