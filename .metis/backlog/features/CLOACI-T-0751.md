@@ -4,15 +4,15 @@ level: task
 title: "Operator-facing manual event injection — UI/CLI surface over the existing reactor FireWith / accumulator-push protocol"
 short_code: "CLOACI-T-0751"
 created_at: 2026-06-20T02:33:01.448043+00:00
-updated_at: 2026-06-20T02:33:01.448043+00:00
+updated_at: 2026-06-20T15:15:56.576903+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -104,6 +104,12 @@ mechanics in a UI control and/or a CLI command, with typed input.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] An operator can inject a single event into a running computation graph from
       the UI without hand-crafting raw byte payloads.
 - [ ] Input is typed/JSON and serialized server-side to the boundary encoding.
@@ -124,4 +130,23 @@ mechanics in a UI control and/or a CLI command, with typed input.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-06-20 — IMPLEMENTED + VERIFIED, on branch
+
+Built via background worktree agent, then cherry-picked onto
+`feat/i0126-legibility` (commit `40c258ee`).
+
+- **REST**: `POST /v1/health/reactors/{name}/fire` — `force_fire` + typed
+  `fire_with` (JSON inputs serialized server-side to the boundary encoding, no
+  raw `Vec<u8>`). Mirrors the existing reactor op auth; audit-logged as
+  operator-injected.
+- **CLI**: `cloacinactl reactor force-fire` / `reactor fire --input source=<json>`.
+- api-types (`FireMode`/`FireReactorRequest`/`FireReactorResponse`) + OpenAPI
+  registered; spec in sync.
+
+Verified: all four crates compile; new unit tests pass (boundary-encoding
+roundtrip + CLI `parse_inputs`); `angreal test unit` + `angreal test integration`
+green. Limitation: `fire_with` is full-replace (no partial merge) in v1.
+
+Typed-input note: the typed reactor injection here is what **CLOACI-I-0128 /
+S-0013** generalizes (JSON-Schema-validated injection); **CLOACI-T-0753** opens
+the matching accumulator injection surface.

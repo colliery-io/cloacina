@@ -115,3 +115,13 @@ Recommendation: keep blocked under I-0116; pick up when I-0116 delivers the
 declared-param API and the frontend freeze lifts. At that point this becomes
 mostly a UI/SDK surfacing task (validate inputs from the declared schema, fall
 back to the free-form blob for undeclared workflows).
+
+### 2026-06-20 — Unblock path defined: now a consumer of I-0128
+
+The discussion broadened the directive: make *every* injectable surface declare
+its named, typed inputs. That is now [[CLOACI-I-0128]] (Explicit injectable input
+interfaces) + spec [[CLOACI-S-0013]], type descriptor = JSON Schema. I-0128
+delivers the workflow declared-param model + API this ticket needs (the old
+I-0116 dependency folds into I-0128). T-0747 stays blocked but with a concrete
+unblock path: it becomes the UI consumer of the workflow input interface once
+I-0128 lands the data/API and the frontend freeze lifts.

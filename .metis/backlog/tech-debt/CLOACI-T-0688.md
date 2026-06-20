@@ -4,7 +4,7 @@ level: task
 title: "Close Rust↔Python interface parity gaps (state accumulators, packaged cron-trigger authoring)"
 short_code: "CLOACI-T-0688"
 created_at: 2026-06-15T13:46:31.557405+00:00
-updated_at: 2026-06-17T15:19:21.592385+00:00
+updated_at: 2026-06-20T15:20:27.500002+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -106,6 +106,8 @@ hard parity *failures* (no Python `@state_accumulator`, no packaged cron
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -4,7 +4,7 @@ level: task
 title: "Timer-driven cron scheduling — replace the 30s poll with sleep-until-next-due + change-notify"
 short_code: "CLOACI-T-0743"
 created_at: 2026-06-17T22:11:53.394484+00:00
-updated_at: 2026-06-17T22:13:20.542976+00:00
+updated_at: 2026-06-20T15:20:26.210744+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -121,6 +121,8 @@ of its scheduled second).
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

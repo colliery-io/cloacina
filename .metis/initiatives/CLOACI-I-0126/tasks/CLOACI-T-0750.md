@@ -4,14 +4,14 @@ level: task
 title: "Workflow source code — expose the retained .cloacina source via API for UI consumption"
 short_code: "CLOACI-T-0750"
 created_at: 2026-06-20T02:33:00.497712+00:00
-updated_at: 2026-06-20T02:49:59.136100+00:00
+updated_at: 2026-06-20T15:15:10.855617+00:00
 parent: CLOACI-I-0126
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -94,6 +94,8 @@ consumption.
    `crates/cloacina-api-types/src/workflows.rs` (keep separate from metadata
    responses; source can be large). Keep the SDK/type surface in sync so the
    frontend can consume it later without drift.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

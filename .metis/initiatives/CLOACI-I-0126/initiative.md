@@ -4,14 +4,14 @@ level: initiative
 title: "Workflow legibility — surface source and what/why documentation at the data layer"
 short_code: "CLOACI-I-0126"
 created_at: 2026-06-20T02:37:58.981184+00:00
-updated_at: 2026-06-20T02:37:58.981184+00:00
+updated_at: 2026-06-20T15:21:22.901249+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
