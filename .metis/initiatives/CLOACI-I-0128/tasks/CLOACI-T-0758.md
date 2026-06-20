@@ -206,3 +206,44 @@ Gates **E (T-0759)** (typed accumulator/reactor injection validation). Does NOT
 gate **T-0753** (untyped accumulator injection endpoint), **F** (workflow-params
 Python), or **G** (workflow docs/tests) — the loop continues on those.
 Blocked pending the maintainer's call on the boundary-`JsonSchema` requirement.
+
+### 2026-06-20 — DECISION: opt-in (not mandatory), via autoref specialization
+
+Maintainer asked "can we provide an interface without making it mandatory" —
+**yes**. Resolved with a 4th option better than the three above: a stable-Rust
+**autoref-specialization probe** (`SchemaProbe<T>` + `ProbeTyped`/`ProbeFallback`
+in `cloacina-workflow::input_interface`). The `#[computation_graph]` macro emits
+the probe per boundary type; it resolves to `schema_for::<T>()` when
+`T: JsonSchema` and to a permissive `{}` otherwise. Authors opt a boundary type
+into rich typing by adding `#[derive(JsonSchema)]`; others degrade gracefully —
+**no required derive, no breakage**.
+
+### 2026-06-20 — Part 1 DONE + VERIFIED (derivation + ABI); consumption remains
+
+Committed (`feat: opt-in typed accumulator/reactor input interface … part 1`):
+- `SchemaProbe`/`ProbeTyped`/`ProbeFallback` (autoref specialization) +
+  core re-export. Unit-tested (typed→schema, untyped→`{}`, scalar→schema).
+- CG macro captures each cache source's boundary type from the consuming node
+  fn signature (`Option<&AlphaIn>` → `AlphaIn`) and emits InputSlots via the
+  probe into a new `ComputationGraphEntry.input_interface` fn (per build-mode
+  path; core re-export updated so the non-packaged arm resolves).
+- `package!` `get_input_interface` now also emits `graph` + `reactor` surface
+  entries (typed slots) and names-only `reactor` entries for CG-less reactors.
+- `mixed-rust` fixture opts `AlphaIn`/`ReactorOutput` into `JsonSchema`.
+- Verified: unit + integration green (314+98+6, 0 failed); new FFI test
+  `mixed_fixture_exposes_typed_reactor_input_interface` asserts the reactor
+  surface carries a typed `alpha` slot.
+
+**Remaining (Part 2 — consumption, the runtime/registry bridge):**
+1. Host: capture the `graph`/`reactor`/`accumulator` entries from
+   `get_input_interface` (today `package_loader` keeps only `workflow` →
+   `declared_params`) into package metadata / endpoint registration.
+2. CG-health API: expose declared input schemas on
+   `AccumulatorStatus`/`ReactorStatus` (join runtime status with declared
+   surfaces).
+3. **E (T-0759)**: validate reactor-fire / accumulator-inject payloads against
+   the surface's declared slots — reuse `validate_declared_params` (T-0757) once
+   the schema is reachable at the fire/inject handler.
+
+This Part-2 bridge touches the live endpoint-registry / CG-health surface (the
+in-flux runtime area); the hard, decision-bearing derivation is done.
