@@ -185,9 +185,14 @@ export function FullDag({
         borderRadius: 10,
         height,
         overflow: "auto",
+        // Center the graph in the canvas; `safe` falls back to start-aligned
+        // (scrollable) when the graph is larger than the viewport.
+        display: "flex",
+        justifyContent: "safe center",
+        alignItems: "safe center",
       }}
     >
-      <svg width={lay.W} height={Math.max(lay.H, height - 2)} style={{ display: "block" }}>
+      <svg width={lay.W} height={lay.H} style={{ display: "block", flex: "none" }}>
         {/* Edges */}
         {edgeGeom.map(({ e, x1, y1, x2, y2 }, i) => {
           const k = Math.max(34, (x2 - x1) / 2);

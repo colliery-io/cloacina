@@ -30,7 +30,7 @@ const EVENTS: Record<string, EventDescriptor> = {
   task_started: { label: "Task started", color: "blue" },
   task_completed: { label: "Task completed", color: "green" },
   task_failed: { label: "Task failed", color: "red" },
-  task_skipped: { label: "Task skipped", color: "gray" },
+  task_skipped: { label: "Task skipped", color: "salmon" },
   task_retrying: { label: "Task retrying", color: "orange" },
 };
 
