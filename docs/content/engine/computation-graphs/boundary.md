@@ -50,6 +50,24 @@ pub struct OrderBookUpdate {
 Add `schemars = "0.8"` to the package's dependencies. Schema derivation is the
 only thing the derive affects — boundary serialization on the wire is unchanged.
 
+### Python parity
+
+Python boundaries are plain dicts, so there's no type to derive from. Declare the
+shape explicitly with `@cloaca.boundary_schema(field=type, …)` on the accumulator
+(CLOACI-T-0770) — the compiler parses it from source at build time into the same
+typed slot; at runtime it's a no-op:
+
+```python
+@cloaca.boundary_schema(bid=float, ask=float)
+@cloaca.passthrough_accumulator
+def py_alpha(event):
+    return event
+```
+
+Supported scalar types: `str`, `int`, `float`, `bool`, `list`, `dict`. Without
+the decorator the slot stays untyped and inject/fire fall back to a raw-JSON
+field — exactly like a Rust boundary that doesn't derive `JsonSchema`.
+
 ## See also
 
 - [Accumulator]({{< ref "/engine/computation-graphs/accumulator" >}}) — emits boundaries.
