@@ -35,6 +35,8 @@ import { mergeEvents } from "../util/events";
 import { formatDuration, formatTimestamp } from "../util/format";
 import { isTerminalStatus } from "../util/status";
 import { topoRank } from "../util/topo";
+import { MONO } from "../components/aurora";
+import { statusColor } from "../util/tokens";
 
 /**
  * Execution detail (T-0653 + T-0656). Non-live half shows the REST event
@@ -130,23 +132,23 @@ export function ExecutionDetail() {
   return (
     <Stack>
       <Group justify="space-between" align="flex-start">
-        <div>
-          <Anchor component={Link} to="/executions" size="sm">
+        <Box>
+          <Anchor component={Link} to="/executions" size="xs" c="dimmed">
             ← Executions
           </Anchor>
-          <Title order={2}>{workflowName || "Execution"}</Title>
-          <Text size="xs" c="dimmed">
-            {id}
-          </Text>
-        </div>
+          <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)", marginTop: 2 }}>
+            {workflowName || "Execution"}
+          </Box>
+          <Box style={{ fontFamily: MONO, fontSize: 11, color: "var(--faint)", marginTop: 2 }}>{id}</Box>
+        </Box>
         <Button
           size="sm"
-          variant="light"
+          variant="default"
           onClick={onReRun}
           loading={reExecute.isPending}
           disabled={!workflowName}
         >
-          Re-run
+          ↻ Re-run
         </Button>
       </Group>
 
@@ -192,12 +194,12 @@ export function ExecutionDetail() {
           </Group>
           <WorkflowGraph tasks={workflow.data.task_graph} statusByTask={statusByTask} />
           <Group gap="md" mt="xs">
-            <StateKey color="blue" label="running" />
-            <StateKey color="green" label="completed" />
-            <StateKey color="red" label="failed" />
-            <StateKey color="orange" label="cancelled" />
-            <StateKey color="gray" label="pending" />
-            <StateKey color="gray" label="skipped" dashed />
+            <StateKey status="running" />
+            <StateKey status="completed" />
+            <StateKey status="failed" />
+            <StateKey status="cancelled" />
+            <StateKey status="pending" />
+            <StateKey status="skipped" dashed />
           </Group>
         </Card>
       )}
@@ -259,8 +261,10 @@ export function ExecutionDetail() {
   );
 }
 
-/** A legend swatch for the execution-DAG state colours. */
-function StateKey({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
+/** A legend swatch for the execution-DAG state colours (Aurora tokens, matching
+ *  the DAG node tints). */
+function StateKey({ status, dashed }: { status: string; dashed?: boolean }) {
+  const c = status === "skipped" ? "#5b6573" : statusColor(status);
   return (
     <Group gap={4}>
       <Box
@@ -268,14 +272,12 @@ function StateKey({ color, label, dashed }: { color: string; label: string; dash
           width: 12,
           height: 12,
           borderRadius: 3,
-          background: `var(--mantine-color-${color}-light)`,
-          border: dashed
-            ? `1px dashed var(--mantine-color-${color}-5)`
-            : `1px solid var(--mantine-color-${color}-5)`,
+          background: `${c}1f`,
+          border: dashed ? `1px dashed ${c}` : `1px solid ${c}7a`,
         }}
       />
       <Text size="xs" c="dimmed">
-        {label}
+        {status}
       </Text>
     </Group>
   );
