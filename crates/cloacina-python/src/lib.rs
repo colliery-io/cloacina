@@ -34,6 +34,7 @@ pub mod namespace;
 pub mod reactor;
 pub mod task;
 pub mod trigger;
+pub mod trigger_rules;
 pub mod workflow;
 pub mod workflow_context;
 
@@ -104,6 +105,16 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(task::task, m)?)?;
     m.add_class::<task::PyTaskHandle>()?;
+
+    // CLOACI-T-0763: Python trigger-rule builders (parity with Rust's DSL).
+    m.add_function(wrap_pyfunction!(trigger_rules::context_value, m)?)?;
+    m.add_function(wrap_pyfunction!(trigger_rules::task_success, m)?)?;
+    m.add_function(wrap_pyfunction!(trigger_rules::task_failed, m)?)?;
+    m.add_function(wrap_pyfunction!(trigger_rules::task_skipped, m)?)?;
+    m.add_function(wrap_pyfunction!(trigger_rules::all_of, m)?)?;
+    m.add_function(wrap_pyfunction!(trigger_rules::any_of, m)?)?;
+    m.add_function(wrap_pyfunction!(trigger_rules::none_of, m)?)?;
+    m.add_function(wrap_pyfunction!(trigger_rules::always, m)?)?;
 
     m.add_function(wrap_pyfunction!(trigger::trigger, m)?)?;
     m.add_class::<bindings::trigger::PyTriggerResult>()?;

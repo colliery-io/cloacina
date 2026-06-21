@@ -1,23 +1,17 @@
-"""Demo Python cron-trigger workflow (CLOACI-T-0688).
+"""Demo Python cron-trigger workflow (CLOACI-T-0688 + CLOACI-T-0763).
 
-Showcases the Python packaged cron-trigger authoring surface closed in T-0688:
-`@cloaca.trigger(on=…, cron=…)` mirrors Rust's `#[trigger(on=…, cron=…)]`.
-Python `@cloaca.trigger` was previously poll-only (no cron/timezone params), so
-cron scheduling could only be driven via the runner-level API — never authored
-into a package. This fixture is the Python mirror of `demo-cron-rust`.
-
-The reconciler imports `entry_module` (this file) at load time; the
-`@cloaca.task` decorators assemble the workflow named in package.toml
-(`demo_py_cron_workflow`), and the `@cloaca.trigger(cron=…)` registers a cron
-schedule for that workflow — no `triggers` section in package.toml, the
-decorator is the declaration.
-
-Shape (branching so the cron runs aren't single-dot DAGs in the UI; Python tasks
-have no trigger-rule gating, so this branches + fans in but does not skip — the
-skipped-node demos are the Rust cron/branch fixtures):
+Showcases the Python packaged cron-trigger authoring surface (T-0688:
+`@cloaca.trigger(on=…, cron=…)`) AND the Python trigger-rule parity closed in
+T-0763 — `@cloaca.task(trigger_rules=…)` now gates a Python task so it lands in
+the real `Skipped` state, exactly like Rust's `#[task(trigger_rules = …)]`.
 
     py_poll ──┬─▶ py_process ─▶ py_record
-              └─▶ py_audit ────┘
+              └─▶ py_audit (SKIPPED)
+
+`py_poll` sets `do_audit = False`, so `py_audit`'s trigger rule never fires →
+the planner Skips it; `py_record` fans in on `py_process` + `py_audit` (a
+Skipped dep counts as resolved) and still runs. This is the Python mirror of
+`demo-cron-rust`.
 """
 from __future__ import annotations
 
@@ -26,6 +20,8 @@ import cloaca
 
 @cloaca.task(dependencies=[])
 def py_poll(context):
+    # Gate the audit branch off → py_audit is Skipped every run.
+    context.set("do_audit", False)
     context.set("demo_py_cron_polled", True)
     return context
 
@@ -36,12 +32,18 @@ def py_process(context):
     return context
 
 
-@cloaca.task(dependencies=["py_poll"])
+# Real trigger-rule gating (T-0763): the rule wants do_audit == True, which never
+# holds → this task Skips (its body never runs). Kept so the DAG has the node.
+@cloaca.task(
+    dependencies=["py_poll"],
+    trigger_rules=cloaca.context_value("do_audit", "Equals", True),
+)
 def py_audit(context):
     context.set("demo_py_cron_audited", True)
     return context
 
 
+# Fan-in on the run path + the skipped path.
 @cloaca.task(dependencies=["py_process", "py_audit"])
 def py_record(context):
     context.set("demo_py_cron_recorded", True)

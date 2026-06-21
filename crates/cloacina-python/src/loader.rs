@@ -110,6 +110,28 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
     module.add_class::<super::task::PyTaskHandle>()?;
     module.add_class::<super::task::TaskDecorator>()?;
 
+    // CLOACI-T-0763: Python trigger-rule builders (parity with Rust's DSL).
+    module.add_function(wrap_pyfunction!(
+        super::trigger_rules::context_value,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::trigger_rules::task_success,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::trigger_rules::task_failed,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        super::trigger_rules::task_skipped,
+        &module
+    )?)?;
+    module.add_function(wrap_pyfunction!(super::trigger_rules::all_of, &module)?)?;
+    module.add_function(wrap_pyfunction!(super::trigger_rules::any_of, &module)?)?;
+    module.add_function(wrap_pyfunction!(super::trigger_rules::none_of, &module)?)?;
+    module.add_function(wrap_pyfunction!(super::trigger_rules::always, &module)?)?;
+
     // Context
     module.add_class::<super::context::PyContext>()?;
 

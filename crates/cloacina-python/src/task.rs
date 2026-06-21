@@ -131,6 +131,9 @@ pub struct PythonTaskWrapper {
     on_failure_callback: Option<PyObject>,
     requires_handle: bool,
     cg_invocation: Option<CGInvocation>,
+    /// Authored trigger rule as canonical TriggerRule JSON (CLOACI-T-0763).
+    /// `{"type":"Always"}` when the task declares no rule.
+    trigger_rules: serde_json::Value,
 }
 
 impl PythonTaskWrapper {
@@ -411,7 +414,9 @@ impl cloacina::Task for PythonTaskWrapper {
     }
 
     fn trigger_rules(&self) -> serde_json::Value {
-        serde_json::json!({"type": "Always"})
+        // CLOACI-T-0763: return the task's authored rule (Always by default) so a
+        // gated Python task is evaluated by the same planner as Rust → Skipped.
+        self.trigger_rules.clone()
     }
 
     fn code_fingerprint(&self) -> Option<String> {
@@ -488,6 +493,8 @@ pub struct TaskDecorator {
     invokes: Option<PyObject>,
     /// `post_invocation=fn` — only meaningful when `invokes` is set.
     post_invocation: Option<PyObject>,
+    /// `trigger_rules=...` — canonical TriggerRule JSON (CLOACI-T-0763).
+    trigger_rules: serde_json::Value,
 }
 
 #[pymethods]
@@ -523,6 +530,7 @@ impl TaskDecorator {
             }
         };
         let policy = self.retry_policy.clone();
+        let trigger_rules = self.trigger_rules.clone();
         let function = func.clone_ref(py);
         let on_success_cb = self.on_success.as_ref().map(|f| f.clone_ref(py));
         let on_failure_cb = self.on_failure.as_ref().map(|f| f.clone_ref(py));
@@ -596,6 +604,7 @@ impl TaskDecorator {
                 let on_success_arc = shared_on_success.clone();
                 let on_failure_arc = shared_on_failure.clone();
                 let cg_invocation_arc_inner = cg_invocation_arc.clone();
+                let trigger_rules_clone = trigger_rules.clone();
                 move || {
                     let function_clone = Python::with_gil(|py| function_arc.clone_ref(py));
                     let on_success_clone =
@@ -617,6 +626,7 @@ impl TaskDecorator {
                         on_failure_callback: on_failure_clone,
                         requires_handle: has_handle,
                         cg_invocation: cg_invocation_clone,
+                        trigger_rules: trigger_rules_clone.clone(),
                     }) as Arc<dyn cloacina::Task>
                 }
             });
@@ -700,10 +710,12 @@ impl TaskDecorator {
     on_success = None,
     on_failure = None,
     invokes = None,
-    post_invocation = None
+    post_invocation = None,
+    trigger_rules = None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn task(
+    py: Python,
     id: Option<String>,
     dependencies: Option<Vec<PyObject>>,
     retry_attempts: Option<usize>,
@@ -716,6 +728,7 @@ pub fn task(
     on_failure: Option<PyObject>,
     invokes: Option<PyObject>,
     post_invocation: Option<PyObject>,
+    trigger_rules: Option<PyObject>,
 ) -> PyResult<TaskDecorator> {
     let retry_policy = build_retry_policy(
         retry_attempts,
@@ -726,6 +739,12 @@ pub fn task(
         retry_jitter,
     );
 
+    // CLOACI-T-0763: parse + validate the trigger rule (default = Always).
+    let trigger_rules = match trigger_rules {
+        Some(obj) => crate::trigger_rules::parse_trigger_rules(py, &obj)?,
+        None => serde_json::json!({ "type": "Always" }),
+    };
+
     Ok(TaskDecorator {
         id,
         dependencies: dependencies.unwrap_or_default(),
@@ -734,6 +753,7 @@ pub fn task(
         on_failure,
         invokes,
         post_invocation,
+        trigger_rules,
     })
 }
 
