@@ -34,13 +34,16 @@ export interface TaskGraphNode {
 export function WorkflowGraph({
   tasks,
   statusByTask,
+  onNodeClick,
 }: {
   tasks: TaskGraphNode[];
   statusByTask?: Record<string, string>;
+  /** CLOACI-I-0129: click a task node → e.g. open its source (T-0750). */
+  onNodeClick?: (id: string) => void;
 }) {
   const nodes: DagNode[] = tasks.map((t) => ({ id: t.id, status: statusByTask?.[t.id] }));
   const edges: DagEdge[] = tasks.flatMap((t) =>
     t.dependencies.map((dep) => ({ from: dep, to: t.id })),
   );
-  return <Dag nodes={nodes} edges={edges} testId="workflow-graph" />;
+  return <Dag nodes={nodes} edges={edges} testId="workflow-graph" onNodeClick={onNodeClick} />;
 }

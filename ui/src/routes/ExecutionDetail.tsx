@@ -15,7 +15,7 @@
  */
 
 import { Anchor, Badge, Box, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -29,6 +29,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { TaskGantt } from "../components/TaskGantt";
 import { TaskTable } from "../components/TaskTable";
 import { WorkflowGraph } from "../components/WorkflowGraph";
+import { TaskCodeModal } from "../components/TaskCodeModal";
 import { ErrorState, Loading } from "../components/states/States";
 import { useExecuteWorkflow, useWorkflow } from "../api/workflows";
 import { mergeEvents } from "../util/events";
@@ -98,6 +99,8 @@ export function ExecutionDetail() {
   const localId = (name: string) => name.split("::").pop() || name;
   const statusByTask: Record<string, string> = {};
   for (const t of taskList) statusByTask[localId(t.task_name)] = t.status;
+
+  const [codeTask, setCodeTask] = useState<string | null>(null);
 
   const reExecute = useExecuteWorkflow();
   function onReRun() {
@@ -192,7 +195,14 @@ export function ExecutionDetail() {
               </Text>
             )}
           </Group>
-          <WorkflowGraph tasks={workflow.data.task_graph} statusByTask={statusByTask} />
+          <WorkflowGraph
+            tasks={workflow.data.task_graph}
+            statusByTask={statusByTask}
+            onNodeClick={(localTaskId) => setCodeTask(localTaskId)}
+          />
+          <Text size="xs" c="dimmed" mt={6}>
+            Click a task to view its source.
+          </Text>
           <Group gap="md" mt="xs">
             <StateKey status="running" />
             <StateKey status="completed" />
@@ -257,6 +267,13 @@ export function ExecutionDetail() {
           <EventLog events={merged} />
         )}
       </Card>
+
+      <TaskCodeModal
+        opened={codeTask !== null}
+        packageName={pkgName}
+        taskName={codeTask ?? ""}
+        onClose={() => setCodeTask(null)}
+      />
     </Stack>
   );
 }
