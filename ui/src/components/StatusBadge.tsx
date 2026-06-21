@@ -14,15 +14,32 @@
  *  limitations under the License.
  */
 
-import { Badge } from "@mantine/core";
+import { statusColor, pillBg } from "../util/tokens";
 
-import { executionStatusColor } from "../util/status";
-
-/** Execution-status badge (T-0653); reused by overview (T-0655). */
+/**
+ * Execution-status pill (Aurora Dark, CLOACI-I-0129): the status color at full
+ * strength on a tinted (`1c` alpha) background — radius 10, Plex Mono. Reused
+ * across overview, executions, drawers.
+ */
 export function StatusBadge({ status }: { status: string }) {
+  const color = statusColor(status);
   return (
-    <Badge color={executionStatusColor(status)} variant="light">
+    <span
+      style={{
+        display: "inline-block",
+        background: pillBg(color),
+        color,
+        borderRadius: 10,
+        padding: "2px 9px",
+        fontFamily: "'IBM Plex Mono', monospace",
+        fontSize: 10.5,
+        fontWeight: 500,
+        lineHeight: 1.5,
+        textTransform: "lowercase",
+        whiteSpace: "nowrap",
+      }}
+    >
       {status}
-    </Badge>
+    </span>
   );
 }
