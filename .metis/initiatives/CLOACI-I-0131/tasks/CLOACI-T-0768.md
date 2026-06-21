@@ -4,14 +4,14 @@ level: task
 title: "Demo + UI: declared injectors end-to-end (workflow params, CG boundary schemas, graph inject UI)"
 short_code: "CLOACI-T-0768"
 created_at: 2026-06-21T21:02:19.982916+00:00
-updated_at: 2026-06-21T21:02:44.487580+00:00
+updated_at: 2026-06-21T22:34:20.213599+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -83,6 +83,8 @@ declared injectors visible end-to-end (user picked all three surfaces):
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -170,6 +172,18 @@ Done:
   per-accumulator `inject ▸`; `Fire ▾` menu (force-fire / fire-with).
   controls.ts: useReactorInterface/useAccumulatorInterface + fire_with.
 
-ui typecheck+build+tests green. `angreal ui down --clean` + `up` rebuilding to
-recompile fixtures. Verify next: demo_slow_workflow.declared_params non-empty,
-orderbook/pricing interface schemas non-empty, inject/fire UI live.
+### 2026-06-21 — VERIFIED DONE (b4590bfd + earlier 31abe892/7373da64)
+All demo workflows declare params (7373da64). Bug caught by the rebuild: declared
+params ARE validated at the execute API (not pass-through) — the seed harness runs
+demo_slow/demo_fail with empty context, so required params fataled seeding. Fixed
+b4590bfd: auto-run workflows use defaulted params; demo-py-workflow keeps a
+required source_id (not auto-run) to still show the `*` UI.
+
+Live verification on the rebuilt demo:
+- demo-slow-rust declared_params: source_id="demo-source", batch_size=100,
+  dry_run=false — all typed + defaulted. Every demo workflow has params.
+- orderbook /interface slot schema now typed: `OrderBookUpdate {best_bid, best_ask:
+  number}` (was `{}`).
+- GraphInjectModal: clicking `inject ▸` renders best_ask/best_bid NumberInputs from
+  the schema; `Fire ▾` menu offers force-fire / fire-with. Screenshotted.
+- Harness seeds cleanly (no crash-loop). All 4 acceptance criteria met.
