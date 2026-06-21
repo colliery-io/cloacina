@@ -133,6 +133,39 @@ export function FullDag({
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const statusMode = useMemo(() => nodes.some((n) => n.status != null), [nodes]);
 
+  // Spread connection ports along each node's right/left edge so fan-in / fan-out
+  // edges separate instead of bundling at the center port (the muddle on dense
+  // graphs). A node with a single edge stays centered — matching the spec's
+  // "right-center → left-center" for simple graphs. Ports are ordered by the
+  // other endpoint's y to minimize crossings.
+  const edgeGeom = useMemo(() => {
+    const valid = edges.filter((e) => lay.pos.has(e.from) && lay.pos.has(e.to));
+    const out = new Map<string, FullDagEdge[]>();
+    const inc = new Map<string, FullDagEdge[]>();
+    for (const e of valid) {
+      if (!out.has(e.from)) out.set(e.from, []);
+      out.get(e.from)!.push(e);
+      if (!inc.has(e.to)) inc.set(e.to, []);
+      inc.get(e.to)!.push(e);
+    }
+    for (const list of out.values()) list.sort((a, b) => lay.pos.get(a.to)!.y - lay.pos.get(b.to)!.y);
+    for (const list of inc.values()) list.sort((a, b) => lay.pos.get(a.from)!.y - lay.pos.get(b.from)!.y);
+    const port = (top: number, idx: number, n: number) => top + ((idx + 1) / (n + 1)) * NODE_H;
+    return valid.map((e) => {
+      const a = lay.pos.get(e.from)!;
+      const b = lay.pos.get(e.to)!;
+      const oList = out.get(e.from)!;
+      const iList = inc.get(e.to)!;
+      return {
+        e,
+        x1: a.x + NODE_W,
+        y1: port(a.y, oList.indexOf(e), oList.length),
+        x2: b.x,
+        y2: port(b.y, iList.indexOf(e), iList.length),
+      };
+    });
+  }, [edges, lay]);
+
   if (nodes.length === 0) return null;
 
   return (
@@ -148,35 +181,28 @@ export function FullDag({
     >
       <svg width={lay.W} height={Math.max(lay.H, height - 2)} style={{ display: "block" }}>
         {/* Edges */}
-        {edges
-          .filter((e) => lay.pos.has(e.from) && lay.pos.has(e.to))
-          .map((e, i) => {
-            const a = lay.pos.get(e.from)!;
-            const b = lay.pos.get(e.to)!;
-            const x1 = a.x + NODE_W;
-            const y1 = a.y + NODE_H / 2;
-            const x2 = b.x;
-            const y2 = b.y + NODE_H / 2;
-            const k = Math.max(40, (x2 - x1) / 2);
-            const tgt = byId.get(e.to);
-            const srcDone = isDone(byId.get(e.from)?.status);
-            const stroke = !statusMode
-              ? EDGE_KIND
-              : isRunning(tgt?.status)
-                ? ICE
-                : isDone(tgt?.status) && srcDone
-                  ? EDGE_DONE
-                  : EDGE_IDLE;
-            return (
-              <path
-                key={i}
-                d={`M ${x1} ${y1} C ${x1 + k} ${y1}, ${x2 - k} ${y2}, ${x2} ${y2}`}
-                fill="none"
-                stroke={stroke}
-                strokeWidth={1.5}
-              />
-            );
-          })}
+        {edgeGeom.map(({ e, x1, y1, x2, y2 }, i) => {
+          const k = Math.max(34, (x2 - x1) / 2);
+          const tgt = byId.get(e.to);
+          const srcDone = isDone(byId.get(e.from)?.status);
+          const stroke = !statusMode
+            ? EDGE_KIND
+            : isRunning(tgt?.status)
+              ? ICE
+              : isDone(tgt?.status) && srcDone
+                ? EDGE_DONE
+                : EDGE_IDLE;
+          return (
+            <path
+              key={i}
+              d={`M ${x1} ${y1} C ${x1 + k} ${y1}, ${x2 - k} ${y2}, ${x2} ${y2}`}
+              fill="none"
+              stroke={stroke}
+              strokeWidth={1.5}
+              strokeOpacity={0.92}
+            />
+          );
+        })}
 
         {/* Nodes */}
         {nodes.map((n) => {
