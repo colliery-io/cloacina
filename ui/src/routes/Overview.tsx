@@ -23,10 +23,10 @@ import { useGraphs } from "../api/health";
 import { useWorkflows } from "../api/workflows";
 import { useLiveOpsMetrics } from "../api/operations";
 import { useAuth } from "../auth/AuthContext";
-import { StatusBadge } from "../components/StatusBadge";
-import { RecentTasksCell } from "../components/RecentTasksCell";
+import { ActiveRunCard } from "../components/ActiveRunCard";
+import { GraphMiniCard } from "../components/GraphMiniCard";
 import { formatDuration } from "../util/format";
-import { statusColor, healthColor, TOKEN } from "../util/tokens";
+import { statusColor, TOKEN } from "../util/tokens";
 import { useGraphThroughput } from "../util/activity";
 
 const MONO = "'IBM Plex Mono', monospace";
@@ -112,20 +112,7 @@ export function Overview() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {active.map((e) => (
-                <Box key={e.id} style={cardStyle} onClick={() => navigate(`/executions/${e.id}`)}>
-                  <Group justify="space-between" mb={8}>
-                    <Group gap={8}>
-                      <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--fg)" }}>
-                        {e.workflow_name}
-                      </span>
-                      <StatusBadge status={e.status} />
-                    </Group>
-                    <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--faint)" }}>
-                      {e.id.slice(0, 8)}
-                    </span>
-                  </Group>
-                  <RecentTasksCell executionId={e.id} />
-                </Box>
+                <ActiveRunCard key={e.id} execution={e} />
               ))}
             </div>
           )}
@@ -137,23 +124,9 @@ export function Overview() {
               <EmptyCard message="No computation graphs loaded." />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {graphItems.map((g) => {
-                  const rate = graphTp.get(g.name);
-                  const hc = healthColor(typeof g.health === "string" ? g.health : (g.health as { state?: string })?.state);
-                  return (
-                    <Box key={g.name} style={cardStyle} onClick={() => navigate(`/graphs/${encodeURIComponent(g.name)}`)}>
-                      <Group justify="space-between">
-                        <Group gap={8}>
-                          <Dot color={hc} />
-                          <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--fg)" }}>{g.name}</span>
-                        </Group>
-                        <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--faint)" }}>
-                          {rate == null ? "—" : `~${rate}/min`}
-                        </span>
-                      </Group>
-                    </Box>
-                  );
-                })}
+                {graphItems.map((g) => (
+                  <GraphMiniCard key={g.name} graph={g} rate={graphTp.get(g.name) ?? undefined} />
+                ))}
               </div>
             )}
           </Box>

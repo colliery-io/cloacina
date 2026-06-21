@@ -87,3 +87,12 @@ body {
 *::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Running DAG node pulse (spec §"DAG rendering" #3: opacity .45 ↔ 1). */
+@keyframes cl-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.cl-pulse {
+  animation: cl-pulse 1.4s ease-in-out infinite;
+}
