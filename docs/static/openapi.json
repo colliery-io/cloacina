@@ -418,6 +418,141 @@
         ]
       }
     },
+    "/v1/health/accumulators/{name}/inject": {
+      "post": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "POST /v1/health/accumulators/{name}/inject — push a single typed event into\na running accumulator (CLOACI-T-0753).",
+        "description": "Operator-facing REST analogue of the WS accumulator-push path. The typed JSON\n`event` is serialized to the boundary wire encoding server-side (same framing\nas the front-door accumulator socket), so operators never craft raw\n`Vec<u8>`. Authorization reuses the accumulator endpoint policy — the same\ngate the WS accumulator endpoint enforces. Successful injects are\naudit-logged and marked `operator_injected` since they bypass the real event\nsource.",
+        "operationId": "inject_accumulator",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Accumulator name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InjectAccumulatorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Event injected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InjectAccumulatorResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid event payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized for this accumulator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Accumulator not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/health/accumulators/{name}/interface": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/accumulators/{name}/interface — the accumulator's declared\ninput interface (CLOACI-I-0128 T-0758): the single boundary slot an operator\nsupplies to `inject`. Empty `slots` means undeclared/untyped. Read-only\ndiscovery; the same slot backs the validation in `inject_accumulator`.",
+        "operationId": "get_accumulator_interface",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Accumulator name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Declared accumulator input interface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclaredSurface"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/health/graphs": {
       "get": {
         "tags": [
@@ -525,6 +660,141 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListResponse_ReactorStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/health/reactors/{name}/fire": {
+      "post": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "POST /v1/health/reactors/{name}/fire — manually fire a running reactor\n(CLOACI-T-0751).",
+        "description": "Operator-facing REST surface over the existing reactor `ForceFire` /\n`FireWith` mechanics (previously WebSocket-only). Two modes:\n\n- `force_fire`: fire the graph with the reactor's current cache, untouched.\n- `fire_with`: replace the reactor's cache with the supplied typed `inputs`\n  then fire. Full-replace only (mirrors the engine's `replace_all`); there\n  is no partial/merge mode in v1.\n\nTyped JSON `inputs` are serialized to the boundary wire encoding\nserver-side so operators never deal in raw `Vec<u8>`. Each source value is\nencoded exactly as the front-door accumulator path encodes it: the JSON is\nrendered to UTF-8 bytes, then those bytes are bincode-wrapped\n(`bincode(Vec<u8>)`) — the format the passthrough accumulator and the FFI\nbridge expect.\n\nAuthorization reuses the existing per-op reactor policy\n(`ReactorOp::ForceFire` / `ReactorOp::FireWith`), the same gate the WS\nreactor endpoint enforces. Successful fires are audit-logged and marked\n`operator_injected` since they bypass the real event source.",
+        "operationId": "fire_reactor",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Reactor name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FireReactorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reactor fired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FireReactorResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operation not permitted on this reactor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Reactor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/health/reactors/{name}/interface": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/reactors/{name}/interface — the reactor's declared input\ninterface (CLOACI-I-0128 T-0758): the per-source boundary slots an operator\nsupplies to `fire_with`. Empty `slots` means undeclared/untyped (the reactor\naccepts free-form input). Read-only discovery so a UI can render a typed fire\nform; the same slots back the server-side validation in `fire_reactor`.",
+        "operationId": "get_reactor_interface",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Reactor name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Declared reactor input interface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclaredSurface"
                 }
               }
             }
@@ -1375,6 +1645,179 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/triggers/{name}/pause": {
+      "post": {
+        "tags": [
+          "triggers"
+        ],
+        "summary": "POST /tenants/:tenant_id/triggers/:name/pause — pause a schedule (CLOACI-T-0749).",
+        "description": "Resolves the schedule by trigger name or workflow name (same as\n`get_trigger`) and sets it paused so the scheduler stops firing it. Works\nfor both `trigger` and `cron` schedules. In-flight executions are\nunaffected; this only gates new ones.",
+        "operationId": "pause_trigger",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Trigger or workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Schedule paused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerPauseResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Trigger not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/triggers/{name}/resume": {
+      "post": {
+        "tags": [
+          "triggers"
+        ],
+        "summary": "POST /tenants/:tenant_id/triggers/:name/resume — resume a paused schedule\n(CLOACI-T-0749). Re-arms on the normal schedule; missed fires are not\ncaught up (skip policy).",
+        "operationId": "resume_trigger",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Trigger or workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Schedule resumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerPauseResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Trigger not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/workflows": {
       "get": {
         "tags": [
@@ -1711,6 +2154,266 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/workflows/{name}/pause": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "POST /tenants/:tenant_id/workflows/:name/pause — pause a workflow (CLOACI-T-0749).",
+        "description": "Blocks new executions of the workflow (manual and triggered) until resumed.\nIn-flight executions are unaffected. `name` may be the workflow name or\npackage name.",
+        "operationId": "pause_workflow",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow or package name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workflow paused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowPauseResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workflow not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}/resume": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "POST /tenants/:tenant_id/workflows/:name/resume — resume a paused workflow\n(CLOACI-T-0749). New executions are accepted again.",
+        "operationId": "resume_workflow",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow or package name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workflow resumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowPauseResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workflow not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}/source": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "GET /tenants/:tenant_id/workflows/:name/source — read-only source view.",
+        "description": "Surfaces the original source retained in the package's `.cloacina` archive\n(CLOACI-T-0750). `name` may be a package name or a package UUID, matching\n`get_workflow`. Source is independent of build state, so it is available\neven while a package is building or after a failed build.",
+        "operationId": "get_workflow_source",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Package name, or package UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workflow source files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowSourceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workflow not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/workflows/{name}/{version}": {
       "delete": {
         "tags": [
@@ -1820,8 +2523,22 @@
           "name": {
             "type": "string"
           },
+          "reactor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The reactor (graph) this accumulator feeds, self-registered by the graph\nat load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't\nregister the descriptor. Lets an operator see what pushing to\n`/v1/ws/accumulator/{name}` actually drives."
+          },
           "status": {
             "description": "Accumulator health as reported by the endpoint registry. Free-form\nJSON for now; structured in a later contract revision."
+          },
+          "tenant_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Owning tenant, or `None` for untagged single-tenant graphs."
           }
         }
       },
@@ -1969,6 +2686,32 @@
               "null"
             ],
             "description": "Optional password (auto-generated if absent)."
+          }
+        }
+      },
+      "DeclaredSurface": {
+        "type": "object",
+        "description": "A declared injectable surface other than the workflow itself — a computation\ngraph, reactor, or accumulator (CLOACI-I-0128 Task D). Carries the surface's\ndeclared input slots so the server can validate operator injections\n(reactor fire / accumulator inject) and the UI can render typed forms.\n\nSourced from the package's `get_input_interface` FFI entrypoint at build\nsuccess and stored alongside the package metadata. An undeclared / untyped\nsurface has `slots` whose schemas are permissive (`{}`).",
+        "required": [
+          "kind",
+          "name",
+          "slots"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "Surface kind: `\"graph\"`, `\"reactor\"`, or `\"accumulator\"`."
+          },
+          "name": {
+            "type": "string",
+            "description": "Surface name (graph name / reactor name / accumulator name)."
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InputSlot"
+            },
+            "description": "The surface's declared input slots."
           }
         }
       },
@@ -2165,6 +2908,58 @@
           }
         }
       },
+      "FireMode": {
+        "type": "string",
+        "description": "How a manual REST fire should populate the reactor's input cache.\n\nCLOACI-T-0751. Mirrors the two WS write commands (`ForceFire` /\n`FireWith`) but with operator-friendly, typed input.",
+        "enum": [
+          "force_fire",
+          "fire_with"
+        ]
+      },
+      "FireReactorRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/health/reactors/{name}/fire` (CLOACI-T-0751).\n\nOperators supply typed JSON per source; the server serializes each value\nto the boundary wire encoding so callers never deal in raw `Vec<u8>`.",
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "description": "Per-source typed payloads, keyed by accumulator source name. Each\nJSON value is serialized to the boundary encoding server-side.\nRequired (and non-empty) when `mode` is `fire_with`; ignored for\n`force_fire`. Each value may be any JSON.",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "$ref": "#/components/schemas/FireMode",
+            "description": "Whether to fire with the current cache (`force_fire`) or to inject\n`inputs` first (`fire_with`). Defaults to `force_fire`."
+          }
+        }
+      },
+      "FireReactorResponse": {
+        "type": "object",
+        "description": "Response body for a successful manual reactor fire (CLOACI-T-0751).",
+        "required": [
+          "reactor",
+          "mode",
+          "sources_injected"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/FireMode",
+            "description": "The mode that was applied."
+          },
+          "reactor": {
+            "type": "string",
+            "description": "Echoes the reactor name that was fired."
+          },
+          "sources_injected": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Source names whose values were injected (empty for `force_fire`)."
+          }
+        }
+      },
       "GraphStatus": {
         "type": "object",
         "description": "One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`\nresponse body.",
@@ -2304,6 +3099,67 @@
           }
         }
       },
+      "InjectAccumulatorRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/health/accumulators/{name}/inject` (CLOACI-T-0753)\n— push a single typed event into a running accumulator, the operator-facing\nREST analogue of the WS accumulator-push path. The JSON `event` is serialized\nto the boundary wire encoding server-side, so operators never craft raw\n`Vec<u8>`.",
+        "required": [
+          "event"
+        ],
+        "properties": {
+          "event": {
+            "description": "The event payload (any JSON) to push to the accumulator."
+          }
+        }
+      },
+      "InjectAccumulatorResponse": {
+        "type": "object",
+        "description": "Response body for a successful accumulator inject (CLOACI-T-0753).",
+        "required": [
+          "accumulator",
+          "delivered"
+        ],
+        "properties": {
+          "accumulator": {
+            "type": "string",
+            "description": "Echoes the accumulator name the event was pushed to."
+          },
+          "delivered": {
+            "type": "integer",
+            "description": "Number of receivers the event was delivered to.",
+            "minimum": 0
+          }
+        }
+      },
+      "InputSlot": {
+        "type": "object",
+        "description": "One declared input slot of an injectable surface: a named, typed value the\nsurface accepts. `schema` is a JSON Schema fragment (the type descriptor —\n`schemars`-derived for Rust, type-hint-derived for Python) that the UI can\nrender a form from and the server can validate an injection against.\n\n`required` slots must be supplied; `default` (when present) is applied when a\nslot is omitted. A surface with no declared interface exposes an empty slot\nlist (the \"undeclared\" state) and accepts free-form input.",
+        "required": [
+          "name",
+          "schema",
+          "required"
+        ],
+        "properties": {
+          "default": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Optional default applied when the slot is omitted."
+          },
+          "name": {
+            "type": "string",
+            "description": "Slot name — the context key (workflows) or source/event name\n(accumulators/reactors)."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether this slot must be supplied for the injection to be accepted."
+          },
+          "schema": {
+            "type": "object",
+            "description": "JSON Schema fragment describing the accepted value's type."
+          }
+        }
+      },
       "KeyCreatedResponse": {
         "type": "object",
         "description": "`201 Created` body for a new API key. The plaintext `key` is returned\nexactly once — it cannot be retrieved again.",
@@ -2438,8 +3294,22 @@
                 "name": {
                   "type": "string"
                 },
+                "reactor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The reactor (graph) this accumulator feeds, self-registered by the graph\nat load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't\nregister the descriptor. Lets an operator see what pushing to\n`/v1/ws/accumulator/{name}` actually drives."
+                },
                 "status": {
                   "description": "Accumulator health as reported by the endpoint registry. Free-form\nJSON for now; structured in a later contract revision."
+                },
+                "tenant_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Owning tenant, or `None` for untagged single-tenant graphs."
                 }
               }
             }
@@ -3065,6 +3935,17 @@
                   ],
                   "description": "RFC 3339 timestamp."
                 },
+                "paused": {
+                  "type": "boolean",
+                  "description": "Whether the schedule is paused (CLOACI-T-0749). A paused schedule is not\nfired by the scheduler until resumed; distinct from `enabled`."
+                },
+                "paused_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp of when it was paused, if paused."
+                },
                 "poll_interval_ms": {
                   "type": [
                     "integer",
@@ -3136,6 +4017,10 @@
                 },
                 "package_name": {
                   "type": "string"
+                },
+                "paused": {
+                  "type": "boolean",
+                  "description": "Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse\nnew executions until resumed."
                 },
                 "tasks": {
                   "type": "array",
@@ -3261,6 +4146,38 @@
           }
         }
       },
+      "TriggerPauseResponse": {
+        "type": "object",
+        "description": "`POST /tenants/{tenant_id}/triggers/{name}/pause` and `/resume` response\n(CLOACI-T-0749).",
+        "required": [
+          "tenant_id",
+          "id",
+          "name",
+          "status",
+          "paused"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Schedule UUID."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name the schedule was addressed by (trigger or workflow name)."
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Current paused state after the operation."
+          },
+          "status": {
+            "type": "string",
+            "description": "`\"paused\"` or `\"resumed\"`."
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
       "TriggerScheduleInfo": {
         "type": "object",
         "description": "Schedule fields in the trigger detail response.",
@@ -3283,6 +4200,17 @@
           "id": {
             "type": "string",
             "description": "Schedule UUID."
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Whether the schedule is paused (CLOACI-T-0749)."
+          },
+          "paused_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp of when it was paused, if paused."
           },
           "poll_interval_ms": {
             "type": [
@@ -3348,6 +4276,17 @@
               "null"
             ],
             "description": "RFC 3339 timestamp."
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Whether the schedule is paused (CLOACI-T-0749). A paused schedule is not\nfired by the scheduler until resumed; distinct from `enabled`."
+          },
+          "paused_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp of when it was paused, if paused."
           },
           "poll_interval_ms": {
             "type": [
@@ -3419,6 +4358,13 @@
             "type": "string",
             "description": "RFC 3339 timestamp."
           },
+          "declared_params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InputSlot"
+            },
+            "description": "CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the\nworkflow accepts at execute time. Empty when undeclared. Lets the UI\nrender a typed execute form and the server validate context."
+          },
           "description": {
             "type": [
               "string",
@@ -3431,6 +4377,10 @@
           },
           "package_name": {
             "type": "string"
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse\nnew executions until resumed."
           },
           "task_graph": {
             "type": "array",
@@ -3455,6 +4405,101 @@
           "workflow_name": {
             "type": "string",
             "description": "Executable workflow name (the identifier to execute by). Differs from\n`package_name` under the standard convention (package `demo-slow-rust`\n→ workflow `demo_slow_workflow`). Falls back to `package_name` for\npackages predating workflow-name persistence. (CLOACI-T-0671)"
+          }
+        }
+      },
+      "WorkflowPauseResponse": {
+        "type": "object",
+        "description": "`POST /tenants/{tenant_id}/workflows/{name}/pause` and `/resume` response\n(CLOACI-T-0749).",
+        "required": [
+          "tenant_id",
+          "id",
+          "name",
+          "status",
+          "paused"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Package UUID of the affected workflow."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name the workflow was addressed by (workflow or package name)."
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Current paused state after the operation."
+          },
+          "status": {
+            "type": "string",
+            "description": "`\"paused\"` or `\"resumed\"`."
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowSourceFile": {
+        "type": "object",
+        "description": "One source file from a workflow package's retained `.cloacina` archive,\nsurfaced read-only for display (CLOACI-T-0750).",
+        "required": [
+          "path",
+          "contents"
+        ],
+        "properties": {
+          "contents": {
+            "type": "string",
+            "description": "UTF-8 file contents."
+          },
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Best-effort language id derived from the file extension (`\"rust\"`,\n`\"python\"`, `\"toml\"`, …), for syntax highlighting. `None` when unknown."
+          },
+          "path": {
+            "type": "string",
+            "description": "Path relative to the package source root, using forward slashes\n(e.g. `\"src/lib.rs\"`, `\"package.toml\"`)."
+          }
+        }
+      },
+      "WorkflowSourceResponse": {
+        "type": "object",
+        "description": "`GET /tenants/{tenant_id}/workflows/{name}/source` response — the original\nsource retained in the package's `.cloacina` archive, surfaced read-only\n(CLOACI-T-0750). The source is independent of build state, so it is\navailable even for packages that are still building or failed to build.",
+        "required": [
+          "tenant_id",
+          "id",
+          "package_name",
+          "workflow_name",
+          "version",
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowSourceFile"
+            },
+            "description": "Source files in the package, sorted by path. Binary and oversized files\nare omitted."
+          },
+          "id": {
+            "type": "string",
+            "description": "Package UUID."
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string",
+            "description": "Executable workflow name (see `WorkflowSummary::workflow_name`)."
           }
         }
       },
@@ -3486,6 +4531,10 @@
           },
           "package_name": {
             "type": "string"
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse\nnew executions until resumed."
           },
           "tasks": {
             "type": "array",
@@ -3524,6 +4573,20 @@
               "null"
             ],
             "description": "Optional human-readable task description."
+          },
+          "doc_what": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CLOACI-T-0752 \"what\" — short summary parsed from the task's\ndoc-comment/docstring at build time. `None` when undocumented."
+          },
+          "doc_why": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CLOACI-T-0752 \"why\" — rationale parsed from the doc-comment/docstring.\n`None` when undocumented."
           },
           "id": {
             "type": "string",

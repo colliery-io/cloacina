@@ -1,0 +1,75 @@
+/*
+ *  Copyright 2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+//! `cloacinactl accumulator <verb>` — operator actions on accumulators loaded in
+//! the server's graph scheduler (CLOACI-T-0753).
+//!
+//! Backed by `POST /v1/health/accumulators/{name}/inject`. Lets an operator push
+//! a single typed event into a running accumulator for a manual operational
+//! check, without hand-crafting raw boundary bytes — the front-door analogue of
+//! `cloacinactl reactor fire`. The typed JSON event is serialized to the
+//! boundary encoding server-side.
+
+use clap::{Args, Subcommand};
+
+use crate::commands::config::CloacinaConfig;
+use crate::shared::client::CliClient;
+use crate::shared::client_ctx::ClientContext;
+use crate::shared::error::CliError;
+use crate::shared::render;
+use crate::GlobalOpts;
+
+#[derive(Args)]
+pub struct AccumulatorCmd {
+    #[command(subcommand)]
+    verb: AccumulatorVerb,
+}
+
+#[derive(Subcommand)]
+enum AccumulatorVerb {
+    /// Inject a single typed event into a running accumulator.
+    ///
+    /// `--event <json>` is the payload; it's parsed as JSON, or treated as a
+    /// JSON string if it isn't valid JSON (so `--event hello` works unquoted).
+    Inject {
+        /// Accumulator name.
+        name: String,
+        /// Event payload as JSON. Example: `--event '{"sym":"ABC","px":12.5}'`.
+        #[arg(long = "event", value_name = "JSON")]
+        event: String,
+    },
+}
+
+impl AccumulatorCmd {
+    pub async fn run(self, globals: &GlobalOpts) -> Result<(), CliError> {
+        let config = CloacinaConfig::load(&globals.home.join("config.toml"));
+        let ctx = ClientContext::resolve(globals, &config).map_err(CliError::Other)?;
+        let output = ctx.output;
+        let client = CliClient::new(ctx)?;
+
+        match self.verb {
+            AccumulatorVerb::Inject { name, event } => {
+                let value = serde_json::from_str::<serde_json::Value>(&event)
+                    .unwrap_or_else(|_| serde_json::Value::String(event.clone()));
+                let body = serde_json::json!({ "event": value });
+                let resp: serde_json::Value = client
+                    .post(&format!("/v1/health/accumulators/{name}/inject"), &body)
+                    .await?;
+                render::object(&resp, output)
+            }
+        }
+    }
+}

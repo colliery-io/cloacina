@@ -69,6 +69,20 @@ pub struct PackageMetadata {
     /// each named trigger to the workflow at load time.
     #[serde(default)]
     pub workflow_triggers: Vec<String>,
+    /// CLOACI-I-0128 / T-0756: declared workflow params (named, JSON-Schema-typed
+    /// input slots) from `#[workflow(params(...))]`, read via the input-interface
+    /// FFI entrypoint at extraction time. Empty for packages that declare none or
+    /// predate the entrypoint.
+    #[serde(default)]
+    pub declared_params: Vec<cloacina_api_types::InputSlot>,
+    /// CLOACI-I-0128 / T-0758: declared input interfaces of the package's
+    /// non-workflow injectable surfaces (computation graphs, reactors,
+    /// accumulators), read from the same `get_input_interface` entrypoint. Lets
+    /// the server validate operator injections (reactor fire / accumulator
+    /// inject) against the surface's boundary types. Empty when none are declared
+    /// or the package predates the entrypoint.
+    #[serde(default)]
+    pub declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
 }
 
 /// Individual task metadata.
@@ -86,6 +100,28 @@ pub struct TaskMetadata {
     pub description: String,
     /// Source location information
     pub source_location: String,
+    /// CLOACI-T-0752 "what" — a short summary of what the task does, parsed
+    /// from the author's doc-comment / docstring at build time. `None` when the
+    /// task is undocumented. `#[serde(default)]` keeps older stored metadata
+    /// deserializable.
+    #[serde(default)]
+    pub doc_what: Option<String>,
+    /// CLOACI-T-0752 "why" — the rationale for the task (why it exists / when it
+    /// matters), parsed from the doc-comment / docstring. `None` when absent.
+    #[serde(default)]
+    pub doc_why: Option<String>,
+}
+
+/// Structured "what & why" documentation for a single task (CLOACI-T-0752),
+/// parsed compiler-side from the author's source (Rust doc-comments / Python
+/// docstrings) and overlaid onto the persisted [`TaskMetadata`]. Keyed by the
+/// task's local id.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskDocs {
+    /// Short summary of what the task does.
+    pub what: Option<String>,
+    /// Rationale — why the task exists / when it matters.
+    pub why: Option<String>,
 }
 
 /// Package loader for extracting metadata from workflow library files.
@@ -242,9 +278,49 @@ impl PackageLoader {
                 reason: format!("Failed to call get_task_metadata: {}", e),
             })?;
 
-        // Keep the handle alive — dropping it triggers dlclose which corrupts
-        // the inventory linked list (see struct-level docs).
-        // PluginHandle holds an Arc<Library> that keeps the dylib mapped.
+        // CLOACI-I-0128 / T-0756: pull the declared input interface (method index
+        // 9, optional since v3). Older packages return NotImplemented → no
+        // declared params. The workflow-surface entry's `slots_json` is a JSON
+        // array of InputSlot.
+        let iface_result: Result<
+            cloacina_workflow_plugin::InputInterfaceDescriptor,
+            fidius_host::CallError,
+        > = handle.call_method(cloacina_workflow_plugin::METHOD_GET_INPUT_INTERFACE, &());
+        let (declared_params, declared_surfaces): (
+            Vec<cloacina_api_types::InputSlot>,
+            Vec<cloacina_api_types::DeclaredSurface>,
+        ) = match iface_result {
+            Ok(desc) => {
+                let mut params: Vec<cloacina_api_types::InputSlot> = Vec::new();
+                let mut surfaces: Vec<cloacina_api_types::DeclaredSurface> = Vec::new();
+                for e in desc.entries {
+                    let slots =
+                        serde_json::from_str::<Vec<cloacina_api_types::InputSlot>>(&e.slots_json)
+                            .unwrap_or_default();
+                    if e.surface_kind == "workflow" {
+                        // Workflow params land in declared_params (T-0756).
+                        params.extend(slots);
+                    } else {
+                        // graph / reactor / accumulator surfaces (T-0758).
+                        surfaces.push(cloacina_api_types::DeclaredSurface {
+                            kind: e.surface_kind,
+                            name: e.surface_name,
+                            slots,
+                        });
+                    }
+                }
+                (params, surfaces)
+            }
+            Err(fidius_host::CallError::NotImplemented { .. }) => (Vec::new(), Vec::new()),
+            Err(e) => {
+                tracing::warn!(
+                    "get_input_interface failed: {:?}; treating as no declared interface",
+                    e
+                );
+                (Vec::new(), Vec::new())
+            }
+        };
+
         // Keep the handle alive — dropping it triggers dlclose which corrupts
         // the inventory linked list (see struct-level docs).
         // PluginHandle holds an Arc<Library> that keeps the dylib mapped.
@@ -252,7 +328,10 @@ impl PackageLoader {
             cache.push(handle);
         }
 
-        self.convert_plugin_metadata_to_rust(ffi_metadata)
+        let mut pkg = self.convert_plugin_metadata_to_rust(ffi_metadata)?;
+        pkg.declared_params = declared_params;
+        pkg.declared_surfaces = declared_surfaces;
+        Ok(pkg)
     }
 
     /// Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
@@ -271,6 +350,10 @@ impl PackageLoader {
                 dependencies: t.dependencies,
                 description: t.description,
                 source_location: t.source_location,
+                // FFI metadata carries no docs; the compiler overlays parsed
+                // doc-comments at build success (CLOACI-T-0752).
+                doc_what: None,
+                doc_why: None,
             })
             .collect();
 
@@ -316,6 +399,10 @@ impl PackageLoader {
             architecture,
             symbols: vec!["fidius_get_registry".to_string()],
             workflow_triggers: meta.triggers,
+            // Populated by the caller via the input-interface entrypoint
+            // (extract_metadata_from_so); empty here.
+            declared_params: Vec::new(),
+            declared_surfaces: Vec::new(),
         })
     }
 

@@ -216,6 +216,22 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // ComputationGraphEntry submission below. (CLOACI-T-0673)
     let graph_data_json_lit = proc_macro2::Literal::string(&graph_topology_json(ir));
 
+    // CLOACI-I-0128 (T-0758): derive the input interface — one InputSlot per
+    // cache source (accumulator name → boundary type from the consuming node's
+    // fn signature). Built once, emitted into every ComputationGraphEntry below
+    // with the crate-path appropriate to the build mode. Boundary typing is
+    // opt-in: types deriving `JsonSchema` get a rich schema, others a permissive
+    // one (via the `SchemaProbe` autoref specialization).
+    let source_boundary_types = extract_source_boundary_types(ir, &functions);
+    let input_interface_via_cloacina = build_input_interface_fn(
+        &source_boundary_types,
+        &quote! { ::cloacina::input_interface },
+    );
+    let input_interface_via_workflow = build_input_interface_fn(
+        &source_boundary_types,
+        &quote! { ::cloacina_workflow::input_interface },
+    );
+
     let (compiled_fn_body, ctor_body) = if is_triggerless {
         // Trigger-less form: the compiled fn takes a workflow `Context<Value>`
         // and the runtime registration goes into `TriggerlessGraphEntry`.
@@ -297,6 +313,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                         reaction_mode: #legacy_reaction_mode_expr,
                     },
                     graph_data_json: #graph_data_json_lit,
+                    input_interface: #input_interface_via_workflow,
                 }
             }
         };
@@ -333,6 +350,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                         reaction_mode: #legacy_reaction_mode_expr,
                     },
                     graph_data_json: #graph_data_json_lit,
+                    input_interface: #input_interface_via_cloacina,
                 }
             }
             #[cfg(feature = "packaged")]
@@ -350,6 +368,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                         reaction_mode: #legacy_reaction_mode_expr,
                     },
                     graph_data_json: #graph_data_json_lit,
+                    input_interface: #input_interface_via_workflow,
                 }
             }
         };
@@ -454,6 +473,103 @@ fn extract_functions(module: &ItemMod) -> syn::Result<HashMap<String, ItemFn>> {
     }
 
     Ok(functions)
+}
+
+/// CLOACI-I-0128 (T-0758): map each cache source (accumulator name) to its
+/// boundary type, read from the consuming node fn's parameter of the same name.
+/// First declaration wins; a source with no matching typed param is skipped —
+/// it degrades to a permissive schema at emission (the probe fallback). Iterated
+/// in a stable order (`sorted_nodes`) so the emitted slot order is deterministic.
+fn extract_source_boundary_types(
+    ir: &GraphIR,
+    functions: &HashMap<String, ItemFn>,
+) -> Vec<(String, syn::Type)> {
+    let mut out: Vec<(String, syn::Type)> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for node_name in &ir.sorted_nodes {
+        let node = match ir.get_node(node_name) {
+            Some(n) => n,
+            None => continue,
+        };
+        let func = match functions.get(node_name) {
+            Some(f) => f,
+            None => continue,
+        };
+        for input in &node.cache_inputs {
+            if !seen.insert(input.clone()) {
+                continue;
+            }
+            if let Some(ty) = param_type_by_name(func, input) {
+                out.push((input.clone(), boundary_inner_type(&ty)));
+            }
+        }
+    }
+    out
+}
+
+/// Find a fn parameter by its binding name and return its declared type.
+fn param_type_by_name(func: &ItemFn, name: &str) -> Option<syn::Type> {
+    for arg in &func.sig.inputs {
+        if let syn::FnArg::Typed(pt) = arg {
+            if let syn::Pat::Ident(pi) = &*pt.pat {
+                if pi.ident == name {
+                    return Some((*pt.ty).clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Strip `Option<…>` and references to recover the boundary value type
+/// (`Option<&AlphaIn>` → `AlphaIn`).
+fn boundary_inner_type(ty: &syn::Type) -> syn::Type {
+    match ty {
+        syn::Type::Reference(r) => boundary_inner_type(&r.elem),
+        syn::Type::Path(p) => {
+            if let Some(seg) = p.path.segments.last() {
+                if seg.ident == "Option" {
+                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                        if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                            return boundary_inner_type(inner);
+                        }
+                    }
+                }
+            }
+            ty.clone()
+        }
+        _ => ty.clone(),
+    }
+}
+
+/// Build the `input_interface: fn() -> String` token stream for a
+/// `ComputationGraphEntry`. `prefix` is the path to the `input_interface`
+/// helpers (mode-dependent). Each source becomes an optional `InputSlot` whose
+/// schema is resolved by the opt-in `SchemaProbe` (typed if the boundary derives
+/// `JsonSchema`, permissive `{}` otherwise). No sources → `|| "[]"`.
+fn build_input_interface_fn(sources: &[(String, syn::Type)], prefix: &TokenStream) -> TokenStream {
+    if sources.is_empty() {
+        return quote! { || ::std::string::String::from("[]") };
+    }
+    let slot_exprs = sources.iter().map(|(name, ty)| {
+        quote! {
+            #prefix::InputSlot::optional(
+                #name,
+                {
+                    #[allow(unused_imports)]
+                    use #prefix::{ProbeFallback as _, ProbeTyped as _};
+                    (&#prefix::SchemaProbe::<#ty>::new()).probe_input_schema()
+                },
+                ::std::option::Option::None,
+            )
+        }
+    });
+    quote! {
+        || {
+            let slots: ::std::vec::Vec<#prefix::InputSlot> = ::std::vec![ #(#slot_exprs),* ];
+            #prefix::slots_to_json(&slots)
+        }
+    }
 }
 
 /// Check if a function has `#[node(blocking)]` attribute.

@@ -22,7 +22,9 @@
 //! `fidius_validation.rs`) but to lock down the wire-format invariants
 //! that T-A's shell + T-B's reactor-metadata extraction depend on.
 
-use cloacina_workflow_plugin::{PackageTasksMetadata, ReactorPackageMetadata};
+use cloacina_workflow_plugin::{
+    InputInterfaceDescriptor, PackageTasksMetadata, ReactorPackageMetadata,
+};
 
 /// Find the pre-built debug dylib for a fixture under `examples/fixtures/`.
 fn find_fixture_dylib(name: &str) -> Option<std::path::PathBuf> {
@@ -123,6 +125,54 @@ fn reactor_subscriber_fixture_carries_string_name_binding() {
         graph.trigger_reactor.as_deref(),
         Some("shared_rx"),
         "subscriber's trigger_reactor must be the string-named reactor (cross-package binding)"
+    );
+}
+
+// ===========================================================================
+// CLOACI-I-0128 (T-0758) — accumulator/reactor input-interface derivation.
+// ===========================================================================
+
+/// The mixed fixture's reactor surface exposes a TYPED input slot for its
+/// accumulator source `alpha`, because mixed-rust opts in by deriving
+/// `schemars::JsonSchema` on the boundary type `AlphaIn` (`compute(alpha:
+/// Option<&AlphaIn>)`). Verifies the opt-in typed path end-to-end through the
+/// `get_input_interface` FFI entrypoint.
+#[test]
+fn mixed_fixture_exposes_typed_reactor_input_interface() {
+    let Some(handle) = load_handle("mixed-rust") else {
+        eprintln!("Skipping: mixed-rust not built");
+        return;
+    };
+
+    // Method index 9 = get_input_interface (CLOACI-I-0128).
+    let desc: InputInterfaceDescriptor = handle
+        .call_method(cloacina_workflow_plugin::METHOD_GET_INPUT_INTERFACE, &())
+        .expect("get_input_interface FFI call should succeed");
+
+    let reactor = desc
+        .entries
+        .iter()
+        .find(|e| e.surface_kind == "reactor" && e.surface_name == "mixed_reactor")
+        .expect("expected a reactor entry for 'mixed_reactor'");
+
+    let slots: Vec<serde_json::Value> =
+        serde_json::from_str(&reactor.slots_json).expect("reactor slots_json is a JSON array");
+    let alpha = slots
+        .iter()
+        .find(|s| s["name"] == "alpha")
+        .expect("reactor exposes an 'alpha' source slot");
+
+    // AlphaIn derives JsonSchema → a rich object schema (NOT the permissive {}).
+    let props = alpha["schema"].get("properties");
+    assert!(
+        props.is_some(),
+        "alpha should carry a typed object schema (AlphaIn derives JsonSchema), got: {}",
+        alpha["schema"]
+    );
+    assert!(
+        props.unwrap().get("value").is_some(),
+        "AlphaIn schema should describe its `value` field, got: {}",
+        alpha["schema"]
     );
 }
 

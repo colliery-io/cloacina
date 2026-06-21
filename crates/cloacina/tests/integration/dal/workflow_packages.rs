@@ -44,6 +44,8 @@ async fn test_store_and_get_package_metadata() {
         architecture: "x86_64".to_string(),
         symbols: vec!["cloacina_execute_task".to_string()],
         workflow_triggers: vec![],
+        declared_params: vec![],
+        declared_surfaces: vec![],
     };
 
     // Create a corresponding workflow_registry entry first
@@ -103,6 +105,8 @@ async fn test_store_duplicate_package_metadata() {
         architecture: "x86_64".to_string(),
         symbols: vec![],
         workflow_triggers: vec![],
+        declared_params: vec![],
+        declared_surfaces: vec![],
     };
 
     // Create a corresponding workflow_registry entry first
@@ -181,6 +185,8 @@ async fn test_list_all_packages() {
             architecture: "x86_64".to_string(),
             symbols: vec![],
             workflow_triggers: vec![],
+            declared_params: vec![],
+            declared_surfaces: vec![],
         };
 
         package_names.push(test_metadata.package_name.clone());
@@ -231,6 +237,8 @@ async fn test_delete_package_metadata() {
         architecture: "x86_64".to_string(),
         symbols: vec![],
         workflow_triggers: vec![],
+        declared_params: vec![],
+        declared_surfaces: vec![],
     };
 
     // Create a corresponding workflow_registry entry first
@@ -341,6 +349,8 @@ async fn test_store_package_with_complex_metadata() {
                 dependencies: vec!["task2".to_string()],
                 description: "First task".to_string(),
                 source_location: "src/task1.rs:10".to_string(),
+                doc_what: None,
+                doc_why: None,
             },
             cloacina::registry::loader::package_loader::TaskMetadata {
                 index: 1,
@@ -349,6 +359,8 @@ async fn test_store_package_with_complex_metadata() {
                 dependencies: vec![],
                 description: "Second task".to_string(),
                 source_location: "src/task2.rs:20".to_string(),
+                doc_what: None,
+                doc_why: None,
             },
         ],
         graph_data: Some(serde_json::json!({
@@ -361,6 +373,8 @@ async fn test_store_package_with_complex_metadata() {
             "cloacina_get_task_metadata".to_string(),
         ],
         workflow_triggers: vec![],
+        declared_params: vec![],
+        declared_surfaces: vec![],
     };
 
     // Create a corresponding workflow_registry entry first
@@ -435,6 +449,8 @@ async fn test_store_package_with_invalid_uuid() {
         architecture: "x86_64".to_string(),
         symbols: vec![],
         workflow_triggers: vec![],
+        declared_params: vec![],
+        declared_surfaces: vec![],
     };
 
     // Try to store with invalid UUID
@@ -496,6 +512,8 @@ async fn test_package_versioning() {
         architecture: "x86_64".to_string(),
         symbols: vec![],
         workflow_triggers: vec![],
+        declared_params: vec![],
+        declared_surfaces: vec![],
     };
     workflow_packages_dal
         .store_package_metadata(&registry_id, &meta_v1, storage_type, None)

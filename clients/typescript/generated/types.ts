@@ -163,6 +163,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/health/accumulators/{name}/inject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /v1/health/accumulators/{name}/inject — push a single typed event into
+         *     a running accumulator (CLOACI-T-0753).
+         * @description Operator-facing REST analogue of the WS accumulator-push path. The typed JSON
+         *     `event` is serialized to the boundary wire encoding server-side (same framing
+         *     as the front-door accumulator socket), so operators never craft raw
+         *     `Vec<u8>`. Authorization reuses the accumulator endpoint policy — the same
+         *     gate the WS accumulator endpoint enforces. Successful injects are
+         *     audit-logged and marked `operator_injected` since they bypass the real event
+         *     source.
+         */
+        post: operations["inject_accumulator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/health/accumulators/{name}/interface": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /v1/health/accumulators/{name}/interface — the accumulator's declared
+         *     input interface (CLOACI-I-0128 T-0758): the single boundary slot an operator
+         *     supplies to `inject`. Empty `slots` means undeclared/untyped. Read-only
+         *     discovery; the same slot backs the validation in `inject_accumulator`.
+         */
+        get: operations["get_accumulator_interface"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/health/graphs": {
         parameters: {
             query?: never;
@@ -217,6 +266,68 @@ export interface paths {
          *     `list_graphs` omits. Visibility reuses the same tenant gate as graphs.
          */
         get: operations["list_reactors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/health/reactors/{name}/fire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /v1/health/reactors/{name}/fire — manually fire a running reactor
+         *     (CLOACI-T-0751).
+         * @description Operator-facing REST surface over the existing reactor `ForceFire` /
+         *     `FireWith` mechanics (previously WebSocket-only). Two modes:
+         *
+         *     - `force_fire`: fire the graph with the reactor's current cache, untouched.
+         *     - `fire_with`: replace the reactor's cache with the supplied typed `inputs`
+         *       then fire. Full-replace only (mirrors the engine's `replace_all`); there
+         *       is no partial/merge mode in v1.
+         *
+         *     Typed JSON `inputs` are serialized to the boundary wire encoding
+         *     server-side so operators never deal in raw `Vec<u8>`. Each source value is
+         *     encoded exactly as the front-door accumulator path encodes it: the JSON is
+         *     rendered to UTF-8 bytes, then those bytes are bincode-wrapped
+         *     (`bincode(Vec<u8>)`) — the format the passthrough accumulator and the FFI
+         *     bridge expect.
+         *
+         *     Authorization reuses the existing per-op reactor policy
+         *     (`ReactorOp::ForceFire` / `ReactorOp::FireWith`), the same gate the WS
+         *     reactor endpoint enforces. Successful fires are audit-logged and marked
+         *     `operator_injected` since they bypass the real event source.
+         */
+        post: operations["fire_reactor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/health/reactors/{name}/interface": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /v1/health/reactors/{name}/interface — the reactor's declared input
+         *     interface (CLOACI-I-0128 T-0758): the per-source boundary slots an operator
+         *     supplies to `fire_with`. Empty `slots` means undeclared/untyped (the reactor
+         *     accepts free-form input). Read-only discovery so a UI can render a typed fire
+         *     form; the same slots back the server-side validation in `fire_reactor`.
+         */
+        get: operations["get_reactor_interface"];
         put?: never;
         post?: never;
         delete?: never;
@@ -422,6 +533,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/triggers/{name}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/triggers/:name/pause — pause a schedule (CLOACI-T-0749).
+         * @description Resolves the schedule by trigger name or workflow name (same as
+         *     `get_trigger`) and sets it paused so the scheduler stops firing it. Works
+         *     for both `trigger` and `cron` schedules. In-flight executions are
+         *     unaffected; this only gates new ones.
+         */
+        post: operations["pause_trigger"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/triggers/{name}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/triggers/:name/resume — resume a paused schedule
+         *     (CLOACI-T-0749). Re-arms on the normal schedule; missed fires are not
+         *     caught up (skip policy).
+         */
+        post: operations["resume_trigger"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/workflows": {
         parameters: {
             query?: never;
@@ -480,6 +635,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/workflows/{name}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/workflows/:name/pause — pause a workflow (CLOACI-T-0749).
+         * @description Blocks new executions of the workflow (manual and triggered) until resumed.
+         *     In-flight executions are unaffected. `name` may be the workflow name or
+         *     package name.
+         */
+        post: operations["pause_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/workflows/{name}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/workflows/:name/resume — resume a paused workflow
+         *     (CLOACI-T-0749). New executions are accepted again.
+         */
+        post: operations["resume_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/workflows/{name}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/workflows/:name/source — read-only source view.
+         * @description Surfaces the original source retained in the package's `.cloacina` archive
+         *     (CLOACI-T-0750). `name` may be a package name or a package UUID, matching
+         *     `get_workflow`. Source is independent of build state, so it is available
+         *     even while a package is building or after a failed build.
+         */
+        get: operations["get_workflow_source"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/workflows/{name}/{version}": {
         parameters: {
             query?: never;
@@ -505,10 +725,19 @@ export interface components {
         AccumulatorStatus: {
             name: string;
             /**
+             * @description The reactor (graph) this accumulator feeds, self-registered by the graph
+             *     at load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't
+             *     register the descriptor. Lets an operator see what pushing to
+             *     `/v1/ws/accumulator/{name}` actually drives.
+             */
+            reactor?: string | null;
+            /**
              * @description Accumulator health as reported by the endpoint registry. Free-form
              *     JSON for now; structured in a later contract revision.
              */
             status: unknown;
+            /** @description Owning tenant, or `None` for untagged single-tenant graphs. */
+            tenant_id?: string | null;
         };
         /** @description One registered execution agent in the in-memory fleet roster. */
         AgentInfo: {
@@ -580,6 +809,24 @@ export interface components {
             name: string;
             /** @description Optional password (auto-generated if absent). */
             password?: string | null;
+        };
+        /**
+         * @description A declared injectable surface other than the workflow itself — a computation
+         *     graph, reactor, or accumulator (CLOACI-I-0128 Task D). Carries the surface's
+         *     declared input slots so the server can validate operator injections
+         *     (reactor fire / accumulator inject) and the UI can render typed forms.
+         *
+         *     Sourced from the package's `get_input_interface` FFI entrypoint at build
+         *     success and stored alongside the package metadata. An undeclared / untyped
+         *     surface has `slots` whose schemas are permissive (`{}`).
+         */
+        DeclaredSurface: {
+            /** @description Surface kind: `"graph"`, `"reactor"`, or `"accumulator"`. */
+            kind: string;
+            /** @description Surface name (graph name / reactor name / accumulator name). */
+            name: string;
+            /** @description The surface's declared input slots. */
+            slots: components["schemas"]["InputSlot"][];
         };
         /**
          * @description Standardized error response body. Every non-2xx response from
@@ -658,6 +905,45 @@ export interface components {
             tenant_id: string;
         };
         /**
+         * @description How a manual REST fire should populate the reactor's input cache.
+         *
+         *     CLOACI-T-0751. Mirrors the two WS write commands (`ForceFire` /
+         *     `FireWith`) but with operator-friendly, typed input.
+         * @enum {string}
+         */
+        FireMode: "force_fire" | "fire_with";
+        /**
+         * @description Request body for `POST /v1/health/reactors/{name}/fire` (CLOACI-T-0751).
+         *
+         *     Operators supply typed JSON per source; the server serializes each value
+         *     to the boundary wire encoding so callers never deal in raw `Vec<u8>`.
+         */
+        FireReactorRequest: {
+            /**
+             * @description Per-source typed payloads, keyed by accumulator source name. Each
+             *     JSON value is serialized to the boundary encoding server-side.
+             *     Required (and non-empty) when `mode` is `fire_with`; ignored for
+             *     `force_fire`. Each value may be any JSON.
+             */
+            inputs?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description Whether to fire with the current cache (`force_fire`) or to inject
+             *     `inputs` first (`fire_with`). Defaults to `force_fire`.
+             */
+            mode?: components["schemas"]["FireMode"];
+        };
+        /** @description Response body for a successful manual reactor fire (CLOACI-T-0751). */
+        FireReactorResponse: {
+            /** @description The mode that was applied. */
+            mode: components["schemas"]["FireMode"];
+            /** @description Echoes the reactor name that was fired. */
+            reactor: string;
+            /** @description Source names whose values were injected (empty for `force_fire`). */
+            sources_injected: string[];
+        };
+        /**
          * @description One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
          *     response body.
          */
@@ -707,6 +993,47 @@ export interface components {
             id: string;
             /** @description Accumulator names this node reads from the input cache (entry nodes). */
             inputs?: string[];
+        };
+        /**
+         * @description Request body for `POST /v1/health/accumulators/{name}/inject` (CLOACI-T-0753)
+         *     — push a single typed event into a running accumulator, the operator-facing
+         *     REST analogue of the WS accumulator-push path. The JSON `event` is serialized
+         *     to the boundary wire encoding server-side, so operators never craft raw
+         *     `Vec<u8>`.
+         */
+        InjectAccumulatorRequest: {
+            /** @description The event payload (any JSON) to push to the accumulator. */
+            event: unknown;
+        };
+        /** @description Response body for a successful accumulator inject (CLOACI-T-0753). */
+        InjectAccumulatorResponse: {
+            /** @description Echoes the accumulator name the event was pushed to. */
+            accumulator: string;
+            /** @description Number of receivers the event was delivered to. */
+            delivered: number;
+        };
+        /**
+         * @description One declared input slot of an injectable surface: a named, typed value the
+         *     surface accepts. `schema` is a JSON Schema fragment (the type descriptor —
+         *     `schemars`-derived for Rust, type-hint-derived for Python) that the UI can
+         *     render a form from and the server can validate an injection against.
+         *
+         *     `required` slots must be supplied; `default` (when present) is applied when a
+         *     slot is omitted. A surface with no declared interface exposes an empty slot
+         *     list (the "undeclared" state) and accepts free-form input.
+         */
+        InputSlot: {
+            /** @description Optional default applied when the slot is omitted. */
+            default?: Record<string, never> | null;
+            /**
+             * @description Slot name — the context key (workflows) or source/event name
+             *     (accumulators/reactors).
+             */
+            name: string;
+            /** @description Whether this slot must be supplied for the injection to be accepted. */
+            required: boolean;
+            /** @description JSON Schema fragment describing the accepted value's type. */
+            schema: Record<string, never>;
         };
         /**
          * @description `201 Created` body for a new API key. The plaintext `key` is returned
@@ -762,10 +1089,19 @@ export interface components {
             items: {
                 name: string;
                 /**
+                 * @description The reactor (graph) this accumulator feeds, self-registered by the graph
+                 *     at load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't
+                 *     register the descriptor. Lets an operator see what pushing to
+                 *     `/v1/ws/accumulator/{name}` actually drives.
+                 */
+                reactor?: string | null;
+                /**
                  * @description Accumulator health as reported by the endpoint registry. Free-form
                  *     JSON for now; structured in a later contract revision.
                  */
                 status: unknown;
+                /** @description Owning tenant, or `None` for untagged single-tenant graphs. */
+                tenant_id?: string | null;
             }[];
             total: number;
         };
@@ -1014,6 +1350,13 @@ export interface components {
                 last_run_at?: string | null;
                 /** @description RFC 3339 timestamp. */
                 next_run_at?: string | null;
+                /**
+                 * @description Whether the schedule is paused (CLOACI-T-0749). A paused schedule is not
+                 *     fired by the scheduler until resumed; distinct from `enabled`.
+                 */
+                paused?: boolean;
+                /** @description RFC 3339 timestamp of when it was paused, if paused. */
+                paused_at?: string | null;
                 /** Format: int64 */
                 poll_interval_ms?: number | null;
                 /** @description `cron` or `trigger`. */
@@ -1037,6 +1380,11 @@ export interface components {
                 /** @description Package UUID. */
                 id: string;
                 package_name: string;
+                /**
+                 * @description Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
+                 *     new executions until resumed.
+                 */
+                paused?: boolean;
                 /** @description Task IDs included in this package. */
                 tasks: string[];
                 version: string;
@@ -1082,12 +1430,31 @@ export interface components {
             /** @description RFC 3339 timestamp. */
             started_at: string;
         };
+        /**
+         * @description `POST /tenants/{tenant_id}/triggers/{name}/pause` and `/resume` response
+         *     (CLOACI-T-0749).
+         */
+        TriggerPauseResponse: {
+            /** @description Schedule UUID. */
+            id: string;
+            /** @description The name the schedule was addressed by (trigger or workflow name). */
+            name: string;
+            /** @description Current paused state after the operation. */
+            paused: boolean;
+            /** @description `"paused"` or `"resumed"`. */
+            status: string;
+            tenant_id: string;
+        };
         /** @description Schedule fields in the trigger detail response. */
         TriggerScheduleInfo: {
             cron_expression?: string | null;
             enabled: boolean;
             /** @description Schedule UUID. */
             id: string;
+            /** @description Whether the schedule is paused (CLOACI-T-0749). */
+            paused?: boolean;
+            /** @description RFC 3339 timestamp of when it was paused, if paused. */
+            paused_at?: string | null;
             /**
              * Format: int64
              * @description Poll interval in milliseconds for `trigger`-type schedules (the
@@ -1112,6 +1479,13 @@ export interface components {
             last_run_at?: string | null;
             /** @description RFC 3339 timestamp. */
             next_run_at?: string | null;
+            /**
+             * @description Whether the schedule is paused (CLOACI-T-0749). A paused schedule is not
+             *     fired by the scheduler until resumed; distinct from `enabled`.
+             */
+            paused?: boolean;
+            /** @description RFC 3339 timestamp of when it was paused, if paused. */
+            paused_at?: string | null;
             /** Format: int64 */
             poll_interval_ms?: number | null;
             /** @description `cron` or `trigger`. */
@@ -1135,10 +1509,21 @@ export interface components {
             build_status: string;
             /** @description RFC 3339 timestamp. */
             created_at: string;
+            /**
+             * @description CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the
+             *     workflow accepts at execute time. Empty when undeclared. Lets the UI
+             *     render a typed execute form and the server validate context.
+             */
+            declared_params?: components["schemas"]["InputSlot"][];
             description?: string | null;
             /** @description Package UUID. */
             id: string;
             package_name: string;
+            /**
+             * @description Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
+             *     new executions until resumed.
+             */
+            paused?: boolean;
             /**
              * @description The task dependency graph (nodes + their upstream dependencies) for
              *     rendering the full workflow DAG. Empty for packages predating
@@ -1157,6 +1542,59 @@ export interface components {
              */
             workflow_name: string;
         };
+        /**
+         * @description `POST /tenants/{tenant_id}/workflows/{name}/pause` and `/resume` response
+         *     (CLOACI-T-0749).
+         */
+        WorkflowPauseResponse: {
+            /** @description Package UUID of the affected workflow. */
+            id: string;
+            /** @description The name the workflow was addressed by (workflow or package name). */
+            name: string;
+            /** @description Current paused state after the operation. */
+            paused: boolean;
+            /** @description `"paused"` or `"resumed"`. */
+            status: string;
+            tenant_id: string;
+        };
+        /**
+         * @description One source file from a workflow package's retained `.cloacina` archive,
+         *     surfaced read-only for display (CLOACI-T-0750).
+         */
+        WorkflowSourceFile: {
+            /** @description UTF-8 file contents. */
+            contents: string;
+            /**
+             * @description Best-effort language id derived from the file extension (`"rust"`,
+             *     `"python"`, `"toml"`, …), for syntax highlighting. `None` when unknown.
+             */
+            language?: string | null;
+            /**
+             * @description Path relative to the package source root, using forward slashes
+             *     (e.g. `"src/lib.rs"`, `"package.toml"`).
+             */
+            path: string;
+        };
+        /**
+         * @description `GET /tenants/{tenant_id}/workflows/{name}/source` response — the original
+         *     source retained in the package's `.cloacina` archive, surfaced read-only
+         *     (CLOACI-T-0750). The source is independent of build state, so it is
+         *     available even for packages that are still building or failed to build.
+         */
+        WorkflowSourceResponse: {
+            /**
+             * @description Source files in the package, sorted by path. Binary and oversized files
+             *     are omitted.
+             */
+            files: components["schemas"]["WorkflowSourceFile"][];
+            /** @description Package UUID. */
+            id: string;
+            package_name: string;
+            tenant_id: string;
+            version: string;
+            /** @description Executable workflow name (see `WorkflowSummary::workflow_name`). */
+            workflow_name: string;
+        };
         /** @description One row in the workflow list (`GET /tenants/{tenant_id}/workflows`). */
         WorkflowSummary: {
             /** @description RFC 3339 timestamp. */
@@ -1165,6 +1603,11 @@ export interface components {
             /** @description Package UUID. */
             id: string;
             package_name: string;
+            /**
+             * @description Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
+             *     new executions until resumed.
+             */
+            paused?: boolean;
             /** @description Task IDs included in this package. */
             tasks: string[];
             version: string;
@@ -1185,6 +1628,16 @@ export interface components {
             dependencies: string[];
             /** @description Optional human-readable task description. */
             description?: string | null;
+            /**
+             * @description CLOACI-T-0752 "what" — short summary parsed from the task's
+             *     doc-comment/docstring at build time. `None` when undocumented.
+             */
+            doc_what?: string | null;
+            /**
+             * @description CLOACI-T-0752 "why" — rationale parsed from the doc-comment/docstring.
+             *     `None` when undocumented.
+             */
+            doc_why?: string | null;
             /** @description Local task id (the node id), e.g. `"validate"`. */
             id: string;
         };
@@ -1558,6 +2011,101 @@ export interface operations {
             };
         };
     };
+    inject_accumulator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Accumulator name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InjectAccumulatorRequest"];
+            };
+        };
+        responses: {
+            /** @description Event injected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InjectAccumulatorResponse"];
+                };
+            };
+            /** @description Invalid event payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not authorized for this accumulator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Accumulator not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_accumulator_interface: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Accumulator name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Declared accumulator input interface */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclaredSurface"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_graphs: {
         parameters: {
             query?: never;
@@ -1644,6 +2192,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListResponse_ReactorStatus"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    fire_reactor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Reactor name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FireReactorRequest"];
+            };
+        };
+        responses: {
+            /** @description Reactor fired */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FireReactorResponse"];
+                };
+            };
+            /** @description Invalid input payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Operation not permitted on this reactor */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Reactor not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_reactor_interface: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Reactor name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Declared reactor input interface */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclaredSurface"];
                 };
             };
             /** @description Missing or invalid API key */
@@ -2238,6 +2881,128 @@ export interface operations {
             };
         };
     };
+    pause_trigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Trigger or workflow name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Schedule paused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerPauseResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Trigger not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    resume_trigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Trigger or workflow name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Schedule resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerPauseResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Trigger not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_workflows: {
         parameters: {
             query?: never;
@@ -2460,6 +3225,189 @@ export interface operations {
             };
             /** @description Tenant access or role denied */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pause_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow or package name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow paused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowPauseResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Workflow not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    resume_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow or package name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowPauseResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Workflow not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_workflow_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Package name, or package UUID */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow source files */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowSourceResponse"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Workflow not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

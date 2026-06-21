@@ -8,6 +8,13 @@ from __future__ import annotations
 import cloaca
 
 
+# CLOACI-I-0128 / T-0760: declare typed workflow params (Python parity for
+# Rust's #[workflow(params(...))]). The compiler parses this from source at build
+# time into JSON-Schema-typed input slots; at runtime it's a no-op pass-through.
+@cloaca.workflow_params(
+    source_id=str,
+    batch_size=(int, 500),
+)
 @cloaca.task(dependencies=[])
 def prepare(context):
     context.set("demo_py_prepare", True)

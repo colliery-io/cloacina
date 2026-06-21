@@ -95,6 +95,27 @@ impl<'a> ScheduleDAL<'a> {
         )
     }
 
+    /// Pauses a schedule (CLOACI-T-0749): the scheduler stops firing it until
+    /// resumed. Distinct from `disable` — pause is transient operator state.
+    pub async fn pause(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.pause_postgres(id).await,
+            self.pause_sqlite(id).await
+        )
+    }
+
+    /// Resumes a paused schedule (CLOACI-T-0749): clears the paused flag so the
+    /// scheduler fires it again on its normal schedule. Missed fires are not
+    /// caught up (skip policy).
+    pub async fn resume(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.resume_postgres(id).await,
+            self.resume_sqlite(id).await
+        )
+    }
+
     /// Deletes a schedule from the database.
     pub async fn delete(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         crate::dispatch_backend!(
@@ -796,6 +817,80 @@ mod tests {
         assert_eq!(upserted.id, created.id); // same record
         assert_eq!(upserted.workflow_name, "wf_v2");
         assert_eq!(upserted.poll_interval_ms, Some(15_000));
+    }
+
+    // ── pause / resume (CLOACI-T-0749) ──────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_pause_resume_excludes_due_cron() {
+        let dal = unique_dal().await;
+        // A past-due cron is normally returned by get_due_cron_schedules.
+        let past = UniversalTimestamp::from(Utc::now() - chrono::Duration::hours(1));
+        let sched = dal
+            .schedule()
+            .create(NewSchedule::cron("paused_wf", "0 * * * *", past))
+            .await
+            .unwrap();
+        assert!(!sched.is_paused());
+
+        // Pausing removes it from the due set without disabling it.
+        dal.schedule().pause(sched.id).await.unwrap();
+        let paused = dal.schedule().get_by_id(sched.id).await.unwrap();
+        assert!(paused.is_paused());
+        assert!(paused.is_enabled(), "pause must not flip enabled");
+        assert!(!paused.is_active(), "paused schedule is not active");
+        assert!(paused.paused_at.is_some());
+
+        let due = dal
+            .schedule()
+            .get_due_cron_schedules(Utc::now())
+            .await
+            .unwrap();
+        assert!(
+            due.iter().all(|s| s.id != sched.id),
+            "paused cron must be excluded from the due set"
+        );
+        // ...and from the timer's next-due computation (busy-loop guard).
+        let next = dal.schedule().next_cron_due_time().await.unwrap();
+        assert!(
+            next.is_none(),
+            "paused cron must not drive the next-due timer"
+        );
+
+        // Resuming restores it.
+        dal.schedule().resume(sched.id).await.unwrap();
+        let resumed = dal.schedule().get_by_id(sched.id).await.unwrap();
+        assert!(!resumed.is_paused());
+        assert!(resumed.paused_at.is_none());
+        let due = dal
+            .schedule()
+            .get_due_cron_schedules(Utc::now())
+            .await
+            .unwrap();
+        assert!(due.iter().any(|s| s.id == sched.id));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_pause_excludes_enabled_trigger() {
+        let dal = unique_dal().await;
+        let sched = dal
+            .schedule()
+            .create(NewSchedule::trigger("pt", "wf", Duration::from_secs(5)))
+            .await
+            .unwrap();
+
+        dal.schedule().pause(sched.id).await.unwrap();
+        let triggers = dal.schedule().get_enabled_triggers().await.unwrap();
+        assert!(
+            triggers.iter().all(|s| s.id != sched.id),
+            "paused trigger must be excluded from the fired set"
+        );
+
+        dal.schedule().resume(sched.id).await.unwrap();
+        let triggers = dal.schedule().get_enabled_triggers().await.unwrap();
+        assert!(triggers.iter().any(|s| s.id == sched.id));
     }
 
     // ── update_cron_expression_and_timezone ──────────────────────────

@@ -986,6 +986,10 @@ fn synthetic_package_metadata(
         architecture: host_target_triple(),
         symbols: vec![],
         workflow_triggers: vec![],
+        // Agent synthesizes this for dynamic dispatch; no declared input
+        // interface here (CLOACI-I-0128).
+        declared_params: vec![],
+        declared_surfaces: vec![],
     }
 }
 

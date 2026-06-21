@@ -297,6 +297,8 @@ mod tests {
                 dependencies: Vec::new(),
                 description: format!("Test task {}", i),
                 source_location: "test.rs:1".to_string(),
+                doc_what: None,
+                doc_why: None,
             })
             .collect();
 
@@ -311,6 +313,8 @@ mod tests {
             architecture: "x86_64".to_string(),
             symbols: vec!["fidius_get_registry".to_string()],
             workflow_triggers: Vec::new(),
+            declared_params: Vec::new(),
+            declared_surfaces: Vec::new(),
         }
     }
 

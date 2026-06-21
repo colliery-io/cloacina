@@ -203,12 +203,15 @@ services:
       HARNESS_KAFKA_BROKER: "kafka:9092"
       HARNESS_KAFKA_TOPIC: "demo.kafka.stream"
       HARNESS_PRODUCE_INTERVAL_MS: "2000"
-      # Socket accumulators in the compose demo: mixed_graph's `alpha`,
-      # demo_py_graph's `py_alpha`, and demo_py_state's `py_window` (the Python
-      # state accumulator's bounded rolling window — CLOACI-T-0688). Fed over WS
-      # so those graphs fire too (demo_kafka_graph's kafka_alpha is fed via
-      # Kafka above).
-      HARNESS_WS_ACCUMULATORS: "alpha,py_alpha,py_window"
+      # Socket accumulators in the compose demo, fed over WS so every
+      # socket-sourced graph actually fires:
+      #   - mixed_graph's `alpha`
+      #   - demo_py_graph's `py_alpha`
+      #   - demo_py_state's `py_window` (bounded rolling window — CLOACI-T-0688)
+      #   - market_pipeline (demo-pipeline-rust) + the packaged-graph market
+      #     maker share `orderbook` + `pricing` (when_any → fire on either)
+      # (demo_kafka_graph's `kafka_alpha` is fed via Kafka above, not WS.)
+      HARNESS_WS_ACCUMULATORS: "alpha,py_alpha,py_window,orderbook,pricing"
     depends_on:
       server:
         condition: service_started

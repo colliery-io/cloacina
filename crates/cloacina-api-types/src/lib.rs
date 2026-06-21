@@ -38,6 +38,7 @@ pub mod error;
 pub mod executions;
 pub mod fleet;
 pub mod health;
+pub mod input_interface;
 pub mod keys;
 pub mod operations;
 pub mod reactor;
@@ -58,19 +59,23 @@ pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
     ReactorStatus,
 };
+pub use input_interface::{DeclaredSurface, InputSlot};
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
 };
 pub use operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
-pub use reactor::{ReactorCommand, ReactorResponse};
+pub use reactor::{
+    FireMode, FireReactorRequest, FireReactorResponse, InjectAccumulatorRequest,
+    InjectAccumulatorResponse, ReactorCommand, ReactorResponse,
+};
 pub use tenants::{
     CreateTenantRequest, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,
 };
 pub use triggers::{
-    ListTriggersQuery, TriggerDetailResponse, TriggerExecution, TriggerScheduleInfo,
-    TriggerScheduleSummary,
+    ListTriggersQuery, TriggerDetailResponse, TriggerExecution, TriggerPauseResponse,
+    TriggerScheduleInfo, TriggerScheduleSummary,
 };
 pub use workflows::{
-    WorkflowDeletedResponse, WorkflowDetail, WorkflowSummary, WorkflowTaskNode,
-    WorkflowUploadedResponse,
+    WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile,
+    WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse,
 };

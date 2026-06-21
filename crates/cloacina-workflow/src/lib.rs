@@ -68,6 +68,7 @@
 pub mod context;
 pub mod cron_evaluator;
 pub mod error;
+pub mod input_interface;
 pub mod namespace;
 pub mod retry;
 pub mod task;
@@ -76,6 +77,7 @@ pub mod trigger;
 // Re-export primary types at crate root for convenience
 pub use context::Context;
 pub use error::{CheckpointError, ContextError, TaskError};
+pub use input_interface::{schema_for, InputSlot};
 pub use namespace::{parse_namespace, TaskNamespace};
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use task::{Task, TaskState};

@@ -359,6 +359,118 @@ impl<'a> ScheduleDAL<'a> {
         Ok(())
     }
 
+    // CLOACI-T-0749: pause / resume. Distinct from enable/disable — `paused`
+    // is transient operator state that the scheduler honors (a paused schedule
+    // is never fetched for firing), while `enabled` is the deliberate on/off.
+
+    #[cfg(feature = "postgres")]
+    pub(super) async fn pause_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let now = UniversalTimestamp::now();
+        let paused_true = UniversalBool::from(true);
+
+        conn.interact(move |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::paused.eq(paused_true),
+                    schedules::paused_at.eq(Some(now)),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite")]
+    pub(super) async fn pause_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let now = UniversalTimestamp::now();
+        let paused_true = UniversalBool::from(true);
+
+        conn.interact(move |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::paused.eq(paused_true),
+                    schedules::paused_at.eq(Some(now)),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "postgres")]
+    pub(super) async fn resume_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let now = UniversalTimestamp::now();
+        let paused_false = UniversalBool::from(false);
+
+        conn.interact(move |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::paused.eq(paused_false),
+                    schedules::paused_at.eq(None::<UniversalTimestamp>),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite")]
+    pub(super) async fn resume_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let now = UniversalTimestamp::now();
+        let paused_false = UniversalBool::from(false);
+
+        conn.interact(move |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::paused.eq(paused_false),
+                    schedules::paused_at.eq(None::<UniversalTimestamp>),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
     #[cfg(feature = "postgres")]
     pub(super) async fn delete_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
@@ -411,6 +523,7 @@ impl<'a> ScheduleDAL<'a> {
                 schedules::table
                     .filter(schedules::schedule_type.eq("cron"))
                     .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::paused.eq(UniversalBool::from(false)))
                     .filter(schedules::next_run_at.le(Some(now_ts)))
                     .order(schedules::next_run_at.asc())
                     .load(conn)
@@ -441,6 +554,7 @@ impl<'a> ScheduleDAL<'a> {
                 schedules::table
                     .filter(schedules::schedule_type.eq("cron"))
                     .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::paused.eq(UniversalBool::from(false)))
                     .filter(schedules::next_run_at.le(Some(now_ts)))
                     .order(schedules::next_run_at.asc())
                     .load(conn)
@@ -469,6 +583,7 @@ impl<'a> ScheduleDAL<'a> {
                 schedules::table
                     .filter(schedules::schedule_type.eq("cron"))
                     .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::paused.eq(UniversalBool::from(false)))
                     .filter(schedules::next_run_at.is_not_null())
                     .order(schedules::next_run_at.asc())
                     .select(schedules::next_run_at)
@@ -500,6 +615,7 @@ impl<'a> ScheduleDAL<'a> {
                 schedules::table
                     .filter(schedules::schedule_type.eq("cron"))
                     .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::paused.eq(UniversalBool::from(false)))
                     .filter(schedules::next_run_at.is_not_null())
                     .order(schedules::next_run_at.asc())
                     .select(schedules::next_run_at)
@@ -542,6 +658,7 @@ impl<'a> ScheduleDAL<'a> {
                     .filter(schedules::schedule_type.eq("cron"))
                     .filter(schedules::next_run_at.le(Some(current_ts)))
                     .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::paused.eq(UniversalBool::from(false)))
                     .set((
                         schedules::last_run_at.eq(Some(last_run_ts)),
                         schedules::next_run_at.eq(Some(next_run_ts)),
@@ -584,6 +701,7 @@ impl<'a> ScheduleDAL<'a> {
                     .filter(schedules::schedule_type.eq("cron"))
                     .filter(schedules::next_run_at.le(Some(current_ts)))
                     .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::paused.eq(UniversalBool::from(false)))
                     .set((
                         schedules::last_run_at.eq(Some(last_run_ts)),
                         schedules::next_run_at.eq(Some(next_run_ts)),
@@ -681,6 +799,7 @@ impl<'a> ScheduleDAL<'a> {
                 schedules::table
                     .filter(schedules::schedule_type.eq("trigger"))
                     .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::paused.eq(UniversalBool::from(false)))
                     .order(schedules::created_at.asc())
                     .load(conn)
             })
@@ -708,6 +827,7 @@ impl<'a> ScheduleDAL<'a> {
                 schedules::table
                     .filter(schedules::schedule_type.eq("trigger"))
                     .filter(schedules::enabled.eq(enabled_true))
+                    .filter(schedules::paused.eq(UniversalBool::from(false)))
                     .order(schedules::created_at.asc())
                     .load(conn)
             })

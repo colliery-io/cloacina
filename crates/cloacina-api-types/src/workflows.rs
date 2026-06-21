@@ -46,6 +46,10 @@ pub struct WorkflowSummary {
     pub tasks: Vec<String>,
     /// RFC 3339 timestamp.
     pub created_at: String,
+    /// Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
+    /// new executions until resumed.
+    #[serde(default)]
+    pub paused: bool,
 }
 
 /// `DELETE /tenants/{tenant_id}/workflows/{name}/{version}` response.
@@ -69,6 +73,48 @@ pub struct WorkflowTaskNode {
     pub dependencies: Vec<String>,
     /// Optional human-readable task description.
     pub description: Option<String>,
+    /// CLOACI-T-0752 "what" — short summary parsed from the task's
+    /// doc-comment/docstring at build time. `None` when undocumented.
+    #[serde(default)]
+    pub doc_what: Option<String>,
+    /// CLOACI-T-0752 "why" — rationale parsed from the doc-comment/docstring.
+    /// `None` when undocumented.
+    #[serde(default)]
+    pub doc_why: Option<String>,
+}
+
+/// One source file from a workflow package's retained `.cloacina` archive,
+/// surfaced read-only for display (CLOACI-T-0750).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct WorkflowSourceFile {
+    /// Path relative to the package source root, using forward slashes
+    /// (e.g. `"src/lib.rs"`, `"package.toml"`).
+    pub path: String,
+    /// Best-effort language id derived from the file extension (`"rust"`,
+    /// `"python"`, `"toml"`, …), for syntax highlighting. `None` when unknown.
+    pub language: Option<String>,
+    /// UTF-8 file contents.
+    pub contents: String,
+}
+
+/// `GET /tenants/{tenant_id}/workflows/{name}/source` response — the original
+/// source retained in the package's `.cloacina` archive, surfaced read-only
+/// (CLOACI-T-0750). The source is independent of build state, so it is
+/// available even for packages that are still building or failed to build.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct WorkflowSourceResponse {
+    pub tenant_id: String,
+    /// Package UUID.
+    pub id: String,
+    pub package_name: String,
+    /// Executable workflow name (see `WorkflowSummary::workflow_name`).
+    pub workflow_name: String,
+    pub version: String,
+    /// Source files in the package, sorted by path. Binary and oversized files
+    /// are omitted.
+    pub files: Vec<WorkflowSourceFile>,
 }
 
 /// `GET /tenants/{tenant_id}/workflows/{name}` response — summary fields
@@ -98,4 +144,29 @@ pub struct WorkflowDetail {
     pub created_at: String,
     pub build_status: String,
     pub build_error: Option<String>,
+    /// Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
+    /// new executions until resumed.
+    #[serde(default)]
+    pub paused: bool,
+    /// CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the
+    /// workflow accepts at execute time. Empty when undeclared. Lets the UI
+    /// render a typed execute form and the server validate context.
+    #[serde(default)]
+    pub declared_params: Vec<crate::InputSlot>,
+}
+
+/// `POST /tenants/{tenant_id}/workflows/{name}/pause` and `/resume` response
+/// (CLOACI-T-0749).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct WorkflowPauseResponse {
+    pub tenant_id: String,
+    /// Package UUID of the affected workflow.
+    pub id: String,
+    /// The name the workflow was addressed by (workflow or package name).
+    pub name: String,
+    /// `"paused"` or `"resumed"`.
+    pub status: String,
+    /// Current paused state after the operation.
+    pub paused: bool,
 }

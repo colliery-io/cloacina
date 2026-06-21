@@ -47,12 +47,15 @@ pub async fn mixed_trigger() -> Result<TriggerResult, cloacina_workflow::Trigger
 
 // --- Boundary type ---
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// CLOACI-I-0128: deriving schemars::JsonSchema opts these boundary types into
+// rich typed input-interface slots (otherwise they'd degrade to a permissive
+// schema via the SchemaProbe fallback).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AlphaIn {
     pub value: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ReactorOutput {
     pub doubled: f64,
 }

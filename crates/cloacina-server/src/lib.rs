@@ -1137,6 +1137,19 @@ fn build_router(state: AppState) -> Router {
             get(crate::routes::workflows::get_workflow),
         )
         .route(
+            "/tenants/{tenant_id}/workflows/{name}/source",
+            get(crate::routes::workflows::get_workflow_source),
+        )
+        // Pause / resume a workflow (block new executions) — CLOACI-T-0749.
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/pause",
+            post(crate::routes::workflows::pause_workflow),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/resume",
+            post(crate::routes::workflows::resume_workflow),
+        )
+        .route(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
             delete(crate::routes::workflows::delete_workflow),
         )
@@ -1148,6 +1161,15 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/tenants/{tenant_id}/triggers/{name}",
             get(crate::routes::triggers::get_trigger),
+        )
+        // Pause / resume a schedule (cron or trigger) — CLOACI-T-0749.
+        .route(
+            "/tenants/{tenant_id}/triggers/{name}/pause",
+            post(crate::routes::triggers::pause_trigger),
+        )
+        .route(
+            "/tenants/{tenant_id}/triggers/{name}/resume",
+            post(crate::routes::triggers::resume_trigger),
         )
         // Executions (tenant-scoped)
         .route(
@@ -1187,6 +1209,29 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/health/reactors",
             get(crate::routes::health_graphs::list_reactors),
+        )
+        // Operator manual reactor fire (CLOACI-T-0751) — REST surface over the
+        // existing reactor ForceFire/FireWith mechanics. Per-op authZ + audit
+        // live in the handler; the route-layer auth below supplies the key.
+        .route(
+            "/health/reactors/{name}/fire",
+            post(crate::routes::health_graphs::fire_reactor),
+        )
+        // Operator manual accumulator inject (CLOACI-T-0753) — REST analogue of
+        // the WS accumulator-push path; typed JSON event, server-side encoding.
+        .route(
+            "/health/accumulators/{name}/inject",
+            post(crate::routes::health_graphs::inject_accumulator),
+        )
+        // Declared input-interface discovery (CLOACI-I-0128 / T-0758) — the typed
+        // slots an operator supplies to fire/inject; backs UI typed forms.
+        .route(
+            "/health/reactors/{name}/interface",
+            get(crate::routes::health_graphs::get_reactor_interface),
+        )
+        .route(
+            "/health/accumulators/{name}/interface",
+            get(crate::routes::health_graphs::get_accumulator_interface),
         )
         .route(
             "/health/graphs",

@@ -1363,6 +1363,8 @@ mod tests {
             last_poll_at: None,
             created_at: now,
             updated_at: now,
+            paused: UniversalBool::new(false),
+            paused_at: None,
         }
     }
 
@@ -1386,6 +1388,8 @@ mod tests {
             last_poll_at: None,
             created_at: now,
             updated_at: now,
+            paused: UniversalBool::new(false),
+            paused_at: None,
         }
     }
 

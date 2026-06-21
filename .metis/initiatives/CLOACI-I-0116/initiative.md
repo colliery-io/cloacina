@@ -61,6 +61,13 @@ Five directional forks were resolved with the maintainer up front and frame the 
 
 **Scope spans Rust core, Python (pyo3), and packaged `.so` workflows** — the original need explicitly requires embedded *and* packaged.
 
+### Relationship to CLOACI-I-0128 (added 2026-06-20)
+
+A later initiative, **[[CLOACI-I-0128]]** (Explicit injectable input interfaces, spec [[CLOACI-S-0013]]), generalizes the *input-interface declaration* across all injectable surfaces (workflows, accumulators, reactors): "this surface accepts these named, typed inputs at execute/inject time." I-0116 and I-0128 are **separate but adjacent** (maintainer call): I-0128 is the generic declared-input foundation; **I-0116 is the partial-config / constructor system built on top of it** — bind values to a workflow's I-0128-declared inputs to produce a unique named, registered, scheduled instance. Two consequences for this initiative when it's picked up:
+
+- **Dependency**: I-0116 → I-0128 (the declared-input model + descriptor land in I-0128 first).
+- **Descriptor revision**: the `ParamSpec` descriptor (decision #2 / REQ-002) should carry I-0128's **`schemars`-derived JSON Schema** rather than a bare `type_name` string. This *keeps* decision #2's principle ("Rust types are the source of truth; the descriptor is a derived projection") — JSON Schema is just a richer projection — and unifies the descriptor with the accumulator/reactor surfaces.
+
 ## Goals & Non-Goals **[REQUIRED]**
 
 **Goals:**

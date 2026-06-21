@@ -516,6 +516,7 @@ pub mod execution_planner;
 pub mod executor;
 pub mod fleet;
 pub mod graph;
+pub mod input_interface;
 pub mod inventory_entries;
 pub mod logging;
 pub mod models;

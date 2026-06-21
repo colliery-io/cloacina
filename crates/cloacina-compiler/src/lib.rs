@@ -19,8 +19,10 @@
 
 mod build;
 mod config;
+mod doc_parse;
 mod health;
 mod loopp;
+mod param_parse;
 
 pub use config::{BuildRlimits, CompilerConfig};
 

@@ -116,6 +116,11 @@ pub struct Schedule {
 
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+
+    /// Transient operator pause (CLOACI-T-0749). When set, the scheduler does
+    /// not fire this schedule. Distinct from `enabled` (deliberate on/off).
+    pub paused: UniversalBool,
+    pub paused_at: Option<UniversalTimestamp>,
 }
 
 impl Schedule {
@@ -137,6 +142,18 @@ impl Schedule {
     /// Returns true if the schedule is enabled.
     pub fn is_enabled(&self) -> bool {
         self.enabled.is_true()
+    }
+
+    /// Returns true if the schedule is paused (CLOACI-T-0749). A paused
+    /// schedule is skipped by the scheduler even when `enabled`.
+    pub fn is_paused(&self) -> bool {
+        self.paused.is_true()
+    }
+
+    /// Returns true if the schedule should currently fire: enabled and not
+    /// paused. Callers in the scheduler use this as the single gate.
+    pub fn is_active(&self) -> bool {
+        self.is_enabled() && !self.is_paused()
     }
 
     /// Returns the poll interval as a Duration (trigger schedules only).
@@ -305,6 +322,8 @@ mod tests {
             last_poll_at: None,
             created_at: now,
             updated_at: now,
+            paused: UniversalBool::new(false),
+            paused_at: None,
         };
 
         assert!(schedule.is_trigger());

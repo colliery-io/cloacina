@@ -50,10 +50,10 @@ pub use inventory_entries::{
 // Re-export the interface types for convenience
 pub use types::{
     AccumulatorDeclarationEntry, CloacinaMetadata, GraphExecutionRequest, GraphExecutionResult,
-    GraphPackageMetadata, PackageTasksMetadata, ReactorPackageMetadata, TaskExecutionRequest,
-    TaskExecutionResult, TaskMetadataEntry, TriggerInvokeRequest, TriggerInvokeResult,
-    TriggerPackageMetadata, TriggerlessGraphInvokeRequest, TriggerlessGraphInvokeResult,
-    TriggerlessGraphMetadataEntry,
+    GraphPackageMetadata, InputInterfaceDescriptor, InputInterfaceEntry, PackageTasksMetadata,
+    ReactorPackageMetadata, TaskExecutionRequest, TaskExecutionResult, TaskMetadataEntry,
+    TriggerInvokeRequest, TriggerInvokeResult, TriggerPackageMetadata,
+    TriggerlessGraphInvokeRequest, TriggerlessGraphInvokeResult, TriggerlessGraphMetadataEntry,
 };
 
 // Re-export fidius crates so generated code can reference them
@@ -674,6 +674,75 @@ macro_rules! package {
                         }
                     }
                 }
+
+                fn get_input_interface(
+                    &self,
+                ) -> ::core::result::Result<
+                    $crate::InputInterfaceDescriptor,
+                    $crate::PluginError,
+                > {
+                    let mut entries: ::std::vec::Vec<$crate::InputInterfaceEntry> =
+                        ::std::vec::Vec::new();
+                    for d in $crate::inventory::iter::<$crate::WorkflowDescriptorEntry> {
+                        entries.push($crate::InputInterfaceEntry {
+                            surface_kind: "workflow".to_string(),
+                            surface_name: d.name.to_string(),
+                            slots_json: (d.params)(),
+                        });
+                    }
+
+                    // CLOACI-I-0128 (T-0758): computation-graph surfaces. Each CG
+                    // contributes a "graph" entry (its per-source boundary slots)
+                    // and, when reactor-triggered, a "reactor" entry under the
+                    // reactor's name (the reactor fires with exactly the CG's
+                    // sources). Track those reactor names so the ReactorEntry pass
+                    // below doesn't duplicate them.
+                    let mut __cg_reactor_names: ::std::vec::Vec<::std::string::String> =
+                        ::std::vec::Vec::new();
+                    for cg in $crate::inventory::iter::<$crate::ComputationGraphEntry> {
+                        let slots_json = (cg.input_interface)();
+                        entries.push($crate::InputInterfaceEntry {
+                            surface_kind: "graph".to_string(),
+                            surface_name: cg.name.to_string(),
+                            slots_json: slots_json.clone(),
+                        });
+                        let reg = (cg.constructor)();
+                        if let ::core::option::Option::Some(reactor) = reg.trigger_reactor {
+                            __cg_reactor_names.push(reactor.clone());
+                            entries.push($crate::InputInterfaceEntry {
+                                surface_kind: "reactor".to_string(),
+                                surface_name: reactor,
+                                slots_json,
+                            });
+                        }
+                    }
+
+                    // Reactors with no CG in this package (e.g. a reactor declared
+                    // standalone, its graph living elsewhere) get a names-only
+                    // interface — one permissive slot per declared accumulator.
+                    for entry in $crate::inventory::iter::<$crate::ReactorEntry> {
+                        let reg = (entry.constructor)();
+                        if __cg_reactor_names.iter().any(|n| n == &reg.name) {
+                            continue;
+                        }
+                        let slots: ::std::vec::Vec<::cloacina_workflow::input_interface::InputSlot> =
+                            reg.accumulator_names
+                                .iter()
+                                .map(|n| ::cloacina_workflow::input_interface::InputSlot::optional(
+                                    n.clone(),
+                                    ::serde_json::json!({}),
+                                    ::core::option::Option::None,
+                                ))
+                                .collect();
+                        entries.push($crate::InputInterfaceEntry {
+                            surface_kind: "reactor".to_string(),
+                            surface_name: reg.name,
+                            slots_json: ::cloacina_workflow::input_interface::slots_to_json(&slots),
+                        });
+                    }
+
+                    Ok($crate::InputInterfaceDescriptor { entries })
+                }
             }
 
             $crate::fidius_plugin_registry!();
@@ -705,6 +774,9 @@ pub const METHOD_INVOKE_TRIGGER_POLL: usize = 6;
 pub const METHOD_GET_TRIGGERLESS_GRAPH_METADATA: usize = 7;
 /// See [`METHOD_GET_TASK_METADATA`].
 pub const METHOD_INVOKE_TRIGGERLESS_GRAPH: usize = 8;
+/// See [`METHOD_GET_TASK_METADATA`]. Injectable input interface (CLOACI-I-0128),
+/// optional since interface version 3.
+pub const METHOD_GET_INPUT_INTERFACE: usize = 9;
 
 /// The plugin interface for cloacina workflow packages.
 ///
@@ -718,7 +790,7 @@ pub const METHOD_INVOKE_TRIGGERLESS_GRAPH: usize = 8;
 ///   (IDs, dependencies, descriptions). Called once at registration time.
 /// - `execute_task` — Runs a specific task by name with a JSON-serialized
 ///   context. Returns the updated context or an error.
-#[fidius::plugin_interface(version = 2, buffer = PluginAllocated)]
+#[fidius::plugin_interface(version = 3, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.
     /// Method index 0.
@@ -813,4 +885,14 @@ pub trait CloacinaPlugin: Send + Sync {
         &self,
         request: TriggerlessGraphInvokeRequest,
     ) -> Result<TriggerlessGraphInvokeResult, PluginError>;
+
+    /// Returns the declared input interfaces for this package's injectable
+    /// surfaces — workflow params (and, from Task D, accumulator/reactor
+    /// boundaries). Method index 9. Optional (since version 3): plugins built
+    /// against older hosts return `CallError::NotImplemented`, which the host
+    /// treats as "no declared interfaces" (empty). The unified
+    /// `cloacina::package!()` shell walks `inventory::iter::<WorkflowDescriptorEntry>`
+    /// and calls each entry's `params` fn. (CLOACI-I-0128 / T-0756)
+    #[optional(since = 3)]
+    fn get_input_interface(&self) -> Result<InputInterfaceDescriptor, PluginError>;
 }

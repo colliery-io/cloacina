@@ -146,6 +146,11 @@ impl FilesystemWorkflowRegistry {
                             schedules: Vec::new(),
                             created_at: now,
                             updated_at: now,
+                            // Filesystem registry has no DB pause state.
+                            paused: false,
+                            // Filesystem registry doesn't surface declared params.
+                            declared_params: Vec::new(),
+                            declared_surfaces: Vec::new(),
                         };
 
                         debug!(

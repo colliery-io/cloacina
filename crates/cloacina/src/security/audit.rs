@@ -79,6 +79,17 @@ pub mod events {
     pub const TENANT_TEARDOWN_SCHEMA_DROPPED: &str = "tenant.teardown.schema_dropped";
     pub const TENANT_TEARDOWN_COMPLETED: &str = "tenant.teardown.completed";
     pub const TENANT_TEARDOWN_FAILED: &str = "tenant.teardown.failed";
+
+    /// CLOACI-T-0751: an operator manually fired a reactor over the REST
+    /// manual-fire surface (`POST /v1/health/reactors/{name}/fire`). Logged
+    /// because a manual fire bypasses the real event source — the audit
+    /// trail must mark the graph activity as operator-injected.
+    pub const REACTOR_MANUAL_FIRE: &str = "reactor.manual_fire";
+
+    /// Operator manually injected an event into an accumulator over REST
+    /// (CLOACI-T-0753). Like the reactor manual-fire, this bypasses the real
+    /// event source, so the audit trail marks it operator-injected.
+    pub const ACCUMULATOR_MANUAL_INJECT: &str = "accumulator.manual_inject";
 }
 
 /// Log a signing key creation event.
@@ -374,6 +385,53 @@ pub fn log_compiler_build_finished(
         wall_clock_ms = wall_clock_ms,
         failure_reason = failure_reason.unwrap_or("<none>"),
         "Compiler build finished"
+    );
+}
+
+/// CLOACI-T-0751: log an operator manual reactor fire.
+///
+/// Manual fires bypass the real event source, so the audit trail must mark
+/// the resulting graph activity as operator-injected. `mode` is the applied
+/// fire mode (`force_fire` / `fire_with`); `sources` are the source names
+/// whose values were injected (empty for a force-fire).
+pub fn log_reactor_manual_fire(
+    reactor: &str,
+    key_id: UniversalUuid,
+    key_name: &str,
+    tenant_id: Option<&str>,
+    mode: &str,
+    sources: &[String],
+) {
+    tracing::warn!(
+        event_type = events::REACTOR_MANUAL_FIRE,
+        reactor = %reactor,
+        key_id = %key_id,
+        key_name = %key_name,
+        tenant_id = tenant_id.unwrap_or("<none>"),
+        mode = %mode,
+        sources = %sources.join(","),
+        operator_injected = true,
+        "Operator manually fired reactor"
+    );
+}
+
+/// Audit an operator's manual REST injection into an accumulator (CLOACI-T-0753).
+pub fn log_accumulator_manual_inject(
+    accumulator: &str,
+    key_id: UniversalUuid,
+    key_name: &str,
+    tenant_id: Option<&str>,
+    delivered: usize,
+) {
+    tracing::warn!(
+        event_type = events::ACCUMULATOR_MANUAL_INJECT,
+        accumulator = %accumulator,
+        key_id = %key_id,
+        key_name = %key_name,
+        tenant_id = tenant_id.unwrap_or("<none>"),
+        delivered = delivered,
+        operator_injected = true,
+        "Operator manually injected an accumulator event"
     );
 }
 

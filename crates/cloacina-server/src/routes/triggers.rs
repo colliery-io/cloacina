@@ -27,7 +27,7 @@ use axum::extract::Query;
 
 use cloacina_api_types::{
     ListTriggersQuery, TenantListResponse, TriggerDetailResponse, TriggerExecution,
-    TriggerScheduleInfo, TriggerScheduleSummary,
+    TriggerPauseResponse, TriggerScheduleInfo, TriggerScheduleSummary,
 };
 
 use crate::routes::auth::AuthenticatedKey;
@@ -118,6 +118,8 @@ pub async fn list_triggers(
                     next_run_at: s.next_run_at.map(|t| t.0.to_rfc3339()),
                     last_run_at: s.last_run_at.map(|t| t.0.to_rfc3339()),
                     created_at: s.created_at.0.to_rfc3339(),
+                    paused: s.paused.is_true(),
+                    paused_at: s.paused_at.map(|t| t.0.to_rfc3339()),
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
@@ -220,6 +222,8 @@ pub async fn get_trigger(
                     cron_expression: schedule.cron_expression,
                     trigger_name: schedule.trigger_name,
                     poll_interval_ms: schedule.poll_interval_ms.map(i64::from),
+                    paused: schedule.paused.is_true(),
+                    paused_at: schedule.paused_at.map(|t| t.0.to_rfc3339()),
                 },
                 recent_executions: exec_items,
             })
@@ -227,5 +231,144 @@ pub async fn get_trigger(
         }
         None => ApiError::not_found("trigger_not_found", format!("trigger '{}' not found", name))
             .into_response(),
+    }
+}
+
+/// POST /tenants/:tenant_id/triggers/:name/pause — pause a schedule (CLOACI-T-0749).
+///
+/// Resolves the schedule by trigger name or workflow name (same as
+/// `get_trigger`) and sets it paused so the scheduler stops firing it. Works
+/// for both `trigger` and `cron` schedules. In-flight executions are
+/// unaffected; this only gates new ones.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/triggers/{name}/pause",
+    tag = "triggers",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Trigger or workflow name"),
+    ),
+    responses(
+        (status = 200, description = "Schedule paused", body = TriggerPauseResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Trigger not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn pause_trigger(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    set_trigger_paused(state, auth, tenant_id, name, true).await
+}
+
+/// POST /tenants/:tenant_id/triggers/:name/resume — resume a paused schedule
+/// (CLOACI-T-0749). Re-arms on the normal schedule; missed fires are not
+/// caught up (skip policy).
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/triggers/{name}/resume",
+    tag = "triggers",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Trigger or workflow name"),
+    ),
+    responses(
+        (status = 200, description = "Schedule resumed", body = TriggerPauseResponse),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Trigger not found", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn resume_trigger(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    set_trigger_paused(state, auth, tenant_id, name, false).await
+}
+
+/// Shared pause/resume implementation for trigger and cron schedules.
+async fn set_trigger_paused(
+    state: AppState,
+    auth: AuthenticatedKey,
+    tenant_id: String,
+    name: String,
+    pause: bool,
+) -> axum::response::Response {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+    if !auth.can_write() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
+
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            warn!(
+                "Failed to resolve tenant database for '{}': {}",
+                tenant_id, e
+            );
+            return ApiError::internal(format!("tenant database unavailable: {}", e))
+                .into_response();
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db);
+
+    // Resolve schedule by trigger name or workflow name (mirrors get_trigger).
+    let schedules = match dal.schedule().list(None, false, 1000, 0).await {
+        Ok(s) => s,
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+    };
+    let found = schedules
+        .into_iter()
+        .find(|s| s.trigger_name.as_deref() == Some(&name) || s.workflow_name == name);
+
+    let schedule = match found {
+        Some(s) => s,
+        None => {
+            return ApiError::not_found(
+                "trigger_not_found",
+                format!("trigger '{}' not found", name),
+            )
+            .into_response()
+        }
+    };
+
+    let result = if pause {
+        dal.schedule().pause(schedule.id).await
+    } else {
+        dal.schedule().resume(schedule.id).await
+    };
+
+    match result {
+        Ok(()) => Json(TriggerPauseResponse {
+            tenant_id,
+            id: schedule.id.0.to_string(),
+            name,
+            status: if pause { "paused" } else { "resumed" }.to_string(),
+            paused: pause,
+        })
+        .into_response(),
+        Err(e) => {
+            warn!(
+                "Failed to {} trigger '{}' for tenant '{}': {}",
+                if pause { "pause" } else { "resume" },
+                name,
+                tenant_id,
+                e
+            );
+            ApiError::internal(format!("{}", e)).into_response()
+        }
     }
 }

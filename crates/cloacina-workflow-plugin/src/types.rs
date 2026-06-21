@@ -55,6 +55,28 @@ fn default_trigger_rules() -> String {
     "{\"type\":\"Always\"}".to_string()
 }
 
+/// One injectable surface's declared input interface (CLOACI-I-0128). Carried
+/// over a dedicated FFI entrypoint (`get_input_interface`), separate from the
+/// `PackageTasksMetadata` wire struct so the per-task metadata ABI is untouched.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputInterfaceEntry {
+    /// `"workflow"`, `"accumulator"`, or `"reactor"`.
+    pub surface_kind: String,
+    /// The surface's name (workflow name, accumulator/source name, reactor name).
+    pub surface_name: String,
+    /// JSON array of `cloacina_api_types::InputSlot`, serialized. Kept as a
+    /// string so the fidius wire stays simple; the host parses it.
+    pub slots_json: String,
+}
+
+/// Descriptor returned by the optional `get_input_interface()` plugin method
+/// (method index 9, since interface version 3) — the declared input interfaces
+/// for every injectable surface in the package (CLOACI-I-0128).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct InputInterfaceDescriptor {
+    pub entries: Vec<InputInterfaceEntry>,
+}
+
 /// Complete metadata for a workflow package, returned by `get_task_metadata()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageTasksMetadata {

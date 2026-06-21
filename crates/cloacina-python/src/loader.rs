@@ -120,6 +120,10 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
         super::workflow::py_register_workflow,
         &module
     )?)?;
+    // CLOACI-T-0760: declared-params decorator (runtime no-op; the compiler
+    // parses the declaration from source at build time).
+    module.add_class::<super::workflow::PyWorkflowParamsDecorator>()?;
+    module.add_function(wrap_pyfunction!(super::workflow::workflow_params, &module)?)?;
 
     // Trigger decorator and result
     module.add_function(wrap_pyfunction!(super::trigger::trigger, &module)?)?;

@@ -318,6 +318,10 @@ pub struct UnifiedSchedule {
     pub last_poll_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    /// Transient operator pause (CLOACI-T-0749). Distinct from `enabled`: a
+    /// paused schedule is not fired by the scheduler but is otherwise intact.
+    pub paused: UniversalBool,
+    pub paused_at: Option<UniversalTimestamp>,
 }
 
 #[derive(Debug, Insertable)]
@@ -418,6 +422,10 @@ pub struct UnifiedWorkflowPackage {
     pub build_error: Option<String>,
     pub build_claimed_at: Option<UniversalTimestamp>,
     pub compiled_at: Option<UniversalTimestamp>,
+    /// Transient operator pause (CLOACI-T-0749): blocks new executions of this
+    /// workflow regardless of source. In-flight executions are unaffected.
+    pub paused: UniversalBool,
+    pub paused_at: Option<UniversalTimestamp>,
 }
 
 #[derive(Debug, Insertable)]
@@ -783,6 +791,8 @@ impl From<UnifiedSchedule> for Schedule {
             last_poll_at: u.last_poll_at,
             created_at: u.created_at,
             updated_at: u.updated_at,
+            paused: u.paused,
+            paused_at: u.paused_at,
         }
     }
 }

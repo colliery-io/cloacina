@@ -26,6 +26,15 @@ pub struct AccumulatorStatus {
     /// Accumulator health as reported by the endpoint registry. Free-form
     /// JSON for now; structured in a later contract revision.
     pub status: serde_json::Value,
+    /// The reactor (graph) this accumulator feeds, self-registered by the graph
+    /// at load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't
+    /// register the descriptor. Lets an operator see what pushing to
+    /// `/v1/ws/accumulator/{name}` actually drives.
+    #[serde(default)]
+    pub reactor: Option<String>,
+    /// Owning tenant, or `None` for untagged single-tenant graphs.
+    #[serde(default)]
+    pub tenant_id: Option<String>,
 }
 
 /// One row in `GET /v1/health/reactors` (CLOACI-T-0742). Reactor-first view:

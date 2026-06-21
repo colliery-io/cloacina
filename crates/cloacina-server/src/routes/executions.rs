@@ -24,7 +24,9 @@ use axum::{
 };
 use tracing::{info, warn};
 
+use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::executor::WorkflowExecutor;
+use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::Context;
 use cloacina_api_types::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
@@ -75,6 +77,11 @@ pub async fn execute_workflow(
 
     let mut context = Context::new();
 
+    // CLOACI-T-0757: capture the provided context object for declared-param
+    // validation before it's merged/consumed below.
+    let provided_ctx: Option<serde_json::Map<String, serde_json::Value>> =
+        body.context.as_ref().and_then(|v| v.as_object()).cloned();
+
     // Merge provided context if any
     if let Some(ctx_value) = body.context {
         if let Some(obj) = ctx_value.as_object() {
@@ -101,6 +108,46 @@ pub async fn execute_workflow(
                 .into_response();
         }
     };
+    // CLOACI-T-0749: refuse to start a new execution for a paused workflow.
+    // Pause is a deliberate operator hold; in-flight runs are unaffected, only
+    // new ones are blocked. Registry-init / lookup failures fail open (proceed)
+    // so a transient registry error never wedges execution.
+    {
+        let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+        if let Ok(registry) = WorkflowRegistryImpl::new(storage, tenant_db.clone()) {
+            match registry.is_workflow_paused(&name).await {
+                Ok(true) => {
+                    return ApiError::new(
+                        StatusCode::CONFLICT,
+                        "workflow_paused",
+                        format!("workflow '{}' is paused; resume it before executing", name),
+                    )
+                    .into_response();
+                }
+                Ok(false) => {}
+                Err(e) => warn!("paused-check failed for workflow '{}': {}", name, e),
+            }
+
+            // CLOACI-T-0757: validate the provided context against the workflow's
+            // declared params (I-0128). Undeclared workflows accept free-form
+            // context (empty params → no validation). Registry errors fail open.
+            match registry.get_workflow_declared_params(&name).await {
+                Ok(params) if !params.is_empty() => {
+                    let errors = validate_declared_params(&params, provided_ctx.as_ref());
+                    if !errors.is_empty() {
+                        return ApiError::bad_request(
+                            "workflow_input_invalid",
+                            format!("invalid execution context: {}", errors.join("; ")),
+                        )
+                        .into_response();
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => warn!("declared-params lookup failed for '{}': {}", name, e),
+            }
+        }
+    }
+
     // "public" maps to the admin DB/schema, which the GLOBAL runner already
     // operates on (fleet executor registered, reconciler populating the shared
     // Runtime). Reuse it rather than building a redundant per-tenant runner: a
@@ -478,5 +525,161 @@ pub async fn get_execution_tasks(
             .into_response()
         }
         Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+    }
+}
+
+/// Validate a provided execution context against a workflow's declared input
+/// params (CLOACI-T-0757 / I-0128). v1 checks required-presence and a top-level
+/// JSON-Schema `type` match; returns human-readable error strings (empty =
+/// valid). Full nested JSON-Schema validation is a follow-up — when a slot's
+/// schema has no simple top-level `type` (enums/oneOf/etc.) the value is
+/// accepted rather than rejected.
+pub(crate) fn validate_declared_params(
+    params: &[cloacina_api_types::InputSlot],
+    provided: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    for p in params {
+        match provided.and_then(|m| m.get(&p.name)) {
+            None => {
+                if p.required && p.default.is_none() {
+                    errors.push(format!("missing required param '{}'", p.name));
+                }
+            }
+            Some(v) => {
+                if let Some(expected) = p.schema.get("type").and_then(|t| t.as_str()) {
+                    if !json_value_matches_type(v, expected) {
+                        errors.push(format!(
+                            "param '{}' expects type '{}', got {}",
+                            p.name,
+                            expected,
+                            json_type_name(v)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    errors
+}
+
+/// Validate a single JSON value against one slot's schema (CLOACI-I-0128 T-0759).
+/// Used for surfaces that accept a single value (accumulator inject) rather than
+/// a named map. Returns an error message, or `None` when valid / untyped.
+pub(crate) fn validate_value_against_schema(
+    value: &serde_json::Value,
+    schema: &serde_json::Value,
+) -> Option<String> {
+    if let Some(expected) = schema.get("type").and_then(|t| t.as_str()) {
+        if !json_value_matches_type(value, expected) {
+            return Some(format!(
+                "expects type '{}', got {}",
+                expected,
+                json_type_name(value)
+            ));
+        }
+    }
+    None
+}
+
+pub(crate) fn json_value_matches_type(v: &serde_json::Value, expected: &str) -> bool {
+    match expected {
+        "string" => v.is_string(),
+        "integer" => v.is_i64() || v.is_u64(),
+        "number" => v.is_number(),
+        "boolean" => v.is_boolean(),
+        "array" => v.is_array(),
+        "object" => v.is_object(),
+        "null" => v.is_null(),
+        // Unknown/compound schema type — don't reject (v1 limitation).
+        _ => true,
+    }
+}
+
+pub(crate) fn json_type_name(v: &serde_json::Value) -> &'static str {
+    match v {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+#[cfg(test)]
+mod input_validation_tests {
+    use super::*;
+    use cloacina::input_interface::schema_for;
+    use cloacina_api_types::InputSlot;
+
+    fn obj(pairs: &[(&str, serde_json::Value)]) -> serde_json::Map<String, serde_json::Value> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn missing_required_param_errors() {
+        let params = vec![InputSlot::required("order_id", schema_for::<String>())];
+        let errors = validate_declared_params(&params, Some(&obj(&[])));
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("order_id"));
+    }
+
+    #[test]
+    fn optional_with_default_omitted_is_ok() {
+        let params = vec![InputSlot::optional(
+            "limit",
+            schema_for::<u32>(),
+            Some(serde_json::json!(100)),
+        )];
+        assert!(validate_declared_params(&params, Some(&obj(&[]))).is_empty());
+    }
+
+    #[test]
+    fn wrong_type_errors() {
+        let params = vec![InputSlot::required("order_id", schema_for::<String>())];
+        let provided = obj(&[("order_id", serde_json::json!(42))]);
+        let errors = validate_declared_params(&params, Some(&provided));
+        assert_eq!(errors.len(), 1, "{:?}", errors);
+        assert!(errors[0].contains("string"));
+    }
+
+    #[test]
+    fn correct_input_passes() {
+        let params = vec![
+            InputSlot::required("order_id", schema_for::<String>()),
+            InputSlot::optional("limit", schema_for::<u32>(), Some(serde_json::json!(100))),
+        ];
+        let provided = obj(&[
+            ("order_id", serde_json::json!("A-1")),
+            ("limit", serde_json::json!(5)),
+        ]);
+        assert!(validate_declared_params(&params, Some(&provided)).is_empty());
+    }
+
+    #[test]
+    fn undeclared_workflow_skips_validation() {
+        assert!(validate_declared_params(&[], Some(&obj(&[]))).is_empty());
+    }
+
+    #[test]
+    fn value_against_schema_typed_ok_and_mismatch() {
+        // CLOACI-T-0759: single-value validator (accumulator inject path).
+        let string_schema = schema_for::<String>();
+        assert!(validate_value_against_schema(&serde_json::json!("hi"), &string_schema).is_none());
+        let err = validate_value_against_schema(&serde_json::json!(42), &string_schema);
+        assert!(err.is_some());
+        assert!(err.unwrap().contains("string"));
+    }
+
+    #[test]
+    fn value_against_permissive_schema_accepts_anything() {
+        // Untyped boundary → permissive {} schema → accept any event.
+        let any = serde_json::json!({});
+        assert!(validate_value_against_schema(&serde_json::json!(42), &any).is_none());
+        assert!(validate_value_against_schema(&serde_json::json!("x"), &any).is_none());
     }
 }
