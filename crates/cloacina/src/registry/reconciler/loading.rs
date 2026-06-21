@@ -2095,6 +2095,7 @@ mod tests {
             updated_at: chrono::Utc::now(),
             paused: false,
             declared_params: vec![],
+            declared_surfaces: vec![],
         }
     }
 

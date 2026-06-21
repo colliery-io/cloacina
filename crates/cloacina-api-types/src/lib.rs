@@ -59,7 +59,7 @@ pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
     ReactorStatus,
 };
-pub use input_interface::InputSlot;
+pub use input_interface::{DeclaredSurface, InputSlot};
 pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
 };

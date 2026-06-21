@@ -506,6 +506,53 @@
         ]
       }
     },
+    "/v1/health/accumulators/{name}/interface": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/accumulators/{name}/interface — the accumulator's declared\ninput interface (CLOACI-I-0128 T-0758): the single boundary slot an operator\nsupplies to `inject`. Empty `slots` means undeclared/untyped. Read-only\ndiscovery; the same slot backs the validation in `inject_accumulator`.",
+        "operationId": "get_accumulator_interface",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Accumulator name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Declared accumulator input interface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclaredSurface"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/health/graphs": {
       "get": {
         "tags": [
@@ -707,6 +754,53 @@
           },
           "404": {
             "description": "Reactor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/health/reactors/{name}/interface": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/reactors/{name}/interface — the reactor's declared input\ninterface (CLOACI-I-0128 T-0758): the per-source boundary slots an operator\nsupplies to `fire_with`. Empty `slots` means undeclared/untyped (the reactor\naccepts free-form input). Read-only discovery so a UI can render a typed fire\nform; the same slots back the server-side validation in `fire_reactor`.",
+        "operationId": "get_reactor_interface",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Reactor name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Declared reactor input interface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclaredSurface"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
             "content": {
               "application/json": {
                 "schema": {
@@ -2578,6 +2672,32 @@
               "null"
             ],
             "description": "Optional password (auto-generated if absent)."
+          }
+        }
+      },
+      "DeclaredSurface": {
+        "type": "object",
+        "description": "A declared injectable surface other than the workflow itself — a computation\ngraph, reactor, or accumulator (CLOACI-I-0128 Task D). Carries the surface's\ndeclared input slots so the server can validate operator injections\n(reactor fire / accumulator inject) and the UI can render typed forms.\n\nSourced from the package's `get_input_interface` FFI entrypoint at build\nsuccess and stored alongside the package metadata. An undeclared / untyped\nsurface has `slots` whose schemas are permissive (`{}`).",
+        "required": [
+          "kind",
+          "name",
+          "slots"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "Surface kind: `\"graph\"`, `\"reactor\"`, or `\"accumulator\"`."
+          },
+          "name": {
+            "type": "string",
+            "description": "Surface name (graph name / reactor name / accumulator name)."
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InputSlot"
+            },
+            "description": "The surface's declared input slots."
           }
         }
       },

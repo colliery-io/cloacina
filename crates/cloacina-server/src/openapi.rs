@@ -29,16 +29,17 @@
 //! OpenAPI cannot describe WS message flows.
 
 use cloacina_api_types::{
-    AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateTenantRequest, ErrorBody,
-    ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
-    ExecutionSummary, ExecutionTasksResponse, FireMode, FireReactorRequest, FireReactorResponse,
-    GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode, InjectAccumulatorRequest,
-    InjectAccumulatorResponse, InputSlot, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
-    ListResponse, ReactorStatus, TaskExecutionDetail, TenantCreatedResponse, TenantListResponse,
-    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerExecution,
-    TriggerPauseResponse, TriggerScheduleInfo, TriggerScheduleSummary, WorkflowDeletedResponse,
-    WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile, WorkflowSourceResponse,
-    WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse, WsTicketResponse,
+    AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateTenantRequest,
+    DeclaredSurface, ErrorBody, ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent,
+    ExecutionEventsResponse, ExecutionSummary, ExecutionTasksResponse, FireMode,
+    FireReactorRequest, FireReactorResponse, GraphStatus, GraphTopology, GraphTopologyEdge,
+    GraphTopologyNode, InjectAccumulatorRequest, InjectAccumulatorResponse, InputSlot,
+    KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse, ReactorStatus,
+    TaskExecutionDetail, TenantCreatedResponse, TenantListResponse, TenantRemovedResponse,
+    TenantSummary, TriggerDetailResponse, TriggerExecution, TriggerPauseResponse,
+    TriggerScheduleInfo, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
+    WorkflowPauseResponse, WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary,
+    WorkflowTaskNode, WorkflowUploadedResponse, WsTicketResponse,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -120,6 +121,8 @@ impl Modify for SecurityAddon {
         crate::routes::health_graphs::list_reactors,
         crate::routes::health_graphs::fire_reactor,
         crate::routes::health_graphs::inject_accumulator,
+        crate::routes::health_graphs::get_reactor_interface,
+        crate::routes::health_graphs::get_accumulator_interface,
         crate::routes::health_graphs::list_graphs,
         crate::routes::health_graphs::get_graph,
     ),
@@ -146,6 +149,7 @@ impl Modify for SecurityAddon {
         WorkflowSourceFile,
         WorkflowPauseResponse,
         InputSlot,
+        DeclaredSurface,
         WorkflowDeletedResponse,
         TenantListResponse<WorkflowSummary>,
         TriggerScheduleSummary,

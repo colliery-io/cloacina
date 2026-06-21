@@ -1223,6 +1223,16 @@ fn build_router(state: AppState) -> Router {
             "/health/accumulators/{name}/inject",
             post(crate::routes::health_graphs::inject_accumulator),
         )
+        // Declared input-interface discovery (CLOACI-I-0128 / T-0758) — the typed
+        // slots an operator supplies to fire/inject; backs UI typed forms.
+        .route(
+            "/health/reactors/{name}/interface",
+            get(crate::routes::health_graphs::get_reactor_interface),
+        )
+        .route(
+            "/health/accumulators/{name}/interface",
+            get(crate::routes::health_graphs::get_accumulator_interface),
+        )
         .route(
             "/health/graphs",
             get(crate::routes::health_graphs::list_graphs),

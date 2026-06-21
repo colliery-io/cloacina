@@ -947,6 +947,7 @@ mod tests {
             symbols: vec![],
             workflow_triggers: vec![],
             declared_params: vec![],
+            declared_surfaces: vec![],
         }
     }
 

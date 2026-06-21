@@ -150,6 +150,7 @@ impl FilesystemWorkflowRegistry {
                             paused: false,
                             // Filesystem registry doesn't surface declared params.
                             declared_params: Vec::new(),
+                            declared_surfaces: Vec::new(),
                         };
 
                         debug!(

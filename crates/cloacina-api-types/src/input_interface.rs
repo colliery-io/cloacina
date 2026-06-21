@@ -73,3 +73,22 @@ impl InputSlot {
         }
     }
 }
+
+/// A declared injectable surface other than the workflow itself — a computation
+/// graph, reactor, or accumulator (CLOACI-I-0128 Task D). Carries the surface's
+/// declared input slots so the server can validate operator injections
+/// (reactor fire / accumulator inject) and the UI can render typed forms.
+///
+/// Sourced from the package's `get_input_interface` FFI entrypoint at build
+/// success and stored alongside the package metadata. An undeclared / untyped
+/// surface has `slots` whose schemas are permissive (`{}`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DeclaredSurface {
+    /// Surface kind: `"graph"`, `"reactor"`, or `"accumulator"`.
+    pub kind: String,
+    /// Surface name (graph name / reactor name / accumulator name).
+    pub name: String,
+    /// The surface's declared input slots.
+    pub slots: Vec<InputSlot>,
+}

@@ -114,6 +114,12 @@ pub struct WorkflowMetadata {
     /// or predates the input-interface entrypoint.
     #[serde(default)]
     pub declared_params: Vec<cloacina_api_types::InputSlot>,
+
+    /// CLOACI-I-0128 (T-0758): declared input interfaces of the package's
+    /// non-workflow injectable surfaces (graphs/reactors/accumulators), used to
+    /// validate operator injections. Empty when none are declared.
+    #[serde(default)]
+    pub declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
 }
 
 /// A single source file extracted from a package's retained `.cloacina`

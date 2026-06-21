@@ -410,6 +410,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
+                declared_surfaces: package_metadata.declared_surfaces.clone(),
             });
         }
 
@@ -469,6 +470,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
+                declared_surfaces: package_metadata.declared_surfaces.clone(),
             });
         }
 
@@ -630,6 +632,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
+                declared_surfaces: package_metadata.declared_surfaces.clone(),
             };
 
             Ok(Some((
@@ -703,6 +706,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
+                declared_surfaces: package_metadata.declared_surfaces.clone(),
             };
 
             Ok(Some((
@@ -1017,6 +1021,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 updated_at: record.updated_at.0,
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
+                declared_surfaces: package_metadata.declared_surfaces.clone(),
             },
             build_status: record.build_status,
             build_error: record.build_error,
@@ -1506,6 +1511,9 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         // CLOACI-I-0128: persist the declared input params from the cdylib's
         // input-interface entrypoint.
         merged.declared_params = extracted.declared_params;
+        // CLOACI-I-0128 (T-0758): persist the non-workflow surface interfaces
+        // (graph/reactor/accumulator) for injection validation.
+        merged.declared_surfaces = extracted.declared_surfaces;
 
         // CLOACI-T-0752: overlay compiler-parsed doc-comment "what & why" onto
         // the cdylib-extracted task list, matched by local id. FFI metadata
@@ -2194,6 +2202,7 @@ mod tests {
             symbols: vec![],
             workflow_triggers: vec![],
             declared_params: vec![],
+            declared_surfaces: vec![],
         }
     }
 

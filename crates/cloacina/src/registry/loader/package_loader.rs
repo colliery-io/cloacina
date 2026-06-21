@@ -75,6 +75,14 @@ pub struct PackageMetadata {
     /// predate the entrypoint.
     #[serde(default)]
     pub declared_params: Vec<cloacina_api_types::InputSlot>,
+    /// CLOACI-I-0128 / T-0758: declared input interfaces of the package's
+    /// non-workflow injectable surfaces (computation graphs, reactors,
+    /// accumulators), read from the same `get_input_interface` entrypoint. Lets
+    /// the server validate operator injections (reactor fire / accumulator
+    /// inject) against the surface's boundary types. Empty when none are declared
+    /// or the package predates the entrypoint.
+    #[serde(default)]
+    pub declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
 }
 
 /// Individual task metadata.
@@ -278,20 +286,38 @@ impl PackageLoader {
             cloacina_workflow_plugin::InputInterfaceDescriptor,
             fidius_host::CallError,
         > = handle.call_method(cloacina_workflow_plugin::METHOD_GET_INPUT_INTERFACE, &());
-        let declared_params: Vec<cloacina_api_types::InputSlot> = match iface_result {
-            Ok(desc) => desc
-                .entries
-                .into_iter()
-                .filter(|e| e.surface_kind == "workflow")
-                .flat_map(|e| {
-                    serde_json::from_str::<Vec<cloacina_api_types::InputSlot>>(&e.slots_json)
-                        .unwrap_or_default()
-                })
-                .collect(),
-            Err(fidius_host::CallError::NotImplemented { .. }) => Vec::new(),
+        let (declared_params, declared_surfaces): (
+            Vec<cloacina_api_types::InputSlot>,
+            Vec<cloacina_api_types::DeclaredSurface>,
+        ) = match iface_result {
+            Ok(desc) => {
+                let mut params: Vec<cloacina_api_types::InputSlot> = Vec::new();
+                let mut surfaces: Vec<cloacina_api_types::DeclaredSurface> = Vec::new();
+                for e in desc.entries {
+                    let slots =
+                        serde_json::from_str::<Vec<cloacina_api_types::InputSlot>>(&e.slots_json)
+                            .unwrap_or_default();
+                    if e.surface_kind == "workflow" {
+                        // Workflow params land in declared_params (T-0756).
+                        params.extend(slots);
+                    } else {
+                        // graph / reactor / accumulator surfaces (T-0758).
+                        surfaces.push(cloacina_api_types::DeclaredSurface {
+                            kind: e.surface_kind,
+                            name: e.surface_name,
+                            slots,
+                        });
+                    }
+                }
+                (params, surfaces)
+            }
+            Err(fidius_host::CallError::NotImplemented { .. }) => (Vec::new(), Vec::new()),
             Err(e) => {
-                tracing::warn!("get_input_interface failed: {:?}; treating as no params", e);
-                Vec::new()
+                tracing::warn!(
+                    "get_input_interface failed: {:?}; treating as no declared interface",
+                    e
+                );
+                (Vec::new(), Vec::new())
             }
         };
 
@@ -304,6 +330,7 @@ impl PackageLoader {
 
         let mut pkg = self.convert_plugin_metadata_to_rust(ffi_metadata)?;
         pkg.declared_params = declared_params;
+        pkg.declared_surfaces = declared_surfaces;
         Ok(pkg)
     }
 
@@ -375,6 +402,7 @@ impl PackageLoader {
             // Populated by the caller via the input-interface entrypoint
             // (extract_metadata_from_so); empty here.
             declared_params: Vec::new(),
+            declared_surfaces: Vec::new(),
         })
     }
 

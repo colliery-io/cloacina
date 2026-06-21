@@ -314,6 +314,7 @@ mod tests {
             symbols: vec!["fidius_get_registry".to_string()],
             workflow_triggers: Vec::new(),
             declared_params: Vec::new(),
+            declared_surfaces: Vec::new(),
         }
     }
 

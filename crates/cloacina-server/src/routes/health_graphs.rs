@@ -30,17 +30,22 @@ use axum::{
     Extension, Json,
 };
 
+use tracing::warn;
+
 use cloacina::computation_graph::reactor::ManualCommand;
 use cloacina::computation_graph::registry::{KeyContext, ReactorOp};
 use cloacina::computation_graph::types::{serialize as serialize_boundary, InputCache, SourceName};
+use cloacina::dal::UnifiedRegistryStorage;
+use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
 use cloacina_api_types::{
-    AccumulatorStatus, FireMode, FireReactorRequest, FireReactorResponse, GraphStatus,
-    InjectAccumulatorRequest, InjectAccumulatorResponse, ListResponse, ReactorStatus,
+    AccumulatorStatus, DeclaredSurface, FireMode, FireReactorRequest, FireReactorResponse,
+    GraphStatus, InjectAccumulatorRequest, InjectAccumulatorResponse, ListResponse, ReactorStatus,
 };
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
+use crate::routes::executions::{validate_declared_params, validate_value_against_schema};
 use crate::AppState;
 
 /// Build a `KeyContext` from the `AuthenticatedKey` for policy
@@ -355,6 +360,36 @@ pub async fn fire_reactor(
         .into_response();
     }
 
+    // CLOACI-T-0759: validate fire_with inputs against the reactor's declared
+    // per-source boundary slots (when the package declares a typed interface).
+    // Undeclared/untyped surfaces accept free-form input; registry errors fail
+    // open. The CG-health endpoints operate on the global runtime, so the
+    // surfaces come from the admin/public registry.
+    if matches!(req.mode, FireMode::FireWith) && !req.inputs.is_empty() {
+        let storage = UnifiedRegistryStorage::new(state.database.clone());
+        if let Ok(registry) = WorkflowRegistryImpl::new(storage, state.database.clone()) {
+            match registry.find_surface_input_slots("reactor", &name).await {
+                Ok(slots) if !slots.is_empty() => {
+                    let provided: serde_json::Map<String, serde_json::Value> = req
+                        .inputs
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    let errors = validate_declared_params(&slots, Some(&provided));
+                    if !errors.is_empty() {
+                        return ApiError::bad_request(
+                            "reactor_input_invalid",
+                            format!("invalid reactor inputs: {}", errors.join("; ")),
+                        )
+                        .into_response();
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => warn!("reactor declared-slots lookup failed for '{}': {}", name, e),
+            }
+        }
+    }
+
     // Build the manual command. For `fire_with`, serialize each typed JSON
     // value to the boundary encoding server-side.
     let (command, sources_injected) = match req.mode {
@@ -475,6 +510,32 @@ pub async fn inject_accumulator(
         .into_response();
     }
 
+    // CLOACI-T-0759: validate the event against the accumulator's declared
+    // boundary type (carried as a per-source slot in its graph/reactor surface).
+    // Untyped/unknown accumulators accept free-form events; registry errors fail
+    // open.
+    {
+        let storage = UnifiedRegistryStorage::new(state.database.clone());
+        if let Ok(registry) = WorkflowRegistryImpl::new(storage, state.database.clone()) {
+            match registry.find_accumulator_input_slot(&name).await {
+                Ok(Some(slot)) => {
+                    if let Some(err) = validate_value_against_schema(&req.event, &slot.schema) {
+                        return ApiError::bad_request(
+                            "accumulator_input_invalid",
+                            format!("invalid event for accumulator '{}': {}", name, err),
+                        )
+                        .into_response();
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => warn!(
+                    "accumulator declared-slot lookup failed for '{}': {}",
+                    name, e
+                ),
+            }
+        }
+    }
+
     // Serialize the typed JSON event to the boundary wire encoding server-side.
     let boundary = match encode_boundary_input(&req.event) {
         Ok(b) => b,
@@ -508,6 +569,80 @@ pub async fn inject_accumulator(
         )
         .into_response(),
     }
+}
+
+/// GET /v1/health/reactors/{name}/interface — the reactor's declared input
+/// interface (CLOACI-I-0128 T-0758): the per-source boundary slots an operator
+/// supplies to `fire_with`. Empty `slots` means undeclared/untyped (the reactor
+/// accepts free-form input). Read-only discovery so a UI can render a typed fire
+/// form; the same slots back the server-side validation in `fire_reactor`.
+#[utoipa::path(
+    get,
+    path = "/v1/health/reactors/{name}/interface",
+    tag = "graph-health",
+    params(("name" = String, Path, description = "Reactor name")),
+    responses(
+        (status = 200, description = "Declared reactor input interface", body = DeclaredSurface),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn get_reactor_interface(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let storage = UnifiedRegistryStorage::new(state.database.clone());
+    let slots = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
+        Ok(registry) => registry
+            .find_surface_input_slots("reactor", &name)
+            .await
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    Json(DeclaredSurface {
+        kind: "reactor".to_string(),
+        name,
+        slots,
+    })
+}
+
+/// GET /v1/health/accumulators/{name}/interface — the accumulator's declared
+/// input interface (CLOACI-I-0128 T-0758): the single boundary slot an operator
+/// supplies to `inject`. Empty `slots` means undeclared/untyped. Read-only
+/// discovery; the same slot backs the validation in `inject_accumulator`.
+#[utoipa::path(
+    get,
+    path = "/v1/health/accumulators/{name}/interface",
+    tag = "graph-health",
+    params(("name" = String, Path, description = "Accumulator name")),
+    responses(
+        (status = 200, description = "Declared accumulator input interface", body = DeclaredSurface),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn get_accumulator_interface(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let storage = UnifiedRegistryStorage::new(state.database.clone());
+    let slots = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
+        Ok(registry) => registry
+            .find_accumulator_input_slot(&name)
+            .await
+            .ok()
+            .flatten()
+            .map(|s| vec![s])
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    Json(DeclaredSurface {
+        kind: "accumulator".to_string(),
+        name,
+        slots,
+    })
 }
 
 #[cfg(test)]

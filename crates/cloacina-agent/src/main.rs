@@ -989,6 +989,7 @@ fn synthetic_package_metadata(
         // Agent synthesizes this for dynamic dispatch; no declared input
         // interface here (CLOACI-I-0128).
         declared_params: vec![],
+        declared_surfaces: vec![],
     }
 }
 

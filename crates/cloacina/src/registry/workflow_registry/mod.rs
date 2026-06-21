@@ -201,6 +201,48 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .unwrap_or_default())
     }
 
+    /// Declared input slots for a non-workflow injectable surface
+    /// (`kind` = `"graph"` / `"reactor"` / `"accumulator"`) addressed by `name`,
+    /// scanned across all registered packages. Empty when the surface is unknown
+    /// or declares no typed interface (CLOACI-I-0128 T-0758). The operator
+    /// fire/inject endpoints validate payloads against these (Task E).
+    pub async fn find_surface_input_slots(
+        &self,
+        kind: &str,
+        name: &str,
+    ) -> Result<Vec<cloacina_api_types::InputSlot>, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        for w in workflows {
+            for surface in w.declared_surfaces {
+                if surface.kind == kind && surface.name == name {
+                    return Ok(surface.slots);
+                }
+            }
+        }
+        Ok(Vec::new())
+    }
+
+    /// The declared input slot for an accumulator addressed by `name`
+    /// (CLOACI-I-0128 T-0758). An accumulator's boundary type is carried as a
+    /// per-source slot inside its graph/reactor surface, so this scans all
+    /// surfaces' slots for one whose name matches. `None` when unknown or
+    /// untyped. The accumulator-inject endpoint validates the pushed event
+    /// against this (Task E).
+    pub async fn find_accumulator_input_slot(
+        &self,
+        name: &str,
+    ) -> Result<Option<cloacina_api_types::InputSlot>, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        for w in workflows {
+            for surface in w.declared_surfaces {
+                if let Some(slot) = surface.slots.into_iter().find(|s| s.name == name) {
+                    return Ok(Some(slot));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Pause or resume the workflow addressed by `name` (CLOACI-T-0749).
     /// Resolves `name` against the active package list (by `workflow_name` or
     /// `package_name`) and sets its `paused` flag. Returns the affected package
@@ -412,6 +454,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             // Filled at build success from the cdylib's input-interface
             // entrypoint (CLOACI-I-0128); empty at upload.
             declared_params: vec![],
+            declared_surfaces: vec![],
         };
 
         let registry_id = self.storage.store_binary(package_data).await?;
@@ -485,6 +528,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             // reads paused via the list/inspect paths. (CLOACI-T-0749)
             paused: false,
             declared_params: package_metadata.declared_params.clone(),
+            declared_surfaces: package_metadata.declared_surfaces.clone(),
         };
 
         Ok(Some(LoadedWorkflow {
