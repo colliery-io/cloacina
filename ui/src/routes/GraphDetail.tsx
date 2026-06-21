@@ -231,7 +231,7 @@ export function GraphDetail() {
             lastFiredAt={(data as { last_fired_at?: string | null }).last_fired_at ?? null}
           />
 
-          <Panel title="Accumulators" caption={`${accs.length} bound source${accs.length === 1 ? "" : "s"}`} right={<Pill color={TOKEN.gold}>proposed</Pill>}>
+          <Panel title="Accumulators" caption={`${accs.length} bound source${accs.length === 1 ? "" : "s"}`}>
             <AccumulatorTable accumulators={accs} />
           </Panel>
 

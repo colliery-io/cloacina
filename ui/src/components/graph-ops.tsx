@@ -192,7 +192,7 @@ export function ReactorReadiness({
   const whenAll = (reactionMode || "").toLowerCase() === "when_all";
 
   return (
-    <Panel title="Reactor readiness" caption={reactor ?? ""} right={<Pill color={TOKEN.gold}>proposed</Pill>}>
+    <Panel title="Reactor readiness" caption={reactor ?? ""}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "flex-start" }}>
         <div style={{ flex: "1 1 260px", minWidth: 200 }}>
           <span style={{ fontSize: 12.5, color: "var(--fg-2)" }}>
