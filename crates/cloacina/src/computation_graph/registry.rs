@@ -184,6 +184,20 @@ impl ReactorAuthPolicy {
     }
 }
 
+/// Discoverability metadata an accumulator self-registers at graph load
+/// (CLOACI-I-0128 follow-up). The runtime channel registration
+/// ([`EndpointRegistry::register_accumulator`]) only carries the socket sender;
+/// this descriptor adds the structural context the discovery API needs — chiefly
+/// the reactor/graph the accumulator feeds — so an operator can tell what
+/// connecting to `/v1/ws/accumulator/{name}` actually drives.
+#[derive(Debug, Clone)]
+pub struct AccumulatorDescriptor {
+    /// The reactor (graph) this accumulator feeds.
+    pub reactor: String,
+    /// Owning tenant, or `None` for untagged single-tenant graphs.
+    pub tenant_id: Option<String>,
+}
+
 /// Registry mapping endpoint names to channel senders.
 ///
 /// Shared between the Reactive Scheduler (registers on spawn) and
@@ -206,6 +220,8 @@ struct RegistryInner {
     reactor_policies: HashMap<String, ReactorAuthPolicy>,
     /// Accumulator name → health watch receiver.
     accumulator_health: HashMap<String, watch::Receiver<AccumulatorHealth>>,
+    /// Accumulator name → discoverability descriptor (CLOACI-I-0128 follow-up).
+    accumulator_meta: HashMap<String, AccumulatorDescriptor>,
 }
 
 impl EndpointRegistry {
@@ -218,6 +234,7 @@ impl EndpointRegistry {
                 accumulator_policies: HashMap::new(),
                 reactor_policies: HashMap::new(),
                 accumulator_health: HashMap::new(),
+                accumulator_meta: HashMap::new(),
             })),
         }
     }
@@ -247,10 +264,25 @@ impl EndpointRegistry {
         inner.reactor_handles.insert(name, handle);
     }
 
+    /// Register an accumulator's discoverability descriptor (its parent reactor
+    /// + tenant), self-supplied by the graph at load. Keyed by name; a re-load
+    /// overwrites. (CLOACI-I-0128 follow-up.)
+    pub async fn register_accumulator_meta(&self, name: String, descriptor: AccumulatorDescriptor) {
+        let mut inner = self.inner.write().await;
+        inner.accumulator_meta.insert(name, descriptor);
+    }
+
+    /// The discoverability descriptor for an accumulator, if registered.
+    pub async fn accumulator_descriptor(&self, name: &str) -> Option<AccumulatorDescriptor> {
+        let inner = self.inner.read().await;
+        inner.accumulator_meta.get(name).cloned()
+    }
+
     /// Deregister all accumulators under a name.
     pub async fn deregister_accumulator(&self, name: &str) {
         let mut inner = self.inner.write().await;
         inner.accumulators.remove(name);
+        inner.accumulator_meta.remove(name);
     }
 
     /// Deregister a reactor by name.
@@ -524,6 +556,37 @@ mod tests {
             paused: Arc::new(AtomicBool::new(false)),
             stats: Arc::new(crate::computation_graph::reactor::ReactorStats::default()),
         }
+    }
+
+    #[tokio::test]
+    async fn test_accumulator_descriptor_roundtrip_and_deregister() {
+        // CLOACI-I-0128 follow-up: the self-registered discoverability descriptor
+        // is readable and cleared on deregister.
+        let registry = EndpointRegistry::new();
+        assert!(registry.accumulator_descriptor("alpha").await.is_none());
+
+        registry
+            .register_accumulator_meta(
+                "alpha".to_string(),
+                AccumulatorDescriptor {
+                    reactor: "market_maker".to_string(),
+                    tenant_id: Some("acme".to_string()),
+                },
+            )
+            .await;
+
+        let d = registry
+            .accumulator_descriptor("alpha")
+            .await
+            .expect("descriptor present");
+        assert_eq!(d.reactor, "market_maker");
+        assert_eq!(d.tenant_id.as_deref(), Some("acme"));
+
+        registry.deregister_accumulator("alpha").await;
+        assert!(
+            registry.accumulator_descriptor("alpha").await.is_none(),
+            "deregister should clear the descriptor"
+        );
     }
 
     #[tokio::test]

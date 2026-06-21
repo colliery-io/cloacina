@@ -487,6 +487,18 @@ impl ComputationGraphScheduler {
             self.registry
                 .register_accumulator_health(acc_decl.name.clone(), health_rx)
                 .await;
+            // CLOACI-I-0128 follow-up: self-register discoverability metadata
+            // (the reactor this accumulator feeds + owning tenant) so the
+            // discovery API can surface the relationship, not just the name.
+            self.registry
+                .register_accumulator_meta(
+                    acc_decl.name.clone(),
+                    super::registry::AccumulatorDescriptor {
+                        reactor: reactor_name.clone(),
+                        tenant_id: tenant_id.clone(),
+                    },
+                )
+                .await;
 
             accumulator_handles.push((acc_decl.name.clone(), handle));
         }
@@ -1114,6 +1126,17 @@ impl ComputationGraphScheduler {
                         .await;
                     self.registry
                         .register_accumulator_health(acc_decl.name.clone(), health_rx)
+                        .await;
+                    // CLOACI-I-0128 follow-up: re-register discoverability meta
+                    // on the restart path too (graph + tenant).
+                    self.registry
+                        .register_accumulator_meta(
+                            acc_decl.name.clone(),
+                            super::registry::AccumulatorDescriptor {
+                                reactor: graph_name.clone(),
+                                tenant_id: running.declaration.tenant_id.clone(),
+                            },
+                        )
                         .await;
                     new_acc_handles.push((acc_decl.name.clone(), handle));
                 }

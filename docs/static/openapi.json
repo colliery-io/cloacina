@@ -2523,8 +2523,22 @@
           "name": {
             "type": "string"
           },
+          "reactor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The reactor (graph) this accumulator feeds, self-registered by the graph\nat load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't\nregister the descriptor. Lets an operator see what pushing to\n`/v1/ws/accumulator/{name}` actually drives."
+          },
           "status": {
             "description": "Accumulator health as reported by the endpoint registry. Free-form\nJSON for now; structured in a later contract revision."
+          },
+          "tenant_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Owning tenant, or `None` for untagged single-tenant graphs."
           }
         }
       },
@@ -3280,8 +3294,22 @@
                 "name": {
                   "type": "string"
                 },
+                "reactor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The reactor (graph) this accumulator feeds, self-registered by the graph\nat load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't\nregister the descriptor. Lets an operator see what pushing to\n`/v1/ws/accumulator/{name}` actually drives."
+                },
                 "status": {
                   "description": "Accumulator health as reported by the endpoint registry. Free-form\nJSON for now; structured in a later contract revision."
+                },
+                "tenant_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Owning tenant, or `None` for untagged single-tenant graphs."
                 }
               }
             }

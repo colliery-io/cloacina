@@ -98,13 +98,20 @@ pub async fn list_accumulators(
         .list_accumulators_with_health_for_key(&ctx)
         .await;
 
-    let accumulators: Vec<AccumulatorStatus> = accumulators_with_health
-        .into_iter()
-        .map(|(name, health)| AccumulatorStatus {
-            name,
+    // CLOACI-I-0128 follow-up: enrich each accumulator with the discoverability
+    // descriptor it self-registered at load (parent reactor + tenant), so the
+    // list surfaces the relationship, not just name + health.
+    let mut accumulators: Vec<AccumulatorStatus> =
+        Vec::with_capacity(accumulators_with_health.len());
+    for (name, health) in accumulators_with_health {
+        let descriptor = state.endpoint_registry.accumulator_descriptor(&name).await;
+        accumulators.push(AccumulatorStatus {
             status: serde_json::to_value(health).unwrap_or(serde_json::Value::Null),
-        })
-        .collect();
+            reactor: descriptor.as_ref().map(|d| d.reactor.clone()),
+            tenant_id: descriptor.and_then(|d| d.tenant_id),
+            name,
+        });
+    }
 
     // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
     Json(ListResponse::new(accumulators))
