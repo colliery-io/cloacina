@@ -191,7 +191,7 @@ export function CombinedTimeline({
                       position: "absolute",
                       inset: "8px 0",
                       height: 2,
-                      background: "var(--mantine-color-gray-2)",
+                      background: "var(--inset)",
                     }}
                   />
                   {/* observed range: earliest start → latest finish across runs */}
@@ -202,7 +202,7 @@ export function CombinedTimeline({
                       width: width(r.endMax - r.startMin),
                       top: 3,
                       height: 12,
-                      background: "var(--mantine-color-blue-1)",
+                      background: "rgba(127,178,255,.20)",
                       borderRadius: 3,
                     }}
                   />
@@ -214,7 +214,7 @@ export function CombinedTimeline({
                       width: width(spanW),
                       top: 3,
                       height: 12,
-                      background: "var(--mantine-color-blue-6)",
+                      background: "#7fb2ff",
                       borderRadius: 3,
                     }}
                   />
@@ -230,8 +230,8 @@ export function CombinedTimeline({
       </Box>
 
       <Group gap="md" mt="xs">
-        <Legend swatch="var(--mantine-color-blue-6)" label="typical span" />
-        <Legend swatch="var(--mantine-color-blue-1)" label="observed range (earliest start → latest finish)" />
+        <Legend swatch="#7fb2ff" label="typical span" />
+        <Legend swatch="rgba(127,178,255,.20)" label="observed range (earliest start → latest finish)" />
         <Text size="xs" c="dimmed">
           aligned at run start · {runs.length} run{runs.length === 1 ? "" : "s"} · gaps between bars = inter-task wait
         </Text>
