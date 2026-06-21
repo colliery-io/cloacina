@@ -58,6 +58,44 @@ export const cardSurface: CSSProperties = {
   borderRadius: 11,
 };
 
+/** Card with the spec's section header: 13/600 title + Mono caption + hairline
+ *  (CLOACI-T-0764). `right` overrides the caption slot for controls. */
+export function Panel({
+  title,
+  caption,
+  right,
+  children,
+  style,
+}: {
+  title: string;
+  caption?: ReactNode;
+  right?: ReactNode;
+  children: ReactNode;
+  style?: CSSProperties;
+}) {
+  return (
+    <div style={{ ...cardSurface, padding: "16px 18px", ...style }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          borderBottom: "1px solid var(--border-soft)",
+          paddingBottom: 11,
+          marginBottom: 14,
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>{title}</span>
+        {right ??
+          (caption != null && (
+            <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>{caption}</span>
+          ))}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 /** A small status dot, optionally with a soft glow ring. */
 export function Dot({ color, glow, size = 8 }: { color: string; glow?: boolean; size?: number }) {
   return (

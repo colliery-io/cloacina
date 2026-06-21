@@ -93,6 +93,12 @@ export type TaskRuntimeStat = {
   maxMs: number;
   /** Duration in the most recent run, or null if it didn't run/complete there. */
   lastMs: number | null;
+  /** Runs in the window where this task failed (CLOACI-T-0764 reliability). */
+  failCount: number;
+  /** Summed retries across the window (Σ max(attempt-1, 0)). */
+  retrySum: number;
+  /** Status in the most recent run (for the per-task dot / DAG overlay). */
+  lastStatus: string | null;
 };
 
 /** A completed task contributes a duration; running/missing rows are skipped. */
@@ -150,27 +156,46 @@ export function useWorkflowTaskRuntimes(workflow: string, opts: { runs?: number 
   // Accumulate durations per local task name, and build the per-run timeline.
   // The first id is the most recent run (the list is newest-first), so its
   // durations become `lastMs`.
-  const acc = new Map<string, { sum: number; min: number; max: number; count: number; last: number | null }>();
+  type Acc = {
+    sum: number;
+    min: number;
+    max: number;
+    count: number;
+    last: number | null;
+    fail: number;
+    retry: number;
+    lastStatus: string | null;
+  };
+  const acc = new Map<string, Acc>();
   const runs: RunTimeline[] = [];
   results.forEach((r, runIdx) => {
     const tasks: Record<string, { start: number; end: number }> = {};
     let t0 = Infinity;
     for (const t of r.data?.tasks ?? []) {
-      const ms = taskDurationMs(t);
-      if (ms == null) continue;
       const key = localTaskId(t.task_name);
-      const cur = acc.get(key) ?? { sum: 0, min: Infinity, max: 0, count: 0, last: null };
-      cur.sum += ms;
-      cur.min = Math.min(cur.min, ms);
-      cur.max = Math.max(cur.max, ms);
-      cur.count += 1;
-      if (runIdx === 0) cur.last = ms;
-      acc.set(key, cur);
+      const cur =
+        acc.get(key) ??
+        { sum: 0, min: Infinity, max: 0, count: 0, last: null, fail: 0, retry: 0, lastStatus: null };
 
-      const start = Date.parse(t.started_at as string);
-      const end = Date.parse(t.completed_at as string);
-      tasks[key] = { start, end };
-      if (start < t0) t0 = start;
+      // Reliability counts from every task row (not just completed ones).
+      if ((t.status ?? "").toLowerCase() === "failed") cur.fail += 1;
+      if (typeof t.attempt === "number" && t.attempt > 1) cur.retry += t.attempt - 1;
+      if (runIdx === 0) cur.lastStatus = t.status ?? null;
+
+      // Duration only from completed rows.
+      const ms = taskDurationMs(t);
+      if (ms != null) {
+        cur.sum += ms;
+        cur.min = Math.min(cur.min, ms);
+        cur.max = Math.max(cur.max, ms);
+        cur.count += 1;
+        if (runIdx === 0) cur.last = ms;
+        const start = Date.parse(t.started_at as string);
+        const end = Date.parse(t.completed_at as string);
+        tasks[key] = { start, end };
+        if (start < t0) t0 = start;
+      }
+      acc.set(key, cur);
     }
     if (Object.keys(tasks).length > 0) {
       runs.push({ id: ids[runIdx], status: items[runIdx]?.status ?? "", t0, tasks });
@@ -180,10 +205,13 @@ export function useWorkflowTaskRuntimes(workflow: string, opts: { runs?: number 
   const stats: TaskRuntimeStat[] = [...acc.entries()].map(([taskName, a]) => ({
     taskName,
     count: a.count,
-    avgMs: a.sum / a.count,
-    minMs: a.min,
-    maxMs: a.max,
+    avgMs: a.count ? a.sum / a.count : 0,
+    minMs: a.count ? a.min : 0,
+    maxMs: a.count ? a.max : 0,
     lastMs: a.last,
+    failCount: a.fail,
+    retrySum: a.retry,
+    lastStatus: a.lastStatus,
   }));
 
   return {

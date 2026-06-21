@@ -15,11 +15,13 @@
  */
 
 import { Box, Group, Text, Tooltip } from "@mantine/core";
+import { type CSSProperties } from "react";
 
 import type { RunTimeline } from "../api/executions";
 import type { TaskGraphNode } from "../util/topo";
 import { topoRank } from "../util/topo";
 import { formatMs } from "../util/format";
+import { MONO } from "./aurora";
 
 /** Five-number summary of a sample (linear-interpolated quantiles). */
 function summary(xs: number[]) {
@@ -156,17 +158,28 @@ export function CombinedTimeline({
   const pct = (ms: number) => `${(Math.max(0, ms) / domain) * 100}%`;
   const width = (ms: number) => `${(Math.max(0, ms) / domain) * 100}%`;
 
+  const GRID = "200px 1fr 52px 52px";
+  const th: CSSProperties = { fontFamily: MONO, fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--faint)" };
+
   return (
     <Box>
+      <Box style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, paddingBottom: 8 }}>
+        <span style={th} />
+        <span style={th} />
+        <span style={{ ...th, textAlign: "right" }}>Span</span>
+        <span style={{ ...th, textAlign: "right" }}>Wait</span>
+      </Box>
       <Box style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {rows.map((r) => {
           // Median span box; if it would be sub-pixel, give it a floor so the
           // bar is still visible.
           const spanW = Math.max(r.endMed - r.startMed, domain * 0.005);
+          // Scheduler wait: from dep-completion (startMed - waitMed) to start.
+          const waitLeft = Math.max(0, r.startMed - r.waitMed);
           return (
             <Box
               key={r.name}
-              style={{ display: "grid", gridTemplateColumns: "150px 1fr 70px", alignItems: "center", gap: 8 }}
+              style={{ display: "grid", gridTemplateColumns: GRID, alignItems: "center", gap: 8 }}
             >
               <Tooltip label={`${r.name} · ${r.n} run${r.n === 1 ? "" : "s"}`} withArrow openDelay={300} position="left">
                 <Text size="xs" truncate fw={500}>
@@ -177,8 +190,7 @@ export function CombinedTimeline({
               <Tooltip
                 label={
                   `span p50 ${formatMs(r.durMed)} (${formatMs(r.durMin)}–${formatMs(r.durMax)}) · ` +
-                  `starts ~${formatMs(r.startMed)} in (${formatMs(r.startMin)}–${formatMs(r.startMax)}) · ` +
-                  `wait after deps p50 ${formatMs(r.waitMed)}`
+                  `scheduler wait (deps done → start) p50 ${formatMs(r.waitMed)}`
                 }
                 withArrow
                 openDelay={150}
@@ -186,26 +198,21 @@ export function CombinedTimeline({
               >
                 <Box style={{ position: "relative", height: 18 }}>
                   {/* baseline */}
-                  <Box
-                    style={{
-                      position: "absolute",
-                      inset: "8px 0",
-                      height: 2,
-                      background: "var(--inset)",
-                    }}
-                  />
-                  {/* observed range: earliest start → latest finish across runs */}
-                  <Box
-                    style={{
-                      position: "absolute",
-                      left: pct(r.startMin),
-                      width: width(r.endMax - r.startMin),
-                      top: 3,
-                      height: 12,
-                      background: "rgba(127,178,255,.20)",
-                      borderRadius: 3,
-                    }}
-                  />
+                  <Box style={{ position: "absolute", inset: "8px 0", height: 1, background: "var(--border-soft)" }} />
+                  {/* scheduler wait box: deps-done → task-start (queue latency) */}
+                  {r.waitMed > 0 && (
+                    <Box
+                      style={{
+                        position: "absolute",
+                        left: pct(waitLeft),
+                        width: width(r.waitMed),
+                        top: 5,
+                        height: 9,
+                        background: "#2a3340",
+                        borderRadius: 2,
+                      }}
+                    />
+                  )}
                   {/* typical (median) span, solid, on top */}
                   <Box
                     style={{
@@ -213,7 +220,7 @@ export function CombinedTimeline({
                       left: pct(r.startMed),
                       width: width(spanW),
                       top: 3,
-                      height: 12,
+                      height: 11,
                       background: "#7fb2ff",
                       borderRadius: 3,
                     }}
@@ -221,19 +228,22 @@ export function CombinedTimeline({
                 </Box>
               </Tooltip>
 
-              <Text size="xs" c="dimmed" ta="right" style={{ whiteSpace: "nowrap" }}>
+              <Text size="xs" c="dimmed" ta="right" style={{ whiteSpace: "nowrap", fontFamily: MONO }}>
                 {formatMs(r.durMed)}
+              </Text>
+              <Text size="xs" ta="right" style={{ whiteSpace: "nowrap", fontFamily: MONO, color: r.waitMed >= 1.5 ? "#d8a657" : "var(--faint)" }}>
+                {formatMs(r.waitMed)}
               </Text>
             </Box>
           );
         })}
       </Box>
 
-      <Group gap="md" mt="xs">
+      <Group gap="md" mt="sm">
         <Legend swatch="#7fb2ff" label="typical span" />
-        <Legend swatch="rgba(127,178,255,.20)" label="observed range (earliest start → latest finish)" />
+        <Legend swatch="#2a3340" label="scheduler wait (deps done → task start)" />
         <Text size="xs" c="dimmed">
-          aligned at run start · {runs.length} run{runs.length === 1 ? "" : "s"} · gaps between bars = inter-task wait
+          a fat grey box = queue latency before the task ran · {runs.length} run{runs.length === 1 ? "" : "s"}
         </Text>
       </Group>
     </Box>

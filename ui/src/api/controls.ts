@@ -36,6 +36,26 @@ export function usePauseWorkflow() {
   });
 }
 
+/** Enable/disable a schedule (CLOACI-T-0749 trigger pause/resume). Refreshes
+ *  the trigger so the schedule card reflects the new state. */
+export function useToggleTrigger() {
+  const { connection } = useAuth();
+  const tenant = useTenant();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ name, enabled }: { name: string; enabled: boolean }) => {
+      const action = enabled ? "resume" : "pause";
+      const res = await fetch(
+        `${base(connection!.serverUrl)}/v1/tenants/${encodeURIComponent(tenant)}/triggers/${encodeURIComponent(name)}/${action}`,
+        { method: "POST", headers: { Authorization: `Bearer ${connection!.apiKey}` } },
+      );
+      if (!res.ok) throw new Error(`${action} failed (${res.status})`);
+      return res.json().catch(() => ({}));
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.triggers(tenant) }),
+  });
+}
+
 /** Force-fire a reactor with its current cache (CLOACI-T-0751). */
 export function useFireReactor() {
   const { connection } = useAuth();

@@ -122,13 +122,19 @@ export function FullDag({
   height = 300,
   onNodeClick,
   testId,
+  failByNode,
 }: {
   nodes: FullDagNode[];
   edges: FullDagEdge[];
   height?: number;
   onNodeClick?: (id: string) => void;
   testId?: string;
+  /** CLOACI-T-0764 reliability overlay: local task id → failures in window.
+   *  A node with ≥1 fail gets a ⚠ badge; its edges turn gold ("flaky path"). */
+  failByNode?: Record<string, number>;
 }) {
+  const FLAKY_EDGE = "rgba(216,166,87,.55)";
+  const flaky = (id: string) => (failByNode?.[id] ?? 0) > 0;
   const lay = useMemo(() => layout(nodes, edges), [nodes, edges]);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const statusMode = useMemo(() => nodes.some((n) => n.status != null), [nodes]);
@@ -185,13 +191,15 @@ export function FullDag({
           const k = Math.max(34, (x2 - x1) / 2);
           const tgt = byId.get(e.to);
           const srcDone = isDone(byId.get(e.from)?.status);
-          const stroke = !statusMode
-            ? EDGE_KIND
-            : isRunning(tgt?.status)
-              ? ICE
-              : isDone(tgt?.status) && srcDone
-                ? EDGE_DONE
-                : EDGE_IDLE;
+          const stroke = flaky(e.from) || flaky(e.to)
+            ? FLAKY_EDGE
+            : !statusMode
+              ? EDGE_KIND
+              : isRunning(tgt?.status)
+                ? ICE
+                : isDone(tgt?.status) && srcDone
+                  ? EDGE_DONE
+                  : EDGE_IDLE;
           return (
             <path
               key={i}
@@ -224,9 +232,14 @@ export function FullDag({
                 <circle cx={16} cy={NODE_H / 2} r={4} fill={c} />
               )}
               <text x={28} y={NODE_H / 2 + 4} fontFamily={MONO} fontSize={12.5} fill="var(--fg)">
-                {truncate(n.label ?? n.id)}
+                {truncate(n.label ?? n.id, flaky(n.id) ? 11 : 15)}
               </text>
-              <title>{`${n.label ?? n.id}${n.status ? ` · ${n.status}` : ""}`}</title>
+              {flaky(n.id) && (
+                <text x={NODE_W - 10} y={NODE_H / 2 + 4} textAnchor="end" fontFamily={MONO} fontSize={9} fill="#d8a657">
+                  ⚠ {failByNode?.[n.id]}
+                </text>
+              )}
+              <title>{`${n.label ?? n.id}${n.status ? ` · ${n.status}` : ""}${flaky(n.id) ? ` · ${failByNode?.[n.id]} fail(s)` : ""}`}</title>
             </g>
           );
         })}
