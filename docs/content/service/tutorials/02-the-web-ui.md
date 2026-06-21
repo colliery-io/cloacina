@@ -67,6 +67,82 @@ key printed above and click **Connect**. The key is held in
 You're now on the **Overview** dashboard: a status rollup, a graph
 summary, and the most recent executions.
 
+## A tour of the views
+
+The console is organized into **Orchestration** (Workflows, Triggers,
+Graphs) and **System** (Operations, API Keys, Settings) sections. Here's
+what each view gives you.
+
+### Overview
+
+The landing dashboard: counts for registered / running / completed /
+failed runs, a live **service health** row (server, compiler, reconciler,
+scheduler, database, agents), in-flight executions, the computation graphs
+with mini-DAGs you can **Pause** / **Fire** inline, and the most recent
+completed runs.
+
+![Overview dashboard](/cloacina/images/web-ui/01-overview.png)
+
+### Workflows
+
+The package catalog — every registered workflow with its task count,
+run-status chip, and a **Run** action. **Upload package** registers a new
+`.cloacina` archive.
+
+![Workflows list](/cloacina/images/web-ui/02-workflows.png)
+
+Opening a workflow gives you its **operational** detail: a status strip
+(last run, success rate, in-flight, runtime p50/p95, next run, failures),
+the **Schedule** card, an **Inputs** card listing the workflow's declared
+parameters (typed, required vs defaulted), a recent-runs heatmap, the task
+**DAG**, and per-task health. Declared params here are exactly what the
+**Run** form asks you to fill in.
+
+![Workflow detail — operational view with declared inputs](/cloacina/images/web-ui/03-workflow-detail.png)
+
+### Executions
+
+Every run, newest first, with status and timing.
+
+![Executions list](/cloacina/images/web-ui/04-executions.png)
+
+An execution's detail shows the **task graph** colored by status —
+running (blue), completed (green), failed (red), and **skipped** (salmon,
+dashed: a branch not taken) — the task table, a timeline, and the live
+**Event log**. Click any task node to view just that task's definition.
+
+![Execution detail — status-colored DAG, tasks, timeline, event log](/cloacina/images/web-ui/05-execution-detail.png)
+
+### Triggers
+
+Scheduled and poll-driven workflow firings — cron expression (humanized),
+next/last run, and an enable switch.
+
+![Triggers](/cloacina/images/web-ui/06-triggers.png)
+
+### Graphs
+
+The computation graphs (reactors + accumulators). The list shows each
+graph's health and topology at a glance.
+
+![Graphs list](/cloacina/images/web-ui/07-graphs.png)
+
+A graph's detail is the **operational view** for the reactive layer: a
+status strip (health, throughput, last fire, total fires, healthy sources,
+fire failures), a **fire-activity** heatmap (fires per minute, last hour),
+**reactor readiness** (per-source fresh/stale), an **accumulators** table
+with live freshness (state, last event, rate), the **topology** (degraded
+sources flagged), and a **recent fires** log with per-fire outcome and
+duration.
+
+![Graph detail — operational view](/cloacina/images/web-ui/08-graph-detail.png)
+
+You can drive a graph by hand: **Fire ▾** force-fires (or fires with typed
+inputs), and each accumulator row's **inject ▸** opens a typed form built
+from the source's declared boundary schema.
+
+![Typed inject form for an accumulator](/cloacina/images/web-ui/09-inject-modal.png)
+
 ## Step 3 — The demo is already live
 
 You don't need to seed anything. The stack ships with a continuous
