@@ -4,14 +4,14 @@ level: task
 title: "Accumulator freshness instrumentation — last_event_at + events/min + error on AccumulatorStatus"
 short_code: "CLOACI-T-0765"
 created_at: 2026-06-21T19:21:02.078499+00:00
-updated_at: 2026-06-21T19:22:16.731766+00:00
+updated_at: 2026-06-21T19:52:14.619385+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -88,6 +88,8 @@ Today `AccumulatorStatus` is `{name, reactor, tenant_id, status:<free-form>}`;
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] {Specific, testable requirement 1}
@@ -157,4 +159,20 @@ Today `AccumulatorStatus` is `{name, reactor, tenant_id, status:<free-form>}`;
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-21 — DONE (d86c9a42, 59855fb3, 69b262a1)
+Shipped end-to-end:
+- `BoundarySender` (single emit chokepoint) gains `last_event_ms`; `events_total`
+  is the existing monotonic `sequence`. Shared via a `FreshnessHandle`.
+- `AccumulatorSpawnConfig` carries the handle; every factory (passthrough /
+  stream-backend / state / test) builds the sender with `with_freshness`; the
+  scheduler registers it on all 3 spawn paths (initial, restart, re-spawn).
+- `EndpointRegistry` stores + returns freshness; `list_accumulators` promotes
+  typed `state` / `last_event_at` / `events_total` / `error` onto
+  `AccumulatorStatus` (error left None v1 — UI derives staleness from
+  last_event_at; rate is UI-derived from events_total deltas like fires/min).
+- OpenAPI spec + TS SDK regenerated (drift gate green); SDK builds.
+`cargo check` (cloacina + api-types + server) + SDK build green.
+
+Note: shipped `events_total` (monotonic) rather than server-computed
+`events_per_min` — the UI derives the per-minute rate from successive polls,
+matching the existing fires/min pattern (`useGraphThroughput`).
