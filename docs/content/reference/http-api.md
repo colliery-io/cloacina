@@ -816,20 +816,40 @@ Health endpoints for the computation graph system. These endpoints require authe
 
 ### GET /v1/health/accumulators
 
-List all registered accumulators with their health status.
+List accumulators visible to the caller, with health **and freshness**
+(CLOACI-T-0765). Results are filtered by each accumulator's authorization policy.
 
-**Response:** `200 OK`
+**Response:** `200 OK` — unified `{items, total}` envelope.
 
 ```json
 {
-  "accumulators": [
+  "items": [
     {
       "name": "market_data",
-      "status": "healthy"
+      "reactor": "pricing_reactor",
+      "tenant_id": "public",
+      "state": "live",
+      "last_event_at": "2026-06-21T20:21:41.283+00:00",
+      "events_total": 9861,
+      "error": null,
+      "status": "live"
     }
-  ]
+  ],
+  "total": 1
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `state` | string | Health label: `starting` / `connecting` / `live` / `socket_only` / `disconnected`. |
+| `last_event_at` | string \| null | RFC 3339 wall-clock of the last boundary the accumulator emitted; `null` if it hasn't emitted yet. |
+| `events_total` | integer \| null | Monotonic count of boundaries emitted since load. The UI derives an events/min rate from the delta across polls. |
+| `error` | string \| null | Degradation detail when the source is unhealthy. |
+| `reactor` / `tenant_id` | string \| null | The reactor this accumulator feeds and its owning tenant (self-registered at load). |
+| `status` | object/string | Free-form health value, retained for back-compat; `state` is the typed form. |
+
+> Staleness is derived client-side from `last_event_at` age (the web UI flags a
+> source as degraded when it hasn't emitted within its freshness window).
 
 ### GET /v1/health/graphs
 
@@ -876,6 +896,82 @@ Get health details for a specific computation graph.
 | Status | Body |
 |---|---|
 | `404` | `{"error": "graph 'pricing_graph' not found"}` |
+
+### GET /v1/health/reactors/{name}/fires
+
+Recent fires for a reactor, newest first (CLOACI-T-0766). Makes the reactive
+layer observable: what fired, whether it completed, how long it took, and why it
+failed.
+
+**Query parameters:** `limit` (optional, default `50`, max `200`).
+
+**Response:** `200 OK`
+
+```json
+{
+  "items": [
+    { "fired_at": "2026-06-21T20:21:51.300+00:00", "ok": true,  "error": null, "duration_ms": 1 },
+    { "fired_at": "2026-06-21T20:21:49.297+00:00", "ok": false, "error": "node 'evaluate' failed: …", "duration_ms": 4 }
+  ],
+  "total": 2
+}
+```
+
+### GET /v1/health/reactors/{name}/fires/timeseries
+
+Fire counts per minute for the last 60 minutes (CLOACI-T-0766), oldest → newest,
+gaps filled with `0`; the last entry is the current minute. Backs the
+fire-activity heatmap in the web UI.
+
+**Response:** `200 OK`
+
+```json
+{ "buckets": [0, 0, 0, 2870, 6906, 26] }
+```
+
+> Both fires endpoints are tenant-gated by the same visibility check as
+> `GET /v1/health/graphs`.
+
+### POST /v1/health/reactors/{name}/fire
+
+Manually fire a reactor (CLOACI-T-0751). `force_fire` fires with the reactor's
+current cache; `fire_with` injects typed per-source `inputs` first, then fires.
+
+**Request body:**
+
+```json
+{ "mode": "fire_with", "inputs": { "orderbook": { "best_bid": 100.1, "best_ask": 100.4 } } }
+```
+
+`mode` defaults to `force_fire` (where `inputs` is ignored). Each value in
+`inputs` is validated against that source's declared slot schema (see
+`/interface` below) and serialized to the boundary wire encoding server-side.
+
+### POST /v1/health/accumulators/{name}/inject
+
+Push a single typed event into a running accumulator (CLOACI-T-0753) — the REST
+analogue of the accumulator WebSocket push.
+
+**Request body:** `{ "event": { "best_bid": 100.1, "best_ask": 100.4 } }`
+
+### GET /v1/health/{reactors|accumulators}/{name}/interface
+
+The declared input interface (CLOACI-I-0128 / T-0758): the typed slots an
+operator supplies to `fire_with` / `inject`. Slot schemas are derived from the
+boundary type **when it derives `schemars::JsonSchema`** — otherwise `schema` is
+an empty/permissive `{}`. The web UI renders these as typed forms.
+
+**Response:** `200 OK`
+
+```json
+{
+  "kind": "accumulator",
+  "name": "orderbook",
+  "slots": [
+    { "name": "orderbook", "schema": { "type": "object", "properties": { "best_bid": {"type":"number"}, "best_ask": {"type":"number"} } }, "required": false }
+  ]
+}
+```
 
 ## Execution-Agent Fleet
 

@@ -48,27 +48,30 @@ curl -s http://localhost:8080/v1/health/accumulators \
   -H "Authorization: Bearer $API_KEY" | jq
 ```
 
-Response:
+Response (each row carries typed freshness — CLOACI-T-0765):
 
 ```json
 {
   "items": [
     {
       "name": "orderbook",
-      "status": "live"
-    },
-    {
-      "name": "pricing",
-      "status": "live"
-    },
-    {
-      "name": "exchange_rate_poller",
+      "reactor": "market_pipeline_reactor",
+      "state": "live",
+      "last_event_at": "2026-06-21T20:21:41.283+00:00",
+      "events_total": 9861,
+      "error": null,
       "status": "live"
     }
   ],
-  "total": 3
+  "total": 1
 }
 ```
+
+`state` is the health label; `last_event_at` + `events_total` are the freshness
+signals. To spot a stalled source, watch the **age** of `last_event_at` — the web
+UI flags a source as degraded when it stops emitting even though its socket is
+still open. (`events_total` is monotonic; a per-minute rate is the delta between
+two polls.)
 
 ### Accumulator health states
 
@@ -189,6 +192,50 @@ Response when degraded:
 ```
 
 Returns `404 Not Found` if the reactor name does not exist.
+
+---
+
+## Inspecting reactor fires
+
+Beyond the cumulative `fires` counter, each reactor keeps a **recent-fires log**
+and a **per-minute timeseries** (CLOACI-T-0766) so you can see *what* fired, not
+just *how many*.
+
+Recent fires (newest first; `limit` defaults to 50, max 200):
+
+```bash
+curl -s "http://localhost:8080/v1/health/reactors/market_pipeline_reactor/fires?limit=5" \
+  -H "Authorization: Bearer $API_KEY" | jq
+```
+
+```json
+{
+  "items": [
+    { "fired_at": "2026-06-21T20:21:51.300+00:00", "ok": true,  "error": null, "duration_ms": 1 },
+    { "fired_at": "2026-06-21T20:21:49.297+00:00", "ok": false, "error": "node 'evaluate' failed: …", "duration_ms": 4 }
+  ],
+  "total": 2
+}
+```
+
+Each entry records the outcome (`ok`), the failure detail (`error`), and the
+graph execution wall-time (`duration_ms`) — the fastest way to find *why* a
+reactor's downstream graph is failing.
+
+Per-minute fire cadence for the last 60 minutes (oldest → newest, gaps zero-filled):
+
+```bash
+curl -s "http://localhost:8080/v1/health/reactors/market_pipeline_reactor/fires/timeseries" \
+  -H "Authorization: Bearer $API_KEY" | jq -c '.buckets'
+# [0,0,0,2870,6906,26]
+```
+
+This backs the **fire-activity heatmap** on the graph operational view in the web
+UI. For dashboards and alerting, the aggregate counter
+`cloacina_reactor_fires_total` and histogram
+`cloacina_reactor_fire_duration_seconds` remain the right surface (see the
+[metrics catalog](/reference/metrics-catalog/)); the fires log + timeseries are
+for at-a-glance operational inspection.
 
 ---
 

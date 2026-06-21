@@ -41,6 +41,35 @@ def my_task(context):
 - `retry_jitter` (bool): Add random jitter to retry delays
 - `on_success` (callable): Callback function called when task succeeds
 - `on_failure` (callable): Callback function called when task fails
+- `trigger_rules` (rule): Conditional gate — when the rule evaluates false (and the task's dependencies are otherwise satisfied), the task lands in the real `Skipped` state and its body never runs. Python parity with Rust's `#[task(trigger_rules = …)]`.
+
+## Trigger rules
+
+A task's `trigger_rules` gate whether it runs once its dependencies resolve. When
+the rule is unsatisfied the task is **skipped** (not failed), and the skip
+propagates to downstream dependents like any other branch-not-taken.
+
+Build rules with the `cloaca` helpers:
+
+| Builder | Meaning |
+|---|---|
+| `cloaca.always()` | Always run (the default). |
+| `cloaca.task_success(name)` / `task_failed(name)` / `task_skipped(name)` | Gate on an upstream task's outcome. |
+| `cloaca.context_value(key, op, value)` | Gate on a context value; `op` is `"Equals"`, `"NotEquals"`, `"GreaterThan"`, … |
+| `cloaca.all_of(*rules)` / `any_of(*rules)` / `none_of(*rules)` | Combine conditions. |
+
+```python
+@cloaca.task(
+    dependencies=["poll"],
+    trigger_rules=cloaca.context_value("do_audit", "Equals", True),
+)
+def audit(context):
+    # Runs only when the upstream set do_audit = True; otherwise Skipped.
+    return context
+```
+
+See [Trigger rules](/engine/explanation/trigger-rules/) for evaluation semantics
+and skip propagation.
 
 ## Example with Dependencies
 

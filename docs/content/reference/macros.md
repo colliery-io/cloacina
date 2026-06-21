@@ -193,6 +193,34 @@ pub mod etl_pipeline {
 | `description` | string literal | no | -- | Human-readable description of the workflow. |
 | `tenant` | string literal | no | `"public"` | Tenant identifier for multi-tenant deployments. |
 | `author` | string literal | no | -- | Author information. |
+| `triggers` | list of string literals | no | -- | Trigger names this workflow subscribes to; the reconciler binds each named trigger to this workflow at load. |
+| `params` | param list | no | -- | Declared, typed execute-time inputs (see below). |
+
+### Declared params
+
+`params( name: Type [= default], … )` declares the workflow's injectable inputs.
+Each becomes a JSON-Schema-typed `InputSlot` (derived via `schemars`) exposed on
+the workflow's `declared_params` and rendered as a typed form in the web UI's
+Run-workflow dialog. A bare `name: Type` is **required**; `name: Type = expr`
+makes it **optional** with that default. At runtime declared params are a
+pass-through (validation happens at the execute API), so trigger/cron-fired
+workflows commonly declare all-defaulted params.
+
+```rust
+#[workflow(
+    name = "etl_pipeline",
+    params(
+        source_id: String,        // required
+        batch_size: u32 = 500,    // optional, default 500
+        dry_run: bool = false,    // optional, default false
+    )
+)]
+mod etl_pipeline { /* … */ }
+```
+
+The Python equivalent is `@cloaca.workflow_params(source_id=str, batch_size=(int, 500))`
+on the workflow's entry task. See
+[Declare workflow inputs](/embed/how-to/declare-workflow-inputs/).
 
 ### Delivery Modes
 

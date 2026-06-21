@@ -28,6 +28,28 @@ reactor; it has no standalone lifecycle.
 - **One per emit.** Each `process()` that returns a value produces one boundary;
   returning `None` produces none.
 
+## Typed inject/fire interface (opt-in)
+
+The boundary type is also what an operator supplies when manually injecting into
+an accumulator or firing a reactor with inputs (`POST .../inject`, `fire_with`).
+The declared interface — `GET /v1/health/{reactors|accumulators}/{name}/interface`
+— derives each slot's JSON Schema **from the boundary type, but only when that
+type derives `schemars::JsonSchema`**:
+
+```rust
+// Opt in → the slot exposes a rich {best_bid, best_ask} schema and the web UI
+// renders a typed inject/fire form. Without JsonSchema the slot schema is `{}`
+// (permissive) and the UI falls back to a raw-JSON field.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct OrderBookUpdate {
+    pub best_bid: f64,
+    pub best_ask: f64,
+}
+```
+
+Add `schemars = "0.8"` to the package's dependencies. Schema derivation is the
+only thing the derive affects — boundary serialization on the wire is unchanged.
+
 ## See also
 
 - [Accumulator]({{< ref "/engine/computation-graphs/accumulator" >}}) — emits boundaries.
