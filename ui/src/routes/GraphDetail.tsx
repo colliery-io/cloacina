@@ -14,12 +14,13 @@
  *  limitations under the License.
  */
 
-import { Anchor, Box, Button, Divider, Drawer, Group, Stack, Text, Tooltip } from "@mantine/core";
+import { Anchor, Box, Button, Divider, Drawer, Group, Menu, Stack, Text, Tooltip } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { useAccumulators, useGraph } from "../api/health";
 import { useFireReactor } from "../api/controls";
+import { GraphInjectModal, type InjectTarget } from "../components/GraphInjectModal";
 import { type DagEdge, type DagNode } from "../components/Dag";
 import { FullDag } from "../components/FullDag";
 import { GraphHealth } from "../components/GraphHealth";
@@ -131,6 +132,7 @@ export function GraphDetail() {
   const fire = useFireReactor();
   const [selected, setSelected] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [injectTarget, setInjectTarget] = useState<InjectTarget | null>(null);
 
   const gd = data as GraphData | undefined;
   const reactor = gd?.reactor ?? null;
@@ -183,16 +185,25 @@ export function GraphDetail() {
         </Box>
         {data && (
           <Group gap={8}>
-            <Button
-              color="ice"
-              radius={8}
-              styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
-              loading={fire.isPending}
-              disabled={!reactor}
-              onClick={() => reactor && fire.mutate(reactor)}
-            >
-              ▸ Fire
-            </Button>
+            <Menu position="bottom-end" disabled={!reactor}>
+              <Menu.Target>
+                <Button
+                  color="ice"
+                  radius={8}
+                  styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
+                  loading={fire.isPending}
+                  disabled={!reactor}
+                >
+                  ▸ Fire ▾
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item onClick={() => reactor && fire.mutate(reactor)}>Force fire (current cache)</Menu.Item>
+                <Menu.Item onClick={() => reactor && setInjectTarget({ kind: "reactor", name: reactor })}>
+                  Fire with inputs…
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
             <Button variant="default" radius={8} onClick={() => setPaused((p) => !p)}>
               {paused ? "▸ Resume" : "⏸ Pause"}
             </Button>
@@ -232,7 +243,7 @@ export function GraphDetail() {
           />
 
           <Panel title="Accumulators" caption={`${accs.length} bound source${accs.length === 1 ? "" : "s"}`}>
-            <AccumulatorTable accumulators={accs} />
+            <AccumulatorTable accumulators={accs} onInject={(name) => setInjectTarget({ kind: "accumulator", name })} />
           </Panel>
 
           {graph ? (
@@ -292,6 +303,12 @@ export function GraphDetail() {
           </Stack>
         )}
       </Drawer>
+
+      <GraphInjectModal
+        target={injectTarget}
+        opened={injectTarget !== null}
+        onClose={() => setInjectTarget(null)}
+      />
     </div>
   );
 }

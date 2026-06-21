@@ -29,13 +29,15 @@ use serde::{Deserialize, Serialize};
 
 cloacina_plugin::package!();
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// CLOACI-T-0768: deriving schemars::JsonSchema opts these accumulator boundary
+// types into the typed inject/fire interface (rich slot schemas instead of {}).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct OrderBookUpdate {
     pub best_bid: f64,
     pub best_ask: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PricingUpdate {
     pub mid_price: f64,
 }

@@ -56,17 +56,19 @@ export function useToggleTrigger() {
   });
 }
 
-/** Force-fire a reactor with its current cache (CLOACI-T-0751). */
+/** Fire a reactor: `force_fire` with the current cache, or `fire_with` typed
+ *  per-source inputs (CLOACI-T-0751). */
 export function useFireReactor() {
   const { connection } = useAuth();
   return useMutation({
-    mutationFn: async (name: string) => {
+    mutationFn: async (args: string | { name: string; mode?: "force_fire" | "fire_with"; inputs?: Record<string, unknown> }) => {
+      const { name, mode = "force_fire", inputs } = typeof args === "string" ? { name: args } as { name: string; mode?: "force_fire" | "fire_with"; inputs?: Record<string, unknown> } : args;
       const res = await fetch(
         `${base(connection!.serverUrl)}/v1/health/reactors/${encodeURIComponent(name)}/fire`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${connection!.apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "force_fire" }),
+          body: JSON.stringify({ mode, inputs: inputs ?? {} }),
         },
       );
       if (!res.ok) throw new Error(`fire failed (${res.status})`);
@@ -74,6 +76,41 @@ export function useFireReactor() {
     },
   });
 }
+
+/** One declared input slot (CLOACI-I-0128). `schema` is JSON-Schema; an object
+ *  schema carries `properties` for per-field forms. */
+export interface InterfaceSlot {
+  name: string;
+  schema: { type?: string; properties?: Record<string, { type?: string }>; required?: string[] } | null;
+  required: boolean;
+}
+export interface DeclaredSurface {
+  kind: string;
+  name: string;
+  slots: InterfaceSlot[];
+}
+
+/** Declared input interface for a reactor (fire-with slots) or accumulator
+ *  (inject slots), CLOACI-I-0128 / T-0758. */
+function useInterface(kind: "reactors" | "accumulators", name: string | null | undefined, enabled: boolean) {
+  const { connection } = useAuth();
+  return useQuery({
+    queryKey: ["surface-interface", kind, name],
+    enabled: enabled && !!connection && !!name,
+    queryFn: async (): Promise<DeclaredSurface> => {
+      const res = await fetch(
+        `${base(connection!.serverUrl)}/v1/health/${kind}/${encodeURIComponent(name!)}/interface`,
+        { headers: { Authorization: `Bearer ${connection!.apiKey}` } },
+      );
+      if (!res.ok) throw new Error(`interface failed (${res.status})`);
+      return res.json();
+    },
+  });
+}
+export const useReactorInterface = (name: string | null | undefined, opts?: { enabled?: boolean }) =>
+  useInterface("reactors", name, opts?.enabled ?? true);
+export const useAccumulatorInterface = (name: string | null | undefined, opts?: { enabled?: boolean }) =>
+  useInterface("accumulators", name, opts?.enabled ?? true);
 
 /** Inject a single typed event into an accumulator (CLOACI-T-0753). */
 export function useInjectAccumulator() {

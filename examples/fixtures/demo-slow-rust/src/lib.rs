@@ -43,7 +43,14 @@ cloacina_workflow_plugin::package!();
 #[workflow(
     name = "demo_slow_workflow",
     description = "demo slow-streaming workflow — a branching chain with a skipped path and varied, jittered durations",
-    author = "cloacina-ui-demo"
+    author = "cloacina-ui-demo",
+    // CLOACI-T-0768: declared injectors — typed execute-time params. Surfaced as
+    // JSON-Schema InputSlots in the Inputs card + the Run-workflow form.
+    params(
+        source_id: String,
+        batch_size: u32 = 100,
+        dry_run: bool = false,
+    )
 )]
 pub mod demo_slow_workflow {
     use super::*;

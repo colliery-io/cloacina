@@ -231,10 +231,10 @@ export function ReactorReadiness({
 
 // ---- Accumulator table --------------------------------------------------
 
-export function AccumulatorTable({ accumulators }: { accumulators: Acc[] }) {
+export function AccumulatorTable({ accumulators, onInject }: { accumulators: Acc[]; onInject?: (name: string) => void }) {
   const rate = useGraphThroughput(accumulators.map((a) => ({ name: a.name, fires: a.events_total ?? 0 })));
   const th: CSSProperties = { fontFamily: MONO, fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--faint)", textAlign: "left" };
-  const COLS = "minmax(0,1fr) 110px 120px 72px 150px";
+  const COLS = "minmax(0,1fr) 110px 120px 72px 150px 70px";
 
   if (accumulators.length === 0) return <Empty message="No accumulators bound." />;
 
@@ -246,6 +246,7 @@ export function AccumulatorTable({ accumulators }: { accumulators: Acc[] }) {
         <span style={th}>Last event</span>
         <span style={{ ...th, textAlign: "right" }}>Rate</span>
         <span style={th}>Freshness</span>
+        <span style={th} />
       </div>
       {accumulators.map((a) => {
         const stale = accStale(a);
@@ -266,6 +267,27 @@ export function AccumulatorTable({ accumulators }: { accumulators: Acc[] }) {
               <div style={{ height: 6, background: "var(--inset)", borderRadius: 3 }}>
                 <div style={{ height: 6, width: `${freshPct}%`, background: stale ? TOKEN.bad : TOKEN.ok, borderRadius: 3 }} />
               </div>
+              {onInject ? (
+                <button
+                  type="button"
+                  onClick={() => onInject(a.name)}
+                  style={{
+                    fontFamily: MONO,
+                    fontSize: 10,
+                    padding: "3px 8px",
+                    borderRadius: 7,
+                    cursor: "pointer",
+                    border: "1px solid var(--border-control)",
+                    background: "var(--panel)",
+                    color: TOKEN.ice,
+                    justifySelf: "end",
+                  }}
+                >
+                  inject ▸
+                </button>
+              ) : (
+                <span />
+              )}
             </div>
             {a.error && (
               <div style={{ fontFamily: MONO, fontSize: 11, marginTop: 4 }}>
