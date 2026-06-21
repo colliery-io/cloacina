@@ -35,6 +35,8 @@ function kindToken(color: string): string {
       return TOKEN.ok;
     case "red":
       return TOKEN.bad;
+    case "salmon":
+      return TOKEN.salmon;
     case "grape":
     case "violet":
       return TOKEN.violet;

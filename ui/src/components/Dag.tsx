@@ -50,10 +50,11 @@ export interface DagNode {
  *  `skipped` is rendered distinctly (dashed, dimmed) so a branch-not-taken
  *  reads as neither failed nor completed. */
 function statusStyle(status: string): { background: string; border: string } {
-  if (status.toLowerCase() === "skipped") {
-    return { background: "var(--panel)", border: "1px dashed var(--border-control)" };
-  }
   const c = statusColor(status);
+  if (status.toLowerCase() === "skipped") {
+    // Salmon + dashed: branch-not-taken reads as neither failed nor completed.
+    return { background: `${c}1f`, border: `1px dashed ${c}` };
+  }
   return { background: `${c}1f`, border: `1px solid ${c}7a` };
 }
 

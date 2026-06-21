@@ -16,6 +16,7 @@ export const TOKEN = {
   gold: "#d8a657",
   ok: "#4bd07f",
   bad: "#f06464",
+  salmon: "#ff8787", // Mantine red.3 — salmon/coral; lighter than bad (#f06464)
   muted: "#8b95a3",
   faint: "#5b6573",
   edge: "#283039",
@@ -31,7 +32,7 @@ const STATUS_COLOR: Record<string, string> = {
   cancelled: TOKEN.gold,
   canceled: TOKEN.gold,
   paused: TOKEN.muted,
-  skipped: TOKEN.faint,
+  skipped: TOKEN.salmon,
 };
 
 /** Computation-graph health → color. */
