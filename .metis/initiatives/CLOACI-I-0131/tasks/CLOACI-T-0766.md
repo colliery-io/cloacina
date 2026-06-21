@@ -4,14 +4,14 @@ level: task
 title: "Reactor fires log + per-minute fire timeseries — observable fires with outcome + durable cadence"
 short_code: "CLOACI-T-0766"
 created_at: 2026-06-21T19:21:09.083262+00:00
-updated_at: 2026-06-21T19:21:09.083262+00:00
+updated_at: 2026-06-21T20:04:46.512184+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0131
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,17 @@ initiative_id: CLOACI-I-0131
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-21 — DONE (02fa6154)
+- `ReactorStats` gained a recent-fires ring (`FireRecord`: fired_at/ok/error/
+  duration_ms, cap 200), a `failures` counter, and 60 per-minute cadence buckets;
+  the fire path records Completed (`record_fire(duration)`) + Error
+  (`record_failure(duration, err)`) on both Latest + Sequential strategies.
+- Endpoints `GET /v1/health/reactors/{name}/fires` (newest-first, ?limit≤200) +
+  `…/fires/timeseries` (60 per-minute counts), tenant-gated via graph_visible,
+  reading the registry reactor handle's stats.
+- api-types `ReactorFire` + `ReactorFireTimeseries`; OpenAPI + TS SDK regenerated
+  (drift gate green, SDK builds). cargo check (cloacina + server) green.
+
+Note: `execution_id` linkage deferred — graph fires execute in-process, not as
+workflow executions; the fires log carries outcome + duration (what the UI needs)
+without the execution link. A fires→executions association is a separate follow-up.
