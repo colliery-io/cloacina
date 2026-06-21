@@ -14,24 +14,31 @@
  *  limitations under the License.
  */
 
-import { Button, Group, Select, Stack, Table, Text, TextInput, Title, Tooltip } from "@mantine/core";
+import { Box, Button, Group, TextInput } from "@mantine/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
 import { StatusBadge } from "../components/StatusBadge";
+import { Chip, Dot, MONO, PageHeader, cardSurface } from "../components/aurora";
 import { Empty, ErrorState, Loading } from "../components/states/States";
-import { formatDuration, formatTimestamp } from "../util/format";
+import { formatDuration } from "../util/format";
 import { formatAgo } from "../util/activity";
-
-const STATUS_OPTIONS = ["Running", "Completed", "Failed", "Pending", "Scheduled", "Cancelled"];
+import { statusColor } from "../util/tokens";
 
 const PAGE_SIZE = 50;
 
+// Filter chips → the server `status` value they select ("" = All).
+const CHIPS: { label: string; value: string }[] = [
+  { label: "All", value: "" },
+  { label: "Running", value: "Running" },
+  { label: "Completed", value: "Completed" },
+  { label: "Failed", value: "Failed" },
+  { label: "Scheduled", value: "Scheduled" },
+];
+
 /**
- * Executions list (T-0653 / REQ-004 non-live half). Filters (status,
- * workflow) and pagination are URL-reflected via search params so they're
- * linkable and back-button-safe — the `?status=Failed` debug entry point
- * (UC-2). Status is visually distinct via `StatusBadge`.
+ * Executions list (Aurora Dark, spec 03). URL-reflected status chips + a text
+ * filter; rows are dark cards with a status dot + run id + pill + duration + ago.
  */
 export function Executions() {
   const navigate = useNavigate();
@@ -54,7 +61,7 @@ export function Executions() {
         const next = new URLSearchParams(prev);
         if (value) next.set(key, value);
         else next.delete(key);
-        if (key !== "offset") next.delete("offset"); // reset paging on filter change
+        if (key !== "offset") next.delete("offset");
         return next;
       },
       { replace: true },
@@ -74,28 +81,39 @@ export function Executions() {
     );
   }
 
-  const pageCount = data?.items.length ?? 0;
+  const items = data?.items ?? [];
+  const pageCount = items.length;
+  const count = (s: string) => items.filter((e) => e.status.toLowerCase() === s).length;
+  const running = count("running");
+  const failed = count("failed");
+  const total = data?.total ?? pageCount;
 
   return (
-    <Stack>
-      <Title order={2}>Executions</Title>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <PageHeader
+        title="Executions"
+        sub={`${total} runs · ${running} running · ${failed} failed`}
+      />
 
-      <Group align="flex-end">
-        <Select
-          label="Status"
-          placeholder="All statuses"
-          data={STATUS_OPTIONS}
-          value={status || null}
-          onChange={(v) => setParam("status", v ?? "")}
-          clearable
-          w={180}
-        />
+      {/* Filter bar */}
+      <Group justify="space-between" align="center" style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 12 }}>
+        <Group gap={8}>
+          {CHIPS.map((c) => (
+            <Chip
+              key={c.value || "all"}
+              label={c.label}
+              count={c.value === "" ? total : count(c.value.toLowerCase())}
+              active={status === c.value}
+              onClick={() => setParam("status", c.value)}
+            />
+          ))}
+        </Group>
         <TextInput
-          label="Workflow"
-          placeholder="workflow name"
+          placeholder="Filter by workflow or run id…"
           value={workflow}
           onChange={(e) => setParam("workflow", e.currentTarget.value)}
-          w={220}
+          w={240}
+          size="xs"
         />
       </Group>
 
@@ -106,62 +124,46 @@ export function Executions() {
       ) : pageCount === 0 ? (
         <Empty message={offset > 0 ? "No more executions." : "No executions match."} />
       ) : (
-        <>
-          <Table highlightOnHover stickyHeader>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Workflow</Table.Th>
-                <Table.Th>Status</Table.Th>
-                <Table.Th>Started</Table.Th>
-                <Table.Th>Duration</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {data.items.map((e) => (
-                <Table.Tr
-                  key={e.id}
-                  style={{ cursor: "pointer" }}
-                  onClick={() => navigate(`/executions/${e.id}`)}
-                >
-                  <Table.Td>
-                    <Text fw={500}>{e.workflow_name}</Text>
-                    <Text size="xs" c="dimmed">
-                      {e.id}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <StatusBadge status={e.status} />
-                  </Table.Td>
-                  <Table.Td style={{ whiteSpace: "nowrap" }}>
-                    <Tooltip label={formatTimestamp(e.started_at)} withArrow openDelay={300}>
-                      <Text size="sm" c="dimmed">
-                        {formatAgo(e.started_at)}
-                      </Text>
-                    </Tooltip>
-                  </Table.Td>
-                  <Table.Td style={{ whiteSpace: "nowrap" }}>
-                    <Text size="sm">{formatDuration(e.started_at, e.completed_at)}</Text>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {items.map((e) => (
+            <Box
+              key={e.id}
+              onClick={() => navigate(`/executions/${e.id}`)}
+              style={{ ...cardSurface, borderRadius: 10, padding: "11px 15px", cursor: "pointer" }}
+            >
+              <Group justify="space-between" wrap="nowrap">
+                <Group gap={11} wrap="nowrap" style={{ minWidth: 0 }}>
+                  <Dot color={statusColor(e.status)} glow={e.status.toLowerCase() === "running"} />
+                  <Box style={{ minWidth: 0 }}>
+                    <Box style={{ fontSize: 13.5, fontWeight: 600, color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {e.workflow_name}
+                    </Box>
+                    <Box style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>{e.id}</Box>
+                  </Box>
+                </Group>
+                <Group gap={18} wrap="nowrap" style={{ flex: "none" }}>
+                  <StatusBadge status={e.status} />
+                  <Box className="cl-tnum" style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--fg-2)", width: 64, textAlign: "right" }}>
+                    {formatDuration(e.started_at, e.completed_at)}
+                  </Box>
+                  <Box style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--fainter)", width: 64, textAlign: "right" }}>
+                    {formatAgo(e.started_at)}
+                  </Box>
+                </Group>
+              </Group>
+            </Box>
+          ))}
 
-          <Group justify="flex-end">
+          <Group justify="flex-end" mt={4}>
             <Button variant="default" size="xs" disabled={offset === 0} onClick={() => page(-1)}>
               Previous
             </Button>
-            <Button
-              variant="default"
-              size="xs"
-              disabled={pageCount < PAGE_SIZE}
-              onClick={() => page(1)}
-            >
+            <Button variant="default" size="xs" disabled={pageCount < PAGE_SIZE} onClick={() => page(1)}>
               Next
             </Button>
           </Group>
-        </>
+        </div>
       )}
-    </Stack>
+    </div>
   );
 }
