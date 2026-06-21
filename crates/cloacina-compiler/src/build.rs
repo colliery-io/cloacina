@@ -41,6 +41,11 @@ pub enum BuildOutcome {
         /// source, keyed by task local id. Empty when nothing was documented.
         task_docs:
             std::collections::HashMap<String, cloacina::registry::loader::package_loader::TaskDocs>,
+        /// CLOACI-T-0760: declared workflow params parsed from the package
+        /// source (Python `cloaca.workflow_params(...)`). Empty for Rust (its
+        /// params come from the FFI input-interface entrypoint) and for Python
+        /// packages that declare none.
+        declared_params: Vec<cloacina::input_interface::InputSlot>,
     },
     Failed(String),
     /// The cargo subprocess exceeded `CompilerConfig::build_timeout` and was
@@ -106,9 +111,10 @@ pub async fn execute_build(
     config: &CompilerConfig,
 ) -> BuildOutcome {
     match run_build(registry, package_id, config).await {
-        Ok((artifact, task_docs)) => BuildOutcome::Success {
+        Ok((artifact, task_docs, declared_params)) => BuildOutcome::Success {
             artifact,
             task_docs,
+            declared_params,
         },
         Err(BuildError::Failed { reason, .. }) => BuildOutcome::Failed(reason),
         Err(BuildError::TimedOut { elapsed }) => BuildOutcome::TimedOut { elapsed },
@@ -154,7 +160,14 @@ async fn run_build(
     registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
     package_id: uuid::Uuid,
     config: &CompilerConfig,
-) -> Result<(Vec<u8>, TaskDocsMap), BuildError> {
+) -> Result<
+    (
+        Vec<u8>,
+        TaskDocsMap,
+        Vec<cloacina::input_interface::InputSlot>,
+    ),
+    BuildError,
+> {
     let build_started_at = std::time::Instant::now();
     let build_claim_id = UniversalUuid(package_id);
 
@@ -203,6 +216,11 @@ async fn run_build(
     // still have it. Best-effort and independent of the cargo build.
     let task_docs = crate::doc_parse::parse_task_docs(&source_dir, &language);
 
+    // CLOACI-T-0760: parse declared workflow params from the source too. For
+    // Python this is the *only* source of declared params (no cdylib FFI); for
+    // Rust it's empty (the FFI input-interface entrypoint is authoritative).
+    let declared_params = crate::param_parse::parse_workflow_params(&source_dir, &language);
+
     info!(
         %package_id,
         package_name = %meta.package_name,
@@ -247,7 +265,14 @@ async fn run_build(
         .elapsed()
         .as_millis()
         .min(u128::from(u64::MAX)) as u64;
-    let final_result: Result<(Vec<u8>, TaskDocsMap), BuildError> = match result {
+    let final_result: Result<
+        (
+            Vec<u8>,
+            TaskDocsMap,
+            Vec<cloacina::input_interface::InputSlot>,
+        ),
+        BuildError,
+    > = match result {
         Ok(success) => {
             audit::log_compiler_build_finished(
                 build_claim_id,
@@ -266,9 +291,10 @@ async fn run_build(
                 %package_id,
                 artifact_bytes = success.artifact.len(),
                 documented_tasks = task_docs.len(),
+                declared_params = declared_params.len(),
                 "build succeeded"
             );
-            Ok((success.artifact, task_docs))
+            Ok((success.artifact, task_docs, declared_params))
         }
         Err(BuildError::Failed {
             reason,

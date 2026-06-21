@@ -4,14 +4,14 @@ level: task
 title: "Python parity — type-hints to JSON Schema for params and boundaries"
 short_code: "CLOACI-T-0760"
 created_at: 2026-06-20T16:46:03.673640+00:00
-updated_at: 2026-06-20T19:05:21.721870+00:00
+updated_at: 2026-06-21T00:26:04.274181+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/blocked"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

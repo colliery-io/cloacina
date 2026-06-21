@@ -420,3 +420,34 @@ pub fn py_register_workflow(name: String, constructor: PyObject) -> PyResult<()>
         Ok(())
     })
 }
+
+/// Pass-through decorator returned by [`workflow_params`]. CLOACI-T-0760: the
+/// declaration is parsed from source by the compiler at build time, so at
+/// runtime this just returns the decorated object unchanged. It exists only so
+/// that importing a package which uses `@cloaca.workflow_params(...)` doesn't
+/// fail (the reconciler imports the module via PyO3).
+#[pyclass(name = "WorkflowParamsDecorator")]
+pub struct PyWorkflowParamsDecorator;
+
+#[pymethods]
+impl PyWorkflowParamsDecorator {
+    fn __call__(&self, obj: PyObject) -> PyObject {
+        obj
+    }
+}
+
+/// `@cloaca.workflow_params(name=type, name=(type, default), ...)` — declares a
+/// packaged Python workflow's typed input params (CLOACI-I-0128 / T-0760).
+///
+/// Parity with Rust's `#[workflow(params(...))]`. The authoritative extraction
+/// happens at build time (the compiler parses this decorator from source into
+/// JSON-Schema-typed `InputSlot`s); at runtime it is a no-op pass-through so the
+/// decorated function/workflow is unaffected. Supported scalar types: `str`,
+/// `int`, `float`, `bool`, `list`, `dict`.
+#[pyfunction]
+#[pyo3(signature = (**_kwargs))]
+pub fn workflow_params(
+    _kwargs: Option<Bound<'_, pyo3::types::PyDict>>,
+) -> PyWorkflowParamsDecorator {
+    PyWorkflowParamsDecorator
+}

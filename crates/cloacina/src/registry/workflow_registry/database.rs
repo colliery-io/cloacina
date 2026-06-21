@@ -1218,8 +1218,13 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         package_id: Uuid,
         compiled: Vec<u8>,
     ) -> Result<(), RegistryError> {
-        self.mark_build_success_with_docs(package_id, compiled, std::collections::HashMap::new())
-            .await
+        self.mark_build_success_with_docs(
+            package_id,
+            compiled,
+            std::collections::HashMap::new(),
+            Vec::new(),
+        )
+        .await
     }
 
     /// Like [`Self::mark_build_success`] but also overlays compiler-parsed
@@ -1234,6 +1239,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             String,
             crate::registry::loader::package_loader::TaskDocs,
         >,
+        declared_params: Vec<cloacina_api_types::InputSlot>,
     ) -> Result<(), RegistryError> {
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::{
@@ -1252,7 +1258,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         // workflow by name when package name ≠ workflow name.
         // (CLOACI-T-0671 / CLOACI-T-0663)
         let merged_metadata_json: Option<String> = match self
-            .extract_and_merge_build_metadata(package_id, &compiled, &task_docs)
+            .extract_and_merge_build_metadata(package_id, &compiled, &task_docs, &declared_params)
             .await
         {
             Ok(json) => json,
@@ -1435,13 +1441,67 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             String,
             crate::registry::loader::package_loader::TaskDocs,
         >,
+        source_declared_params: &[cloacina_api_types::InputSlot],
     ) -> Result<Option<String>, RegistryError> {
         use crate::dal::unified::models::UnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::UniversalUuid;
 
         if compiled.is_empty() {
-            return Ok(None);
+            // Pure-Python packages have no cdylib to extract from. CLOACI-T-0760:
+            // if the compiler parsed declared params from the Python source,
+            // persist them onto the stored (manifest-derived) metadata — this is
+            // the Python parity carry path. Nothing else to merge.
+            if source_declared_params.is_empty() {
+                return Ok(None);
+            }
+            let pid = UniversalUuid(package_id);
+            let record: Option<UnifiedWorkflowPackage> = crate::dispatch_backend!(
+                self.database.backend(),
+                {
+                    let conn = self
+                        .database
+                        .get_postgres_connection()
+                        .await
+                        .map_err(|e| RegistryError::Database(e.to_string()))?;
+                    conn.interact(move |conn| {
+                        use diesel::prelude::*;
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+                },
+                {
+                    let conn = self
+                        .database
+                        .get_sqlite_connection()
+                        .await
+                        .map_err(|e| RegistryError::Database(e.to_string()))?;
+                    conn.interact(move |conn| {
+                        use diesel::prelude::*;
+                        workflow_packages::table
+                            .filter(workflow_packages::id.eq(pid))
+                            .first::<UnifiedWorkflowPackage>(conn)
+                            .optional()
+                    })
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?
+                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+                }
+            );
+            let record = match record {
+                Some(r) => r,
+                None => return Ok(None),
+            };
+            let mut merged: crate::registry::loader::package_loader::PackageMetadata =
+                serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
+            merged.declared_params = source_declared_params.to_vec();
+            let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
+            return Ok(Some(json));
         }
 
         // Pull the authoritative fields out of the compiled library.

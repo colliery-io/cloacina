@@ -75,6 +75,7 @@ async fn run_build_with_heartbeat(
         crate::build::BuildOutcome::Success {
             artifact,
             task_docs,
+            declared_params,
         } => {
             metrics::counter!(
                 "cloacina_compiler_builds_total",
@@ -83,8 +84,10 @@ async fn run_build_with_heartbeat(
             .increment(1);
             // CLOACI-T-0752: carry compiler-parsed per-task docs into the
             // persisted metadata alongside the compiled artifact.
+            // CLOACI-T-0760: also carry source-parsed declared params (the
+            // Python parity path — Rust gets them from the FFI instead).
             if let Err(e) = registry
-                .mark_build_success_with_docs(package_id, artifact, task_docs)
+                .mark_build_success_with_docs(package_id, artifact, task_docs, declared_params)
                 .await
             {
                 warn!(%e, %package_id, "mark_build_success failed");

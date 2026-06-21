@@ -174,6 +174,84 @@ async fn test_register_and_get_workflow_package_with_fs_storage() {
     assert_eq!(binary_data, package_data);
 }
 
+/// CLOACI-T-0760: Python packages build to an empty artifact, so the cdylib
+/// metadata extraction is skipped. Declared params parsed from Python source by
+/// the compiler must still be persisted onto the stored metadata at build
+/// success. Drives the empty-artifact path of `mark_build_success_with_docs`
+/// with a declared-params list and asserts it lands on the stored metadata.
+#[tokio::test]
+#[serial]
+async fn test_python_declared_params_persisted_on_empty_artifact_build() {
+    use cloacina::input_interface::InputSlot;
+
+    let package_data = get_mock_package();
+
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let dal = fixture.get_dal();
+    let storage = fixture.create_storage();
+    let mut registry_dal = dal.workflow_registry(storage);
+
+    let package_id = registry_dal
+        .register_workflow_package(package_data)
+        .await
+        .expect("register");
+
+    let declared = vec![
+        InputSlot::required("source_id", serde_json::json!({"type": "string"})),
+        InputSlot::optional(
+            "batch_size",
+            serde_json::json!({"type": "integer"}),
+            Some(serde_json::json!(500)),
+        ),
+    ];
+
+    // Empty artifact = the Python build path.
+    registry_dal
+        .claim_next_build()
+        .await
+        .expect("claim_next_build");
+    registry_dal
+        .mark_build_success_with_docs(
+            package_id,
+            Vec::new(),
+            std::collections::HashMap::new(),
+            declared.clone(),
+        )
+        .await
+        .expect("mark_build_success_with_docs");
+
+    let (metadata, _) = registry_dal
+        .get_workflow_package_by_id(package_id)
+        .await
+        .expect("get_workflow_package_by_id")
+        .expect("package present");
+
+    assert_eq!(
+        metadata.declared_params.len(),
+        2,
+        "declared params parsed from Python source should persist on the empty-artifact build"
+    );
+    let sid = metadata
+        .declared_params
+        .iter()
+        .find(|s| s.name == "source_id")
+        .expect("source_id slot");
+    assert!(sid.required);
+    let bs = metadata
+        .declared_params
+        .iter()
+        .find(|s| s.name == "batch_size")
+        .expect("batch_size slot");
+    assert!(!bs.required);
+    assert_eq!(bs.default, Some(serde_json::json!(500)));
+}
+
 #[tokio::test]
 #[serial]
 async fn test_get_workflow_package_by_name() {
