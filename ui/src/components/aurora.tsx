@@ -12,6 +12,21 @@ import type { CSSProperties, ReactNode } from "react";
 
 export const MONO = "'IBM Plex Mono', monospace";
 
+/** Brand "confluence" mark — three strokes flowing down into three nodes. */
+export function BrandMark({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M5 4 C5 12, 12 12, 12 19" stroke="#7fb2ff" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M12 4 C12 12, 12 12, 12 19" stroke="#5fd0c5" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M19 4 C19 12, 12 12, 12 19" stroke="#9d8cff" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="5" cy="4" r="1.8" fill="#7fb2ff" />
+      <circle cx="12" cy="4" r="1.8" fill="#5fd0c5" />
+      <circle cx="19" cy="4" r="1.8" fill="#9d8cff" />
+      <circle cx="12" cy="20" r="2" fill="#8fbcff" />
+    </svg>
+  );
+}
+
 /** Standard card surface (panel + border + radius 10/11). */
 export const cardSurface: CSSProperties = {
   background: "var(--panel)",

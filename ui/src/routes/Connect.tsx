@@ -14,29 +14,16 @@
  *  limitations under the License.
  */
 
-import {
-  Alert,
-  Button,
-  Card,
-  Center,
-  PasswordInput,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Alert, Box, Button, Group, PasswordInput, Stack, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { runtimeConfig } from "../config";
+import { BrandMark, MONO } from "../components/aurora";
 
-/**
- * Connection gate (CLOACI-I-0117 / REQ-001), manual API-key path. The OIDC
- * "Login with <provider>" buttons are added by T-0662 once I-0118 ships the
- * `/auth/*` contract — this manual path remains the fallback regardless.
- */
+/** Connection gate (Aurora Dark, spec 14). */
 export function Connect() {
   const { connection, connect } = useAuth();
   const navigate = useNavigate();
@@ -46,8 +33,6 @@ export function Connect() {
   const form = useForm({
     initialValues: {
       serverUrl: runtimeConfig.defaultServerUrl,
-      // Dev convenience: prefill the demo key/tenant so the local stack connects
-      // without re-typing (empty in production builds). See config.ts.
       apiKey: runtimeConfig.demoApiKey,
       tenant: runtimeConfig.demoTenant || "public",
     },
@@ -75,10 +60,6 @@ export function Connect() {
     }
   }
 
-  // Dev-only: auto-connect once with the prefilled demo credentials so the gate
-  // is skipped on the local stack. No-op in production (demoAutoConnect=false)
-  // and once connected. If the server is down it surfaces the error and leaves
-  // the (prefilled) form for a manual retry.
   const autoTried = useRef(false);
   useEffect(() => {
     if (
@@ -93,48 +74,87 @@ export function Connect() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Already connected → don't show the gate.
   if (connection) return <Navigate to="/" replace />;
 
+  const monoInput = { input: { fontFamily: MONO } };
+
   return (
-    <Center mih="100vh" p="md">
-      <Card withBorder shadow="sm" w={420} padding="lg">
-        <Stack>
-          <div>
-            <Title order={3}>Connect to Cloacina</Title>
-            <Text c="dimmed" size="sm">
-              Enter a server URL and a tenant API key.
-            </Text>
-          </div>
+    <Box
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        background: "radial-gradient(120% 90% at 50% -10%, #131922, #0e1116)",
+      }}
+    >
+      <Box style={{ width: 430 }}>
+        <Group justify="center" gap={9} mb={18}>
+          <BrandMark size={26} />
+          <span style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)" }}>Cloacina</span>
+        </Group>
+
+        <Box
+          style={{
+            background: "var(--sidebar)",
+            border: "1px solid var(--border)",
+            borderRadius: 14,
+            padding: "22px 22px 20px",
+            boxShadow: "0 24px 60px rgba(0,0,0,.5)",
+          }}
+        >
+          <Box style={{ fontSize: 16, fontWeight: 600, color: "var(--fg)" }}>Connect to a server</Box>
+          <Box style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3, marginBottom: 16 }}>
+            Enter a server URL and a tenant API key.
+          </Box>
 
           <form onSubmit={form.onSubmit(onSubmit)}>
-            <Stack>
+            <Stack gap={12}>
               <TextInput
                 label="Server URL"
                 placeholder="http://localhost:8080"
+                styles={monoInput}
                 {...form.getInputProps("serverUrl")}
               />
               <PasswordInput
                 label="API key"
                 placeholder="clk_…"
                 autoComplete="off"
+                styles={monoInput}
                 {...form.getInputProps("apiKey")}
               />
-              <TextInput label="Tenant" placeholder="public" {...form.getInputProps("tenant")} />
+              <TextInput
+                label="Tenant"
+                placeholder="public"
+                styles={monoInput}
+                {...form.getInputProps("tenant")}
+              />
 
               {error && (
-                <Alert color="red" role="alert">
+                <Alert color="bad" role="alert" variant="light">
                   {error}
                 </Alert>
               )}
 
-              <Button type="submit" loading={submitting} fullWidth>
+              <Button
+                type="submit"
+                loading={submitting}
+                fullWidth
+                color="ice"
+                radius={9}
+                styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
+              >
                 Connect
               </Button>
             </Stack>
           </form>
-        </Stack>
-      </Card>
-    </Center>
+        </Box>
+
+        <Box style={{ textAlign: "center", marginTop: 14, fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>
+          cloacina v0.8.0 · tenant-scoped control plane
+        </Box>
+      </Box>
+    </Box>
   );
 }

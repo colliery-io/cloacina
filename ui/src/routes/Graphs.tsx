@@ -14,342 +14,220 @@
  *  limitations under the License.
  */
 
-import { Badge, Card, Group, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { Box, Group } from "@mantine/core";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAccumulators, useGraphs, useReactors } from "../api/health";
-import { GraphHealth } from "../components/GraphHealth";
+import { Dot, MONO, PageHeader, cardSurface } from "../components/aurora";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { explainToken } from "../util/vocab";
 import { formatAgo, useGraphThroughput } from "../util/activity";
+import { healthColor, nodeKindColor, pillBg, TOKEN } from "../util/tokens";
 
-/** Color a graph/accumulator state for an at-a-glance dot (CLOACI-I-0124 / WS-10). */
-function stateColor(state: string | undefined): string {
-  switch ((state ?? "").toLowerCase()) {
-    case "live":
-    case "running":
-    case "healthy":
-      return "green";
-    case "warming":
-    case "connecting":
-    case "starting":
-    case "socket_only":
-      return "yellow";
-    case "degraded":
-      return "orange";
-    case "crashed":
-    case "stopped":
-    case "failed":
-      return "red";
-    default:
-      return "gray";
+function healthState(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "state" in value) {
+    return String((value as { state?: string }).state ?? "");
   }
+  return "";
 }
 
-function StateDot({ state }: { state: string }) {
+function SectionLabel({ children }: { children: string }) {
   return (
-    <span
+    <Box
       style={{
-        width: 10,
-        height: 10,
-        borderRadius: "50%",
-        background: `var(--mantine-color-${stateColor(state)}-6)`,
-        display: "inline-block",
-        flex: "0 0 auto",
+        fontFamily: MONO,
+        fontSize: 11,
+        letterSpacing: ".06em",
+        textTransform: "uppercase",
+        color: "var(--muted)",
+        margin: "6px 0 8px",
       }}
-    />
+    >
+      {children}
+    </Box>
   );
 }
 
-/**
- * Computation-graph health (T-0655, OQ-4 → own top-level view): graphs +
- * accumulators visible to the key. Graph rows → per-graph detail.
- */
+function tintPill(label: string, color: string) {
+  return (
+    <span style={{ background: pillBg(color), color, borderRadius: 10, padding: "1px 8px", fontFamily: MONO, fontSize: 10.5 }}>
+      {label}
+    </span>
+  );
+}
+
+/** Computation graphs (Aurora Dark, spec 08): graphs / reactors / accumulators
+ *  as card rows. Graph rows → per-graph topology detail. */
 export function Graphs() {
   const navigate = useNavigate();
   const graphs = useGraphs();
   const reactors = useReactors();
   const accs = useAccumulators();
 
-  // name → status, so a graph/reactor row can show its accumulators' health at a glance.
   const accStatus = useMemo(() => {
     const m = new Map<string, string>();
     for (const a of accs.data?.items ?? []) m.set(a.name, String(a.status ?? ""));
     return m;
   }, [accs.data]);
 
-  // Recent throughput per graph / per reactor, from the fires counter across polls.
   const throughput = useGraphThroughput(graphs.data?.items ?? []);
   const reactorThroughput = useGraphThroughput(reactors.data?.items ?? []);
 
-  return (
-    <Stack>
-      <Title order={2}>Computation graphs</Title>
+  const graphItems = graphs.data?.items ?? [];
+  const reactorItems = reactors.data?.items ?? [];
+  const accItems = accs.data?.items ?? [];
 
-      <Card withBorder padding="lg">
-        <Title order={4} mb="sm">
-          Graphs
-        </Title>
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <PageHeader
+        title="Computation graphs"
+        sub={`${graphItems.length} graphs · ${reactorItems.length} reactors · ${accItems.length} accumulators`}
+      />
+
+      {/* Graphs */}
+      <Box>
+        <SectionLabel>Graphs</SectionLabel>
         {graphs.isPending ? (
           <Loading label="Loading graphs…" />
         ) : graphs.isError ? (
           <ErrorState error={graphs.error} onRetry={graphs.refetch} />
-        ) : graphs.data.items.length === 0 ? (
+        ) : graphItems.length === 0 ? (
           <Empty message="No graphs loaded." />
         ) : (
-          <Table highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Health</Table.Th>
-                <Table.Th>Accumulators</Table.Th>
-                <Table.Th>Throughput</Table.Th>
-                <Table.Th>Last fired</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {graphs.data.items.map((g) => {
-                const rate = throughput.get(g.name);
-                const fires = (g as { fires?: number }).fires ?? 0;
-                const lastFired = (g as { last_fired_at?: string | null }).last_fired_at ?? null;
-                return (
-                <Table.Tr
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {graphItems.map((g) => {
+              const rate = throughput.get(g.name);
+              const hs = healthState(g.health);
+              return (
+                <Box
                   key={g.name}
-                  style={{ cursor: "pointer" }}
+                  style={{ ...cardSurface, padding: "12px 15px", cursor: "pointer" }}
                   onClick={() => navigate(`/graphs/${encodeURIComponent(g.name)}`)}
                 >
-                  <Table.Td>
-                    <Text fw={500}>{g.name}</Text>
-                  </Table.Td>
-                  <Table.Td style={{ whiteSpace: "nowrap" }}>
-                    <Group gap="xs" wrap="nowrap">
-                      <GraphHealth value={g.health} />
-                      {g.paused && (
-                        <Badge color="orange" variant="light">
-                          paused
-                        </Badge>
-                      )}
+                  <Group justify="space-between" wrap="nowrap">
+                    <Group gap={10} wrap="nowrap" style={{ minWidth: 0 }}>
+                      <Dot color={healthColor(hs)} />
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{g.name}</span>
+                      <span style={{ fontSize: 12, color: healthColor(hs) }}>{explainToken(hs || "unknown").label}</span>
+                      {g.paused && tintPill("paused", TOKEN.gold)}
                     </Group>
-                  </Table.Td>
-                  <Table.Td>
-                    {g.accumulators.length === 0 ? (
-                      <Text size="sm" c="dimmed">
-                        —
-                      </Text>
-                    ) : (
-                      <Group gap={6} wrap="nowrap">
-                        {g.accumulators.map((name) => {
-                          const status = accStatus.get(name) ?? "unknown";
-                          return (
-                            <Tooltip
-                              key={name}
-                              label={`${name}: ${explainToken(status).label}`}
-                              withArrow
-                              openDelay={150}
-                            >
-                              <span style={{ display: "inline-flex" }}>
-                                <StateDot state={status} />
-                              </span>
-                            </Tooltip>
-                          );
-                        })}
-                        <Text size="xs" c="dimmed">
-                          {g.accumulators.length}
-                        </Text>
-                      </Group>
-                    )}
-                  </Table.Td>
-                  <Table.Td style={{ whiteSpace: "nowrap" }}>
-                    {rate == null ? (
-                      <Tooltip label="Recent fire rate; computed once two polls are in." withArrow>
-                        <Text size="sm" c="dimmed">
-                          —
-                        </Text>
-                      </Tooltip>
-                    ) : (
-                      <Tooltip
-                        label={`Recent rate. ${fires.toLocaleString()} total fires since the graph loaded.`}
-                        withArrow
-                      >
-                        <Text size="sm">~{rate}/min</Text>
-                      </Tooltip>
-                    )}
-                  </Table.Td>
-                  <Table.Td style={{ whiteSpace: "nowrap" }}>
-                    <Text size="sm">{formatAgo(lastFired)}</Text>
-                  </Table.Td>
-                </Table.Tr>
-                );
-              })}
-            </Table.Tbody>
-          </Table>
+                    <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--faint)" }}>
+                      {rate == null ? "—" : `~${rate}/min`}
+                    </span>
+                  </Group>
+                  {g.accumulators.length > 0 && (
+                    <Box style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      {g.accumulators.map((name) => (
+                        <span key={name} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: MONO, fontSize: 11, color: "var(--fg-2)" }}>
+                          <Dot color={nodeKindColor("accumulator")} size={6} />
+                          {name}
+                        </span>
+                      ))}
+                      <span style={{ color: "var(--faint)" }}>→</span>
+                      {tintPill(g.name, TOKEN.violet)}
+                      {g.reaction_mode && (
+                        <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>
+                          {explainToken(g.reaction_mode).label}
+                        </span>
+                      )}
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
+          </div>
         )}
-      </Card>
+      </Box>
 
-      <Card withBorder padding="lg">
-        <Title order={4} mb="sm">
-          Reactors
-        </Title>
-        <Text size="sm" c="dimmed" mb="sm">
-          Reactors are first-class: a reactor fires when its criteria over its
-          accumulators are met, and graphs bind to it. A reactor with no graph
-          bound still appears here.
-        </Text>
+      {/* Reactors */}
+      <Box>
+        <SectionLabel>Reactors</SectionLabel>
         {reactors.isPending ? (
           <Loading label="Loading reactors…" />
         ) : reactors.isError ? (
           <ErrorState error={reactors.error} onRetry={reactors.refetch} />
-        ) : reactors.data.items.length === 0 ? (
+        ) : reactorItems.length === 0 ? (
           <Empty message="No reactors loaded." />
         ) : (
-          <Table highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Criteria</Table.Th>
-                <Table.Th>Accumulators</Table.Th>
-                <Table.Th>Bound graph</Table.Th>
-                <Table.Th>Throughput</Table.Th>
-                <Table.Th>Last fired</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {reactors.data.items.map((r) => {
-                const rate = reactorThroughput.get(r.name);
-                const fires = (r as { fires?: number }).fires ?? 0;
-                const lastFired = (r as { last_fired_at?: string | null }).last_fired_at ?? null;
-                const boundGraphs = (r as { bound_graphs?: string[] }).bound_graphs ?? [];
-                const criteria = r.reaction_mode ? explainToken(r.reaction_mode) : null;
-                const firstGraph = boundGraphs[0];
-                return (
-                  <Table.Tr
-                    key={r.name}
-                    style={{ cursor: firstGraph ? "pointer" : "default" }}
-                    onClick={
-                      firstGraph
-                        ? () => navigate(`/graphs/${encodeURIComponent(firstGraph)}`)
-                        : undefined
-                    }
-                  >
-                    <Table.Td style={{ whiteSpace: "nowrap" }}>
-                      <Group gap="xs" wrap="nowrap">
-                        <Text fw={500}>{r.name}</Text>
-                        {r.paused && (
-                          <Badge color="orange" variant="light">
-                            paused
-                          </Badge>
-                        )}
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      {criteria ? (
-                        <Tooltip label={criteria.tip} disabled={!criteria.tip} withArrow>
-                          <Badge variant="light" color="blue">
-                            {criteria.label}
-                          </Badge>
-                        </Tooltip>
-                      ) : (
-                        <Text size="sm" c="dimmed">
-                          —
-                        </Text>
-                      )}
-                    </Table.Td>
-                    <Table.Td>
-                      {r.accumulators.length === 0 ? (
-                        <Text size="sm" c="dimmed">
-                          —
-                        </Text>
-                      ) : (
-                        <Group gap={6} wrap="nowrap">
-                          {r.accumulators.map((name) => {
-                            const status = accStatus.get(name) ?? "unknown";
-                            return (
-                              <Tooltip
-                                key={name}
-                                label={`${name}: ${explainToken(status).label}`}
-                                withArrow
-                                openDelay={150}
-                              >
-                                <span style={{ display: "inline-flex" }}>
-                                  <StateDot state={status} />
-                                </span>
-                              </Tooltip>
-                            );
-                          })}
-                          <Text size="xs" c="dimmed">
-                            {r.accumulators.length}
-                          </Text>
-                        </Group>
-                      )}
-                    </Table.Td>
-                    <Table.Td>
-                      {boundGraphs.length === 0 ? (
-                        <Tooltip label="This reactor has no graph bound yet." withArrow>
-                          <Text size="sm" c="dimmed">
-                            unbound
-                          </Text>
-                        </Tooltip>
-                      ) : (
-                        <Text size="sm">{boundGraphs.join(", ")}</Text>
-                      )}
-                    </Table.Td>
-                    <Table.Td style={{ whiteSpace: "nowrap" }}>
-                      {rate == null ? (
-                        <Text size="sm" c="dimmed">
-                          —
-                        </Text>
-                      ) : (
-                        <Tooltip
-                          label={`Recent rate. ${fires.toLocaleString()} total fires since load.`}
-                          withArrow
-                        >
-                          <Text size="sm">~{rate}/min</Text>
-                        </Tooltip>
-                      )}
-                    </Table.Td>
-                    <Table.Td style={{ whiteSpace: "nowrap" }}>
-                      <Text size="sm">{formatAgo(lastFired)}</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                );
-              })}
-            </Table.Tbody>
-          </Table>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {reactorItems.map((r) => {
+              const rate = reactorThroughput.get(r.name);
+              const boundGraphs = (r as { bound_graphs?: string[] }).bound_graphs ?? [];
+              const lastFired = (r as { last_fired_at?: string | null }).last_fired_at ?? null;
+              const first = boundGraphs[0];
+              return (
+                <Box
+                  key={r.name}
+                  style={{ ...cardSurface, padding: "12px 15px", cursor: first ? "pointer" : "default" }}
+                  onClick={first ? () => navigate(`/graphs/${encodeURIComponent(first)}`) : undefined}
+                >
+                  <Group justify="space-between" wrap="nowrap">
+                    <Group gap={10} wrap="nowrap" style={{ minWidth: 0 }}>
+                      <Dot color={nodeKindColor("reactor")} />
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{r.name}</span>
+                      {r.reaction_mode && tintPill(explainToken(r.reaction_mode).label, TOKEN.violet)}
+                      {r.paused && tintPill("paused", TOKEN.gold)}
+                    </Group>
+                    <Group gap={14} wrap="nowrap">
+                      <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--faint)" }}>
+                        {rate == null ? "—" : `~${rate}/min`}
+                      </span>
+                      <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--fainter)" }}>{formatAgo(lastFired)}</span>
+                    </Group>
+                  </Group>
+                  <Box style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    {r.accumulators.map((name) => (
+                      <span key={name} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: MONO, fontSize: 11, color: "var(--fg-2)" }}>
+                        <Dot color={healthColor(accStatus.get(name) ?? "")} size={6} />
+                        {name}
+                      </span>
+                    ))}
+                    <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>
+                      {boundGraphs.length ? `→ ${boundGraphs.join(", ")}` : "→ unbound"}
+                    </span>
+                  </Box>
+                </Box>
+              );
+            })}
+          </div>
         )}
-      </Card>
+      </Box>
 
-      <Card withBorder padding="lg">
-        <Title order={4} mb="sm">
-          Accumulators
-        </Title>
+      {/* Accumulators */}
+      <Box>
+        <SectionLabel>Accumulators</SectionLabel>
         {accs.isPending ? (
           <Loading label="Loading accumulators…" />
         ) : accs.isError ? (
           <ErrorState error={accs.error} onRetry={accs.refetch} />
-        ) : accs.data.items.length === 0 ? (
+        ) : accItems.length === 0 ? (
           <Empty message="No accumulators registered." />
         ) : (
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Status</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {accs.data.items.map((a) => (
-                <Table.Tr key={a.name}>
-                  <Table.Td>{a.name}</Table.Td>
-                  <Table.Td>
-                    <GraphHealth value={a.status} />
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {accItems.map((a) => {
+              const reactor = (a as { reactor?: string | null }).reactor ?? null;
+              return (
+                <Box key={a.name} style={{ ...cardSurface, padding: "9px 15px" }}>
+                  <Group justify="space-between" wrap="nowrap">
+                    <Group gap={9} wrap="nowrap">
+                      <Dot color={nodeKindColor("accumulator")} size={7} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>{a.name}</span>
+                      <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>
+                        {explainToken(String(a.status ?? "unknown")).label}
+                      </span>
+                    </Group>
+                    {reactor && (
+                      <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>→ {reactor}</span>
+                    )}
+                  </Group>
+                </Box>
+              );
+            })}
+          </div>
         )}
-      </Card>
-    </Stack>
+      </Box>
+    </div>
   );
 }
