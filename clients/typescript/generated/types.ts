@@ -313,6 +313,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/health/reactors/{name}/fires": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /v1/health/reactors/{name}/fires — recent fires with outcome + duration
+         *     (CLOACI-T-0766). Makes the reactive layer observable: what fired, did it
+         *     complete, how long, and why it failed.
+         */
+        get: operations["list_reactor_fires"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/health/reactors/{name}/fires/timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /v1/health/reactors/{name}/fires/timeseries — fires per minute, last 60
+         *     minutes (CLOACI-T-0766), for the fire-activity heatmap.
+         */
+        get: operations["reactor_fire_timeseries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/health/reactors/{name}/interface": {
         parameters: {
             query?: never;
@@ -1229,6 +1270,27 @@ export interface components {
          *     returns `{items, total}`. `total` is best-effort — it equals the
          *     returned page size when the server doesn't run a separate COUNT.
          */
+        ListResponse_ReactorFire: {
+            items: {
+                /**
+                 * Format: int64
+                 * @description Graph execution wall-clock for this fire, in milliseconds.
+                 */
+                duration_ms: number;
+                /** @description Error detail for a failed fire. */
+                error?: string | null;
+                /** @description RFC 3339 time the fire completed. */
+                fired_at: string;
+                /** @description Whether the graph execution completed (`false` = errored). */
+                ok: boolean;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
         ListResponse_ReactorStatus: {
             items: {
                 /** @description Accumulators this reactor consumes (its inputs). */
@@ -1279,6 +1341,32 @@ export interface components {
              * @description The `.cloacina` package archive.
              */
             file: string;
+        };
+        /**
+         * @description One recorded reactor fire (CLOACI-T-0766) — a row in
+         *     `GET /v1/health/reactors/{name}/fires`. Makes fires observable (outcome +
+         *     duration), not just counted.
+         */
+        ReactorFire: {
+            /**
+             * Format: int64
+             * @description Graph execution wall-clock for this fire, in milliseconds.
+             */
+            duration_ms: number;
+            /** @description Error detail for a failed fire. */
+            error?: string | null;
+            /** @description RFC 3339 time the fire completed. */
+            fired_at: string;
+            /** @description Whether the graph execution completed (`false` = errored). */
+            ok: boolean;
+        };
+        /**
+         * @description `GET /v1/health/reactors/{name}/fires/timeseries` (CLOACI-T-0766): fire counts
+         *     per minute for the last 60 minutes, oldest → newest, gaps filled with 0.
+         */
+        ReactorFireTimeseries: {
+            /** @description 60 per-minute fire counts, oldest first; the last entry is the current minute. */
+            buckets: number[];
         };
         /**
          * @description One row in `GET /v1/health/reactors` (CLOACI-T-0742). Reactor-first view:
@@ -2292,6 +2380,70 @@ export interface operations {
                 };
             };
             /** @description Reactor not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_reactor_fires: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Reactor name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recent fires, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_ReactorFire"];
+                };
+            };
+            /** @description Reactor not found / not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    reactor_fire_timeseries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Reactor name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-minute fire counts (oldest first) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactorFireTimeseries"];
+                };
+            };
+            /** @description Reactor not found / not visible */
             404: {
                 headers: {
                     [name: string]: unknown;

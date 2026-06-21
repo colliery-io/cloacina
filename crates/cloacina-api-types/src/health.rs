@@ -82,6 +82,32 @@ pub struct ReactorStatus {
     pub last_fired_at: Option<String>,
 }
 
+/// One recorded reactor fire (CLOACI-T-0766) — a row in
+/// `GET /v1/health/reactors/{name}/fires`. Makes fires observable (outcome +
+/// duration), not just counted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ReactorFire {
+    /// RFC 3339 time the fire completed.
+    pub fired_at: String,
+    /// Whether the graph execution completed (`false` = errored).
+    pub ok: bool,
+    /// Error detail for a failed fire.
+    #[serde(default)]
+    pub error: Option<String>,
+    /// Graph execution wall-clock for this fire, in milliseconds.
+    pub duration_ms: u64,
+}
+
+/// `GET /v1/health/reactors/{name}/fires/timeseries` (CLOACI-T-0766): fire counts
+/// per minute for the last 60 minutes, oldest → newest, gaps filled with 0.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ReactorFireTimeseries {
+    /// 60 per-minute fire counts, oldest first; the last entry is the current minute.
+    pub buckets: Vec<u32>,
+}
+
 /// One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
 /// response body.
 #[derive(Debug, Clone, Serialize, Deserialize)]

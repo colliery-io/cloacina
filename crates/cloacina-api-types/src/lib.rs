@@ -57,7 +57,7 @@ pub use executions::{
 pub use fleet::AgentInfo;
 pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
-    ReactorStatus,
+    ReactorFire, ReactorFireTimeseries, ReactorStatus,
 };
 pub use input_interface::{DeclaredSurface, InputSlot};
 pub use keys::{

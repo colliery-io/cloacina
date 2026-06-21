@@ -770,6 +770,100 @@
         ]
       }
     },
+    "/v1/health/reactors/{name}/fires": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/reactors/{name}/fires — recent fires with outcome + duration\n(CLOACI-T-0766). Makes the reactive layer observable: what fired, did it\ncomplete, how long, and why it failed.",
+        "operationId": "list_reactor_fires",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Reactor name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent fires, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_ReactorFire"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Reactor not found / not visible",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/health/reactors/{name}/fires/timeseries": {
+      "get": {
+        "tags": [
+          "graph-health"
+        ],
+        "summary": "GET /v1/health/reactors/{name}/fires/timeseries — fires per minute, last 60\nminutes (CLOACI-T-0766), for the fire-activity heatmap.",
+        "operationId": "reactor_fire_timeseries",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Reactor name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-minute fire counts (oldest first)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactorFireTimeseries"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Reactor not found / not visible",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/health/reactors/{name}/interface": {
       "get": {
         "tags": [
@@ -3602,6 +3696,55 @@
           }
         }
       },
+      "ListResponse_ReactorFire": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One recorded reactor fire (CLOACI-T-0766) — a row in\n`GET /v1/health/reactors/{name}/fires`. Makes fires observable (outcome +\nduration), not just counted.",
+              "required": [
+                "fired_at",
+                "ok",
+                "duration_ms"
+              ],
+              "properties": {
+                "duration_ms": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Graph execution wall-clock for this fire, in milliseconds.",
+                  "minimum": 0
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Error detail for a failed fire."
+                },
+                "fired_at": {
+                  "type": "string",
+                  "description": "RFC 3339 time the fire completed."
+                },
+                "ok": {
+                  "type": "boolean",
+                  "description": "Whether the graph execution completed (`false` = errored)."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "ListResponse_ReactorStatus": {
         "type": "object",
         "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
@@ -3723,6 +3866,56 @@
             "format": "binary",
             "description": "The `.cloacina` package archive.",
             "contentMediaType": "application/octet-stream"
+          }
+        }
+      },
+      "ReactorFire": {
+        "type": "object",
+        "description": "One recorded reactor fire (CLOACI-T-0766) — a row in\n`GET /v1/health/reactors/{name}/fires`. Makes fires observable (outcome +\nduration), not just counted.",
+        "required": [
+          "fired_at",
+          "ok",
+          "duration_ms"
+        ],
+        "properties": {
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Graph execution wall-clock for this fire, in milliseconds.",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Error detail for a failed fire."
+          },
+          "fired_at": {
+            "type": "string",
+            "description": "RFC 3339 time the fire completed."
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the graph execution completed (`false` = errored)."
+          }
+        }
+      },
+      "ReactorFireTimeseries": {
+        "type": "object",
+        "description": "`GET /v1/health/reactors/{name}/fires/timeseries` (CLOACI-T-0766): fire counts\nper minute for the last 60 minutes, oldest → newest, gaps filled with 0.",
+        "required": [
+          "buckets"
+        ],
+        "properties": {
+          "buckets": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "60 per-minute fire counts, oldest first; the last entry is the current minute."
           }
         }
       },
