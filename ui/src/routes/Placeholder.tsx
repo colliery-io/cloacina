@@ -14,7 +14,9 @@
  *  limitations under the License.
  */
 
-import { Stack, Text, Title } from "@mantine/core";
+import { Box } from "@mantine/core";
+
+import { PageHeader } from "../components/aurora";
 
 /**
  * Placeholder for routes whose views aren't built yet — keeps the nav +
@@ -23,18 +25,20 @@ import { Stack, Text, Title } from "@mantine/core";
  */
 export function Placeholder({ title }: { title: string }) {
   return (
-    <Stack>
-      <Title order={2}>{title}</Title>
-      <Text c="dimmed">This area isn't available yet — coming soon.</Text>
-    </Stack>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <PageHeader title={title} />
+      <Box style={{ border: "1px dashed var(--border)", borderRadius: 10, padding: "18px 15px", color: "var(--faint)", fontSize: 12.5 }}>
+        This area isn't available yet — coming soon.
+      </Box>
+    </div>
   );
 }
 
 export function NotFound() {
   return (
-    <Stack>
-      <Title order={2}>Not found</Title>
-      <Text c="dimmed">No such page.</Text>
-    </Stack>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <PageHeader title="Not found" />
+      <Box style={{ color: "var(--faint)", fontSize: 13 }}>No such page.</Box>
+    </div>
   );
 }

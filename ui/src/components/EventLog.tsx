@@ -14,13 +14,41 @@
  *  limitations under the License.
  */
 
-import { Badge, Code, Group, Stack, Table, Text } from "@mantine/core";
+import { Box, Code, Group, Stack, Table, Text } from "@mantine/core";
 import type { schemas } from "@cloacina/client";
 
 import { formatTimestamp } from "../util/format";
 import { describeEvent, meaningfulData } from "../util/eventLabels";
+import { MONO, Pill } from "./aurora";
+import { TOKEN } from "../util/tokens";
 
 export type ExecutionEvent = schemas["ExecutionEvent"];
+
+/** Map the event-label Mantine color name to an Aurora token (spec §Event log:
+ *  started/snatched → ice, completed/imported → green, failed → red,
+ *  scheduled/upgrade → violet, retry → gold). */
+function kindToken(color: string): string {
+  switch (color) {
+    case "blue":
+      return TOKEN.ice;
+    case "green":
+      return TOKEN.ok;
+    case "red":
+      return TOKEN.bad;
+    case "grape":
+    case "violet":
+      return TOKEN.violet;
+    case "orange":
+    case "yellow":
+    case "gold":
+      return TOKEN.gold;
+    case "teal":
+    case "cyan":
+      return TOKEN.teal;
+    default:
+      return TOKEN.muted;
+  }
+}
 
 /**
  * Ordered execution event log (T-0653; CLOACI-I-0124 / WS-9 readability pass).
@@ -42,60 +70,63 @@ export function EventLog({ events }: { events: ExecutionEvent[] }) {
     );
   }
   const sorted = [...events].sort((a, b) => a.sequence_num - b.sequence_num);
+  const th: React.CSSProperties = {
+    fontFamily: MONO,
+    fontSize: 10,
+    letterSpacing: ".07em",
+    textTransform: "uppercase",
+    color: "var(--faint)",
+    fontWeight: 500,
+    textAlign: "left",
+  };
 
   return (
-    <Table striped withRowBorders={false} verticalSpacing="xs">
-      <Table.Thead>
-        <Table.Tr>
-          <Table.Th w={48}>#</Table.Th>
-          <Table.Th>Event</Table.Th>
-          <Table.Th w={200}>Time</Table.Th>
-        </Table.Tr>
-      </Table.Thead>
-      <Table.Tbody>
-        {sorted.map((e, i) => {
-          const data = meaningfulData(e.event_data);
-          const { label, color } = describeEvent(e.event_type);
-          // `task_name` is optional on the SDK type (workflow-scoped events and
-          // live WS events may lack it); shorten the namespaced name like the
-          // task table does.
-          const taskName = (e as { task_name?: string | null }).task_name;
-          const localTask = taskName ? taskName.split("::").pop() : null;
-          return (
-            <Table.Tr key={`${e.sequence_num}-${e.id}`}>
-              <Table.Td>
-                <Text c="dimmed" size="sm">
-                  {i + 1}
-                </Text>
-              </Table.Td>
-              <Table.Td>
-                <Stack gap={4}>
-                  <Group gap="xs">
-                    <Badge variant="light" color={color} size="sm">
-                      {label}
-                    </Badge>
-                    {localTask && (
-                      <Text size="sm" c="dimmed">
-                        {localTask}
-                      </Text>
+    <Box style={{ background: "var(--inset)", border: "1px solid var(--border-soft)", borderRadius: 10, padding: "4px 14px" }}>
+      <Table withRowBorders={false} verticalSpacing={7}>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th style={{ ...th, width: 48 }}>#</Table.Th>
+            <Table.Th style={th}>Event</Table.Th>
+            <Table.Th style={{ ...th, width: 200 }}>Time</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {sorted.map((e, i) => {
+            const data = meaningfulData(e.event_data);
+            const { label, color } = describeEvent(e.event_type);
+            // `task_name` is optional on the SDK type (workflow-scoped events and
+            // live WS events may lack it); shorten the namespaced name like the
+            // task table does.
+            const taskName = (e as { task_name?: string | null }).task_name;
+            const localTask = taskName ? taskName.split("::").pop() : null;
+            return (
+              <Table.Tr key={`${e.sequence_num}-${e.id}`}>
+                <Table.Td>
+                  <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--fainter)" }}>{i + 1}</span>
+                </Table.Td>
+                <Table.Td>
+                  <Stack gap={4}>
+                    <Group gap="xs">
+                      <Pill color={kindToken(color)}>{label}</Pill>
+                      {localTask && (
+                        <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--fg-2)" }}>{localTask}</span>
+                      )}
+                    </Group>
+                    {data && (
+                      <Code block fz="xs">
+                        {data}
+                      </Code>
                     )}
-                  </Group>
-                  {data && (
-                    <Code block fz="xs">
-                      {data}
-                    </Code>
-                  )}
-                </Stack>
-              </Table.Td>
-              <Table.Td>
-                <Text c="dimmed" size="sm">
-                  {formatTimestamp(e.created_at)}
-                </Text>
-              </Table.Td>
-            </Table.Tr>
-          );
-        })}
-      </Table.Tbody>
-    </Table>
+                  </Stack>
+                </Table.Td>
+                <Table.Td>
+                  <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--faint)" }}>{formatTimestamp(e.created_at)}</span>
+                </Table.Td>
+              </Table.Tr>
+            );
+          })}
+        </Table.Tbody>
+      </Table>
+    </Box>
   );
 }

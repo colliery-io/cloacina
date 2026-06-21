@@ -115,7 +115,7 @@ export function Workflows() {
                   <Button
                     size="xs"
                     variant="subtle"
-                    color="gray"
+                    styles={{ root: { color: "var(--muted)" } }}
                     loading={pause.isPending && pause.variables?.name === w.package_name}
                     onClick={(ev) => {
                       ev.stopPropagation();

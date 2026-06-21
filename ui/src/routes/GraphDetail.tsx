@@ -14,19 +14,7 @@
  *  limitations under the License.
  */
 
-import {
-  Anchor,
-  Badge,
-  Box,
-  Card,
-  Divider,
-  Drawer,
-  Group,
-  List,
-  Stack,
-  Text,
-  Tooltip,
-} from "@mantine/core";
+import { Anchor, Box, Divider, Drawer, Group, List, Stack, Text, Tooltip } from "@mantine/core";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
@@ -36,8 +24,8 @@ import { FullDag } from "../components/FullDag";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { explainToken } from "../util/vocab";
-import { MONO } from "../components/aurora";
-import { nodeKindColor } from "../util/tokens";
+import { MONO, Pill, cardSurface } from "../components/aurora";
+import { nodeKindColor, TOKEN } from "../util/tokens";
 
 type TopoNode = { id: string; inputs?: string[] };
 type TopoEdge = { from: string; to: string; label?: string | null };
@@ -157,94 +145,71 @@ export function GraphDetail() {
       ) : !data ? (
         <Empty message="Graph not found." />
       ) : (
-        <Card withBorder padding="lg">
-          <Stack gap="md">
-            <Group>
-              <GraphHealth value={data.health} />
-              {data.paused && (
-                <Badge color="orange" variant="light">
-                  paused
-                </Badge>
-              )}
-              {data.reaction_mode && (
-                <Tooltip
-                  label={explainToken(data.reaction_mode).tip}
-                  disabled={!explainToken(data.reaction_mode).tip}
-                  multiline
-                  w={260}
-                  withArrow
-                >
-                  <Badge variant="light" color="grape">
-                    {explainToken(data.reaction_mode).label}
-                  </Badge>
-                </Tooltip>
-              )}
-              {data.input_strategy && (
-                <Tooltip
-                  label={explainToken(data.input_strategy).tip}
-                  disabled={!explainToken(data.input_strategy).tip}
-                  multiline
-                  w={260}
-                  withArrow
-                >
-                  <Badge variant="light" color="cyan">
-                    {explainToken(data.input_strategy).label}
-                  </Badge>
-                </Tooltip>
-              )}
-            </Group>
+        <Stack gap="md">
+          <Group gap={8}>
+            <GraphHealth value={data.health} />
+            {data.paused && <Pill color={TOKEN.gold}>paused</Pill>}
+            {data.reaction_mode && (
+              <Tooltip label={explainToken(data.reaction_mode).tip} disabled={!explainToken(data.reaction_mode).tip} multiline w={260} withArrow>
+                <span style={{ display: "inline-flex" }}>
+                  <Pill color={TOKEN.violet}>{explainToken(data.reaction_mode).label}</Pill>
+                </span>
+              </Tooltip>
+            )}
+            {data.input_strategy && (
+              <Tooltip label={explainToken(data.input_strategy).tip} disabled={!explainToken(data.input_strategy).tip} multiline w={260} withArrow>
+                <span style={{ display: "inline-flex" }}>
+                  <Pill color={TOKEN.teal}>{explainToken(data.input_strategy).label}</Pill>
+                </span>
+              </Tooltip>
+            )}
+          </Group>
 
-            {graph ? (
-              <div>
-                <Group justify="space-between" mb="xs">
-                  <Text fw={600}>Graph</Text>
-                  <Group gap="sm">
-                    <LegendDot color={nodeKindColor("accumulator")} label="accumulator" />
-                    <LegendDot color={nodeKindColor("reactor")} label="reactor" />
-                    <LegendDot color={nodeKindColor("node")} label="node" />
-                  </Group>
+          {graph ? (
+            <Box>
+              <Group justify="space-between" mb="xs" style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>Topology</span>
+                <Group gap="sm">
+                  <LegendDot color={nodeKindColor("accumulator")} label="accumulator" />
+                  <LegendDot color={nodeKindColor("reactor")} label="reactor" />
+                  <LegendDot color={nodeKindColor("node")} label="node" />
                 </Group>
-                <FullDag
-                  nodes={graph.nodes}
-                  edges={graph.edges}
-                  testId="graph-dag"
-                  onNodeClick={setSelected}
-                />
-                <Text size="xs" c="dimmed" mt={4}>
-                  Click a node for details.
-                </Text>
-              </div>
-            ) : (
-              // No topology available — fall back to the text summary.
-              <>
+              </Group>
+              <FullDag nodes={graph.nodes} edges={graph.edges} testId="graph-dag" onNodeClick={setSelected} />
+              <Text size="xs" c="dimmed" mt={6}>
+                Click a node to inspect its role and routing.
+              </Text>
+            </Box>
+          ) : (
+            // No topology available — fall back to the text summary.
+            <Box style={{ ...cardSurface, padding: "15px 18px" }}>
+              <Stack gap="md">
                 {data.reactor && (
                   <div>
-                    <Text fw={600} mb="xs">
-                      Reactor
-                    </Text>
-                    <Text size="sm">{data.reactor}</Text>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Reactor</span>
+                    <Text size="sm" mt={4}>{data.reactor}</Text>
                   </div>
                 )}
                 <div>
-                  <Text fw={600} mb="xs">
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>
                     Accumulators ({data.accumulators.length})
-                  </Text>
+                  </span>
                   {data.accumulators.length === 0 ? (
-                    <Text c="dimmed" size="sm">
+                    <Text c="dimmed" size="sm" mt={4}>
                       None.
                     </Text>
                   ) : (
-                    <List size="sm">
+                    <List size="sm" mt={4}>
                       {data.accumulators.map((a) => (
                         <List.Item key={a}>{a}</List.Item>
                       ))}
                     </List>
                   )}
                 </div>
-              </>
-            )}
-          </Stack>
-        </Card>
+              </Stack>
+            </Box>
+          )}
+        </Stack>
       )}
 
       <Drawer
@@ -256,9 +221,9 @@ export function GraphDetail() {
       >
         {detail && (
           <Stack gap="sm">
-            <Badge variant="light" w="fit-content">
-              {detail.kind}
-            </Badge>
+            <span style={{ display: "inline-flex", width: "fit-content" }}>
+              <Pill color={nodeKindColor(detail.kind.toLowerCase())}>{detail.kind}</Pill>
+            </span>
             {detail.rows.map(([k, v]) => (
               <div key={k}>
                 <Text size="xs" c="dimmed">

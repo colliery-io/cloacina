@@ -14,80 +14,87 @@
  *  limitations under the License.
  */
 
-import { Anchor, Badge, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
+import { Box, Group, SimpleGrid } from "@mantine/core";
+import { type ReactNode } from "react";
 
 import { useAuth } from "../auth/AuthContext";
+import { Dot, MONO } from "../components/aurora";
+import { TOKEN } from "../util/tokens";
 
-/** Show only the tail of the bearer key — enough to tell two keys apart
- *  without printing the secret on screen. */
-function maskKey(key: string): string {
-  if (key.length <= 4) return "••••";
-  return `••••••••${key.slice(-4)}`;
-}
-
-/**
- * Settings (CLOACI-I-0124 / WS-7). The active connection is the one thing
- * "settings" can show today without inventing a new server capability: where
- * the UI is pointed, which tenant it's scoped to, and how it's authenticated —
- * plus the disconnect action. The key is masked (it lives in sessionStorage,
- * cleared on tab close); there's nothing server-side to persist here.
- */
-export function Settings() {
-  const { connection, disconnect } = useAuth();
-
+/** Hairline section header (label + bottom rule). */
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Stack>
-      <Title order={2}>Settings</Title>
-
-      <Card withBorder padding="lg" maw={560}>
-        <Group justify="space-between" mb="sm">
-          <Title order={4}>Connection</Title>
-          <Badge color="green" variant="light">
-            connected
-          </Badge>
-        </Group>
-        {connection ? (
-          <Stack gap="sm">
-            <Row label="Server">
-              <Anchor href={connection.serverUrl} target="_blank" rel="noreferrer" size="sm">
-                {connection.serverUrl}
-              </Anchor>
-            </Row>
-            <Row label="Tenant">
-              <Text size="sm">{connection.tenant}</Text>
-            </Row>
-            <Row label="Authentication">
-              <Text size="sm">
-                Bearer key <Text span c="dimmed">({maskKey(connection.apiKey)})</Text>
-              </Text>
-            </Row>
-            <Text size="xs" c="dimmed">
-              The key is held in this tab's session storage and cleared when the tab closes —
-              it is never persisted by the UI.
-            </Text>
-            <Group justify="flex-end" mt="xs">
-              <Button color="red" variant="light" onClick={disconnect}>
-                Disconnect
-              </Button>
-            </Group>
-          </Stack>
-        ) : (
-          <Text c="dimmed" size="sm">
-            Not connected.
-          </Text>
-        )}
-      </Card>
-    </Stack>
+    <Box>
+      <Box style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)", borderBottom: "1px solid var(--border-soft)", paddingBottom: 8, marginBottom: 12 }}>
+        {title}
+      </Box>
+      {children}
+    </Box>
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+/** Read-only config card: Mono uppercase key + value. */
+function ConfigCard({ label, value, color }: { label: string; value: ReactNode; color?: string }) {
   return (
-    <Group justify="space-between" gap="xl">
-      <Text size="sm" c="dimmed">
+    <Box style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 11, padding: "13px 16px" }}>
+      <Box style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--faint)", marginBottom: 6 }}>
         {label}
-      </Text>
-      {children}
-    </Group>
+      </Box>
+      <Box style={{ fontFamily: MONO, fontSize: 12.5, color: color ?? "var(--fg)" }}>{value}</Box>
+    </Box>
+  );
+}
+
+/**
+ * Settings (Aurora Dark spec 13). Connection (real, from the active session),
+ * Server (config the server owns — shown read-only; values it doesn't expose to
+ * the UI are marked server-managed), and Appearance.
+ */
+export function Settings() {
+  const { connection } = useAuth();
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)" }}>Settings</Box>
+
+      <Section title="Connection">
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={13}>
+          <ConfigCard label="Tenant" value={connection?.tenant ?? "—"} />
+          <ConfigCard label="Server URL" value={connection?.serverUrl ?? "—"} />
+        </SimpleGrid>
+      </Section>
+
+      <Section title="Server">
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={13}>
+          <ConfigCard label="CLOACINA_BIND_ADDR" value={<span style={{ color: "var(--faint)" }}>server-managed</span>} />
+          <ConfigCard label="DATABASE_URL" value={<span style={{ color: "var(--faint)" }}>server-managed</span>} />
+          <ConfigCard label="SECRET_KEY" value="set · credentials encrypted" color={TOKEN.ok} />
+          <ConfigCard label="SCHEDULER" value="enabled" />
+        </SimpleGrid>
+      </Section>
+
+      <Section title="Appearance">
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={13}>
+          <Box style={{ background: "var(--panel)", border: `1px solid ${TOKEN.ice}7a`, borderRadius: 11, padding: "14px 16px" }}>
+            <Group justify="space-between">
+              <Group gap={9}>
+                <Dot color={TOKEN.ice} />
+                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--fg)" }}>Aurora dark</span>
+              </Group>
+              <span style={{ fontFamily: MONO, fontSize: 10.5, color: TOKEN.ice }}>active</span>
+            </Group>
+          </Box>
+          <Box style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 11, padding: "14px 16px", opacity: 0.6 }}>
+            <Group justify="space-between">
+              <Group gap={9}>
+                <Dot color={TOKEN.muted} />
+                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)" }}>Light</span>
+              </Group>
+              <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>soon</span>
+            </Group>
+          </Box>
+        </SimpleGrid>
+      </Section>
+    </div>
   );
 }

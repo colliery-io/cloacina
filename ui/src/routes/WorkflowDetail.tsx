@@ -14,21 +14,9 @@
  *  limitations under the License.
  */
 
-import {
-  Alert,
-  Anchor,
-  Button,
-  Card,
-  Group,
-  List,
-  Modal,
-  Stack,
-  Text,
-  Textarea,
-  Title,
-} from "@mantine/core";
+import { Alert, Anchor, Box, Button, Group, List, Modal, Stack, Text, Textarea } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useDeleteWorkflow, useExecuteWorkflow, useWorkflow } from "../api/workflows";
@@ -37,10 +25,21 @@ import { BuildStatusBadge } from "../components/BuildStatusBadge";
 import { CombinedTimeline } from "../components/CombinedTimeline";
 import { TaskRuntimeChart } from "../components/TaskRuntimeChart";
 import { WorkflowGraph } from "../components/WorkflowGraph";
+import { MONO, cardSurface } from "../components/aurora";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { classifyError } from "../api/errors";
 import { formatTimestamp } from "../util/format";
 import { topoRank } from "../util/topo";
+
+/** Section header: 14/600 + bottom rule + optional right note. */
+function SectionHeader({ title, note }: { title: string; note?: ReactNode }) {
+  return (
+    <Group justify="space-between" mb={10} style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 8 }}>
+      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{title}</span>
+      {note && <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>{note}</span>}
+    </Group>
+  );
+}
 
 /**
  * Workflow detail (T-0652 read + T-0657 write). Execute (with optional JSON
@@ -112,17 +111,17 @@ export function WorkflowDetail() {
   return (
     <Stack>
       <Group justify="space-between" align="flex-start">
-        <div>
-          <Anchor component={Link} to="/workflows" size="sm">
+        <Box>
+          <Anchor component={Link} to="/workflows" size="xs" c="dimmed">
             ← Workflows
           </Anchor>
-          <Title order={2}>{name}</Title>
-        </div>
+          <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)", marginTop: 2 }}>{name}</Box>
+        </Box>
         <Group gap="xs">
-          <Button onClick={execModal.open} disabled={!data}>
-            Execute
+          <Button color="ice" radius={9} styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} onClick={execModal.open} disabled={!data}>
+            ▸ Execute
           </Button>
-          <Button color="red" variant="light" onClick={delModal.open} disabled={!data}>
+          <Button color="bad" variant="subtle" onClick={delModal.open} disabled={!data}>
             Delete
           </Button>
         </Group>
@@ -135,52 +134,47 @@ export function WorkflowDetail() {
       ) : !data ? (
         <Empty message="Workflow not found." />
       ) : (
-        <Card withBorder padding="lg">
+        <Box style={{ ...cardSurface, padding: "15px 18px" }}>
           <Stack gap="md">
-            <Group>
+            <Group gap={12}>
               <BuildStatusBadge status={data.build_status} />
-              <Text c="dimmed" size="sm">
+              <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--faint)" }}>
                 v{data.version} · created {formatTimestamp(data.created_at)}
-              </Text>
+              </span>
             </Group>
-            {data.description && <Text>{data.description}</Text>}
+            {data.description && <Text size="sm" c="var(--fg-2)">{data.description}</Text>}
             {data.build_error && (
-              <Alert color="red" title="Build error" role="alert">
+              <Alert color="bad" title="Build error" role="alert">
                 <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
                   {data.build_error}
                 </Text>
               </Alert>
             )}
             <div>
-              <Text fw={600} mb="xs">
-                Tasks ({data.tasks.length})
-              </Text>
-              {data.tasks.length === 0 ? (
-                <Text c="dimmed" size="sm">
-                  No tasks.
-                </Text>
-              ) : data.task_graph && data.task_graph.length > 0 ? (
-                <WorkflowGraph tasks={data.task_graph} />
-              ) : (
-                <List size="sm">
-                  {data.tasks.map((t) => (
-                    <List.Item key={t}>{t}</List.Item>
-                  ))}
-                </List>
-              )}
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Tasks ({data.tasks.length})</span>
+              <Box mt="xs">
+                {data.tasks.length === 0 ? (
+                  <Text c="dimmed" size="sm">
+                    No tasks.
+                  </Text>
+                ) : data.task_graph && data.task_graph.length > 0 ? (
+                  <WorkflowGraph tasks={data.task_graph} />
+                ) : (
+                  <List size="sm">
+                    {data.tasks.map((t) => (
+                      <List.Item key={t}>{t}</List.Item>
+                    ))}
+                  </List>
+                )}
+              </Box>
             </div>
           </Stack>
-        </Card>
+        </Box>
       )}
 
       {data && (
-        <Card withBorder padding="lg">
-          <Group justify="space-between" mb="sm">
-            <Title order={4}>Task runtimes</Title>
-            <Text size="xs" c="dimmed">
-              avg over last {runtimes.runsCounted} run{runtimes.runsCounted === 1 ? "" : "s"}
-            </Text>
-          </Group>
+        <Box>
+          <SectionHeader title="Task runtimes" note={`avg over last ${runtimes.runsCounted} run${runtimes.runsCounted === 1 ? "" : "s"}`} />
           {runtimes.isPending ? (
             <Loading label="Aggregating run durations…" />
           ) : runtimes.isError ? (
@@ -190,18 +184,12 @@ export function WorkflowDetail() {
           ) : (
             <TaskRuntimeChart stats={runtimeStats} />
           )}
-        </Card>
+        </Box>
       )}
 
       {data && (
-        <Card withBorder padding="lg">
-          <Group justify="space-between" mb="sm">
-            <Title order={4}>Combined timeline</Title>
-            <Text size="xs" c="dimmed">
-              span &amp; wait distribution · last {runtimes.runsCounted} run
-              {runtimes.runsCounted === 1 ? "" : "s"}
-            </Text>
-          </Group>
+        <Box>
+          <SectionHeader title="Combined timeline" note={`span & wait · last ${runtimes.runsCounted} run${runtimes.runsCounted === 1 ? "" : "s"}`} />
           {runtimes.isPending ? (
             <Loading label="Aligning run timelines…" />
           ) : runtimes.isError ? (
@@ -211,11 +199,11 @@ export function WorkflowDetail() {
           ) : (
             <CombinedTimeline runs={runtimes.runs} graph={data.task_graph} />
           )}
-        </Card>
+        </Box>
       )}
 
       {/* Execute */}
-      <Modal opened={execOpen} onClose={execModal.close} title={`Execute ${name}`}>
+      <Modal opened={execOpen} onClose={execModal.close} title={`Execute ${name}`} centered>
         <Stack>
           <Textarea
             label="Context (JSON, optional)"
@@ -225,9 +213,10 @@ export function WorkflowDetail() {
             value={contextText}
             onChange={(e) => setContextText(e.currentTarget.value)}
             error={contextErr}
+            styles={{ input: { fontFamily: MONO } }}
           />
           {execute.isError && (
-            <Text c="red" size="sm">
+            <Text c="bad" size="sm">
               {classifyError(execute.error).message}
             </Text>
           )}
@@ -235,21 +224,21 @@ export function WorkflowDetail() {
             <Button variant="default" onClick={execModal.close}>
               Cancel
             </Button>
-            <Button loading={execute.isPending} onClick={onExecute}>
-              Execute
+            <Button color="ice" styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} loading={execute.isPending} onClick={onExecute}>
+              ▸ Execute
             </Button>
           </Group>
         </Stack>
       </Modal>
 
       {/* Delete confirm */}
-      <Modal opened={delOpen} onClose={delModal.close} title="Delete workflow?">
+      <Modal opened={delOpen} onClose={delModal.close} title="Delete workflow?" centered>
         <Stack>
           <Text size="sm">
             Unregister <b>{name}</b> v{data?.version}? This removes the package from the tenant.
           </Text>
           {del.isError && (
-            <Text c="red" size="sm">
+            <Text c="bad" size="sm">
               {classifyError(del.error).message}
             </Text>
           )}
@@ -257,7 +246,7 @@ export function WorkflowDetail() {
             <Button variant="default" onClick={delModal.close}>
               Cancel
             </Button>
-            <Button color="red" loading={del.isPending} onClick={onDelete}>
+            <Button color="bad" loading={del.isPending} onClick={onDelete}>
               Delete
             </Button>
           </Group>

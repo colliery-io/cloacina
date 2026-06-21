@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-import { Anchor, Badge, Box, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Box, Button, Group, Stack, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -36,8 +36,8 @@ import { mergeEvents } from "../util/events";
 import { formatDuration, formatTimestamp } from "../util/format";
 import { isTerminalStatus } from "../util/status";
 import { topoRank } from "../util/topo";
-import { MONO } from "../components/aurora";
-import { statusColor } from "../util/tokens";
+import { MONO, cardSurface } from "../components/aurora";
+import { statusColor, TOKEN, pillBg } from "../util/tokens";
 
 /**
  * Execution detail (T-0653 + T-0656). Non-live half shows the REST event
@@ -160,41 +160,31 @@ export function ExecutionDetail() {
       ) : detail.isError ? (
         <ErrorState error={detail.error} onRetry={detail.refetch} />
       ) : (
-        <Card withBorder padding="lg">
-          <Group gap="xl">
+        <Box style={{ ...cardSurface, padding: "15px 18px" }}>
+          <Group gap={32}>
             <span data-testid="execution-status">
               <StatusBadge status={detail.data.status} />
             </span>
-            {!terminal && (
-              <Badge color="blue" variant="dot">
-                live
-              </Badge>
-            )}
-            {workflowName && (
-              <Field label="Workflow">
-                <Text size="sm">{workflowName}</Text>
-              </Field>
-            )}
-            <Field label="Started">
-              <Text size="sm">{formatTimestamp(startedAt)}</Text>
-            </Field>
-            <Field label={terminal ? "Duration" : "Elapsed"}>
-              <Text size="sm">{formatDuration(startedAt, endedAt)}</Text>
-            </Field>
+            {!terminal && <LivePill />}
+            <Field label="Started" value={formatTimestamp(startedAt)} />
+            <Field label={terminal ? "Duration" : "Elapsed"} value={formatDuration(startedAt, endedAt)} />
+            <Field
+              label="Tasks"
+              value={`${taskList.filter((t) => t.status.toLowerCase() === "completed").length}/${taskList.length || "—"}`}
+            />
           </Group>
-        </Card>
+        </Box>
       )}
 
       {workflow.data?.task_graph && workflow.data.task_graph.length > 0 && (
-        <Card withBorder padding="lg">
-          <Group justify="space-between" mb="sm">
-            <Title order={4}>Graph</Title>
-            {!terminal && (
-              <Text size="xs" c="blue">
-                live
-              </Text>
-            )}
-          </Group>
+        <Box>
+          <SectionHeader title="Task graph" live={!terminal}>
+            <Group gap="md">
+              <StateKey status="running" />
+              <StateKey status="completed" />
+              <StateKey status="failed" />
+            </Group>
+          </SectionHeader>
           <WorkflowGraph
             tasks={workflow.data.task_graph}
             statusByTask={statusByTask}
@@ -203,26 +193,11 @@ export function ExecutionDetail() {
           <Text size="xs" c="dimmed" mt={6}>
             Click a task to view its source.
           </Text>
-          <Group gap="md" mt="xs">
-            <StateKey status="running" />
-            <StateKey status="completed" />
-            <StateKey status="failed" />
-            <StateKey status="cancelled" />
-            <StateKey status="pending" />
-            <StateKey status="skipped" dashed />
-          </Group>
-        </Card>
+        </Box>
       )}
 
-      <Card withBorder padding="lg">
-        <Group justify="space-between" mb="sm">
-          <Title order={4}>Tasks</Title>
-          {!terminal && (
-            <Text size="xs" c="blue">
-              live
-            </Text>
-          )}
-        </Group>
+      <Box>
+        <SectionHeader title="Tasks" live={!terminal} />
         {tasks.isPending ? (
           <Loading label="Loading tasks…" />
         ) : tasks.isError ? (
@@ -230,17 +205,10 @@ export function ExecutionDetail() {
         ) : (
           <TaskTable tasks={tasks.data.tasks} order={taskOrder} />
         )}
-      </Card>
+      </Box>
 
-      <Card withBorder padding="lg">
-        <Group justify="space-between" mb="sm">
-          <Title order={4}>Timeline</Title>
-          {!terminal && (
-            <Text size="xs" c="blue">
-              live
-            </Text>
-          )}
-        </Group>
+      <Box>
+        <SectionHeader title="Timeline" live={!terminal} />
         {tasks.isPending ? (
           <Loading label="Loading timeline…" />
         ) : tasks.isError ? (
@@ -248,17 +216,10 @@ export function ExecutionDetail() {
         ) : (
           <TaskGantt tasks={tasks.data.tasks} order={taskOrder} />
         )}
-      </Card>
+      </Box>
 
-      <Card withBorder padding="lg">
-        <Group justify="space-between" mb="sm">
-          <Title order={4}>Event log</Title>
-          {!terminal && (
-            <Text size="xs" c="blue">
-              streaming…
-            </Text>
-          )}
-        </Group>
+      <Box>
+        <SectionHeader title="Event log" live={!terminal} liveLabel="streaming…" />
         {events.isPending ? (
           <Loading label="Loading events…" />
         ) : events.isError ? (
@@ -266,7 +227,7 @@ export function ExecutionDetail() {
         ) : (
           <EventLog events={merged} />
         )}
-      </Card>
+      </Box>
 
       <TaskCodeModal
         opened={codeTask !== null}
@@ -300,14 +261,36 @@ function StateKey({ status, dashed }: { status: string; dashed?: boolean }) {
   );
 }
 
-/** A small label-over-value pair for the execution summary row. */
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+/** Label-over-value pair for the execution meta row (spec 04: Mono caps label). */
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <Text size="xs" c="dimmed">
+      <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--faint)" }}>
         {label}
-      </Text>
-      {children}
+      </div>
+      <div style={{ fontSize: 13.5, color: "var(--fg)", marginTop: 3 }}>{value}</div>
     </div>
+  );
+}
+
+/** A pulsing live pill. */
+function LivePill() {
+  return (
+    <span style={{ background: pillBg(TOKEN.ice), color: TOKEN.ice, borderRadius: 10, padding: "2px 9px", fontFamily: MONO, fontSize: 10.5, display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <span className="cl-pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: TOKEN.ice, display: "inline-block" }} /> live
+    </span>
+  );
+}
+
+/** Section header: 14/600 title + optional live tag + optional right slot. */
+function SectionHeader({ title, live, liveLabel = "live", children }: { title: string; live?: boolean; liveLabel?: string; children?: React.ReactNode }) {
+  return (
+    <Group justify="space-between" mb={10} style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 8 }}>
+      <Group gap={10}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{title}</span>
+        {live && <span style={{ fontFamily: MONO, fontSize: 10.5, color: TOKEN.ice }}>{liveLabel}</span>}
+      </Group>
+      {children}
+    </Group>
   );
 }

@@ -14,9 +14,11 @@
  *  limitations under the License.
  */
 
-import { Badge, Code, Tooltip } from "@mantine/core";
+import { Tooltip } from "@mantine/core";
 
 import { explainToken } from "../util/vocab";
+import { MONO, Pill } from "./aurora";
+import { healthColor, TOKEN } from "../util/tokens";
 
 /**
  * Defensive renderer for the free-form `health`/`status` JSON (T-0655).
@@ -34,18 +36,11 @@ export function healthState(value: unknown): string | null {
   return null;
 }
 
-// green = healthy/active, gray = idle/unknown, blue = a transient/other state.
-const STATE_COLOR: Record<string, string> = {
-  running: "green",
-  live: "green",
-  stopped: "gray",
-  unknown: "gray",
-};
-
 /**
  * Badges a graph/accumulator state with a plain-language label and an
  * explanatory tooltip (CLOACI-I-0124 / WS-7) — no more raw quoted enum
- * strings like `"socket_only"` leaking to the operator.
+ * strings like `"socket_only"` leaking to the operator. Aurora token pill,
+ * colored by health (healthy → ok, transient → gold, down → bad, else muted).
  */
 export function GraphHealth({ value }: { value: unknown }) {
   const state = healthState(value);
@@ -53,18 +48,16 @@ export function GraphHealth({ value }: { value: unknown }) {
     const { label, tip } = explainToken(state);
     return (
       <Tooltip label={tip} disabled={!tip} multiline w={260} withArrow>
-        <Badge variant="light" color={STATE_COLOR[state.toLowerCase()] ?? "blue"}>
-          {label}
-        </Badge>
+        <span style={{ display: "inline-flex" }}>
+          <Pill color={healthColor(state)}>{label}</Pill>
+        </span>
       </Tooltip>
     );
   }
   if (value == null) {
-    return (
-      <Badge variant="light" color="gray">
-        unknown
-      </Badge>
-    );
+    return <Pill color={TOKEN.muted}>unknown</Pill>;
   }
-  return <Code fz="xs">{JSON.stringify(value)}</Code>;
+  return (
+    <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--faint)" }}>{JSON.stringify(value)}</span>
+  );
 }

@@ -10,7 +10,31 @@
 import { Box, Group } from "@mantine/core";
 import type { CSSProperties, ReactNode } from "react";
 
+import { pillBg } from "../util/tokens";
+
 export const MONO = "'IBM Plex Mono', monospace";
+
+/** Status/kind pill: the accent color at full strength on a tinted (1c) bg,
+ *  radius 10, Plex Mono — the spec's pill recipe (§Pills/badges). */
+export function Pill({ color, children }: { color: string; children: ReactNode }) {
+  return (
+    <span
+      style={{
+        background: pillBg(color),
+        color,
+        borderRadius: 10,
+        padding: "2px 8px",
+        fontFamily: MONO,
+        fontSize: 10.5,
+        lineHeight: 1.5,
+        display: "inline-block",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
 
 /** Brand "confluence" mark — three strokes flowing down into three nodes. */
 export function BrandMark({ size = 22 }: { size?: number }) {

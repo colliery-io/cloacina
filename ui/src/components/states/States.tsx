@@ -28,7 +28,7 @@ export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
     <Center mih={160} aria-busy="true">
       <Stack align="center" gap="xs">
-        <Loader />
+        <Loader color="ice" />
         <Text c="dimmed" size="sm">
           {label}
         </Text>
@@ -59,7 +59,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
             : "Something went wrong";
   const retryable = c.kind === "server" || c.kind === "network";
   return (
-    <Alert color={c.kind === "validation" ? "yellow" : "red"} title={title} role="alert">
+    <Alert color={c.kind === "validation" ? "gold" : "bad"} title={title} role="alert">
       <Stack gap="xs">
         <Text size="sm">{c.message}</Text>
         {c.code && (
@@ -68,7 +68,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
           </Text>
         )}
         {retryable && onRetry && (
-          <Button size="xs" variant="light" onClick={onRetry} w="fit-content">
+          <Button size="xs" variant="light" color="ice" onClick={onRetry} w="fit-content">
             Retry
           </Button>
         )}
