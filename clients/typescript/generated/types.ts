@@ -723,6 +723,18 @@ export interface components {
     schemas: {
         /** @description One row in `GET /v1/health/accumulators`. */
         AccumulatorStatus: {
+            /** @description Degradation detail when the source is unhealthy (e.g. connection error). */
+            error?: string | null;
+            /**
+             * Format: int64
+             * @description Total boundaries emitted since load (monotonic). `None` when untracked.
+             */
+            events_total?: number | null;
+            /**
+             * @description Wall-clock of the last boundary this accumulator emitted (RFC3339), or
+             *     `None` if it hasn't emitted yet / the runtime predates freshness tracking.
+             */
+            last_event_at?: string | null;
             name: string;
             /**
              * @description The reactor (graph) this accumulator feeds, self-registered by the graph
@@ -731,6 +743,11 @@ export interface components {
              *     `/v1/ws/accumulator/{name}` actually drives.
              */
             reactor?: string | null;
+            /**
+             * @description Health state label (`live`/`socket_only`/`disconnected`/…), CLOACI-T-0765.
+             *     Mirrors the `state` inside `status`; promoted to a typed field for the UI.
+             */
+            state?: string | null;
             /**
              * @description Accumulator health as reported by the endpoint registry. Free-form
              *     JSON for now; structured in a later contract revision.
@@ -1087,6 +1104,18 @@ export interface components {
          */
         ListResponse_AccumulatorStatus: {
             items: {
+                /** @description Degradation detail when the source is unhealthy (e.g. connection error). */
+                error?: string | null;
+                /**
+                 * Format: int64
+                 * @description Total boundaries emitted since load (monotonic). `None` when untracked.
+                 */
+                events_total?: number | null;
+                /**
+                 * @description Wall-clock of the last boundary this accumulator emitted (RFC3339), or
+                 *     `None` if it hasn't emitted yet / the runtime predates freshness tracking.
+                 */
+                last_event_at?: string | null;
                 name: string;
                 /**
                  * @description The reactor (graph) this accumulator feeds, self-registered by the graph
@@ -1095,6 +1124,11 @@ export interface components {
                  *     `/v1/ws/accumulator/{name}` actually drives.
                  */
                 reactor?: string | null;
+                /**
+                 * @description Health state label (`live`/`socket_only`/`disconnected`/…), CLOACI-T-0765.
+                 *     Mirrors the `state` inside `status`; promoted to a typed field for the UI.
+                 */
+                state?: string | null;
                 /**
                  * @description Accumulator health as reported by the endpoint registry. Free-form
                  *     JSON for now; structured in a later contract revision.

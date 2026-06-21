@@ -2520,6 +2520,29 @@
           "status"
         ],
         "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Degradation detail when the source is unhealthy (e.g. connection error)."
+          },
+          "events_total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Total boundaries emitted since load (monotonic). `None` when untracked.",
+            "minimum": 0
+          },
+          "last_event_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Wall-clock of the last boundary this accumulator emitted (RFC3339), or\n`None` if it hasn't emitted yet / the runtime predates freshness tracking."
+          },
           "name": {
             "type": "string"
           },
@@ -2529,6 +2552,13 @@
               "null"
             ],
             "description": "The reactor (graph) this accumulator feeds, self-registered by the graph\nat load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't\nregister the descriptor. Lets an operator see what pushing to\n`/v1/ws/accumulator/{name}` actually drives."
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Health state label (`live`/`socket_only`/`disconnected`/…), CLOACI-T-0765.\nMirrors the `state` inside `status`; promoted to a typed field for the UI."
           },
           "status": {
             "description": "Accumulator health as reported by the endpoint registry. Free-form\nJSON for now; structured in a later contract revision."
@@ -3291,6 +3321,29 @@
                 "status"
               ],
               "properties": {
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Degradation detail when the source is unhealthy (e.g. connection error)."
+                },
+                "events_total": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "description": "Total boundaries emitted since load (monotonic). `None` when untracked.",
+                  "minimum": 0
+                },
+                "last_event_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Wall-clock of the last boundary this accumulator emitted (RFC3339), or\n`None` if it hasn't emitted yet / the runtime predates freshness tracking."
+                },
                 "name": {
                   "type": "string"
                 },
@@ -3300,6 +3353,13 @@
                     "null"
                   ],
                   "description": "The reactor (graph) this accumulator feeds, self-registered by the graph\nat load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't\nregister the descriptor. Lets an operator see what pushing to\n`/v1/ws/accumulator/{name}` actually drives."
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Health state label (`live`/`socket_only`/`disconnected`/…), CLOACI-T-0765.\nMirrors the `state` inside `status`; promoted to a typed field for the UI."
                 },
                 "status": {
                   "description": "Accumulator health as reported by the endpoint registry. Free-form\nJSON for now; structured in a later contract revision."
