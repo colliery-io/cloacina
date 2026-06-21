@@ -282,7 +282,22 @@ pub struct FreshnessHandle {
     last_event_ms: Arc<std::sync::atomic::AtomicI64>,
 }
 
+impl Default for FreshnessHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FreshnessHandle {
+    /// A fresh probe (zeroed counters). Share it into a `BoundarySender` via
+    /// `BoundarySender::with_freshness` and register it with the graph registry.
+    pub fn new() -> Self {
+        Self {
+            events_total: Arc::new(AtomicU64::new(0)),
+            last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        }
+    }
+
     /// Total boundaries emitted since load (monotonic).
     pub fn events_total(&self) -> u64 {
         self.events_total.load(Ordering::Relaxed)
@@ -312,6 +327,22 @@ impl BoundarySender {
             source_name,
             sequence: Arc::new(AtomicU64::new(0)),
             last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        }
+    }
+
+    /// Create a sender that shares its events_total + last-event with a
+    /// pre-made `FreshnessHandle` (CLOACI-T-0765), so the registry can sample
+    /// freshness for the live accumulator.
+    pub fn with_freshness(
+        sender: mpsc::Sender<(SourceName, Vec<u8>)>,
+        source_name: SourceName,
+        freshness: FreshnessHandle,
+    ) -> Self {
+        Self {
+            inner: sender,
+            source_name,
+            sequence: freshness.events_total.clone(),
+            last_event_ms: freshness.last_event_ms.clone(),
         }
     }
 

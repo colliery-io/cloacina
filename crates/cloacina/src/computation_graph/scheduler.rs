@@ -77,6 +77,10 @@ pub struct AccumulatorSpawnConfig {
     pub health_tx: Option<watch::Sender<AccumulatorHealth>>,
     /// Graph name (used as key for checkpoint persistence).
     pub graph_name: String,
+    /// Shared freshness probe for the accumulator's BoundarySender (CLOACI-T-0765).
+    /// The factory builds the sender via `BoundarySender::with_freshness` so the
+    /// registry can report events_total + last-event for this source.
+    pub freshness: super::accumulator::FreshnessHandle,
 }
 
 /// Factory trait for creating accumulator instances.
@@ -468,10 +472,12 @@ impl ComputationGraphScheduler {
             let (health_tx, health_rx) = health_channel();
             acc_health_rxs.push((acc_decl.name.clone(), health_rx.clone()));
 
+            let freshness = super::accumulator::FreshnessHandle::new();
             let spawn_config = AccumulatorSpawnConfig {
                 dal: self.dal.clone(),
                 health_tx: Some(health_tx),
                 graph_name: reactor_name.clone(),
+                freshness: freshness.clone(),
             };
 
             let (socket_tx, handle) = acc_decl.factory.spawn(
@@ -486,6 +492,9 @@ impl ComputationGraphScheduler {
                 .await;
             self.registry
                 .register_accumulator_health(acc_decl.name.clone(), health_rx)
+                .await;
+            self.registry
+                .register_accumulator_freshness(acc_decl.name.clone(), freshness)
                 .await;
             // CLOACI-I-0128 follow-up: self-register discoverability metadata
             // (the reactor this accumulator feeds + owning tenant) so the
@@ -1110,10 +1119,12 @@ impl ComputationGraphScheduler {
                 for acc_decl in &running.declaration.accumulators {
                     let (health_tx, health_rx) = health_channel();
                     restart_acc_health_rxs.push((acc_decl.name.clone(), health_rx.clone()));
+                    let freshness = super::accumulator::FreshnessHandle::new();
                     let spawn_config = AccumulatorSpawnConfig {
                         dal: self.dal.clone(),
                         health_tx: Some(health_tx),
                         graph_name: graph_name.clone(),
+                        freshness: freshness.clone(),
                     };
                     let (socket_tx, handle) = acc_decl.factory.spawn(
                         acc_decl.name.clone(),
@@ -1126,6 +1137,9 @@ impl ComputationGraphScheduler {
                         .await;
                     self.registry
                         .register_accumulator_health(acc_decl.name.clone(), health_rx)
+                        .await;
+                    self.registry
+                        .register_accumulator_freshness(acc_decl.name.clone(), freshness)
                         .await;
                     // CLOACI-I-0128 follow-up: re-register discoverability meta
                     // on the restart path too (graph + tenant).
@@ -1268,10 +1282,12 @@ impl ComputationGraphScheduler {
                         {
                             // Re-spawn with existing boundary_tx and shutdown_rx
                             let (health_tx, health_rx) = health_channel();
+                            let freshness = super::accumulator::FreshnessHandle::new();
                             let spawn_config = AccumulatorSpawnConfig {
                                 dal: self.dal.clone(),
                                 health_tx: Some(health_tx),
                                 graph_name: graph_name.clone(),
+                                freshness: freshness.clone(),
                             };
                             let (socket_tx, new_handle) = acc_decl.factory.spawn(
                                 acc_name.clone(),
@@ -1286,6 +1302,9 @@ impl ComputationGraphScheduler {
                                 .await;
                             self.registry
                                 .register_accumulator_health(acc_name.clone(), health_rx)
+                                .await;
+                            self.registry
+                                .register_accumulator_freshness(acc_name.clone(), freshness)
                                 .await;
                             let ind_acc_policy = match &running.declaration.tenant_id {
                                 Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
@@ -1494,7 +1513,11 @@ mod tests {
                 .dal
                 .map(|dal| CheckpointHandle::new(dal, config.graph_name.clone(), name.clone()));
 
-            let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
+            let sender = BoundarySender::with_freshness(
+                boundary_tx,
+                SourceName::new(&name),
+                config.freshness.clone(),
+            );
             let ctx = AccumulatorContext {
                 output: sender,
                 name: name.clone(),

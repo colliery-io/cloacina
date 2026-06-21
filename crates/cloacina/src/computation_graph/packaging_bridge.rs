@@ -349,7 +349,11 @@ impl AccumulatorFactory for PassthroughAccumulatorFactory {
             super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
         });
 
-        let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
+        let sender = BoundarySender::with_freshness(
+            boundary_tx,
+            SourceName::new(&name),
+            config.freshness.clone(),
+        );
         let ctx = AccumulatorContext {
             output: sender,
             name: name.clone(),
@@ -482,7 +486,11 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
             super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
         });
 
-        let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
+        let sender = BoundarySender::with_freshness(
+            boundary_tx,
+            SourceName::new(&name),
+            config.freshness.clone(),
+        );
         let ctx = AccumulatorContext {
             output: sender,
             name: name.clone(),
@@ -580,7 +588,11 @@ impl AccumulatorFactory for StateAccumulatorFactory {
             super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
         });
 
-        let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
+        let sender = BoundarySender::with_freshness(
+            boundary_tx,
+            SourceName::new(&name),
+            config.freshness.clone(),
+        );
         let ctx = AccumulatorContext {
             output: sender,
             name: name.clone(),
