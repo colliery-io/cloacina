@@ -4,14 +4,14 @@ level: task
 title: "Python parity — type-hints to JSON Schema for params and boundaries"
 short_code: "CLOACI-T-0760"
 created_at: 2026-06-20T16:46:03.673640+00:00
-updated_at: 2026-06-21T00:26:04.274181+00:00
+updated_at: 2026-06-21T00:48:51.868186+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -167,3 +169,29 @@ the reference; once the Python model is chosen, the carry into `declared_params`
 
 **Blocked** pending the authoring-model decision (params half) and D (boundaries
 half).
+
+### 2026-06-20 — DECISION: Python decorator parsed from source; DONE + VERIFIED
+
+Maintainer chose the **decorator-parsed-from-source** mechanism. Implemented +
+committed (`feat: Python parity for declared workflow params`):
+- **Authoring**: `@cloaca.workflow_params(name=type, name=(type, default), …)` —
+  a runtime no-op pass-through decorator (`cloacina-python`, registered in both
+  the maturin pymodule and the synthetic loader module).
+- **Build-time parse**: `cloacina-compiler/src/param_parse.rs` parses the
+  decorator from Python source (scalar map str/int/float/bool/list/dict →
+  JSON Schema; `(type, default)` → optional), the same source-parse approach as
+  the T-0752 doc extractor.
+- **Carry**: threaded build → loopp → `mark_build_success_with_docs`;
+  `extract_and_merge` writes the params onto the stored metadata in the
+  **empty-artifact (Python) branch** — Python's only carry path (no cdylib FFI).
+- Reuses B/C: the params then surface on `WorkflowDetail.declared_params` and are
+  validated at execute exactly like Rust.
+- `demo-py-workflow` fixture declares params as the worked example.
+
+Verified: 5 param_parse unit tests + integration carry test
+(`test_python_declared_params_persisted_on_empty_artifact_build`) + full lanes
+green (315+100+6, 0 failed).
+
+Scope: workflow params (the parity ask). Python accumulator/reactor boundary
+typing would follow the same source-parse pattern if needed later (Rust's D is
+opt-in typed; Python CG authoring is a separate surface). Done.

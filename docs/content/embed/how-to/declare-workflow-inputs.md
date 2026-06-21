@@ -57,6 +57,29 @@ pub mod analytics_workflow {
   and structs/enums that derive `JsonSchema`). The JSON Schema is derived
   automatically via `schemars`.
 
+### Python
+
+Packaged Python workflows declare params with the `@cloaca.workflow_params(...)`
+decorator on any task in the workflow module. The compiler parses it from source
+at build time — at runtime the decorator is a no-op:
+
+```python
+import cloaca
+
+@cloaca.workflow_params(
+    source_id=str,            # required
+    batch_size=(int, 500),    # optional, with default
+)
+@cloaca.task(dependencies=[])
+def prepare(context):
+    return context
+```
+
+Supported scalar types map to JSON Schema: `str`→string, `int`→integer,
+`float`→number, `bool`→boolean, `list`→array, `dict`→object. Use `(type, default)`
+for an optional param. The declared params surface and validate identically to
+the Rust path.
+
 ## How params surface
 
 Once the package is built and registered, each param is exposed as an
