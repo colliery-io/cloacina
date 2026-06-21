@@ -14,11 +14,12 @@
  *  limitations under the License.
  */
 
-import { Box, Group } from "@mantine/core";
+import { Box, Button, Group } from "@mantine/core";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAccumulators, useGraphs, useReactors } from "../api/health";
+import { useFireReactor } from "../api/controls";
 import { Dot, MONO, PageHeader, cardSurface } from "../components/aurora";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { explainToken } from "../util/vocab";
@@ -65,6 +66,7 @@ export function Graphs() {
   const graphs = useGraphs();
   const reactors = useReactors();
   const accs = useAccumulators();
+  const fire = useFireReactor();
 
   const accStatus = useMemo(() => {
     const m = new Map<string, string>();
@@ -170,11 +172,22 @@ export function Graphs() {
                       {r.reaction_mode && tintPill(explainToken(r.reaction_mode).label, TOKEN.violet)}
                       {r.paused && tintPill("paused", TOKEN.gold)}
                     </Group>
-                    <Group gap={14} wrap="nowrap">
+                    <Group gap={12} wrap="nowrap">
                       <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--faint)" }}>
                         {rate == null ? "—" : `~${rate}/min`}
                       </span>
                       <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--fainter)" }}>{formatAgo(lastFired)}</span>
+                      <Button
+                        size="compact-xs"
+                        variant="default"
+                        loading={fire.isPending && fire.variables === r.name}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          fire.mutate(r.name);
+                        }}
+                      >
+                        ▸ Fire
+                      </Button>
                     </Group>
                   </Group>
                   <Box style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
