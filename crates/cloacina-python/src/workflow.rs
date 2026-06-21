@@ -451,3 +451,38 @@ pub fn workflow_params(
 ) -> PyWorkflowParamsDecorator {
     PyWorkflowParamsDecorator
 }
+
+/// Pass-through decorator returned by [`boundary_schema`]. CLOACI-T-0770: like
+/// [`PyWorkflowParamsDecorator`], the declaration is parsed from source by the
+/// compiler at build time; at runtime this just returns the decorated object.
+#[pyclass(name = "BoundarySchemaDecorator")]
+pub struct PyBoundarySchemaDecorator;
+
+#[pymethods]
+impl PyBoundarySchemaDecorator {
+    fn __call__(&self, obj: PyObject) -> PyObject {
+        obj
+    }
+}
+
+/// `@cloaca.boundary_schema(field=type, ...)` — declares the typed shape of a
+/// Python accumulator's boundary (CLOACI-T-0770), the parity of deriving
+/// `schemars::JsonSchema` on a Rust boundary type. The compiler parses this from
+/// source at build time into the accumulator's declared input-interface slot
+/// (so inject/fire-with render typed forms); at runtime it's a no-op
+/// pass-through. Applied to the accumulator function:
+///
+/// ```python
+/// @cloaca.boundary_schema(bid=float, ask=float)
+/// @cloaca.passthrough_accumulator
+/// def py_alpha(event): ...
+/// ```
+///
+/// Supported scalar types: `str`, `int`, `float`, `bool`, `list`, `dict`.
+#[pyfunction]
+#[pyo3(signature = (**_kwargs))]
+pub fn boundary_schema(
+    _kwargs: Option<Bound<'_, pyo3::types::PyDict>>,
+) -> PyBoundarySchemaDecorator {
+    PyBoundarySchemaDecorator
+}

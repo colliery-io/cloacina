@@ -17,6 +17,9 @@ so the Accumulators + Graphs views show live activity.
 import cloaca
 
 
+# CLOACI-T-0770: each injected event is a {bid, ask} tick (the state accumulator
+# buffers them into the emitted window) → typed inject form.
+@cloaca.boundary_schema(bid=float, ask=float)
 @cloaca.state_accumulator(capacity=5)
 def py_window(event):
     # State accumulators buffer the returned value; the runtime emits the full

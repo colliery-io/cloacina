@@ -8,6 +8,9 @@ proven soak-server Python CG (.angreal/test/soak/server.py).
 import cloaca
 
 
+# CLOACI-T-0770: declare py_alpha's boundary shape → typed inject/fire form
+# (Python parity of deriving schemars::JsonSchema on a Rust boundary type).
+@cloaca.boundary_schema(bid=float, ask=float)
 @cloaca.passthrough_accumulator
 def py_alpha(event):
     return event

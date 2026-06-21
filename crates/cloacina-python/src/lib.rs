@@ -127,6 +127,7 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // CLOACI-T-0760: declared-params decorator (runtime no-op; parsed from source).
     m.add_class::<workflow::PyWorkflowParamsDecorator>()?;
     m.add_function(wrap_pyfunction!(workflow::workflow_params, m)?)?;
+    m.add_function(wrap_pyfunction!(workflow::boundary_schema, m)?)?;
 
     m.add_class::<bindings::runner::PyDefaultRunner>()?;
     m.add_class::<bindings::runner::PyWorkflowResult>()?;

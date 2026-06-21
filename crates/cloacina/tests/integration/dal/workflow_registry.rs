@@ -222,6 +222,7 @@ async fn test_python_declared_params_persisted_on_empty_artifact_build() {
             Vec::new(),
             std::collections::HashMap::new(),
             declared.clone(),
+            Vec::new(),
         )
         .await
         .expect("mark_build_success_with_docs");

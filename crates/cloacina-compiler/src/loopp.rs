@@ -76,6 +76,7 @@ async fn run_build_with_heartbeat(
             artifact,
             task_docs,
             declared_params,
+            declared_surfaces,
         } => {
             metrics::counter!(
                 "cloacina_compiler_builds_total",
@@ -87,7 +88,13 @@ async fn run_build_with_heartbeat(
             // CLOACI-T-0760: also carry source-parsed declared params (the
             // Python parity path — Rust gets them from the FFI instead).
             if let Err(e) = registry
-                .mark_build_success_with_docs(package_id, artifact, task_docs, declared_params)
+                .mark_build_success_with_docs(
+                    package_id,
+                    artifact,
+                    task_docs,
+                    declared_params,
+                    declared_surfaces,
+                )
                 .await
             {
                 warn!(%e, %package_id, "mark_build_success failed");

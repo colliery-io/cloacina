@@ -146,6 +146,7 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
     // parses the declaration from source at build time).
     module.add_class::<super::workflow::PyWorkflowParamsDecorator>()?;
     module.add_function(wrap_pyfunction!(super::workflow::workflow_params, &module)?)?;
+    module.add_function(wrap_pyfunction!(super::workflow::boundary_schema, &module)?)?;
 
     // Trigger decorator and result
     module.add_function(wrap_pyfunction!(super::trigger::trigger, &module)?)?;
