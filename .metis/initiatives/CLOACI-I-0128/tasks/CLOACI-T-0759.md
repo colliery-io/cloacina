@@ -4,14 +4,14 @@ level: task
 title: "Typed injection validation — reactor fire + accumulator inject against derived schema"
 short_code: "CLOACI-T-0759"
 created_at: 2026-06-20T16:46:02.725645+00:00
-updated_at: 2026-06-20T19:04:02.672457+00:00
+updated_at: 2026-06-21T00:24:03.112211+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/blocked"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -149,3 +153,19 @@ validation helper pattern is already proven for workflows
 (`validate_declared_params` in `routes/executions.rs`, T-0757) and will port
 directly to the CG-health handlers once D supplies the schemas. Unblock D, then
 this is a small, mechanical follow-on.
+
+### 2026-06-20 — DONE + VERIFIED (landed with T-0758 part 2)
+
+D unblocked (opt-in typed surfaces). Validation wired into the operator inject
+handlers (`routes/health_graphs.rs`), reusing the T-0757 validators:
+- **`fire_reactor`** (`fire_with`): validates the `inputs` map against the
+  reactor's per-source declared slots (`find_surface_input_slots("reactor", …)`)
+  → **`400 reactor_input_invalid`** with per-field messages.
+- **`inject_accumulator`**: validates the event against the accumulator's
+  boundary slot (`find_accumulator_input_slot(…)`) via a new single-value
+  validator (`validate_value_against_schema`) → **`400 accumulator_input_invalid`**.
+- Untyped/unknown surfaces accept free-form input (permissive `{}` schema);
+  registry errors fail open.
+
+Verified: unit (single-value validator cases) + integration green (314+100+6,
+0 failed). Committed with the T-0758 part-2 change.

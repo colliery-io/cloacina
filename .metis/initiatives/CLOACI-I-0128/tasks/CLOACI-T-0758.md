@@ -4,14 +4,14 @@ level: task
 title: "Accumulator and reactor input interface derivation + API exposure"
 short_code: "CLOACI-T-0758"
 created_at: 2026-06-20T16:46:01.362198+00:00
-updated_at: 2026-06-20T23:09:53.879575+00:00
+updated_at: 2026-06-21T00:23:41.618139+00:00
 parent: CLOACI-I-0128
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0128
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -247,3 +249,24 @@ Committed (`feat: opt-in typed accumulator/reactor input interface … part 1`):
 
 This Part-2 bridge touches the live endpoint-registry / CG-health surface (the
 in-flux runtime area); the hard, decision-bearing derivation is done.
+
+### 2026-06-20 — Part 2 DONE + VERIFIED (D complete)
+
+Committed (`feat: validate + expose accumulator/reactor input interfaces … part 2`):
+- **Host capture**: `package_loader` now splits the `get_input_interface`
+  entries — `workflow` → `declared_params`, everything else → a new
+  `PackageMetadata.declared_surfaces` (`Vec<DeclaredSurface{kind,name,slots}>`),
+  carried through the build-success merge.
+- **Registry queries**: `WorkflowMetadata.declared_surfaces` +
+  `find_surface_input_slots(kind, name)` / `find_accumulator_input_slot(name)`.
+- **API exposure**: `GET /v1/health/{reactors,accumulators}/{name}/interface`
+  return the declared `DeclaredSurface` (read-only discovery; no list-hot-path
+  coupling; backs typed UI forms without touching the frozen frontend). OpenAPI
+  synced.
+
+Chose the package-metadata carry path over threading schemas into the live
+endpoint registration (which lives deep in the in-flux runtime spin-up) — the
+CG-health endpoints are global, so the admin/public registry is the correct
+scope and the query is cheap for infrequent operator actions.
+
+Verified: unit + integration green (314+100+6, 0 failed). **D complete.**
