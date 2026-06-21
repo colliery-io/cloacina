@@ -11,6 +11,13 @@ The reconciler imports `entry_module` (this file) at load time; the
 (`demo_py_cron_workflow`), and the `@cloaca.trigger(cron=…)` registers a cron
 schedule for that workflow — no `triggers` section in package.toml, the
 decorator is the declaration.
+
+Shape (branching so the cron runs aren't single-dot DAGs in the UI; Python tasks
+have no trigger-rule gating, so this branches + fans in but does not skip — the
+skipped-node demos are the Rust cron/branch fixtures):
+
+    py_poll ──┬─▶ py_process ─▶ py_record
+              └─▶ py_audit ────┘
 """
 from __future__ import annotations
 
@@ -18,10 +25,26 @@ import cloaca
 
 
 @cloaca.task(dependencies=[])
-def py_cron_step(context):
-    # A trivial step so each scheduled fire produces a visible execution in the
-    # UI's Executions view (mirrors demo-cron-rust's single-task workflow).
+def py_poll(context):
+    context.set("demo_py_cron_polled", True)
+    return context
+
+
+@cloaca.task(dependencies=["py_poll"])
+def py_process(context):
     context.set("demo_py_cron_ran", True)
+    return context
+
+
+@cloaca.task(dependencies=["py_poll"])
+def py_audit(context):
+    context.set("demo_py_cron_audited", True)
+    return context
+
+
+@cloaca.task(dependencies=["py_process", "py_audit"])
+def py_record(context):
+    context.set("demo_py_cron_recorded", True)
     return context
 
 
