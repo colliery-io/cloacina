@@ -14,12 +14,13 @@
  *  limitations under the License.
  */
 
-import { Box, Button, Group, Modal, Textarea } from "@mantine/core";
+import { Box, Button, Group } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAccumulators, useGraphs, useReactors } from "../api/health";
-import { useFireReactor, useInjectAccumulator } from "../api/controls";
+import { useFireReactor } from "../api/controls";
+import { GraphInjectModal, type InjectTarget } from "../components/GraphInjectModal";
 import { Dot, MONO, PageHeader, cardSurface } from "../components/aurora";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { explainToken } from "../util/vocab";
@@ -67,28 +68,7 @@ export function Graphs() {
   const reactors = useReactors();
   const accs = useAccumulators();
   const fire = useFireReactor();
-  const inject = useInjectAccumulator();
-  const [injectName, setInjectName] = useState<string | null>(null);
-  const [injectJson, setInjectJson] = useState("{}");
-
-  function doInject() {
-    if (!injectName) return;
-    let event: unknown = injectJson;
-    try {
-      event = JSON.parse(injectJson);
-    } catch {
-      /* not JSON — send the raw string */
-    }
-    inject.mutate(
-      { name: injectName, event },
-      {
-        onSuccess: () => {
-          setInjectName(null);
-          setInjectJson("{}");
-        },
-      },
-    );
-  }
+  const [injectTarget, setInjectTarget] = useState<InjectTarget | null>(null);
 
   const accStatus = useMemo(() => {
     const m = new Map<string, string>();
@@ -262,7 +242,7 @@ export function Graphs() {
                         variant="default"
                         onClick={(ev) => {
                           ev.stopPropagation();
-                          setInjectName(a.name);
+                          setInjectTarget({ kind: "accumulator", name: a.name });
                         }}
                       >
                         Inject
@@ -276,33 +256,12 @@ export function Graphs() {
         )}
       </Box>
 
-      {/* Accumulator inject (CLOACI-T-0753) */}
-      <Modal opened={injectName !== null} onClose={() => setInjectName(null)} title={`Inject → ${injectName ?? ""}`} centered>
-        <Box style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>
-          Push a single event into <b>{injectName}</b>. JSON is sent as a typed value; anything else
-          is sent as a string. Encoded to the boundary wire server-side.
-        </Box>
-        <Textarea
-          autosize
-          minRows={4}
-          value={injectJson}
-          onChange={(e) => setInjectJson(e.currentTarget.value)}
-          styles={{ input: { fontFamily: MONO, fontSize: 12 } }}
-        />
-        {inject.isError && (
-          <Box style={{ color: "var(--bad)", fontSize: 12.5, marginTop: 8 }}>
-            {inject.error instanceof Error ? inject.error.message : "Inject failed"}
-          </Box>
-        )}
-        <Group justify="flex-end" mt={12}>
-          <Button variant="default" onClick={() => setInjectName(null)}>
-            Cancel
-          </Button>
-          <Button color="ice" styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} loading={inject.isPending} onClick={doInject}>
-            Inject
-          </Button>
-        </Group>
-      </Modal>
+      {/* Typed accumulator inject (CLOACI-T-0768) — shared with GraphDetail. */}
+      <GraphInjectModal
+        target={injectTarget}
+        opened={injectTarget !== null}
+        onClose={() => setInjectTarget(null)}
+      />
     </div>
   );
 }

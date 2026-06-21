@@ -39,7 +39,8 @@ cloacina_plugin::package!();
 )]
 pub struct DemoKafkaRx;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// CLOACI-T-0768: JsonSchema opts kafka_alpha into a typed inject/fire form.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EventData {
     pub value: f64,
 }
