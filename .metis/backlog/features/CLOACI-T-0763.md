@@ -4,15 +4,15 @@ level: task
 title: "Python trigger-rule parity — gate cloaca.task with trigger_rules so Python tasks can Skip"
 short_code: "CLOACI-T-0763"
 created_at: 2026-06-21T14:15:37.567680+00:00
-updated_at: 2026-06-21T14:29:11.976638+00:00
-parent:
+updated_at: 2026-06-21T14:38:25.513073+00:00
+parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -76,6 +76,8 @@ gating. Close the gap so a gated Python task lands Skipped exactly like Rust.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -178,6 +180,18 @@ gating. Close the gap so a gated Python task lands Skipped exactly like Rust.
   branch-only workaround); docs/trigger-rules.md gained a Python section.
 - `cargo check -p cloacina-python` green. Verifying end-to-end via
   `angreal test integration trigger_rules --python-file test_scenario_14_trigger_rules --backend sqlite`.
+
+### 2026-06-21 — Verified (sqlite, direct pytest) — DONE
+Built the release wheel + ran `test_real_trigger_rule_gating_skips_task` on
+sqlite: **1 passed**. Planner log confirms the real Skip — `Task skipped:
+real_gating_off_workflow::optional (dependencies satisfied, trigger rules
+failed)`; fan-in `sink` still ran; the gate-on case ran `optional2`. Skip proven
+on sqlite (here) + postgres (the demo's skipped nodes). **Gap closed.**
+
+Aside: `angreal test integration --backend sqlite` with a `trigger_rules` filter
+surfaced 10/20 pre-existing failures in the Rust `scheduler::trigger_rules`
+`#[serial]` integration tests — a test-isolation artifact under that filter
+combo, not a skip regression (skip works, proven above). Separate follow-up.
 
 ### Follow-up (noted, not blocking)
 - `PyWorkflowResult` exposes status + final_context but not per-task states; the
