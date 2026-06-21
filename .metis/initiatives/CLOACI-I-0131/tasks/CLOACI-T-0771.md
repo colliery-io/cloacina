@@ -4,14 +4,14 @@ level: task
 title: "Visual-regression suite — Playwright toHaveScreenshot pixel gate for Aurora Dark"
 short_code: "CLOACI-T-0771"
 created_at: 2026-06-21T23:55:13.774910+00:00
-updated_at: 2026-06-21T23:55:13.774910+00:00
+updated_at: 2026-06-21T23:56:56.450466+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,7 +28,9 @@ initiative_id: CLOACI-I-0131
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+The repo had no automated pixel test — `design/aurora-dark/screenshots/` are the
+vendored design mock (eyeballed), with no `toHaveScreenshot` assertion. Stand up
+a real visual-regression gate for the Aurora Dark design system.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -63,6 +65,10 @@ initiative_id: CLOACI-I-0131
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +139,15 @@ initiative_id: CLOACI-I-0131
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-21 — DONE (236b254a)
+- `ui/e2e/visual.spec.ts`: Playwright `toHaveScreenshot` over connect + overview
+  + workflows + workflow-detail + executions + triggers + graphs + graph-detail.
+- Deterministic on the live demo: fixed 1440x900 viewport (not fullPage — list
+  pages grow/shrink → a height shift would diff the whole image), dynamic regions
+  masked (`.cl-tnum` live numbers + the status-colored DAG canvases), 0.06
+  max-diff ratio for AA. Verified stable across 3 consecutive runs (the first
+  fullPage attempt flaked on Overview height — fixed by viewport capture).
+- `npm run test:visual` (assert) / `-- -u` (refresh). 8 baselines committed,
+  darwin-tagged; regenerate in the CI image before wiring to CI (font AA is
+  OS-specific).
+- User chose visual-regression over a mock-diff audit / refreshing the refs.
