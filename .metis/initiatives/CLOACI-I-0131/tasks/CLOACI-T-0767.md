@@ -4,14 +4,14 @@ level: task
 title: "GraphDetail operational view — full UI recompose on the new instrumentation"
 short_code: "CLOACI-T-0767"
 created_at: 2026-06-21T19:21:15.136288+00:00
-updated_at: 2026-06-21T19:21:15.136288+00:00
+updated_at: 2026-06-21T20:15:36.814839+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0131
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,25 @@ initiative_id: CLOACI-I-0131
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-06-21 — DONE (7097dc90)
+GraphDetail recomposed per the `graph_operational_view` pack on real
+instrumentation (no PROPOSED stubs for the data tier):
+- New `graph-ops.tsx`: DegradedBanner, GraphStatusStrip (health / throughput /
+  last fire / total fires / sources-healthy / fire-failures), FireActivity
+  (per-minute heatmap off T-0766 timeseries), ReactorReadiness (criteria +
+  per-source fresh/stale chips + verdict), AccumulatorTable (state / last-event /
+  rate / freshness bar / inline error off T-0765 fields), RecentFires (outcome +
+  duration off T-0766 fires log).
+- `controls.ts`: `useReactorFires` + `useReactorFireTimeseries` (5s poll).
+- `GraphDetail.tsx`: header w/ Fire (useFireReactor) + Pause; degraded-source
+  gold overlay on the topology FullDag (`failByNode` keyed `acc:{name}`).
+- Per-source events/min derived via `useGraphThroughput` over `events_total`
+  (same delta-over-polls pattern as fires/min); staleness from last_event_at age
+  (>30s) or disconnected state.
+
+Green: ui typecheck + build + unit tests; SDK types resolve the new fields.
+
+Verification note: live screenshot vs the 3 reference shots needs the demo stack
+rebuilt with these changes (`angreal ui up --build`) — the demo's live CG
+producer (Kafka accumulators) populates the view; the currently-running stack is
+the pre-change build so its /v1/health/graphs is empty.
