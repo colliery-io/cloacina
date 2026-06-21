@@ -14,17 +14,28 @@
  *  limitations under the License.
  */
 
-import { Anchor, Box, Divider, Drawer, Group, List, Stack, Text, Tooltip } from "@mantine/core";
-import { useState } from "react";
+import { Anchor, Box, Button, Divider, Drawer, Group, Stack, Text, Tooltip } from "@mantine/core";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { useGraph } from "../api/health";
+import { useAccumulators, useGraph } from "../api/health";
+import { useFireReactor } from "../api/controls";
 import { type DagEdge, type DagNode } from "../components/Dag";
 import { FullDag } from "../components/FullDag";
 import { GraphHealth } from "../components/GraphHealth";
+import {
+  AccumulatorTable,
+  DegradedBanner,
+  FireActivity,
+  GraphStatusStrip,
+  ReactorReadiness,
+  RecentFires,
+  accStale,
+  type Acc,
+} from "../components/graph-ops";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { explainToken } from "../util/vocab";
-import { MONO, Pill, cardSurface } from "../components/aurora";
+import { MONO, Panel, Pill } from "../components/aurora";
 import { nodeKindColor, TOKEN } from "../util/tokens";
 
 type TopoNode = { id: string; inputs?: string[] };
@@ -38,10 +49,8 @@ type GraphData = {
 };
 
 /**
- * Build the augmented CG view (CLOACI-I-0124 / WS-4): the compute nodes plus
- * the **accumulators** and the **reactor** as upstream nodes, so the full data
- * flow — sources → reactor → graph — reads as one picture. Accumulators feed
- * the reactor; the reactor fires the graph's entry (root) nodes.
+ * Build the augmented CG view (CLOACI-I-0124 / WS-4): compute nodes plus the
+ * accumulators + reactor as upstream nodes — sources → reactor → graph.
  */
 function buildCgGraph(data: GraphData): { nodes: DagNode[]; edges: DagEdge[] } | null {
   const topo = data.topology;
@@ -62,16 +71,13 @@ function buildCgGraph(data: GraphData): { nodes: DagNode[]; edges: DagEdge[] } |
     accIds.forEach((a) => edges.push({ from: a, to: reactorId }));
     roots.forEach((r) => edges.push({ from: reactorId, to: r }));
   } else {
-    // No reactor: wire accumulators straight to the entry nodes.
     accIds.forEach((a) => roots.forEach((r) => edges.push({ from: a, to: r })));
   }
 
   return { nodes, edges };
 }
 
-/** What to show in the node drawer (CLOACI-I-0124 / WS-5). Source code isn't
- *  shippable from a compiled package, so we surface the available metadata —
- *  role, inputs, upstream, and routing. */
+/** Node drawer detail (CLOACI-I-0124 / WS-5). */
 function describeNode(
   id: string,
   data: GraphData,
@@ -107,36 +113,92 @@ function describeNode(
       ["Upstream", incoming.map((e) => e.from).join(", ") || "— (entry node)"],
       [
         "Routes to",
-        outgoing.map((e) => (e.label ? `${e.to} (on ${e.label})` : e.to)).join(", ") ||
-          "— (terminal)",
+        outgoing.map((e) => (e.label ? `${e.to} (on ${e.label})` : e.to)).join(", ") || "— (terminal)",
       ],
     ],
   };
 }
 
 /**
- * Single computation-graph detail (T-0655; CLOACI-I-0124 WS-4 + WS-5). Renders
- * the reactor + accumulators as first-class nodes; clicking any node opens a
- * detail drawer.
+ * Graph operational view (CLOACI-T-0767). Header + degraded banner + status
+ * strip + fire activity + reactor readiness + accumulator freshness + topology
+ * (degraded overlay) + recent fires, on the T-0765/T-0766 instrumentation.
  */
 export function GraphDetail() {
   const { name = "" } = useParams();
   const { data, isPending, isError, error, refetch } = useGraph(name);
+  const accumulators = useAccumulators();
+  const fire = useFireReactor();
   const [selected, setSelected] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
 
-  const graph = data ? buildCgGraph(data as GraphData) : null;
-  const detail = selected && data ? describeNode(selected, data as GraphData) : null;
+  const gd = data as GraphData | undefined;
+  const reactor = gd?.reactor ?? null;
+
+  // The graph's bound accumulators with freshness (filtered from the list).
+  const accs: Acc[] = useMemo(() => {
+    const names = new Set(gd?.accumulators ?? []);
+    return (accumulators.data?.items ?? []).filter((a) => names.has(a.name)) as Acc[];
+  }, [accumulators.data, gd?.accumulators]);
+
+  const graph = gd ? buildCgGraph(gd) : null;
+  const detail = selected && gd ? describeNode(selected, gd) : null;
+
+  // Degraded sources → gold ⚠ overlay on their topology nodes.
+  const failByNode = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const a of accs) if (accStale(a)) m[`acc:${a.name}`] = 1;
+    return m;
+  }, [accs]);
 
   return (
-    <Stack>
-      <Box>
-        <Anchor component={Link} to="/graphs" size="xs" c="dimmed">
-          ← Graphs
-        </Anchor>
-        <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)", marginTop: 2, fontFamily: MONO }}>
-          {name}
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {/* Header */}
+      <Group justify="space-between" align="flex-start">
+        <Box>
+          <Anchor component={Link} to="/graphs" size="xs" c="dimmed" style={{ fontFamily: MONO }}>
+            ← Graphs
+          </Anchor>
+          <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)", marginTop: 2, fontFamily: MONO }}>{name}</Box>
+          {data && (
+            <Group gap={8} mt={5}>
+              <GraphHealth value={data.health} />
+              {data.reaction_mode && (
+                <Tooltip label={explainToken(data.reaction_mode).tip} disabled={!explainToken(data.reaction_mode).tip} multiline w={260} withArrow>
+                  <span style={{ display: "inline-flex" }}>
+                    <Pill color={TOKEN.violet}>{explainToken(data.reaction_mode).label}</Pill>
+                  </span>
+                </Tooltip>
+              )}
+              {data.input_strategy && (
+                <Tooltip label={explainToken(data.input_strategy).tip} disabled={!explainToken(data.input_strategy).tip} multiline w={260} withArrow>
+                  <span style={{ display: "inline-flex" }}>
+                    <Pill color={TOKEN.teal}>{explainToken(data.input_strategy).label}</Pill>
+                  </span>
+                </Tooltip>
+              )}
+              {reactor && <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--faint)" }}>reactor {reactor}</span>}
+            </Group>
+          )}
         </Box>
-      </Box>
+        {data && (
+          <Group gap={8}>
+            <Button
+              color="ice"
+              radius={8}
+              styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
+              loading={fire.isPending}
+              disabled={!reactor}
+              onClick={() => reactor && fire.mutate(reactor)}
+            >
+              ▸ Fire
+            </Button>
+            <Button variant="default" radius={8} onClick={() => setPaused((p) => !p)}>
+              {paused ? "▸ Resume" : "⏸ Pause"}
+            </Button>
+          </Group>
+        )}
+      </Group>
 
       {isPending ? (
         <Loading label="Loading graph…" />
@@ -145,71 +207,62 @@ export function GraphDetail() {
       ) : !data ? (
         <Empty message="Graph not found." />
       ) : (
-        <Stack gap="md">
-          <Group gap={8}>
-            <GraphHealth value={data.health} />
-            {data.paused && <Pill color={TOKEN.gold}>paused</Pill>}
-            {data.reaction_mode && (
-              <Tooltip label={explainToken(data.reaction_mode).tip} disabled={!explainToken(data.reaction_mode).tip} multiline w={260} withArrow>
-                <span style={{ display: "inline-flex" }}>
-                  <Pill color={TOKEN.violet}>{explainToken(data.reaction_mode).label}</Pill>
-                </span>
-              </Tooltip>
-            )}
-            {data.input_strategy && (
-              <Tooltip label={explainToken(data.input_strategy).tip} disabled={!explainToken(data.input_strategy).tip} multiline w={260} withArrow>
-                <span style={{ display: "inline-flex" }}>
-                  <Pill color={TOKEN.teal}>{explainToken(data.input_strategy).label}</Pill>
-                </span>
-              </Tooltip>
-            )}
-          </Group>
+        <>
+          <DegradedBanner accumulators={accs} />
+
+          <GraphStatusStrip
+            graphName={name}
+            health={data.health}
+            fires={(data as { fires?: number }).fires ?? 0}
+            lastFiredAt={(data as { last_fired_at?: string | null }).last_fired_at ?? null}
+            reactor={reactor}
+            accumulators={accs}
+          />
+
+          <Panel title="Fire activity" caption="fires per minute · last 60 min">
+            <FireActivity reactor={reactor} />
+          </Panel>
+
+          <ReactorReadiness
+            reactor={reactor}
+            reactionMode={data.reaction_mode}
+            inputStrategy={data.input_strategy}
+            accumulators={accs}
+            lastFiredAt={(data as { last_fired_at?: string | null }).last_fired_at ?? null}
+          />
+
+          <Panel title="Accumulators" caption={`${accs.length} bound source${accs.length === 1 ? "" : "s"}`} right={<Pill color={TOKEN.gold}>proposed</Pill>}>
+            <AccumulatorTable accumulators={accs} />
+          </Panel>
 
           {graph ? (
-            <Box>
-              <Group justify="space-between" mb="xs" style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 8 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>Topology</span>
+            <Panel
+              title="Topology"
+              right={
                 <Group gap="sm">
                   <LegendDot color={nodeKindColor("accumulator")} label="accumulator" />
                   <LegendDot color={nodeKindColor("reactor")} label="reactor" />
                   <LegendDot color={nodeKindColor("node")} label="node" />
                 </Group>
-              </Group>
-              <FullDag nodes={graph.nodes} edges={graph.edges} testId="graph-dag" onNodeClick={setSelected} />
+              }
+            >
+              <FullDag nodes={graph.nodes} edges={graph.edges} testId="graph-dag" onNodeClick={setSelected} failByNode={failByNode} />
               <Text size="xs" c="dimmed" mt={6}>
                 Click a node to inspect its role and routing.
               </Text>
-            </Box>
+            </Panel>
           ) : (
-            // No topology available — fall back to the text summary.
-            <Box style={{ ...cardSurface, padding: "15px 18px" }}>
-              <Stack gap="md">
-                {data.reactor && (
-                  <div>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>Reactor</span>
-                    <Text size="sm" mt={4}>{data.reactor}</Text>
-                  </div>
-                )}
-                <div>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>
-                    Accumulators ({data.accumulators.length})
-                  </span>
-                  {data.accumulators.length === 0 ? (
-                    <Text c="dimmed" size="sm" mt={4}>
-                      None.
-                    </Text>
-                  ) : (
-                    <List size="sm" mt={4}>
-                      {data.accumulators.map((a) => (
-                        <List.Item key={a}>{a}</List.Item>
-                      ))}
-                    </List>
-                  )}
-                </div>
-              </Stack>
-            </Box>
+            <Panel title="Topology">
+              <Text c="dimmed" size="sm">
+                No topology available for this graph.
+              </Text>
+            </Panel>
           )}
-        </Stack>
+
+          <Panel title="Recent fires" caption="each fire runs the graph">
+            <RecentFires reactor={reactor} />
+          </Panel>
+        </>
       )}
 
       <Drawer
@@ -234,28 +287,19 @@ export function GraphDetail() {
             ))}
             <Divider />
             <Text size="xs" c="dimmed">
-              Node source isn't shipped in compiled <code>.cloacina</code> packages, so the
-              function body isn't shown here.
+              Node source isn't shipped in compiled <code>.cloacina</code> packages, so the function body isn't shown here.
             </Text>
           </Stack>
         )}
       </Drawer>
-    </Stack>
+    </div>
   );
 }
 
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (
     <Group gap={4}>
-      <span
-        style={{
-          width: 10,
-          height: 10,
-          borderRadius: 3,
-          background: color,
-          display: "inline-block",
-        }}
-      />
+      <span style={{ width: 10, height: 10, borderRadius: 3, background: color, display: "inline-block" }} />
       <Text size="xs" c="dimmed">
         {label}
       </Text>

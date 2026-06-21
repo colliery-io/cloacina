@@ -94,6 +94,51 @@ export function useInjectAccumulator() {
   });
 }
 
+/** One recorded reactor fire (CLOACI-T-0766). */
+export interface ReactorFire {
+  fired_at: string;
+  ok: boolean;
+  error: string | null;
+  duration_ms: number;
+}
+
+/** Recent fires for a reactor (CLOACI-T-0766), newest first. Polls at 5s while
+ *  the graph detail is open so the recent-fires + failure count stay live. */
+export function useReactorFires(reactor: string | null | undefined, opts?: { limit?: number; poll?: boolean }) {
+  const { connection } = useAuth();
+  return useQuery({
+    queryKey: ["reactor-fires", reactor, opts?.limit ?? 50],
+    enabled: !!connection && !!reactor,
+    refetchInterval: opts?.poll ? 5000 : false,
+    queryFn: async (): Promise<{ items: ReactorFire[] }> => {
+      const res = await fetch(
+        `${base(connection!.serverUrl)}/v1/health/reactors/${encodeURIComponent(reactor!)}/fires?limit=${opts?.limit ?? 50}`,
+        { headers: { Authorization: `Bearer ${connection!.apiKey}` } },
+      );
+      if (!res.ok) throw new Error(`Failed to load fires (${res.status})`);
+      return res.json();
+    },
+  });
+}
+
+/** Per-minute fire counts (last 60 min) for the fire-activity heatmap (T-0766). */
+export function useReactorFireTimeseries(reactor: string | null | undefined, opts?: { poll?: boolean }) {
+  const { connection } = useAuth();
+  return useQuery({
+    queryKey: ["reactor-fire-timeseries", reactor],
+    enabled: !!connection && !!reactor,
+    refetchInterval: opts?.poll ? 5000 : false,
+    queryFn: async (): Promise<{ buckets: number[] }> => {
+      const res = await fetch(
+        `${base(connection!.serverUrl)}/v1/health/reactors/${encodeURIComponent(reactor!)}/fires/timeseries`,
+        { headers: { Authorization: `Bearer ${connection!.apiKey}` } },
+      );
+      if (!res.ok) throw new Error(`Failed to load fire timeseries (${res.status})`);
+      return res.json();
+    },
+  });
+}
+
 /** A source file from a package's retained `.cloacina` archive (T-0750). */
 export interface WorkflowSourceFile {
   path: string;
