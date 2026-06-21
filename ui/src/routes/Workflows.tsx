@@ -15,12 +15,13 @@
  */
 
 import { Box, Button, Group } from "@mantine/core";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
-import { useWorkflows, useExecuteWorkflow } from "../api/workflows";
+import { useWorkflows } from "../api/workflows";
 import { RunCircles, type RunDot } from "../components/RunCircles";
+import { RunWorkflowModal } from "../components/RunWorkflowModal";
 import { MONO, PageHeader, cardSurface } from "../components/aurora";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatAgo } from "../util/activity";
@@ -45,7 +46,7 @@ export function Workflows() {
   const navigate = useNavigate();
   const { data, isPending, isError, error, refetch } = useWorkflows();
   const runsByWorkflow = useRecentRunsByWorkflow();
-  const execute = useExecuteWorkflow();
+  const [runTarget, setRunTarget] = useState<{ pkg: string; workflow: string } | null>(null);
 
   const items = (data?.items ?? []).filter((w) => w.tasks.length > 0);
 
@@ -107,13 +108,9 @@ export function Workflows() {
                   <Button
                     size="xs"
                     variant="default"
-                    loading={execute.isPending && execute.variables?.name === w.workflow_name}
                     onClick={(ev) => {
                       ev.stopPropagation();
-                      execute.mutate(
-                        { name: w.workflow_name },
-                        { onSuccess: (res) => navigate(`/executions/${res.execution_id}`) },
-                      );
+                      setRunTarget({ pkg: w.package_name, workflow: w.workflow_name });
                     }}
                   >
                     ▸ Run
@@ -124,6 +121,13 @@ export function Workflows() {
           ))}
         </div>
       )}
+
+      <RunWorkflowModal
+        opened={runTarget !== null}
+        packageName={runTarget?.pkg ?? ""}
+        workflowName={runTarget?.workflow ?? ""}
+        onClose={() => setRunTarget(null)}
+      />
     </div>
   );
 }
