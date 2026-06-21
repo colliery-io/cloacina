@@ -30,7 +30,7 @@ cloacina_workflow_plugin::package!();
     author = "cloacina-ui-demo",
     // CLOACI-T-0768: declared injectors (typed execute-time params).
     params(
-        payload_id: String,
+        payload_id: String = "demo-payload",
         max_retries: u32 = 3,
     )
 )]

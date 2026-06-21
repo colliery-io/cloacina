@@ -47,7 +47,7 @@ cloacina_workflow_plugin::package!();
     // CLOACI-T-0768: declared injectors — typed execute-time params. Surfaced as
     // JSON-Schema InputSlots in the Inputs card + the Run-workflow form.
     params(
-        source_id: String,
+        source_id: String = "demo-source",
         batch_size: u32 = 100,
         dry_run: bool = false,
     )

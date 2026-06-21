@@ -35,7 +35,7 @@ cloacina_workflow_plugin::package!();
     author = "Cloacina Team",
     // CLOACI-T-0768: declared injectors (typed execute-time params).
     params(
-        dataset: String,
+        dataset: String = "demo-dataset",
         partition_count: u32 = 4,
         incremental: bool = true,
     )

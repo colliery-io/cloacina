@@ -37,7 +37,7 @@ cloacina_workflow_plugin::package!();
     author = "cloacina-ui-demo",
     // CLOACI-T-0768: declared injectors (typed execute-time params).
     params(
-        branch_key: String,
+        branch_key: String = "demo-branch",
         threshold: u32 = 50,
         take_all: bool = false,
     )
