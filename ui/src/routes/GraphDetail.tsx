@@ -17,6 +17,7 @@
 import {
   Anchor,
   Badge,
+  Box,
   Card,
   Divider,
   Drawer,
@@ -24,7 +25,6 @@ import {
   List,
   Stack,
   Text,
-  Title,
   Tooltip,
 } from "@mantine/core";
 import { useState } from "react";
@@ -35,6 +35,8 @@ import { Dag, type DagEdge, type DagNode } from "../components/Dag";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { explainToken } from "../util/vocab";
+import { MONO } from "../components/aurora";
+import { nodeKindColor } from "../util/tokens";
 
 type TopoNode = { id: string; inputs?: string[] };
 type TopoEdge = { from: string; to: string; label?: string | null };
@@ -138,12 +140,14 @@ export function GraphDetail() {
 
   return (
     <Stack>
-      <div>
-        <Anchor component={Link} to="/graphs" size="sm">
+      <Box>
+        <Anchor component={Link} to="/graphs" size="xs" c="dimmed">
           ← Graphs
         </Anchor>
-        <Title order={2}>{name}</Title>
-      </div>
+        <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)", marginTop: 2, fontFamily: MONO }}>
+          {name}
+        </Box>
+      </Box>
 
       {isPending ? (
         <Loading label="Loading graph…" />
@@ -194,9 +198,9 @@ export function GraphDetail() {
                 <Group justify="space-between" mb="xs">
                   <Text fw={600}>Graph</Text>
                   <Group gap="sm">
-                    <LegendDot color="var(--mantine-color-blue-4)" label="accumulator" />
-                    <LegendDot color="var(--mantine-color-grape-4)" label="reactor" />
-                    <LegendDot color="var(--mantine-color-default-border)" label="node" />
+                    <LegendDot color={nodeKindColor("accumulator")} label="accumulator" />
+                    <LegendDot color={nodeKindColor("reactor")} label="reactor" />
+                    <LegendDot color={nodeKindColor("node")} label="node" />
                   </Group>
                 </Group>
                 <Dag
