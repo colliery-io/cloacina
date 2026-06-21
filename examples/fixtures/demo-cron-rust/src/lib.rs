@@ -45,7 +45,12 @@ pub async fn demo_cron_trigger() {}
 #[workflow(
     name = "demo_cron_workflow",
     description = "demo cron workflow — a branching schedule run with a skipped path",
-    author = "cloacina-ui-demo"
+    author = "cloacina-ui-demo",
+    // CLOACI-T-0768: declared injectors. All defaulted — cron fires unattended.
+    params(
+        region: String = "us-east",
+        batch_size: u32 = 200,
+    )
 )]
 pub mod demo_cron_wf {
     use super::*;

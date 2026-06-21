@@ -27,7 +27,12 @@ cloacina_workflow_plugin::package!();
 #[workflow(
     name = "demo_fail_workflow",
     description = "demo failing workflow — a task that deterministically errors",
-    author = "cloacina-ui-demo"
+    author = "cloacina-ui-demo",
+    // CLOACI-T-0768: declared injectors (typed execute-time params).
+    params(
+        payload_id: String,
+        max_retries: u32 = 3,
+    )
 )]
 pub mod demo_fail_workflow {
     use super::*;

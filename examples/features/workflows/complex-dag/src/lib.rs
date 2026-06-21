@@ -32,7 +32,13 @@ cloacina_workflow_plugin::package!();
 #[workflow(
     name = "complex_dag_workflow",
     description = "Complex DAG structure for testing visualization capabilities",
-    author = "Cloacina Team"
+    author = "Cloacina Team",
+    // CLOACI-T-0768: declared injectors (typed execute-time params).
+    params(
+        dataset: String,
+        partition_count: u32 = 4,
+        incremental: bool = true,
+    )
 )]
 mod complex_dag_workflow {
     use super::*;

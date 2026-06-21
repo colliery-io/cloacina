@@ -18,6 +18,12 @@ from __future__ import annotations
 import cloaca
 
 
+# CLOACI-T-0768: declared injectors (typed params). All defaulted — the cron
+# trigger fires this workflow unattended.
+@cloaca.workflow_params(
+    region=(str, "us-east"),
+    batch_size=(int, 200),
+)
 @cloaca.task(dependencies=[])
 def py_poll(context):
     # Gate the audit branch off → py_audit is Skipped every run.
