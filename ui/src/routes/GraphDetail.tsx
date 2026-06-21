@@ -31,7 +31,8 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { useGraph } from "../api/health";
-import { Dag, type DagEdge, type DagNode } from "../components/Dag";
+import { type DagEdge, type DagNode } from "../components/Dag";
+import { FullDag } from "../components/FullDag";
 import { GraphHealth } from "../components/GraphHealth";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { explainToken } from "../util/vocab";
@@ -203,7 +204,7 @@ export function GraphDetail() {
                     <LegendDot color={nodeKindColor("node")} label="node" />
                   </Group>
                 </Group>
-                <Dag
+                <FullDag
                   nodes={graph.nodes}
                   edges={graph.edges}
                   testId="graph-dag"
