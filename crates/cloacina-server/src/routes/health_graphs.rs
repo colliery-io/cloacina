@@ -103,12 +103,27 @@ pub async fn list_accumulators(
     // list surfaces the relationship, not just name + health.
     let mut accumulators: Vec<AccumulatorStatus> =
         Vec::with_capacity(accumulators_with_health.len());
-    for (name, health) in accumulators_with_health {
+    for (name, health, freshness) in accumulators_with_health {
         let descriptor = state.endpoint_registry.accumulator_descriptor(&name).await;
+        // CLOACI-T-0765: promote freshness from the runtime probe (None until the
+        // accumulator has emitted / on runtimes predating the probe).
+        let last_event_at = freshness
+            .as_ref()
+            .and_then(|f| f.last_event_ms())
+            .map(|ms| {
+                chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            });
+        let events_total = freshness.as_ref().map(|f| f.events_total());
         accumulators.push(AccumulatorStatus {
+            state: Some(health.to_string()),
             status: serde_json::to_value(health).unwrap_or(serde_json::Value::Null),
             reactor: descriptor.as_ref().map(|d| d.reactor.clone()),
             tenant_id: descriptor.and_then(|d| d.tenant_id),
+            last_event_at,
+            events_total,
+            error: None,
             name,
         });
     }

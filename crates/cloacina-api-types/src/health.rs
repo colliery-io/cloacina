@@ -35,6 +35,20 @@ pub struct AccumulatorStatus {
     /// Owning tenant, or `None` for untagged single-tenant graphs.
     #[serde(default)]
     pub tenant_id: Option<String>,
+    /// Health state label (`live`/`socket_only`/`disconnected`/…), CLOACI-T-0765.
+    /// Mirrors the `state` inside `status`; promoted to a typed field for the UI.
+    #[serde(default)]
+    pub state: Option<String>,
+    /// Wall-clock of the last boundary this accumulator emitted (RFC3339), or
+    /// `None` if it hasn't emitted yet / the runtime predates freshness tracking.
+    #[serde(default)]
+    pub last_event_at: Option<String>,
+    /// Total boundaries emitted since load (monotonic). `None` when untracked.
+    #[serde(default)]
+    pub events_total: Option<u64>,
+    /// Degradation detail when the source is unhealthy (e.g. connection error).
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 /// One row in `GET /v1/health/reactors` (CLOACI-T-0742). Reactor-first view:
