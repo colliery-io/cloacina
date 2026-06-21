@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; background:#0e1116; }
+  * { box-sizing:border-box; }
+  ::-webkit-scrollbar { width:9px; height:9px; }
+  ::-webkit-scrollbar-thumb { background:#283039; border-radius:5px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  @keyframes cloPulse { 0%,100% { opacity:.45; } 50% { opacity:1; } }
+  @keyframes cloFlow { 0% { stroke-dashoffset:18; } 100% { stroke-dashoffset:0; } }
+  input { font-family:'IBM Plex Sans', sans-serif; }
+  input:focus { outline:none; }
+</style>
+</helmet>
+
+<div style="height:100vh; display:flex; background:#0e1116; color:#e6e9ee; font-family:'IBM Plex Sans',system-ui,sans-serif; -webkit-font-smoothing:antialiased; overflow:hidden; position:relative;">
+
+  <!-- ============ CONNECT GATE ============ -->
+  <sc-if value="{{ disconnected }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Connect" style="position:absolute; inset:0; z-index:80; background:radial-gradient(120% 90% at 50% -10%, #131922 0%, #0e1116 60%); display:flex; align-items:center; justify-content:center; padding:24px;">
+      <div style="width:430px; max-width:100%;">
+        <div style="display:flex; align-items:center; gap:11px; justify-content:center; margin-bottom:26px;">
+          <svg width="30" height="30" viewBox="0 0 28 28"><g fill="none" stroke="#8fbcff" stroke-width="1.7" stroke-linecap="round"><path d="M6 5 L13 14"/><path d="M22 5 L15 14"/><path d="M14 14 L14 24"/></g><circle cx="6" cy="5" r="2.4" fill="#7fb2ff"/><circle cx="22" cy="5" r="2.4" fill="#5fd0c5"/><circle cx="14" cy="24" r="2.7" fill="#9d8cff"/></svg>
+          <span style="font:600 21px 'IBM Plex Sans'; color:#f1f4f8; letter-spacing:.01em;">Cloacina</span>
+        </div>
+        <div style="background:#12161c; border:1px solid #232a34; border-radius:14px; padding:26px 24px; box-shadow:0 24px 60px rgba(0,0,0,.45);">
+          <h1 style="margin:0 0 4px; font:600 18px 'IBM Plex Sans'; color:#f1f4f8;">Connect to a server</h1>
+          <p style="margin:0 0 22px; font:400 12px 'IBM Plex Mono'; color:#5b6573;">Point the control plane at a running cloacina-server and tenant.</p>
+          <div style="display:flex; flex-direction:column; gap:15px;">
+            <div>
+              <div style="font:500 10.5px 'IBM Plex Mono'; letter-spacing:.09em; color:#8b95a3; margin-bottom:7px;">SERVER URL</div>
+              <input type="text" value="{{ connServer }}" onInput="{{ onConnServer }}" style="width:100%; background:#161a21; border:1px solid #2a3340; border-radius:10px; color:#e6e9ee; font:400 13px 'IBM Plex Mono'; padding:11px 14px;"/>
+            </div>
+            <div>
+              <div style="font:500 10.5px 'IBM Plex Mono'; letter-spacing:.09em; color:#8b95a3; margin-bottom:7px;">API KEY</div>
+              <input type="password" value="{{ connKey }}" onInput="{{ onConnKey }}" style="width:100%; background:#161a21; border:1px solid #2a3340; border-radius:10px; color:#e6e9ee; font:400 13px 'IBM Plex Mono'; padding:11px 14px;"/>
+            </div>
+            <div>
+              <div style="font:500 10.5px 'IBM Plex Mono'; letter-spacing:.09em; color:#8b95a3; margin-bottom:7px;">TENANT</div>
+              <input type="text" value="{{ connTenant }}" onInput="{{ onConnTenant }}" style="width:100%; background:#161a21; border:1px solid #2a3340; border-radius:10px; color:#e6e9ee; font:400 13px 'IBM Plex Mono'; padding:11px 14px;"/>
+            </div>
+            <div onClick="{{ doConnect }}" style="margin-top:4px; display:flex; align-items:center; justify-content:center; gap:8px; background:#7fb2ff; color:#0b0d10; font:600 13px 'IBM Plex Sans'; padding:12px; border-radius:10px; cursor:pointer;">Connect</div>
+          </div>
+        </div>
+        <div style="text-align:center; margin-top:16px; font:400 11px 'IBM Plex Mono'; color:#4a525e;">cloacina v0.8.0 · tenant-scoped control plane</div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside style="width:232px; flex:none; background:#12161c; border-right:1px solid #1d232c; padding:18px 14px; display:flex; flex-direction:column;">
+    <div onClick="{{ navOverviewOnClick }}" style="display:flex; align-items:center; gap:9px; padding:0 6px; cursor:pointer;">
+      <svg width="20" height="20" viewBox="0 0 28 28"><g fill="none" stroke="#8fbcff" stroke-width="1.7" stroke-linecap="round"><path d="M6 5 L13 14"/><path d="M22 5 L15 14"/><path d="M14 14 L14 24"/></g><circle cx="6" cy="5" r="2.2" fill="#7fb2ff"/><circle cx="22" cy="5" r="2.2" fill="#5fd0c5"/><circle cx="14" cy="24" r="2.5" fill="#9d8cff"/></svg>
+      <span style="font:600 16px 'IBM Plex Sans'; color:#e6e9ee;">Cloacina</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; padding:7px 8px 0; font:400 11px 'IBM Plex Mono'; color:#4bd07f;">
+      <span style="width:6px;height:6px;border-radius:50%;background:#4bd07f;"></span> server ready <span style="color:#5b6573;">· v0.8.0</span>
+    </div>
+
+    <div onClick="{{ runOnClick }}" style="margin-top:16px; display:flex; align-items:center; justify-content:center; gap:7px; background:#7fb2ff; color:#0b0d10; font:600 13px 'IBM Plex Sans'; padding:10px; border-radius:9px; cursor:pointer;">▸ Run workflow</div>
+
+    <nav style="margin-top:16px; display:flex; flex-direction:column; gap:2px;">
+      <div onClick="{{ navOverviewOnClick }}" style="{{ navOverviewStyle }}">Overview</div>
+      <div onClick="{{ navExecOnClick }}" style="{{ navExecStyle }}">Executions<span style="margin-left:auto;font:400 11px 'IBM Plex Mono';color:#7fb2ff;">{{ runningCount }}</span></div>
+    </nav>
+
+    <div style="margin-top:16px;">
+      <div style="font:500 10px 'IBM Plex Mono'; letter-spacing:.1em; color:#5b6573; padding:0 10px 6px;">ORCHESTRATION</div>
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div onClick="{{ navWfOnClick }}" style="{{ navWfStyle }}"><span style="width:7px;height:7px;border-radius:2px;background:#7fb2ff;flex:none;"></span>Workflows<span style="margin-left:auto;font:400 11px 'IBM Plex Mono';color:#5b6573;">{{ wfCount }}</span></div>
+        <div onClick="{{ navTrigOnClick }}" style="{{ navTrigStyle }}"><span style="width:7px;height:7px;border-radius:2px;background:#9d8cff;flex:none;"></span>Triggers<span style="margin-left:auto;font:400 11px 'IBM Plex Mono';color:#5b6573;">{{ trigCount }}</span></div>
+        <div onClick="{{ navGraphOnClick }}" style="{{ navGraphStyle }}"><span style="width:7px;height:7px;border-radius:2px;background:#5fd0c5;flex:none;"></span>Graphs<span style="margin-left:auto;font:400 11px 'IBM Plex Mono';color:#5b6573;">{{ graphCount }}</span></div>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <div style="font:500 10px 'IBM Plex Mono'; letter-spacing:.1em; color:#5b6573; padding:0 10px 6px;">SYSTEM</div>
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div onClick="{{ navOpsOnClick }}" style="{{ navOpsStyle }}">Operations</div>
+        <div onClick="{{ navKeysOnClick }}" style="{{ navKeysStyle }}">API Keys</div>
+        <div onClick="{{ navSettingsOnClick }}" style="{{ navSettingsStyle }}">Settings</div>
+      </div>
+    </div>
+
+    <div style="margin-top:auto; padding:12px 10px 4px; border-top:1px solid #1d232c;">
+      <div style="font:500 10px 'IBM Plex Mono'; letter-spacing:.09em; color:#5b6573; margin-bottom:6px;">CONNECTION</div>
+      <div style="display:flex; align-items:center; gap:7px; margin-bottom:3px;">
+        <span style="width:6px;height:6px;border-radius:50%;background:#4bd07f;flex:none;"></span>
+        <span style="font:500 12px 'IBM Plex Sans'; color:#c3cbd5;">{{ connTenant }}</span>
+      </div>
+      <div style="font:400 10.5px 'IBM Plex Mono'; color:#5b6573; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:9px;">{{ connServer }}</div>
+      <div onClick="{{ doDisconnect }}" style="font:500 11px 'IBM Plex Sans'; color:#8b95a3; cursor:pointer;">Disconnect ↗</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main style="flex:1; min-width:0; display:flex; flex-direction:column; overflow:hidden; position:relative;">
+
+    <!-- ---- OVERVIEW ---- -->
+    <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+      <div data-screen-label="Overview" style="flex:1; overflow-y:auto; padding:22px 28px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+          <div>
+            <h2 style="margin:0; font:600 22px 'IBM Plex Sans'; color:#e6e9ee;">Overview</h2>
+            <div style="font:400 12px 'IBM Plex Mono'; color:#5b6573; margin-top:3px;">tenant {{ connTenant }} · last sync {{ lastSync }}</div>
+          </div>
+          <div onClick="{{ navExecOnClick }}" style="display:flex; align-items:center; gap:8px; background:#161a21; border:1px solid #232a34; border-radius:9px; padding:9px 14px; font:400 12.5px 'IBM Plex Sans'; color:#8b95a3; width:300px; cursor:pointer;">⌕ Find a workflow, run, or task…</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:13px; margin-bottom:16px;">
+          <sc-for list="{{ metrics }}" as="m" hint-placeholder-count="4">
+            <div style="background:#161a21; border:1px solid #232a34; border-radius:10px; padding:15px 16px;">
+              <div style="font:500 10.5px 'IBM Plex Mono'; letter-spacing:.08em; color:#8b95a3; text-transform:uppercase;">{{ m.label }}</div>
+              <div style="font:600 30px 'IBM Plex Sans'; margin:5px 0 2px; line-height:1; font-variant-numeric:tabular-nums; color:{{ m.color }};">{{ m.val }}</div>
+              <div style="font:400 11.5px 'IBM Plex Mono'; color:#5b6573;">{{ m.sub }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(6,1fr); gap:9px; margin-bottom:18px;">
+          <sc-for list="{{ health }}" as="h" hint-placeholder-count="6">
+            <div style="background:#13171e; border:1px solid #1d232c; border-radius:9px; padding:10px 11px; display:flex; gap:8px; align-items:flex-start;">
+              <span style="width:8px;height:8px;border-radius:50%;flex:none;margin-top:3px;background:{{ h.dotc }};"></span>
+              <div style="min-width:0;">
+                <div style="font:500 12px 'IBM Plex Sans'; color:#d7dde4;">{{ h.name }}</div>
+                <div style="font:400 10.5px 'IBM Plex Mono'; color:#5b6573; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ h.detail }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1.5fr 1fr; gap:18px;">
+          <section>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid #1d232c; padding-bottom:8px; margin-bottom:12px;">
+              <span style="font:600 13px 'IBM Plex Sans'; color:#e6e9ee;">Active executions</span>
+              <span onClick="{{ navExecOnClick }}" style="font:400 11px 'IBM Plex Mono'; color:#5b6573; cursor:pointer;">{{ runningLabel }}</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <sc-if value="{{ activeEmpty }}" hint-placeholder-val="{{ false }}">
+                <div style="background:#13171e; border:1px dashed #232a34; border-radius:10px; padding:20px; text-align:center; font:400 12px 'IBM Plex Mono'; color:#5b6573;">Nothing running. Trigger a workflow to start a run.</div>
+              </sc-if>
+              <sc-for list="{{ activeExecs }}" as="d" hint-placeholder-count="2">
+                <div onClick="{{ d.onOpen }}" style="background:#161a21; border:1px solid #232a34; border-radius:10px; padding:12px 14px; cursor:pointer;">
+                  <div style="display:flex; align-items:center; gap:9px; margin-bottom:11px;">
+                    <strong style="flex:1; font:600 13px 'IBM Plex Sans'; color:#e6e9ee; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ d.workflow }}</strong>
+                    <span style="font:500 11px 'IBM Plex Mono'; color:{{ d.statusColor }}; background:{{ d.statusBg }}; padding:2px 8px; border-radius:10px;">{{ d.statusLabel }}</span>
+                    <div onClick="{{ d.onTogglePause }}" style="font:600 10px 'IBM Plex Sans'; color:#8b95a3; border:1px solid #2a3340; background:#1b2129; padding:3px 9px; border-radius:6px; cursor:pointer;">{{ d.pauseLabel }}</div>
+                  </div>
+                  <div style="margin-bottom:10px;">
+                    <svg width="{{ d.dag.w }}" height="{{ d.dag.h }}" style="overflow:visible; display:block;">
+                      <sc-for list="{{ d.dag.edges }}" as="ed" hint-placeholder-count="6"><path d="{{ ed.d }}" fill="none" stroke="{{ ed.stroke }}" stroke-width="1.3"></path></sc-for>
+                      <sc-for list="{{ d.dag.nodes }}" as="nd" hint-placeholder-count="6"><rect x="{{ nd.x }}" y="{{ nd.y }}" width="9" height="9" rx="2.5" fill="{{ nd.fill }}" style="{{ nd.style }}"></rect></sc-for>
+                    </svg>
+                  </div>
+                  <div style="font:400 11px 'IBM Plex Mono'; color:#8b95a3;">{{ d.meta }}</div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid #1d232c; padding-bottom:8px; margin:22px 0 12px;">
+              <span style="font:600 13px 'IBM Plex Sans'; color:#e6e9ee;">Computation graphs</span>
+              <span onClick="{{ navGraphOnClick }}" style="font:400 11px 'IBM Plex Mono'; color:#5b6573; cursor:pointer;">{{ graphsActiveLabel }}</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <sc-for list="{{ activeGraphs }}" as="g" hint-placeholder-count="3">
+                <div onClick="{{ g.onOpen }}" style="background:#161a21; border:1px solid #232a34; border-radius:10px; padding:12px 14px; cursor:pointer;">
+                  <div style="display:flex; align-items:center; gap:9px; margin-bottom:11px;">
+                    <span style="width:8px;height:8px;border-radius:50%;flex:none;background:{{ g.dotc }};"></span>
+                    <strong style="font:600 13px 'IBM Plex Sans'; color:#e6e9ee;">{{ g.name }}</strong>
+                    <span style="font:500 10px 'IBM Plex Mono'; color:{{ g.dotc }};">{{ g.healthLabel }}</span>
+                    <span style="margin-left:auto; font:500 11px 'IBM Plex Mono'; color:#c3cbd5; font-variant-numeric:tabular-nums;">{{ g.throughput }}</span>
+                  </div>
+                  <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px;">
+                    <svg width="{{ g.dag.w }}" height="{{ g.dag.h }}" style="overflow:visible; display:block;">
+                      <sc-for list="{{ g.dag.edges }}" as="ed" hint-placeholder-count="5"><path d="{{ ed.d }}" fill="none" stroke="{{ ed.stroke }}" stroke-width="1.3"></path></sc-for>
+                      <sc-for list="{{ g.dag.nodes }}" as="nd" hint-placeholder-count="6"><rect x="{{ nd.x }}" y="{{ nd.y }}" width="9" height="9" rx="2.5" fill="{{ nd.fill }}" style="{{ nd.style }}"></rect></sc-for>
+                    </svg>
+                    <div onClick="{{ g.onFire }}" style="flex:none; background:#1b2129; border:1px solid #2a3340; color:#7fb2ff; font:600 10.5px 'IBM Plex Sans'; padding:5px 12px; border-radius:7px; cursor:pointer;">▸ Fire</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+
+          <section>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid #1d232c; padding-bottom:8px; margin-bottom:12px;">
+              <span style="font:600 13px 'IBM Plex Sans'; color:#e6e9ee;">Recently completed</span>
+              <span onClick="{{ navExecOnClick }}" style="font:400 11px 'IBM Plex Mono'; color:#5b6573; cursor:pointer;">View all</span>
+            </div>
+            <div style="display:flex; flex-direction:column;">
+              <sc-for list="{{ recent }}" as="i" hint-placeholder-count="5">
+                <div onClick="{{ i.onOpen }}" style="display:flex; align-items:center; gap:11px; padding:11px 4px; border-bottom:1px solid #15191f; cursor:pointer;">
+                  <span style="width:9px;height:9px;border-radius:50%;flex:none;background:{{ i.dotc }};box-shadow:0 0 0 3px {{ i.dotglow }};"></span>
+                  <div style="flex:1; min-width:0;">
+                    <div style="font:500 13px 'IBM Plex Sans'; color:#e6e9ee; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ i.workflow }}</div>
+                    <div style="font:400 11px 'IBM Plex Mono'; color:#5b6573;">{{ i.meta }}</div>
+                  </div>
+                  <div style="text-align:right;">
+                    <div style="font:600 11.5px 'IBM Plex Mono'; color:{{ i.durc }};">{{ i.dur }}</div>
+                    <div style="font:400 10.5px 'IBM Plex Mono'; color:#5b6573;">{{ i.ago }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ---- EXECUTIONS ---- -->
+    <sc-if value="{{ isExec }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Executions" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:22px 28px 14px;">
+          <h2 style="margin:0; font:600 22px 'IBM Plex Sans'; color:#e6e9ee;">Executions</h2>
+          <div style="font:400 12px 'IBM Plex Mono'; color:#8b95a3; font-variant-numeric:tabular-nums;">{{ execStatusLine }}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; padding:0 28px 14px; border-bottom:1px solid #15191f;">
+          <sc-for list="{{ execChips }}" as="c" hint-placeholder-count="5">
+            <div onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }} <span style="opacity:.6;">{{ c.n }}</span></div>
+          </sc-for>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:8px; background:#161a21; border:1px solid #232a34; border-radius:8px; padding:7px 12px; width:240px;">
+            <span style="color:#5b6573;">⌕</span>
+            <input type="text" placeholder="Filter by workflow or run id…" value="{{ execQuery }}" onInput="{{ onExecSearch }}" style="background:transparent; border:none; color:#e6e9ee; font-size:12.5px; width:100%;"/>
+          </div>
+        </div>
+        <div style="flex:1; overflow-y:auto; padding:14px 28px 28px;">
+          <sc-if value="{{ execEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="border:1px dashed #232a34; border-radius:12px; padding:46px; text-align:center; font:400 13px 'IBM Plex Mono'; color:#5b6573;">No executions match.</div>
+          </sc-if>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <sc-for list="{{ filteredExecs }}" as="e" hint-placeholder-count="9">
+              <div onClick="{{ e.onOpen }}" style="display:flex; align-items:center; gap:14px; background:#161a21; border:1px solid #232a34; border-radius:10px; padding:12px 16px; cursor:pointer;">
+                <span style="width:9px;height:9px;border-radius:50%;flex:none;background:{{ e.dotc }};"></span>
+                <div style="flex:1; min-width:0;">
+                  <div style="font:600 13.5px 'IBM Plex Sans'; color:#e6e9ee; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ e.workflow }}</div>
+                  <div style="font:400 10.5px 'IBM Plex Mono'; color:#5b6573;">{{ e.runId }}</div>
+                </div>
+                <div style="width:130px; flex:none;">
+                  <div style="display:flex; gap:3px; margin-bottom:5px;"><sc-for list="{{ e.pips }}" as="p" hint-placeholder-count="5"><span style="{{ p.style }}"></span></sc-for></div>
+                  <div style="font:400 10px 'IBM Plex Mono'; color:#5b6573;">{{ e.taskLabel }}</div>
+                </div>
+                <span style="{{ e.pillStyle }}">{{ e.status }}</span>
+                <div style="width:78px; flex:none; text-align:right; font:400 11px 'IBM Plex Mono'; color:#8b95a3;">{{ e.dur }}</div>
+                <div style="width:62px; flex:none; text-align:right; font:400 11px 'IBM Plex Mono'; color:#5b6573;">{{ e.ago }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ---- WORKFLOWS ---- -->
+    <sc-if value="{{ isWf }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Workflows" style="flex:1; overflow-y:auto; padding:22px 28px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <h2 style="margin:0; font:600 22px 'IBM Plex Sans'; color:#e6e9ee;">Workflows</h2>
+          <div onClick="{{ onUpload }}" style="background:#7fb2ff; color:#0b0d10; font:600 12.5px 'IBM Plex Sans'; padding:9px 15px; border-radius:8px; cursor:pointer;">↑ Upload package</div>
+        </div>
+        <div style="font:400 12px 'IBM Plex Mono'; color:#5b6573; margin-bottom:20px;">Compiled .cloacina packages registered for this tenant.</div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <sc-for list="{{ workflowsVm }}" as="w" hint-placeholder-count="6">
+            <div onClick="{{ w.onOpen }}" style="background:#161a21; border:1px solid #232a34; border-radius:11px; padding:14px 16px; cursor:pointer;">
+              <div style="display:flex; align-items:center; gap:11px; margin-bottom:8px;">
+                <span style="width:7px;height:7px;border-radius:2px;background:#7fb2ff;flex:none;"></span>
+                <strong style="font:600 14px 'IBM Plex Sans'; color:#eef1f5;">{{ w.pkg }}</strong>
+                <span style="font:500 9.5px 'IBM Plex Mono'; letter-spacing:.05em; color:#9d8cff; background:rgba(157,140,255,.1); padding:2px 7px; border-radius:4px;">v{{ w.version }}</span>
+                <span style="font:400 11px 'IBM Plex Mono'; color:#5b6573;">{{ w.taskCount }} tasks</span>
+                <div style="margin-left:auto; display:flex; align-items:center; gap:12px;">
+                  <div style="display:flex; align-items:center; gap:3px;">
+                    <sc-for list="{{ w.runs }}" as="rc" hint-placeholder-count="8">
+                      <span style="width:8px;height:8px;border-radius:2px;background:{{ rc.c }};"></span>
+                    </sc-for>
+                  </div>
+                  <div onClick="{{ w.onRun }}" style="background:#1b2129; border:1px solid #2a3340; color:#7fb2ff; font:600 11px 'IBM Plex Sans'; padding:5px 13px; border-radius:7px; cursor:pointer;">▸ Run</div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:14px; font:400 11px 'IBM Plex Mono'; color:#8b95a3;">
+                <span>{{ w.desc }}</span>
+                <span style="margin-left:auto; color:#5b6573;">updated {{ w.updated }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ---- TRIGGERS ---- -->
+    <sc-if value="{{ isTrig }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Triggers" style="flex:1; overflow-y:auto; padding:22px 28px;">
+        <h2 style="margin:0 0 4px; font:600 22px 'IBM Plex Sans'; color:#e6e9ee;">Triggers</h2>
+        <div style="font:400 12px 'IBM Plex Mono'; color:#5b6573; margin-bottom:20px;">Cron &amp; polling schedules that fire workflows automatically.</div>
+        <div style="display:grid; grid-template-columns:1.6fr .8fr 1.4fr .7fr 1fr 1fr 50px; gap:0 14px; padding:0 14px 9px; border-bottom:1px solid #1d232c; font:500 10px 'IBM Plex Mono'; letter-spacing:.07em; color:#5b6573; text-transform:uppercase;">
+          <span>Workflow</span><span>Type</span><span>Schedule</span><span>State</span><span>Next run</span><span>Last run</span><span></span>
+        </div>
+        <div style="display:flex; flex-direction:column;">
+          <sc-for list="{{ triggersVm }}" as="t" hint-placeholder-count="6">
+            <div style="display:grid; grid-template-columns:1.6fr .8fr 1.4fr .7fr 1fr 1fr 50px; gap:0 14px; align-items:center; padding:13px 14px; border-bottom:1px solid #15191f;">
+              <span style="font:500 13px 'IBM Plex Sans'; color:#e6e9ee; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ t.workflow }}</span>
+              <span><span style="{{ t.typeStyle }}">{{ t.type }}</span></span>
+              <span style="font:400 11.5px 'IBM Plex Mono'; color:#c3cbd5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ t.schedule }}</span>
+              <span><span style="font:500 11px 'IBM Plex Mono'; color:{{ t.stateColor }};">{{ t.stateLabel }}</span></span>
+              <span style="font:400 11px 'IBM Plex Mono'; color:#8b95a3;">{{ t.next }}</span>
+              <span style="font:400 11px 'IBM Plex Mono'; color:#8b95a3;">{{ t.last }}</span>
+              <span style="display:flex; gap:7px; justify-content:flex-end;">
+                <div onClick="{{ t.onToggle }}" style="{{ t.swStyle }}"><span style="{{ t.swKnob }}"></span></div>
+              </span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ---- GRAPHS ---- -->
+    <sc-if value="{{ isGraph }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Graphs" style="flex:1; overflow-y:auto; padding:22px 28px;">
+        <h2 style="margin:0 0 4px; font:600 22px 'IBM Plex Sans'; color:#e6e9ee;">Computation graphs</h2>
+        <div style="font:400 12px 'IBM Plex Mono'; color:#5b6573; margin-bottom:20px;">Reactive graphs fired by accumulators through a reactor. Click to inspect topology.</div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <sc-for list="{{ graphsVm }}" as="g" hint-placeholder-count="3">
+            <div onClick="{{ g.onOpen }}" style="background:#161a21; border:1px solid #232a34; border-radius:11px; padding:14px 16px; cursor:pointer;">
+              <div style="display:flex; align-items:center; gap:11px; margin-bottom:9px;">
+                <span style="width:9px;height:9px;border-radius:50%;flex:none;background:{{ g.dotc }};"></span>
+                <strong style="font:600 14px 'IBM Plex Sans'; color:#eef1f5;">{{ g.name }}</strong>
+                <span style="font:500 10px 'IBM Plex Mono'; color:{{ g.dotc }};">{{ g.healthLabel }}</span>
+                <div style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+                  <span style="font:500 12px 'IBM Plex Mono'; color:#c3cbd5; font-variant-numeric:tabular-nums;">{{ g.throughput }}</span>
+                  <div onClick="{{ g.onTogglePause }}" style="background:#1b2129; border:1px solid #2a3340; color:#c3cbd5; font:600 11px 'IBM Plex Sans'; padding:5px 12px; border-radius:7px; cursor:pointer;">{{ g.pauseLabel }}</div>
+                  <div onClick="{{ g.onFire }}" style="background:#1b2129; border:1px solid #2a3340; color:#7fb2ff; font:600 11px 'IBM Plex Sans'; padding:5px 13px; border-radius:7px; cursor:pointer;">▸ Fire</div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span style="font:400 11px 'IBM Plex Mono'; color:#8b95a3;">{{ g.accLabel }}</span>
+                <span style="color:#3a4250;">→</span>
+                <span style="font:500 10px 'IBM Plex Mono'; color:#9d8cff; background:rgba(157,140,255,.1); padding:2px 7px; border-radius:4px;">{{ g.reactorLabel }}</span>
+                <span style="font:400 10px 'IBM Plex Mono'; color:#5b6573;">{{ g.modeLabel }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ---- OPERATIONS ---- -->
+    <sc-if value="{{ isOps }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Operations" style="flex:1; overflow-y:auto; padding:22px 28px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
+          <h2 style="margin:0; font:600 22px 'IBM Plex Sans'; color:#e6e9ee;">Operations</h2>
+          <span style="font:500 11px 'IBM Plex Mono'; color:#4bd07f; background:rgba(75,208,127,.1); padding:2px 9px; border-radius:10px;">● live</span>
+        </div>
+        <div style="font:400 12px 'IBM Plex Mono'; color:#5b6573; margin-bottom:20px;">Deployment health for the connected server, pushed over the control-plane socket.</div>
+        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:22px;">
+          <sc-for list="{{ opsCards }}" as="o" hint-placeholder-count="4">
+            <div style="background:#161a21; border:1px solid #232a34; border-radius:11px; padding:15px 16px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+                <span style="font:600 13.5px 'IBM Plex Sans'; color:#e6e9ee;">{{ o.title }}</span>
+                <span style="{{ o.badgeStyle }}">{{ o.badge }}</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:7px;">
+                <sc-for list="{{ o.stats }}" as="st" hint-placeholder-count="3">
+                  <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                    <span style="font:400 11px 'IBM Plex Mono'; color:#5b6573;">{{ st.k }}</span>
+                    <span style="font:500 11.5px 'IBM Plex Mono'; color:{{ st.c }}; font-variant-numeric:tabular-nums;">{{ st.v }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1d232c; padding-bottom:8px; margin-bottom:13px;">
+          <span style="font:600 13px 'IBM Plex Sans'; color:#e6e9ee;">Execution agents</span>
+          <div onClick="{{ onAddAgent }}" style="background:#1b2129; border:1px solid #2a3340; color:#7fb2ff; font:600 11.5px 'IBM Plex Sans'; padding:6px 13px; border-radius:7px; cursor:pointer;">+ Add agent</div>
+        </div>
+        <div style="display:grid; grid-template-columns:1.4fr 1.4fr 1fr 1fr .8fr; gap:0 14px; padding:0 14px 9px; font:500 10px 'IBM Plex Mono'; letter-spacing:.07em; color:#5b6573; text-transform:uppercase;">
+          <span>Agent</span><span>Target</span><span>Capacity</span><span>Heartbeat</span><span>Tenant</span>
+        </div>
+        <div style="display:flex; flex-direction:column;">
+          <sc-for list="{{ agents }}" as="a" hint-placeholder-count="3">
+            <div style="display:grid; grid-template-columns:1.4fr 1.4fr 1fr 1fr .8fr; gap:0 14px; align-items:center; padding:12px 14px; border-bottom:1px solid #15191f;">
+              <span style="display:flex; align-items:center; gap:8px; font:500 12.5px 'IBM Plex Sans'; color:#e6e9ee;"><span style="width:7px;height:7px;border-radius:50%;background:{{ a.dotc }};flex:none;"></span>{{ a.id }}</span>
+              <span style="font:400 11px 'IBM Plex Mono'; color:#8b95a3;">{{ a.target }}</span>
+              <span style="font:400 11px 'IBM Plex Mono'; color:#c3cbd5;">{{ a.capacity }}</span>
+              <span style="font:400 11px 'IBM Plex Mono'; color:{{ a.hbColor }};">{{ a.heartbeat }}</span>
+              <span style="font:400 11px 'IBM Plex Mono'; color:#5b6573;">{{ a.tenant }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ---- API KEYS ---- -->
+    <sc-if value="{{ isKeys }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="API Keys" style="flex:1; overflow-y:auto; padding:22px 28px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <h2 style="margin:0; font:600 22px 'IBM Plex Sans'; color:#e6e9ee;">API Keys</h2>
+          <div onClick="{{ onCreateKey }}" style="background:#7fb2ff; color:#0b0d10; font:600 12.5px 'IBM Plex Sans'; padding:9px 15px; border-radius:8px; cursor:pointer;">+ Create key</div>
+        </div>
+        <div style="font:400 12px 'IBM Plex Mono'; color:#5b6573; margin-bottom:20px;">Tenant-scoped keys for the SDK, CLI, and agents. Shown once at creation.</div>
+        <div style="display:flex; flex-direction:column; gap:9px;">
+          <sc-for list="{{ keysVm }}" as="k" hint-placeholder-count="3">
+            <div style="display:flex; align-items:center; gap:14px; background:#13171e; border:1px solid #1d232c; border-radius:10px; padding:13px 16px;">
+              <span style="width:30px;height:30px;border-radius:8px;background:rgba(127,178,255,.1);color:#7fb2ff;font:600 13px 'IBM Plex Sans';display:flex;align-items:center;justify-content:center;flex:none;">⚿</span>
+              <div style="flex:1; min-width:0;">
+                <div style="font:600 13px 'IBM Plex Sans'; color:#e6e9ee;">{{ k.name }}</div>
+                <div style="font:400 11px 'IBM Plex Mono'; color:#5b6573;">{{ k.prefix }} · {{ k.scopes }}</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font:400 11px 'IBM Plex Mono'; color:#8b95a3;">last used {{ k.lastUsed }}</div>
+                <div style="font:400 10.5px 'IBM Plex Mono'; color:#5b6573;">created {{ k.created }}</div>
+              </div>
+              <div onClick="{{ k.onRevoke }}" style="background:#1b2129; border:1px solid #2a3340; color:#f06464; font:600 10.5px 'IBM Plex Sans'; padding:5px 12px; border-radius:7px; cursor:pointer;">Revoke</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ---- SETTINGS ---- -->
+    <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Settings" style="flex:1; overflow-y:auto; padding:22px 28px;">
+        <div style="max-width:880px;">
+          <h2 style="margin:0 0 20px; font:600 22px 'IBM Plex Sans'; color:#e6e9ee;">Settings</h2>
+          <div style="font:600 13px 'IBM Plex Sans'; color:#e6e9ee; border-bottom:1px solid #1d232c; padding-bottom:8px; margin-bottom:13px;">Connection</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:11px; margin-bottom:26px;">
+            <div style="background:#13171e; border:1px solid #1d232c; border-radius:10px; padding:12px 15px;"><div style="font:400 11px 'IBM Plex Mono'; color:#5b6573; margin-bottom:4px;">TENANT</div><div style="font:400 12px 'IBM Plex Mono'; color:#dce2e9;">{{ connTenant }}</div></div>
+            <div style="background:#13171e; border:1px solid #1d232c; border-radius:10px; padding:12px 15px;"><div style="font:400 11px 'IBM Plex Mono'; color:#5b6573; margin-bottom:4px;">SERVER URL</div><div style="font:400 12px 'IBM Plex Mono'; color:#dce2e9;">{{ connServer }}</div></div>
+          </div>
+          <div style="font:600 13px 'IBM Plex Sans'; color:#e6e9ee; border-bottom:1px solid #1d232c; padding-bottom:8px; margin-bottom:13px;">Server</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:11px; margin-bottom:26px;">
+            <div style="background:#13171e; border:1px solid #1d232c; border-radius:10px; padding:12px 15px;"><div style="font:400 11px 'IBM Plex Mono'; color:#5b6573; margin-bottom:4px;">CLOACINA_BIND_ADDR</div><div style="font:400 12px 'IBM Plex Mono'; color:#dce2e9;">0.0.0.0:8080</div></div>
+            <div style="background:#13171e; border:1px solid #1d232c; border-radius:10px; padding:12px 15px;"><div style="font:400 11px 'IBM Plex Mono'; color:#5b6573; margin-bottom:4px;">DATABASE_URL</div><div style="font:400 12px 'IBM Plex Mono'; color:#dce2e9;">postgres://…/cloacina</div></div>
+            <div style="background:#13171e; border:1px solid #1d232c; border-radius:10px; padding:12px 15px;"><div style="font:400 11px 'IBM Plex Mono'; color:#5b6573; margin-bottom:4px;">SECRET_KEY</div><div style="font:400 12px 'IBM Plex Mono'; color:#4bd07f;">set · credentials encrypted</div></div>
+            <div style="background:#13171e; border:1px solid #1d232c; border-radius:10px; padding:12px 15px;"><div style="font:400 11px 'IBM Plex Mono'; color:#5b6573; margin-bottom:4px;">SCHEDULER</div><div style="font:400 12px 'IBM Plex Mono'; color:#dce2e9;">enabled · 1s tick</div></div>
+          </div>
+          <div style="font:600 13px 'IBM Plex Sans'; color:#e6e9ee; border-bottom:1px solid #1d232c; padding-bottom:8px; margin-bottom:13px;">Appearance</div>
+          <div style="display:flex; gap:10px;">
+            <div style="flex:1; background:#13171e; border:1px solid #2a3340; border-radius:10px; padding:13px 15px; display:flex; align-items:center; gap:10px;"><span style="width:9px;height:9px;border-radius:50%;background:#7fb2ff;"></span><span style="font:500 12.5px 'IBM Plex Sans'; color:#e6e9ee;">Aurora dark</span><span style="margin-left:auto; font:400 10.5px 'IBM Plex Mono'; color:#5b6573;">active</span></div>
+            <div style="flex:1; background:#13171e; border:1px solid #1d232c; border-radius:10px; padding:13px 15px; display:flex; align-items:center; gap:10px; opacity:.55;"><span style="width:9px;height:9px;border-radius:50%;background:#5b6573;"></span><span style="font:500 12.5px 'IBM Plex Sans'; color:#c3cbd5;">Light</span><span style="margin-left:auto; font:400 10.5px 'IBM Plex Mono'; color:#5b6573;">soon</span></div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+  </main>
+
+  <!-- ============ EXECUTION DRAWER ============ -->
+  <sc-if value="{{ hasExec }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; inset:0; z-index:40;">
+      <div onClick="{{ closeExec }}" style="position:absolute; inset:0; background:rgba(6,8,11,.55);"></div>
+      <div style="position:absolute; top:0; right:0; bottom:0; width:640px; max-width:92vw; background:#12161c; border-left:1px solid #232a34; box-shadow:-20px 0 50px rgba(0,0,0,.5); display:flex; flex-direction:column;">
+        <div style="padding:20px 24px; border-bottom:1px solid #1d232c;">
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+            <div style="min-width:0;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                <span style="{{ ex.pillStyle }}">{{ ex.status }}</span>
+                <sc-if value="{{ ex.live }}" hint-placeholder-val="{{ false }}"><span style="font:500 10px 'IBM Plex Mono'; color:#7fb2ff; display:flex; align-items:center; gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:#7fb2ff;animation:cloPulse 1.4s infinite;"></span>live</span></sc-if>
+              </div>
+              <h3 style="margin:0; font:600 19px 'IBM Plex Sans'; color:#f1f4f8;">{{ ex.workflow }}</h3>
+              <div style="font:400 11.5px 'IBM Plex Mono'; color:#5b6573; margin-top:5px;">{{ ex.runId }}</div>
+            </div>
+            <div style="display:flex; gap:8px; flex:none;">
+              <sc-if value="{{ ex.canPause }}" hint-placeholder-val="{{ false }}"><div onClick="{{ ex.onTogglePause }}" style="height:30px; padding:0 13px; border-radius:7px; border:1px solid #2a3340; background:#1b2129; display:flex; align-items:center; color:#c3cbd5; cursor:pointer; font:600 11.5px 'IBM Plex Sans';">{{ ex.pauseLabel }}</div></sc-if>
+              <div onClick="{{ ex.onRerun }}" style="height:30px; padding:0 13px; border-radius:7px; border:1px solid #2a3340; background:#1b2129; display:flex; align-items:center; color:#7fb2ff; cursor:pointer; font:600 11.5px 'IBM Plex Sans';">↻ Re-run</div>
+              <div onClick="{{ closeExec }}" style="flex:none; width:30px; height:30px; border-radius:7px; border:1px solid #232a34; display:flex; align-items:center; justify-content:center; color:#8b95a3; cursor:pointer; font-size:15px;">✕</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:26px; margin-top:16px;">
+            <div><div style="font:400 10px 'IBM Plex Mono'; letter-spacing:.06em; color:#5b6573; margin-bottom:3px;">STARTED</div><div style="font:500 12px 'IBM Plex Mono'; color:#dce2e9;">{{ ex.started }}</div></div>
+            <div><div style="font:400 10px 'IBM Plex Mono'; letter-spacing:.06em; color:#5b6573; margin-bottom:3px;">{{ ex.durKey }}</div><div style="font:500 12px 'IBM Plex Mono'; color:#dce2e9;">{{ ex.dur }}</div></div>
+            <div><div style="font:400 10px 'IBM Plex Mono'; letter-spacing:.06em; color:#5b6573; margin-bottom:3px;">TRIGGER</div><div style="font:500 12px 'IBM Plex Mono'; color:#dce2e9;">{{ ex.trigger }}</div></div>
+            <div><div style="font:400 10px 'IBM Plex Mono'; letter-spacing:.06em; color:#5b6573; margin-bottom:3px;">TASKS</div><div style="font:500 12px 'IBM Plex Mono'; color:#dce2e9;">{{ ex.taskLabel }}</div></div>
+          </div>
+        </div>
+
+        <div style="flex:1; overflow-y:auto; padding:20px 24px;">
+          <!-- DAG -->
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:11px;">
+            <span style="font:600 12.5px 'IBM Plex Sans'; color:#e6e9ee;">Task graph</span>
+            <div style="display:flex; gap:11px;">
+              <span style="display:flex; align-items:center; gap:4px; font:400 10px 'IBM Plex Mono'; color:#8b95a3;"><span style="width:8px;height:8px;border-radius:2px;background:#7fb2ff;"></span>running</span>
+              <span style="display:flex; align-items:center; gap:4px; font:400 10px 'IBM Plex Mono'; color:#8b95a3;"><span style="width:8px;height:8px;border-radius:2px;background:#4bd07f;"></span>done</span>
+              <span style="display:flex; align-items:center; gap:4px; font:400 10px 'IBM Plex Mono'; color:#8b95a3;"><span style="width:8px;height:8px;border-radius:2px;background:#f06464;"></span>failed</span>
+            </div>
+          </div>
+          <div style="background:#0a0c10; border:1px solid #1d232c; border-radius:10px; padding:10px; margin-bottom:20px; overflow-x:auto;">
+            <div style="position:relative; width:{{ ex.dagW }}; height:{{ ex.dagH }};">
+              <svg width="{{ ex.dagW }}" height="{{ ex.dagH }}" style="position:absolute; inset:0; overflow:visible;">
+                <sc-for list="{{ ex.edges }}" as="ed" hint-placeholder-count="6">
+                  <path d="{{ ed.d }}" fill="none" stroke="{{ ed.stroke }}" stroke-width="1.5"></path>
+                </sc-for>
+              </svg>
+              <sc-for list="{{ ex.nodes }}" as="n" hint-placeholder-count="6">
+                <div onClick="{{ n.onClick }}" style="{{ n.style }}">
+                  <span style="width:7px;height:7px;border-radius:50%;background:{{ n.dotc }};flex:none;"></span>
+                  <span style="font:500 10.5px 'IBM Plex Mono'; color:#dce2e9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ n.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="font:400 10.5px 'IBM Plex Mono'; color:#5b6573; margin:-12px 0 18px;">Click a task to view its source.</div>
+
+          <!-- Timeline -->
+          <div style="font:600 12.5px 'IBM Plex Sans'; color:#e6e9ee; margin-bottom:11px;">Timeline</div>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:20px;">
+            <sc-for list="{{ ex.gantt }}" as="g" hint-placeholder-count="6">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="width:118px; flex:none; font:400 10.5px 'IBM Plex Mono'; color:#8b95a3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ g.name }}</span>
+                <div style="flex:1; height:14px; background:#0a0c10; border-radius:4px; position:relative; overflow:hidden;">
+                  <div style="position:absolute; top:0; bottom:0; left:{{ g.gx }}; width:{{ g.gw }}; border-radius:4px; background:{{ g.color }};"></div>
+                </div>
+                <span style="width:48px; flex:none; text-align:right; font:400 10px 'IBM Plex Mono'; color:#5b6573;">{{ g.dur }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <!-- Event log -->
+          <div style="font:600 12.5px 'IBM Plex Sans'; color:#e6e9ee; margin-bottom:11px;">Event log</div>
+          <div style="background:#0a0c10; border:1px solid #1d232c; border-radius:10px; padding:14px 16px;">
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <sc-for list="{{ ex.log }}" as="l" hint-placeholder-count="6">
+                <div style="display:flex; gap:13px; font:400 11.5px 'IBM Plex Mono'; line-height:1.4;">
+                  <span style="color:#4a525e; flex:none;">{{ l.t }}</span>
+                  <span style="color:{{ l.c }}; white-space:pre-wrap;">{{ l.text }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ GRAPH DRAWER ============ -->
+  <sc-if value="{{ hasGraph }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; inset:0; z-index:40;">
+      <div onClick="{{ closeGraph }}" style="position:absolute; inset:0; background:rgba(6,8,11,.55);"></div>
+      <div style="position:absolute; top:0; right:0; bottom:0; width:600px; max-width:92vw; background:#12161c; border-left:1px solid #232a34; box-shadow:-20px 0 50px rgba(0,0,0,.5); display:flex; flex-direction:column;">
+        <div style="padding:20px 24px; border-bottom:1px solid #1d232c;">
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+            <div style="min-width:0;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                <span style="width:9px;height:9px;border-radius:50%;background:{{ gr.dotc }};"></span>
+                <span style="font:500 11px 'IBM Plex Mono'; color:{{ gr.dotc }};">{{ gr.healthLabel }}</span>
+                <span style="font:500 10px 'IBM Plex Mono'; color:#9d8cff; background:rgba(157,140,255,.1); padding:2px 8px; border-radius:10px;">{{ gr.modeLabel }}</span>
+                <span style="font:500 10px 'IBM Plex Mono'; color:#5fd0c5; background:rgba(95,208,197,.1); padding:2px 8px; border-radius:10px;">{{ gr.strategyLabel }}</span>
+              </div>
+              <h3 style="margin:0; font:600 19px 'IBM Plex Sans'; color:#f1f4f8;">{{ gr.name }}</h3>
+              <div style="font:400 11.5px 'IBM Plex Mono'; color:#5b6573; margin-top:5px;">{{ gr.throughput }}</div>
+            </div>
+            <div style="display:flex; gap:8px; flex:none;">
+              <div onClick="{{ gr.onFire }}" style="height:30px; padding:0 13px; border-radius:7px; border:1px solid #2a3340; background:#1b2129; display:flex; align-items:center; color:#7fb2ff; cursor:pointer; font:600 11.5px 'IBM Plex Sans';">▸ Fire</div>
+              <div onClick="{{ gr.onTogglePause }}" style="height:30px; padding:0 13px; border-radius:7px; border:1px solid #2a3340; background:#1b2129; display:flex; align-items:center; color:#c3cbd5; cursor:pointer; font:600 11.5px 'IBM Plex Sans';">{{ gr.pauseLabel }}</div>
+              <div onClick="{{ closeGraph }}" style="flex:none; width:30px; height:30px; border-radius:7px; border:1px solid #232a34; display:flex; align-items:center; justify-content:center; color:#8b95a3; cursor:pointer; font-size:15px;">✕</div>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1; overflow-y:auto; padding:20px 24px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:11px;">
+            <span style="font:600 12.5px 'IBM Plex Sans'; color:#e6e9ee;">Topology</span>
+            <div style="display:flex; gap:11px;">
+              <span style="display:flex; align-items:center; gap:4px; font:400 10px 'IBM Plex Mono'; color:#8b95a3;"><span style="width:8px;height:8px;border-radius:2px;background:#7fb2ff;"></span>accumulator</span>
+              <span style="display:flex; align-items:center; gap:4px; font:400 10px 'IBM Plex Mono'; color:#8b95a3;"><span style="width:8px;height:8px;border-radius:2px;background:#9d8cff;"></span>reactor</span>
+              <span style="display:flex; align-items:center; gap:4px; font:400 10px 'IBM Plex Mono'; color:#8b95a3;"><span style="width:8px;height:8px;border-radius:2px;background:#5b6573;"></span>node</span>
+            </div>
+          </div>
+          <div style="background:#0a0c10; border:1px solid #1d232c; border-radius:10px; padding:10px; margin-bottom:20px; overflow-x:auto;">
+            <div style="position:relative; width:{{ gr.dagW }}; height:{{ gr.dagH }};">
+              <svg width="{{ gr.dagW }}" height="{{ gr.dagH }}" style="position:absolute; inset:0; overflow:visible;">
+                <sc-for list="{{ gr.edges }}" as="ed" hint-placeholder-count="5">
+                  <path d="{{ ed.d }}" fill="none" stroke="{{ ed.stroke }}" stroke-width="1.5"></path>
+                </sc-for>
+              </svg>
+              <sc-for list="{{ gr.nodes }}" as="n" hint-placeholder-count="6">
+                <div onClick="{{ n.onClick }}" style="{{ n.style }}">
+                  <span style="width:7px;height:7px;border-radius:2px;background:{{ n.dotc }};flex:none;"></span>
+                  <span style="font:500 10.5px 'IBM Plex Mono'; color:#dce2e9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ n.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <sc-if value="{{ gr.hasNode }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#13171e; border:1px solid #1d232c; border-radius:10px; padding:14px 16px;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                <span style="font:600 13px 'IBM Plex Sans'; color:#eef1f5;">{{ gr.node.title }}</span>
+                <span style="font:500 9.5px 'IBM Plex Mono'; letter-spacing:.05em; color:{{ gr.node.kindColor }}; border:1px solid {{ gr.node.kindColor }}; padding:1px 6px; border-radius:4px;">{{ gr.node.kind }}</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <sc-for list="{{ gr.node.rows }}" as="r" hint-placeholder-count="3">
+                  <div><div style="font:400 10px 'IBM Plex Mono'; letter-spacing:.05em; color:#5b6573; margin-bottom:2px;">{{ r.k }}</div><div style="font:400 11.5px 'IBM Plex Sans'; color:#c3cbd5;">{{ r.v }}</div></div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ gr.noNode }}" hint-placeholder-val="{{ true }}">
+            <div style="font:400 11.5px 'IBM Plex Mono'; color:#5b6573; text-align:center; padding:6px;">Click a node to inspect its role and routing.</div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ TASK CODE MODAL ============ -->
+  <sc-if value="{{ hasTask }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; inset:0; z-index:55; display:flex; align-items:center; justify-content:center; padding:30px;">
+      <div onClick="{{ closeTask }}" style="position:absolute; inset:0; background:rgba(6,8,11,.6);"></div>
+      <div style="position:relative; width:620px; max-width:100%; background:#12161c; border:1px solid #232a34; border-radius:13px; box-shadow:0 24px 60px rgba(0,0,0,.5); overflow:hidden; display:flex; flex-direction:column; max-height:86%;">
+        <div style="padding:16px 18px; border-bottom:1px solid #1d232c; display:flex; align-items:center; gap:10px;">
+          <span style="{{ task.statusPill }}">{{ task.status }}</span>
+          <strong style="flex:1; font:600 15px 'IBM Plex Mono'; color:#f1f4f8;">{{ task.name }}</strong>
+          <span style="font:400 11px 'IBM Plex Mono'; color:#5b6573;">{{ task.dur }}</span>
+          <div onClick="{{ closeTask }}" style="width:28px; height:28px; border-radius:7px; border:1px solid #232a34; display:flex; align-items:center; justify-content:center; color:#8b95a3; cursor:pointer; font-size:14px;">✕</div>
+        </div>
+        <div style="padding:11px 18px; border-bottom:1px solid #1d232c; display:flex; gap:8px; align-items:center; font:400 11px 'IBM Plex Mono'; color:#c3cbd5;">
+          <span style="color:#5b6573;">depends on</span> {{ task.deps }}
+        </div>
+        <div style="flex:1; overflow-y:auto; background:#0a0c10;">
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #15191f;">
+            <span style="font:500 10px 'IBM Plex Mono'; letter-spacing:.08em; color:#5b6573;">{{ task.name }}.rs</span>
+            <span style="font:400 10px 'IBM Plex Mono'; color:#4a525e;">source · read-only</span>
+          </div>
+          <div style="padding:12px 0;">
+            <sc-for list="{{ task.codeLines }}" as="ln" hint-placeholder-count="14">
+              <div style="display:flex; gap:14px; padding:0 16px; font:400 12px/1.65 'IBM Plex Mono';">
+                <span style="width:18px; flex:none; text-align:right; color:#323a44;">{{ ln.n }}</span>
+                <span style="color:{{ ln.color }}; white-space:pre;">{{ ln.text }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ ADD AGENT MODAL ============ -->
+  <sc-if value="{{ showAddAgent }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; inset:0; z-index:55; display:flex; align-items:center; justify-content:center; padding:30px;">
+      <div onClick="{{ closeAddAgent }}" style="position:absolute; inset:0; background:rgba(6,8,11,.6);"></div>
+      <div style="position:relative; width:520px; max-width:100%; background:#12161c; border:1px solid #232a34; border-radius:14px; box-shadow:0 24px 60px rgba(0,0,0,.5); display:flex; flex-direction:column;">
+        <div style="padding:18px 22px; border-bottom:1px solid #1d232c; display:flex; align-items:flex-start; justify-content:space-between;">
+          <div>
+            <h3 style="margin:0; font:600 17px 'IBM Plex Sans'; color:#f1f4f8;">Register an agent</h3>
+            <div style="font:400 11px 'IBM Plex Mono'; color:#5b6573; margin-top:4px;">Agents self-enroll with a one-time token, then poll for work.</div>
+          </div>
+          <div onClick="{{ closeAddAgent }}" style="width:28px; height:28px; border-radius:7px; border:1px solid #232a34; display:flex; align-items:center; justify-content:center; color:#8b95a3; cursor:pointer; font-size:14px;">✕</div>
+        </div>
+        <div style="padding:20px 22px; display:flex; flex-direction:column; gap:15px;">
+          <div style="display:flex; gap:12px;">
+            <div style="flex:1;">
+              <div style="font:500 10.5px 'IBM Plex Mono'; letter-spacing:.07em; color:#8b95a3; margin-bottom:6px;">NAME</div>
+              <input type="text" value="agent-eu-west-3" style="width:100%; background:#161a21; border:1px solid #2a3340; border-radius:9px; color:#e6e9ee; font:400 12.5px 'IBM Plex Sans'; padding:10px 12px;"/>
+            </div>
+            <div style="width:150px;">
+              <div style="font:500 10.5px 'IBM Plex Mono'; letter-spacing:.07em; color:#8b95a3; margin-bottom:6px;">MAX CONCURRENCY</div>
+              <input type="text" value="8" style="width:100%; background:#161a21; border:1px solid #2a3340; border-radius:9px; color:#e6e9ee; font:400 12.5px 'IBM Plex Mono'; padding:10px 12px;"/>
+            </div>
+          </div>
+          <div>
+            <div style="font:500 10.5px 'IBM Plex Mono'; letter-spacing:.07em; color:#8b95a3; margin-bottom:6px;">TARGET TRIPLE</div>
+            <input type="text" value="x86_64-unknown-linux-gnu" style="width:100%; background:#161a21; border:1px solid #2a3340; border-radius:9px; color:#e6e9ee; font:400 12.5px 'IBM Plex Mono'; padding:10px 12px;"/>
+          </div>
+          <div>
+            <div style="font:500 10.5px 'IBM Plex Mono'; letter-spacing:.07em; color:#8b95a3; margin-bottom:6px;">ENROLLMENT — RUN ON THE AGENT HOST</div>
+            <div style="background:#0a0c10; border:1px solid #1d232c; border-radius:9px; padding:12px 14px; font:400 11.5px/1.7 'IBM Plex Mono'; color:#7fb2ff; white-space:pre; overflow-x:auto;">{{ joinCmd }}</div>
+            <div style="font:400 10.5px 'IBM Plex Mono'; color:#5b6573; margin-top:7px;">Token {{ enrollToken }} · expires in 15m · single use</div>
+          </div>
+        </div>
+        <div style="padding:16px 22px; border-top:1px solid #1d232c; display:flex; justify-content:flex-end; gap:10px;">
+          <div onClick="{{ closeAddAgent }}" style="font:600 12.5px 'IBM Plex Sans'; color:#8b95a3; border:1px solid #232a34; padding:9px 16px; border-radius:9px; cursor:pointer;">Cancel</div>
+          <div onClick="{{ registerAgent }}" style="font:600 12.5px 'IBM Plex Sans'; color:#0b0d10; background:#7fb2ff; padding:9px 18px; border-radius:9px; cursor:pointer;">Issue token</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ TOAST ============ -->
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%); z-index:60; background:#1b2129; border:1px solid #2a3340; color:#e6e9ee; font:500 13px 'IBM Plex Sans'; padding:12px 18px; border-radius:10px; box-shadow:0 12px 32px rgba(0,0,0,.5); display:flex; align-items:center; gap:9px;">
+      <span style="width:7px; height:7px; border-radius:50%; background:#4bd07f;"></span>{{ toastMsg }}
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:760}}">
+class Component extends DCLogic {
+  state = {
+    view: 'overview',
+    connected: true,
+    connServer: 'https://orchestrator.internal:8080',
+    connKey: 'clk_live_8f3a2b91',
+    connTenant: 'public',
+    execFilter: 'all',
+    execQuery: '',
+    selExec: null,
+    selGraph: null,
+    selNode: null,
+    selTask: null,
+    pausedExecs: {},
+    pausedGraphs: {},
+    showAddAgent: false,
+    toast: null,
+    tick: 0,
+    triggers: [
+      { id:'t1', workflow:'customer_etl',     type:'cron', schedule:'Every day at 02:00', cron:'0 0 2 * * *', enabled:true,  next:'in 6h',  last:'18h ago' },
+      { id:'t2', workflow:'invoice_pipeline',  type:'cron', schedule:'1st of month, 04:00', cron:'0 0 4 1 * *', enabled:true,  next:'in 9d',  last:'30d ago' },
+      { id:'t3', workflow:'report_rollup',     type:'cron', schedule:'Every hour',          cron:'0 0 * * * *', enabled:true,  next:'in 22m', last:'38m ago' },
+      { id:'t4', workflow:'ml_feature_build',  type:'poll', schedule:'every 15m',           cron:'',           enabled:true,  next:'in 4m',  last:'11m ago' },
+      { id:'t5', workflow:'image_ingest',      type:'poll', schedule:'every 30s',           cron:'',           enabled:false, next:'—',      last:'2h ago' },
+      { id:'t6', workflow:'cleanup_artifacts', type:'cron', schedule:'Every day at 05:30',  cron:'0 30 5 * * *',enabled:true,  next:'in 9h',  last:'15h ago' },
+    ],
+    keys: [
+      { id:'k1', name:'sdk-ci',        prefix:'clk_live_8f3a…2b91', scopes:'workflows:rw · executions:rw', lastUsed:'2m ago',  created:'Mar 2026' },
+      { id:'k2', name:'agent-eu-west', prefix:'clk_live_1c77…9ae0', scopes:'executions:rw · agents',       lastUsed:'14s ago', created:'Jan 2026' },
+      { id:'k3', name:'readonly-dash', prefix:'clk_live_44d0…0f12', scopes:'read-only',                    lastUsed:'1h ago',  created:'Feb 2026' },
+    ],
+  };
+
+  // ---- workflow topologies (col/row grid + edges) ----
+  TOPO = {
+    customer_etl: { nodes:[
+      {id:'extract_orders', label:'extract_orders', col:0,row:1},
+      {id:'clean_orders',   label:'clean_orders',   col:1,row:0},
+      {id:'enrich_geo',     label:'enrich_geo',     col:1,row:2},
+      {id:'dedupe',         label:'dedupe',         col:2,row:1},
+      {id:'load_warehouse', label:'load_warehouse', col:3,row:1},
+      {id:'notify',         label:'notify',         col:4,row:1},
+    ], edges:[['extract_orders','clean_orders'],['extract_orders','enrich_geo'],['clean_orders','dedupe'],['enrich_geo','dedupe'],['dedupe','load_warehouse'],['load_warehouse','notify']] },
+    invoice_pipeline: { nodes:[
+      {id:'gather_accounts', label:'gather_accounts', col:0,row:1},
+      {id:'compute_charges', label:'compute_charges', col:1,row:1},
+      {id:'render_pdf',      label:'render_pdf',      col:2,row:0},
+      {id:'tax_audit',       label:'tax_audit',       col:2,row:2},
+      {id:'dispatch',        label:'dispatch',        col:3,row:1},
+    ], edges:[['gather_accounts','compute_charges'],['compute_charges','render_pdf'],['compute_charges','tax_audit'],['render_pdf','dispatch'],['tax_audit','dispatch']] },
+    ml_feature_build: { nodes:[
+      {id:'pull_events', label:'pull_events', col:0,row:1},
+      {id:'sessionize',  label:'sessionize',  col:1,row:1},
+      {id:'feat_user',   label:'feat_user',   col:2,row:0},
+      {id:'feat_item',   label:'feat_item',   col:2,row:1},
+      {id:'feat_ctx',    label:'feat_ctx',    col:2,row:2},
+      {id:'join',        label:'join',        col:3,row:1},
+      {id:'publish',     label:'publish',     col:4,row:1},
+    ], edges:[['pull_events','sessionize'],['sessionize','feat_user'],['sessionize','feat_item'],['sessionize','feat_ctx'],['feat_user','join'],['feat_item','join'],['feat_ctx','join'],['join','publish']] },
+    report_rollup: { nodes:[
+      {id:'scan',          label:'scan',          col:0,row:0},
+      {id:'aggregate',     label:'aggregate',     col:1,row:0},
+      {id:'snapshot',      label:'snapshot',      col:2,row:0},
+      {id:'refresh_cache', label:'refresh_cache', col:3,row:0},
+    ], edges:[['scan','aggregate'],['aggregate','snapshot'],['snapshot','refresh_cache']] },
+    image_ingest: { nodes:[
+      {id:'fetch',     label:'fetch',     col:0,row:1},
+      {id:'decode',    label:'decode',    col:1,row:1},
+      {id:'thumbnail', label:'thumbnail', col:2,row:0},
+      {id:'exif',      label:'exif',      col:2,row:2},
+      {id:'index',     label:'index',     col:3,row:1},
+    ], edges:[['fetch','decode'],['decode','thumbnail'],['decode','exif'],['thumbnail','index'],['exif','index']] },
+    cleanup_artifacts: { nodes:[
+      {id:'list_old', label:'list_old', col:0,row:0},
+      {id:'delete',   label:'delete',   col:1,row:0},
+    ], edges:[['list_old','delete']] },
+  };
+
+  WORKFLOWS = [
+    { pkg:'customer_etl',     version:'2.4.1', desc:'Nightly customer data-warehouse load', updated:'3d ago',  runs:['completed','completed','failed','completed','running','completed','completed','completed'] },
+    { pkg:'invoice_pipeline', version:'1.8.0', desc:'Generate and dispatch monthly invoices', updated:'9d ago', runs:['completed','failed','completed','completed','completed','completed','completed','completed'] },
+    { pkg:'ml_feature_build', version:'0.9.3', desc:'Rebuild the feature store from the event log', updated:'2d ago', runs:['completed','completed','running','completed','completed','completed','completed','completed'] },
+    { pkg:'report_rollup',    version:'3.1.0', desc:'Aggregate daily metrics for dashboards', updated:'5h ago', runs:['completed','completed','completed','completed','completed','completed','completed','completed'] },
+    { pkg:'image_ingest',     version:'1.2.5', desc:'Thumbnail + EXIF metadata extraction', updated:'12d ago', runs:['completed','cancelled','completed','completed','completed','completed','completed','completed'] },
+    { pkg:'cleanup_artifacts',version:'1.0.0', desc:'Garbage-collect old run artifacts', updated:'1d ago',  runs:['completed','completed','completed','completed','completed','completed','completed','completed'] },
+  ];
+
+  // status helper for an execution's per-task map. allStatus generates a uniform map.
+  mkStatus(wf, overrides) {
+    const m = {};
+    for (const n of this.TOPO[wf].nodes) m[n.id] = 'completed';
+    return Object.assign(m, overrides || {});
+  }
+
+  buildExecs() {
+    const E = [];
+    E.push({ id:'01J8X', wf:'customer_etl', status:'running', elapsed:192, trigger:'cron · daily 02:00', ago:'now',
+      ts: this.mkStatus('customer_etl', { dedupe:'running', load_warehouse:'pending', notify:'pending' }),
+      log:[ ['00:00:00','scheduled  customer_etl — cron 0 0 2 * * *','#9d8cff'],['00:00:01','started    extract_orders','#7fb2ff'],['00:00:48','completed  extract_orders — 1.2M rows','#4bd07f'],['00:00:49','started    clean_orders, enrich_geo','#7fb2ff'],['00:02:31','completed  clean_orders','#4bd07f'],['00:02:44','completed  enrich_geo','#4bd07f'],['00:02:45','started    dedupe','#7fb2ff'] ] });
+    E.push({ id:'01J8W', wf:'ml_feature_build', status:'running', elapsed:104, trigger:'poll · every 15m', ago:'now',
+      ts: this.mkStatus('ml_feature_build', { feat_user:'running', feat_item:'running', feat_ctx:'running', join:'pending', publish:'pending' }),
+      log:[ ['00:00:00','scheduled  ml_feature_build — poll','#9d8cff'],['00:00:02','started    pull_events','#7fb2ff'],['00:00:41','completed  pull_events','#4bd07f'],['00:00:42','started    sessionize','#7fb2ff'],['00:01:20','completed  sessionize','#4bd07f'],['00:01:21','started    feat_user, feat_item, feat_ctx','#7fb2ff'] ] });
+    E.push({ id:'01J8V', wf:'invoice_pipeline', status:'failed', elapsed:104, trigger:'cron · monthly', ago:'12m',
+      ts: this.mkStatus('invoice_pipeline', { tax_audit:'failed', dispatch:'skipped' }),
+      log:[ ['00:00:00','scheduled  invoice_pipeline','#9d8cff'],['00:00:01','started    gather_accounts','#7fb2ff'],['00:00:22','completed  gather_accounts','#4bd07f'],['00:00:55','completed  compute_charges','#4bd07f'],['00:01:30','completed  render_pdf','#4bd07f'],['00:01:44','failed     tax_audit — rate table missing FY26','#f06464'],['00:01:44','skipped    dispatch — upstream failed','#d8a657'] ] });
+    E.push({ id:'01J8U', wf:'report_rollup', status:'completed', elapsed:41, trigger:'cron · hourly', ago:'18m', ts:this.mkStatus('report_rollup') });
+    E.push({ id:'01J8T', wf:'customer_etl', status:'completed', elapsed:242, trigger:'cron · daily 02:00', ago:'1h', ts:this.mkStatus('customer_etl') });
+    E.push({ id:'01J8S', wf:'image_ingest', status:'completed', elapsed:131, trigger:'api · sdk', ago:'2h', ts:this.mkStatus('image_ingest') });
+    E.push({ id:'01J8R', wf:'invoice_pipeline', status:'scheduled', elapsed:0, trigger:'cron · monthly', ago:'next 04:00', ts:this.mkStatus('invoice_pipeline', this.allPending('invoice_pipeline')) });
+    E.push({ id:'01J8Q', wf:'ml_feature_build', status:'completed', elapsed:393, trigger:'poll · every 15m', ago:'3h', ts:this.mkStatus('ml_feature_build') });
+    E.push({ id:'01J8P', wf:'image_ingest', status:'cancelled', elapsed:62, trigger:'api · sdk', ago:'5h', ts:this.mkStatus('image_ingest', { thumbnail:'cancelled', exif:'cancelled', index:'skipped' }) });
+    E.push({ id:'01J8N', wf:'cleanup_artifacts', status:'completed', elapsed:8, trigger:'cron · daily 05:30', ago:'6h', ts:this.mkStatus('cleanup_artifacts') });
+    E.push({ id:'01J8M', wf:'report_rollup', status:'completed', elapsed:38, trigger:'cron · hourly', ago:'7h', ts:this.mkStatus('report_rollup') });
+    E.push({ id:'01J8L', wf:'customer_etl', status:'failed', elapsed:171, trigger:'cron · daily 02:00', ago:'9h',
+      ts:this.mkStatus('customer_etl', { load_warehouse:'failed', notify:'skipped' }) });
+    return E.map(e => ({ ...e, runId:'exec_' + e.id + '7af2e1' }));
+  }
+  allPending(wf){ const m={}; for(const n of this.TOPO[wf].nodes) m[n.id]='pending'; return m; }
+
+  GRAPHS = [
+    { name:'market_ticks', health:'live', throughput:'~420 events/min', reactor:'tick_reactor', mode:'when_any', strategy:'latest',
+      accumulators:['binance_ws','coinbase_ws'],
+      nodes:[ {id:'normalize',label:'normalize',col:2,row:1},{id:'vwap',label:'vwap',col:3,row:1},{id:'publish',label:'publish',col:4,row:1} ],
+      edges:[['reactor','normalize'],['normalize','vwap'],['vwap','publish']],
+      info:{ normalize:'Casts raw ticks to a common schema.', vwap:'Rolling volume-weighted average price.', publish:'Emits the signal to downstream consumers.' } },
+    { name:'sensor_fusion', health:'warming', throughput:'backfilling…', reactor:'fusion_reactor', mode:'when_all', strategy:'sequential',
+      accumulators:['lidar_stream','radar_stream','gps_stream'],
+      nodes:[ {id:'align',label:'align',col:2,row:1},{id:'fuse',label:'fuse',col:3,row:1},{id:'detect',label:'detect',col:4,row:1} ],
+      edges:[['reactor','align'],['align','fuse'],['fuse','detect']],
+      info:{ align:'Time-aligns frames across sensors.', fuse:'Kalman fusion of aligned tracks.', detect:'Object detection over fused state.' } },
+    { name:'log_metrics', health:'socket_only', throughput:'awaiting boundary', reactor:null, mode:null, strategy:null,
+      accumulators:['app_logs'],
+      nodes:[ {id:'parse',label:'parse',col:1,row:0},{id:'bucket',label:'bucket',col:2,row:0},{id:'rollup',label:'rollup',col:3,row:0} ],
+      edges:[['parse','bucket'],['bucket','rollup']],
+      info:{ parse:'Structures raw log lines.', bucket:'Buckets events into 1m windows.', rollup:'Counters + percentiles per window.' } },
+  ];
+
+  // ----- color maps -----
+  SC = { running:'#7fb2ff', completed:'#4bd07f', failed:'#f06464', scheduled:'#9d8cff', pending:'#8b95a3', cancelled:'#d8a657', skipped:'#5b6573', paused:'#8b95a3' };
+  graphHealthColor(h){ return ({ live:'#4bd07f', running:'#4bd07f', warming:'#d8a657', connecting:'#7fb2ff', socket_only:'#8b95a3', stopped:'#8b95a3' })[h] || '#5b6573'; }
+
+  // ----- DAG layout -----
+  layout(nodes, edges, statusOf, kindOf) {
+    const COLG=148, ROWG=62, NW=128, NH=38, PAD=20;
+    const maxCol = Math.max(...nodes.map(n=>n.col));
+    const maxRow = Math.max(...nodes.map(n=>n.row));
+    const pos = {};
+    const vnodes = nodes.map(n => {
+      const x = PAD + n.col*COLG, y = PAD + n.row*ROWG;
+      pos[n.id] = { x, y, cx:x+NW, cy:y+NH/2, lx:x };
+      const st = statusOf ? statusOf(n.id) : null;
+      const kind = kindOf ? kindOf(n.id) : null;
+      let dotc, border;
+      if (kind) { dotc = kind.dotc; border = kind.border; }
+      else {
+        dotc = this.SC[st] || '#5b6573';
+        border = (st==='pending'||st==='skipped'||!st) ? '#232a34' : dotc + '7a';
+      }
+      const dim = st==='pending' || st==='skipped';
+      const pulse = st==='running' ? 'animation:cloPulse 1.8s infinite;' : '';
+      return {
+        id:n.id, label:n.label, dotc,
+        onClick: n.onClick,
+        style: `position:absolute; left:${x}px; top:${y}px; width:${NW}px; height:${NH}px; display:flex; align-items:center; gap:7px; padding:0 10px; border-radius:8px; background:#161a21; border:1px solid ${border}; ${dim?'opacity:.55;':''} ${pulse} ${n.onClick?'cursor:pointer;':''}`,
+      };
+    });
+    const vedges = edges.map(([a,b]) => {
+      const s = pos[a], t = pos[b];
+      if (!s || !t) return { d:'', stroke:'transparent' };
+      const x1=s.cx, y1=s.cy, x2=t.lx, y2=t.cy;
+      let stroke = '#283039';
+      if (statusOf) {
+        const sa=statusOf(a), sb=statusOf(b);
+        if (sb==='running') stroke = '#7fb2ff';
+        else if (sa==='completed' && sb==='completed') stroke = 'rgba(75,208,127,.35)';
+      }
+      return { d:`M ${x1} ${y1} C ${x1+36} ${y1}, ${x2-36} ${y2}, ${x2} ${y2}`, stroke };
+    });
+    return { nodes:vnodes, edges:vedges, w:(PAD*2 + maxCol*COLG + NW)+'px', h:(PAD*2 + maxRow*ROWG + NH)+'px' };
+  }
+
+  fmtDur(sec){ if (sec<=0) return '—'; if (sec<60) return sec+'s'; const m=Math.floor(sec/60), s=sec%60; return m+'m'+(s?' '+s+'s':''); }
+
+  // ordered task pips — one discrete segment per task, colored by its real state
+  orderedTasks(e){ return [...this.TOPO[e.wf].nodes].sort((a,b)=> a.col-b.col || a.row-b.row); }
+  pipsFor(e){
+    return this.orderedTasks(e).map(n => {
+      const st = e.ts[n.id];
+      const run = st==='running' && e.status!=='paused';
+      const bg = run?'#7fb2ff':st==='running'?'#8b95a3':st==='completed'?'#4bd07f':st==='failed'?'#f06464':st==='cancelled'?'#d8a657':'#1b2129';
+      return { style:`flex:1; min-width:0; height:6px; border-radius:2px; background:${bg};`+(run?' animation:cloPulse 1.6s infinite;':'') };
+    });
+  }
+  runInfo(e){
+    const run = this.orderedTasks(e).filter(n => e.ts[n.id]==='running');
+    if (!run.length) return '';
+    return run[0].label + (run.length>1 ? (' +'+(run.length-1)) : '');
+  }
+  // compact, label-less DAG of the run — structure + per-task state at a glance
+  miniDag(e){
+    const NS=9, CG=58, RG=22, PAD=6;
+    const nodes = this.TOPO[e.wf].nodes;
+    const maxCol = Math.max(...nodes.map(n=>n.col));
+    const maxRow = Math.max(...nodes.map(n=>n.row));
+    const pos = {};
+    const vnodes = nodes.map(n => {
+      const x = PAD + n.col*CG, y = PAD + n.row*RG;
+      pos[n.id] = { x, y, cy:y+NS/2 };
+      const st = e.ts[n.id];
+      const run = st==='running' && e.status!=='paused';
+      const fill = run?'#7fb2ff':st==='running'?'#8b95a3':st==='completed'?'#4bd07f':st==='failed'?'#f06464':st==='cancelled'?'#d8a657':'#232a34';
+      return { x, y, fill, style: run?'animation:cloPulse 1.6s infinite;':'' };
+    });
+    const vedges = this.TOPO[e.wf].edges.map(([a,b]) => {
+      const s=pos[a], t=pos[b];
+      const x1=s.x+NS, y1=s.cy, x2=t.x, y2=t.cy;
+      const sa=e.ts[a], sb=e.ts[b];
+      const stroke = sb==='running' ? '#7fb2ff' : (sa==='completed'&&sb==='completed') ? 'rgba(75,208,127,.3)' : '#283039';
+      return { d:`M ${x1} ${y1} C ${x1+20} ${y1}, ${x2-20} ${y2}, ${x2} ${y2}`, stroke };
+    });
+    return { w:PAD*2+maxCol*CG+NS, h:PAD*2+maxRow*RG+NS, nodes:vnodes, edges:vedges };
+  }
+
+  // shared graph topology: accumulators → reactor (if any) → compute nodes
+  buildGraphTopo(g){
+    const rows = g.accumulators.length;
+    const nodes = g.accumulators.map((a,i)=>({ id:'acc:'+a, label:a, col:0, row:i, kind:'acc' }));
+    const edges = [];
+    if (g.reactor){
+      nodes.push({ id:'reactor', label:g.reactor, col:1, row:(rows-1)/2, kind:'reactor' });
+      g.accumulators.forEach(a=>edges.push(['acc:'+a,'reactor']));
+    } else {
+      g.accumulators.forEach(a=>edges.push(['acc:'+a, g.nodes[0].id]));
+    }
+    g.edges.forEach(([a,b])=>edges.push([a,b]));
+    g.nodes.forEach(n=>nodes.push({ ...n, kind:'compute' }));
+    return { nodes, edges };
+  }
+  // compact label-less topology for the overview graph rows
+  miniGraph(g, paused){
+    const NS=9, CG=48, RG=20, PAD=6;
+    const { nodes, edges } = this.buildGraphTopo(g);
+    const maxCol = Math.max(...nodes.map(n=>n.col));
+    const maxRow = Math.max(...nodes.map(n=>n.row));
+    const dim = paused || g.health==='socket_only' || g.health==='stopped';
+    const kc = (k)=> k==='acc'?'#7fb2ff':k==='reactor'?'#9d8cff':'#5b6573';
+    const pos = {};
+    const vnodes = nodes.map(n => {
+      const x = PAD + n.col*CG, y = PAD + n.row*RG;
+      pos[n.id] = { x, y, cy:y+NS/2 };
+      const pulse = (!paused && n.kind==='reactor' && g.health==='live') ? 'animation:cloPulse 1.7s infinite;' : '';
+      return { x, y, fill:kc(n.kind), style: dim ? 'opacity:.4;' : pulse };
+    });
+    const vedges = edges.map(([a,b]) => {
+      const s=pos[a], t=pos[b]; if(!s||!t) return { d:'', stroke:'transparent' };
+      return { d:`M ${s.x+NS} ${s.cy} C ${s.x+NS+16} ${s.cy}, ${t.x-16} ${t.cy}, ${t.x} ${t.cy}`, stroke: dim?'#1d232c':'#283039' };
+    });
+    return { w:PAD*2+maxCol*CG+NS, h:PAD*2+maxRow*RG+NS, nodes:vnodes, edges:vedges };
+  }
+
+
+  // ----- actions -----
+  go = (view) => this.setState({ view, selExec:null, selGraph:null, selNode:null, selTask:null });
+  fireGraph = (name) => this.toastMsg('Fired ' + name + ' — manual boundary injected');
+  togglePauseExec = (id) => this.setState(s=>{ const p={...s.pausedExecs, [id]:!s.pausedExecs[id]}; this.toastMsg((p[id]?'Paused':'Resumed')+' run'); return { pausedExecs:p }; });
+  togglePauseGraph = (name) => this.setState(s=>{ const p={...s.pausedGraphs, [name]:!s.pausedGraphs[name]}; this.toastMsg((p[name]?'Paused':'Resumed')+' '+name); return { pausedGraphs:p }; });
+  openTask = (id) => this.setState({ selTask:id });
+  closeTask = () => this.setState({ selTask:null });
+  openAddAgent = () => this.setState({ showAddAgent:true });
+  closeAddAgent = () => this.setState({ showAddAgent:false });
+  registerAgent = () => { this.setState({ showAddAgent:false }); this.toastMsg('Enrollment token issued — waiting for agent to join'); };
+  taskCode(id, wf){
+    const deps = this.TOPO[wf].edges.filter(([a,b])=>b===id).map(([a])=>a);
+    const depAttr = deps.length ? (',\n    dependencies = [' + deps.map(d=>'"'+d+'"').join(', ') + ']') : '';
+    const src = deps[0] || 'source';
+    return [
+      '#[task(',
+      '    id = "' + id + '"' + depAttr,
+      ')]',
+      'pub async fn ' + id + '(ctx: &mut Context) -> Result<(), TaskError> {',
+      '    let input = ctx.get::<Frame>("' + src + '")?;',
+      '',
+      '    // ' + id + ': transform the upstream frame',
+      '    let out = ' + id + '::run(input)',
+      '        .await',
+      '        .map_err(|e| TaskError::retryable(e))?;',
+      '',
+      '    ctx.insert("' + id + '", out);',
+      '    Ok(())',
+      '}',
+    ];
+  }
+
+  toastMsg = (msg) => { this.setState({ toast:msg }); clearTimeout(this._tt); this._tt = setTimeout(()=>this.setState({toast:null}), 2600); };
+  openExec = (id) => this.setState({ selExec:id });
+  closeExec = () => this.setState({ selExec:null });
+  openGraph = (name) => this.setState({ selGraph:name, selNode:null });
+  closeGraph = () => this.setState({ selGraph:null, selNode:null });
+
+  componentDidMount(){ this._t = setInterval(()=>this.setState(s=>({ tick:s.tick+1 })), 1500); }
+  componentWillUnmount(){ clearInterval(this._t); clearTimeout(this._tt); }
+
+  renderVals() {
+    const s = this.state;
+    const SC = this.SC;
+    const execs = this.buildExecs().map(e => {
+      const total = this.TOPO[e.wf].nodes.length;
+      const done = Object.values(e.ts).filter(v=>v==='completed').length;
+      const status = (e.status==='running' && s.pausedExecs[e.id]) ? 'paused' : e.status;
+      const elapsed = status==='running' ? e.elapsed + s.tick*2 : e.elapsed;
+      return { ...e, status, total, done, elapsed };
+    });
+    const navStyle = (active) => `display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:7px; cursor:pointer; font:${active?500:400} 13.5px 'IBM Plex Sans'; color:${active?'#e6e9ee':'#8b95a3'}; background:${active?'rgba(127,178,255,.13)':'transparent'}; box-shadow:${active?'inset 2px 0 0 #7fb2ff':'none'};`;
+    const pill = (st) => `font:500 10.5px 'IBM Plex Mono'; color:${SC[st]||'#8b95a3'}; background:${(SC[st]||'#8b95a3')}1c; padding:3px 10px; border-radius:10px; text-transform:lowercase; flex:none;`;
+
+    // ---- metrics ----
+    const running = execs.filter(e=>e.status==='running');
+    const active = execs.filter(e=>e.status==='running' || e.status==='paused');
+    const metrics = [
+      { label:'Workflows',  val:String(this.WORKFLOWS.length), sub:'registered', color:'#e6e9ee' },
+      { label:'Running',    val:String(running.length),        sub:running.length?'in flight':'idle', color:'#7fb2ff' },
+      { label:'Completed',  val:'148',                          sub:'last 24h', color:'#4bd07f' },
+      { label:'Failed',     val:'3',                            sub:'last 24h', color:'#f06464' },
+    ];
+    const health = [
+      { name:'Server',     detail:'alive · ready', dotc:'#4bd07f' },
+      { name:'Compiler',   detail:'idle · 0 pending', dotc:'#4bd07f' },
+      { name:'Reconciler', detail:'42 built · 0 failed', dotc:'#4bd07f' },
+      { name:'Scheduler',  detail:'1s tick · ok', dotc:'#4bd07f' },
+      { name:'Database',   detail:'pool 8/20', dotc:'#4bd07f' },
+      { name:'Agents',     detail:'3 registered', dotc:'#4bd07f' },
+    ];
+
+    // ---- overview active + recent ----
+    const activeExecs = active.map(e => {
+      const paused = e.status==='paused';
+      const r = paused ? '' : this.runInfo(e);
+      return {
+        ...e, workflow:e.wf, dag:this.miniDag(e), paused,
+        statusLabel: paused?'paused':'running', statusColor: paused?'#8b95a3':'#7fb2ff',
+        statusBg: paused?'rgba(139,149,163,.12)':'rgba(127,178,255,.1)',
+        pauseLabel: paused?'Resume':'Pause',
+        meta: e.done + '/' + e.total + ' tasks · ' + this.fmtDur(e.elapsed) + (paused?' · paused':(r ? (' · on ' + r) : '')),
+        onOpen: () => this.openExec(e.id),
+        onTogglePause:(ev)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); this.togglePauseExec(e.id); },
+      };
+    });
+    const activeEmpty = activeExecs.length === 0;
+    const rollup = [
+      { name:'Workflows', tint:'#7fb2ff', a:this.WORKFLOWS.length+' packages', b:'30 tasks', onOpen:()=>this.go('workflows') },
+      { name:'Computation graphs', tint:'#5fd0c5', a:this.GRAPHS.length+' graphs', b:'1 live · 1 warming', onOpen:()=>this.go('graphs') },
+    ];
+    const recent = execs.filter(e=>e.status!=='running' && e.status!=='scheduled').slice(0,6).map(e => ({
+      ...e, workflow:e.wf, dotc:SC[e.status], dotglow:(SC[e.status])+'22',
+      meta: e.trigger, dur:this.fmtDur(e.elapsed), durc: e.status==='failed'?'#f06464':(e.status==='cancelled'?'#d8a657':'#8b95a3'),
+      onOpen:()=>this.openExec(e.id),
+    }));
+
+    // ---- executions list ----
+    const chipDefs = [ ['all','All'],['running','Running'],['completed','Completed'],['failed','Failed'],['scheduled','Scheduled'] ];
+    const countFor = (k) => k==='all' ? execs.length : execs.filter(e=>e.status===k).length;
+    const execChips = chipDefs.map(([key,label]) => {
+      const active = s.execFilter===key;
+      return { key, label, n:String(countFor(key)), onClick:()=>this.setState({execFilter:key}),
+        style:`display:flex; align-items:center; gap:6px; padding:7px 13px; border-radius:20px; cursor:pointer; font:${active?600:400} 12px 'IBM Plex Sans'; ${active?'background:#7fb2ff; color:#0b0d10;':'background:#161a21; border:1px solid #232a34; color:#c3cbd5;'}` };
+    });
+    const q = s.execQuery.trim().toLowerCase();
+    let filteredExecs = s.execFilter==='all' ? execs : execs.filter(e=>e.status===s.execFilter);
+    if (q) filteredExecs = filteredExecs.filter(e => (e.wf+' '+e.runId).toLowerCase().includes(q));
+    filteredExecs = filteredExecs.map(e => ({
+      ...e, workflow:e.wf, dotc:SC[e.status], pillStyle:pill(e.status),
+      pips:this.pipsFor(e),
+      taskLabel: (e.status==='scheduled'?0:e.done)+'/'+e.total+' tasks',
+      dur: e.status==='scheduled'?'—':this.fmtDur(e.elapsed),
+      onOpen:()=>this.openExec(e.id),
+    }));
+    const execEmpty = filteredExecs.length===0;
+    const execStatusLine = execs.length+' runs · '+running.length+' running · '+execs.filter(e=>e.status==='failed').length+' failed';
+
+    // ---- workflows ----
+    const workflowsVm = this.WORKFLOWS.map(w => ({
+      ...w, taskCount:this.TOPO[w.pkg].nodes.length,
+      runs: w.runs.map(st=>({ c:SC[st]||'#5b6573' })),
+      onOpen:()=>{ this.setState({ view:'executions', execFilter:'all', execQuery:w.pkg }); },
+      onRun:(ev)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); this.toastMsg('Triggered '+w.pkg+' — run queued'); },
+    }));
+
+    // ---- triggers ----
+    const triggersVm = s.triggers.map(t => ({
+      ...t,
+      typeStyle: t.type==='cron'
+        ? `font:500 9.5px 'IBM Plex Mono'; letter-spacing:.05em; color:#9d8cff; background:rgba(157,140,255,.1); padding:2px 8px; border-radius:4px;`
+        : `font:500 9.5px 'IBM Plex Mono'; letter-spacing:.05em; color:#5fd0c5; background:rgba(95,208,197,.1); padding:2px 8px; border-radius:4px;`,
+      stateLabel: t.enabled?'enabled':'disabled',
+      stateColor: t.enabled?'#4bd07f':'#5b6573',
+      next: t.enabled?t.next:'—',
+      swStyle:`width:34px; height:20px; border-radius:11px; flex:none; cursor:pointer; position:relative; background:${t.enabled?'#7fb2ff':'#2a3340'};`,
+      swKnob:`position:absolute; top:2px; left:${t.enabled?'16px':'2px'}; width:16px; height:16px; border-radius:50%; background:#fff;`,
+      onToggle:()=>this.setState(st=>({ triggers: st.triggers.map(x=>x.id===t.id?{...x,enabled:!x.enabled}:x) })),
+    }));
+
+    // ---- graphs ----
+    const gView = (g) => {
+      const paused = !!s.pausedGraphs[g.name];
+      return {
+        name:g.name,
+        dotc: paused ? '#d8a657' : this.graphHealthColor(g.health),
+        healthLabel: paused ? 'paused' : g.health.replace('_',' '),
+        throughput: paused ? 'reactor paused' : g.throughput,
+        accLabel:g.accumulators.join(' · '),
+        reactorLabel: g.reactor || 'no reactor',
+        modeLabel: g.mode? (g.mode.replace('_',' ')+' · '+g.strategy) : 'direct',
+        paused, pauseLabel: paused ? 'Resume' : 'Pause',
+        dag:this.miniGraph(g, paused),
+        onOpen:()=>this.openGraph(g.name),
+        onFire:(ev)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); this.fireGraph(g.name); },
+        onTogglePause:(ev)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); this.togglePauseGraph(g.name); },
+      };
+    };
+    const graphsVm = this.GRAPHS.map(gView);
+    const activeGraphs = this.GRAPHS.map(gView);
+    const graphsActiveLabel = this.GRAPHS.filter(g=>!s.pausedGraphs[g.name] && (g.health==='live'||g.health==='warming')).length + ' active';
+
+    // ---- operations ----
+    const opsBadge = (c,bg,t) => `font:500 10.5px 'IBM Plex Mono'; color:${c}; background:${bg}; padding:2px 9px; border-radius:9px;`;
+    const opsCards = [
+      { title:'Server', badge:'alive', badgeStyle:opsBadge('#4bd07f','rgba(75,208,127,.1)'), stats:[
+        {k:'readiness',v:'ready',c:'#4bd07f'},{k:'db pool',v:'8 / 20',c:'#c3cbd5'},{k:'uptime',v:'14d 6h',c:'#c3cbd5'} ] },
+      { title:'Compiler', badge:'idle', badgeStyle:opsBadge('#8b95a3','#1b2129'), stats:[
+        {k:'pending',v:'0',c:'#c3cbd5'},{k:'building',v:'0',c:'#c3cbd5'},{k:'last success',v:'2h ago',c:'#c3cbd5'} ] },
+      { title:'Reconciler', badge:'healthy', badgeStyle:opsBadge('#4bd07f','rgba(75,208,127,.1)'), stats:[
+        {k:'available',v:'42',c:'#c3cbd5'},{k:'failed builds',v:'0',c:'#4bd07f'},{k:'last built',v:'3h ago',c:'#c3cbd5'} ] },
+      { title:'Fleet', badge:'3 agents', badgeStyle:opsBadge('#4bd07f','rgba(75,208,127,.1)'), stats:[
+        {k:'in flight',v:'5',c:'#7fb2ff'},{k:'capacity',v:'24',c:'#c3cbd5'},{k:'idle',v:'1',c:'#c3cbd5'} ] },
+    ];
+    const agents = [
+      { id:'agent-eu-west-1', target:'x86_64-linux', capacity:'3/8 in flight', heartbeat:'4s ago', tenant:'public', dotc:'#4bd07f', hbColor:'#8b95a3' },
+      { id:'agent-eu-west-2', target:'x86_64-linux', capacity:'2/8 in flight', heartbeat:'7s ago', tenant:'public', dotc:'#4bd07f', hbColor:'#8b95a3' },
+      { id:'agent-arm-edge-1',target:'aarch64-linux',capacity:'0/8 in flight', heartbeat:'2m ago', tenant:'public', dotc:'#d8a657', hbColor:'#d8a657' },
+    ];
+
+    // ---- keys ----
+    const keysVm = s.keys.map(k => ({ ...k, onRevoke:()=>this.toastMsg('Revoked '+k.name) }));
+
+    // ---- execution drawer ----
+    let ex = {};
+    const selE = execs.find(e=>e.id===s.selExec);
+    if (selE) {
+      const topo = this.TOPO[selE.wf];
+      const statusOf = (id)=>selE.ts[id];
+      const dagInput = topo.nodes.map(n=>({ ...n, onClick:()=>this.openTask(n.id) }));
+      const dag = this.layout(dagInput, topo.edges, statusOf, null);
+      const dagNodes = dag.nodes.map(n=>({ ...n }));
+      // gantt
+      const cols = Math.max(...topo.nodes.map(n=>n.col))+1;
+      const ordered = [...topo.nodes].sort((a,b)=> a.col-b.col || a.row-b.row);
+      const gantt = ordered.map(n => {
+        const st = selE.ts[n.id];
+        const startF = n.col/(cols+0.2);
+        const wF = (st==='running'?0.55:0.82)/(cols+0.2);
+        const color = st==='running'?'linear-gradient(90deg,#5fd0c5,#7fb2ff)':(st==='pending'||st==='skipped'?'#1b2129':SC[st]);
+        const durByCol = [38,52,33,29,12];
+        const dsec = st==='pending'||st==='skipped'?0:(durByCol[n.col]||20);
+        return { name:n.label, gx:(startF*100).toFixed(1)+'%', gw:(wF*100).toFixed(1)+'%', color, dur: dsec?dsec+'s':'—' };
+      });
+      const live = selE.status==='running';
+      const paused = selE.status==='paused';
+      const log = (selE.log || [['00:00:00','completed  '+selE.wf+' — all tasks ok','#4bd07f']]).map(l=>({ t:l[0], text:l[1], c:l[2] }));
+      ex = {
+        workflow:selE.wf, runId:selE.runId, status:selE.status, pillStyle:pill(selE.status), live,
+        started: selE.status==='scheduled'?'—':selE.ago+(selE.ago==='now'?'':' ago'),
+        durKey: (live||paused)?'ELAPSED':'DURATION', dur:this.fmtDur(selE.elapsed),
+        trigger:selE.trigger, taskLabel: selE.done+'/'+selE.total,
+        nodes:dagNodes, edges:dag.edges, dagW:dag.w, dagH:dag.h,
+        gantt, log,
+        canPause: live||paused, pauseLabel: paused?'▸ Resume':'⏸ Pause',
+        onTogglePause:()=>this.togglePauseExec(selE.id),
+        onRerun:()=>{ this.toastMsg('Re-running '+selE.wf); },
+      };
+    }
+
+    // ---- task code modal ----
+    let task = {};
+    if (selE && s.selTask) {
+      const tNode = this.TOPO[selE.wf].nodes.find(n=>n.id===s.selTask);
+      if (tNode) {
+        const st = selE.ts[s.selTask];
+        const durByCol = [38,52,33,29,12];
+        const dsec = (st==='pending'||st==='skipped')?0:(durByCol[tNode.col]||20);
+        const codeLines = this.taskCode(s.selTask, selE.wf).map((line,i)=>({
+          n: String(i+1),
+          text: line,
+          color: line.trim().startsWith('//') ? '#5b6573'
+            : (line.includes('#[task')||line.includes('async fn')||line.includes('Ok(')) ? '#7fb2ff'
+            : '#cdd4dc',
+        }));
+        task = {
+          name:s.selTask, statusPill:pill(st||'pending'), status:st||'pending',
+          dur: dsec?dsec+'s':'—',
+          deps: (this.TOPO[selE.wf].edges.filter(([a,b])=>b===s.selTask).map(([a])=>a).join(', '))||'— (entry task)',
+          codeLines,
+        };
+      }
+    }
+
+    // ---- graph drawer ----
+    let gr = {};
+    const selG = this.GRAPHS.find(g=>g.name===s.selGraph);
+    if (selG) {
+      const accNodes = selG.accumulators.map((a,i)=>({ id:'acc:'+a, label:a, col:0, row:i, kind:'acc', onClick:()=>this.setState({selNode:'acc:'+a}) }));
+      const rows = selG.accumulators.length;
+      let allNodes = [...accNodes];
+      let edges = selG.edges.map(([a,b])=>[a==='reactor'?'reactor':a, b==='reactor'?'reactor':b]);
+      if (selG.reactor) {
+        allNodes.push({ id:'reactor', label:selG.reactor, col:1, row:(rows-1)/2, kind:'reactor', onClick:()=>this.setState({selNode:'reactor'}) });
+        selG.accumulators.forEach(a=>edges.push(['acc:'+a,'reactor']));
+      } else {
+        selG.accumulators.forEach(a=>edges.push(['acc:'+a, selG.nodes[0].id]));
+      }
+      selG.nodes.forEach(n=>allNodes.push({ ...n, kind:'compute', onClick:()=>this.setState({selNode:n.id}) }));
+      const kindOf = (id) => {
+        const n = allNodes.find(x=>x.id===id);
+        if (!n) return { dotc:'#5b6573', border:'#232a34' };
+        if (n.kind==='acc') return { dotc:'#7fb2ff', border:'rgba(127,178,255,.5)' };
+        if (n.kind==='reactor') return { dotc:'#9d8cff', border:'rgba(157,140,255,.55)' };
+        return { dotc:'#8b95a3', border:'#2a3340' };
+      };
+      const layoutNodes = allNodes.map(n=>({ id:n.id, label:n.label, col:n.col, row:n.row, onClick:n.onClick }));
+      const dag = this.layout(layoutNodes, edges, null, kindOf);
+      // node info
+      let node=null;
+      if (s.selNode) {
+        const id=s.selNode;
+        if (id.startsWith('acc:')) node={ title:id.slice(4), kind:'accumulator', kindColor:'#7fb2ff', rows:[
+          {k:'ROLE',v:'Turns an external source into the boundary events the reactor consumes.'},
+          {k:'FEEDS',v:selG.reactor||selG.nodes[0].id} ] };
+        else if (id==='reactor') node={ title:selG.reactor, kind:'reactor', kindColor:'#9d8cff', rows:[
+          {k:'CRITERIA',v:selG.mode.replace('_',' ')},
+          {k:'INPUT STRATEGY',v:selG.strategy},
+          {k:'ACCUMULATORS',v:selG.accumulators.join(', ')} ] };
+        else node={ title:id, kind:'node', kindColor:'#8b95a3', rows:[
+          {k:'ROLE',v:selG.info[id]||'Compute node.'},
+          {k:'UPSTREAM',v:(edges.filter(([a,b])=>b===id).map(([a])=>a.replace('acc:','')).join(', '))||'reactor'} ] };
+      }
+      const gPaused = !!s.pausedGraphs[selG.name];
+      gr = {
+        name:selG.name,
+        dotc: gPaused ? '#d8a657' : this.graphHealthColor(selG.health),
+        healthLabel: gPaused ? 'paused' : selG.health.replace('_',' '),
+        throughput: gPaused ? 'reactor paused' : selG.throughput,
+        modeLabel:selG.mode?selG.mode.replace('_',' '):'direct', strategyLabel:selG.strategy||'—',
+        nodes:dag.nodes, edges:dag.edges, dagW:dag.w, dagH:dag.h,
+        hasNode:!!node, noNode:!node, node:node||{},
+        paused:gPaused, pauseLabel: gPaused?'▸ Resume':'⏸ Pause',
+        onFire:()=>this.fireGraph(selG.name),
+        onTogglePause:()=>this.togglePauseGraph(selG.name),
+      };
+    }
+
+    return {
+      // connect
+      disconnected: !s.connected,
+      connServer:s.connServer, connKey:s.connKey, connTenant:s.connTenant,
+      onConnServer:(e)=>this.setState({connServer:e.target.value}),
+      onConnKey:(e)=>this.setState({connKey:e.target.value}),
+      onConnTenant:(e)=>this.setState({connTenant:e.target.value}),
+      doConnect:()=>this.setState({connected:true, view:'overview'}),
+      doDisconnect:()=>this.setState({connected:false}),
+      // nav
+      navOverviewOnClick:()=>this.go('overview'),
+      navExecOnClick:()=>this.go('executions'),
+      navWfOnClick:()=>this.go('workflows'),
+      navTrigOnClick:()=>this.go('triggers'),
+      navGraphOnClick:()=>this.go('graphs'),
+      navOpsOnClick:()=>this.go('operations'),
+      navKeysOnClick:()=>this.go('keys'),
+      navSettingsOnClick:()=>this.go('settings'),
+      runOnClick:()=>this.go('workflows'),
+      navOverviewStyle:navStyle(s.view==='overview'),
+      navExecStyle:navStyle(s.view==='executions'),
+      navWfStyle:navStyle(s.view==='workflows'),
+      navTrigStyle:navStyle(s.view==='triggers'),
+      navGraphStyle:navStyle(s.view==='graphs'),
+      navOpsStyle:navStyle(s.view==='operations'),
+      navKeysStyle:navStyle(s.view==='keys'),
+      navSettingsStyle:navStyle(s.view==='settings'),
+      runningCount:String(running.length), wfCount:String(this.WORKFLOWS.length),
+      trigCount:String(s.triggers.filter(t=>t.enabled).length), graphCount:String(this.GRAPHS.length),
+      // view flags
+      isOverview:s.view==='overview', isExec:s.view==='executions', isWf:s.view==='workflows',
+      isTrig:s.view==='triggers', isGraph:s.view==='graphs', isOps:s.view==='operations',
+      isKeys:s.view==='keys', isSettings:s.view==='settings',
+      // overview
+      lastSync:(s.tick%9+3)+'s ago', metrics, health,
+      activeExecs, activeEmpty, rollup, recent,
+      runningLabel: running.length+' in flight',
+      // executions
+      execChips, filteredExecs, execEmpty, execQuery:s.execQuery, execStatusLine,
+      onExecSearch:(e)=>this.setState({execQuery:e.target.value}),
+      // workflows
+      workflowsVm, onUpload:()=>this.toastMsg('Upload a compiled .cloacina package'),
+      // triggers
+      triggersVm,
+      // graphs
+      graphsVm, activeGraphs, graphsActiveLabel,
+      // ops / keys
+      opsCards, agents, keysVm, onCreateKey:()=>this.toastMsg('Create key — copy it now, shown once'),
+      onAddAgent:this.openAddAgent,
+      // task code modal
+      hasTask:!!(selE && s.selTask && task.name), task, closeTask:this.closeTask,
+      // add-agent modal
+      showAddAgent:s.showAddAgent, closeAddAgent:this.closeAddAgent, registerAgent:this.registerAgent,
+      enrollToken:'enr_3f9c1a7b8e2d4056', joinCmd:'cloacinactl agent join \\\n  --server '+s.connServer+' \\\n  --token enr_3f9c1a7b8e2d4056 \\\n  --tenant '+s.connTenant,
+      // drawers
+      hasExec:!!selE, ex, closeExec:this.closeExec,
+      hasGraph:!!selG, gr, closeGraph:this.closeGraph,
+      // toast
+      hasToast:!!s.toast, toastMsg:s.toast||'',
+    };
+  }
+}
+</script>
+</body>
+</html>
