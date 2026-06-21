@@ -200,6 +200,7 @@ export function FullDag({
               <text x={28} y={NODE_H / 2 + 4} fontFamily={MONO} fontSize={12.5} fill="var(--fg)">
                 {truncate(n.label ?? n.id)}
               </text>
+              <title>{`${n.label ?? n.id}${n.status ? ` · ${n.status}` : ""}`}</title>
             </g>
           );
         })}
