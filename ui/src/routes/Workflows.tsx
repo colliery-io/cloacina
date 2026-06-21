@@ -20,6 +20,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
 import { useWorkflows } from "../api/workflows";
+import { usePauseWorkflow } from "../api/controls";
 import { RunCircles, type RunDot } from "../components/RunCircles";
 import { RunWorkflowModal } from "../components/RunWorkflowModal";
 import { MONO, PageHeader, cardSurface } from "../components/aurora";
@@ -46,6 +47,7 @@ export function Workflows() {
   const navigate = useNavigate();
   const { data, isPending, isError, error, refetch } = useWorkflows();
   const runsByWorkflow = useRecentRunsByWorkflow();
+  const pause = usePauseWorkflow();
   const [runTarget, setRunTarget] = useState<{ pkg: string; workflow: string } | null>(null);
 
   const items = (data?.items ?? []).filter((w) => w.tasks.length > 0);
@@ -92,6 +94,11 @@ export function Workflows() {
                       <span style={{ background: pillBg(TOKEN.violet), color: TOKEN.violet, borderRadius: 10, padding: "1px 7px", fontFamily: MONO, fontSize: 10.5 }}>
                         v{w.version}
                       </span>
+                      {w.paused && (
+                        <span style={{ background: pillBg(TOKEN.gold), color: TOKEN.gold, borderRadius: 10, padding: "1px 7px", fontFamily: MONO, fontSize: 10.5 }}>
+                          paused
+                        </span>
+                      )}
                       <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>
                         {w.tasks.length} task{w.tasks.length === 1 ? "" : "s"}
                       </span>
@@ -103,8 +110,20 @@ export function Workflows() {
                     )}
                   </Box>
                 </Group>
-                <Group gap={16} wrap="nowrap" style={{ flex: "none" }}>
+                <Group gap={10} wrap="nowrap" style={{ flex: "none" }}>
                   <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} />
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    color="gray"
+                    loading={pause.isPending && pause.variables?.name === w.package_name}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      pause.mutate({ name: w.package_name, paused: !w.paused });
+                    }}
+                  >
+                    {w.paused ? "Resume" : "Pause"}
+                  </Button>
                   <Button
                     size="xs"
                     variant="default"
