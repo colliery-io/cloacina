@@ -47,8 +47,18 @@ pub fn spawn(state: AppState, mut shutdown: watch::Receiver<bool>) {
     tokio::spawn(async move {
         // Monotonic push id (NOT a DB row id) for the SDK's dedup window.
         let id_counter = AtomicI64::new(1);
-        let mut ticker = tokio::time::interval(PUBLISH_INTERVAL);
+        // Poll for subscribers every second (cheap — just a recipient check) so a
+        // newly-connected UI gets its first snapshot within ~1s instead of waiting
+        // up to PUBLISH_INTERVAL for the next global tick. That wait was the
+        // cold-start that made live pages look "down" on open (CLOACI-T-0774).
+        // Snapshots are still only gathered + pushed on the PUBLISH_INTERVAL
+        // cadence once a subscriber is connected, plus once immediately when one
+        // first connects.
+        const CHECK: Duration = Duration::from_secs(1);
+        let mut ticker = tokio::time::interval(CHECK);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut was_listening = false;
+        let mut since_publish = PUBLISH_INTERVAL; // force a publish on first connect
         loop {
             tokio::select! {
                 changed = shutdown.changed() => {
@@ -57,10 +67,21 @@ pub fn spawn(state: AppState, mut shutdown: watch::Receiver<bool>) {
                     }
                 }
                 _ = ticker.tick() => {
-                    // Nobody listening → don't even gather.
-                    if !state.delivery_sink.has_recipient(OPS_RECIPIENT, None) {
+                    // Nobody listening → don't even gather; reset so the next
+                    // subscriber gets an immediate snapshot.
+                    let listening = state.delivery_sink.has_recipient(OPS_RECIPIENT, None);
+                    if !listening {
+                        was_listening = false;
+                        since_publish = PUBLISH_INTERVAL;
                         continue;
                     }
+                    let just_connected = !was_listening;
+                    was_listening = true;
+                    since_publish += CHECK;
+                    if !just_connected && since_publish < PUBLISH_INTERVAL {
+                        continue;
+                    }
+                    since_publish = Duration::ZERO;
                     let event = gather(&state).await;
                     match serde_json::to_vec(&event) {
                         Ok(bytes) => {
