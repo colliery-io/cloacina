@@ -54,6 +54,7 @@ mod unified_schema {
             pause_reason -> Nullable<Text>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            trigger_origin -> Nullable<Text>,
         }
     }
 
@@ -499,6 +500,7 @@ mod postgres_schema {
             pause_reason -> Nullable<Text>,
             created_at -> Timestamp,
             updated_at -> Timestamp,
+            trigger_origin -> Nullable<Text>,
         }
     }
 

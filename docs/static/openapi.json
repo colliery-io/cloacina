@@ -3017,6 +3017,13 @@
           "status": {
             "type": "string"
           },
+          "trigger_origin": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "How the run was triggered (CLOACI-T-0776): `\"manual\"` for an operator run\nvia the REST execute endpoint; `null` for cron/trigger/reactor-driven runs.\nThe UI marks manual runs with a \"manual\" pill."
+          },
           "workflow_name": {
             "type": "string"
           }
@@ -4193,6 +4200,13 @@
                 },
                 "status": {
                   "type": "string"
+                },
+                "trigger_origin": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "How the run was triggered (CLOACI-T-0776): `\"manual\"` for an operator run\nvia the REST execute endpoint; `null` for cron/trigger/reactor-driven runs.\nThe UI marks manual runs with a \"manual\" pill."
                 },
                 "workflow_name": {
                   "type": "string"

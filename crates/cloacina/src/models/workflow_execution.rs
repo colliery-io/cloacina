@@ -39,6 +39,10 @@ pub struct WorkflowExecutionRecord {
     pub pause_reason: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    /// How this run was triggered (CLOACI-T-0776). `Some("manual")` for an
+    /// operator run via the REST execute endpoint; `None` for cron/trigger/
+    /// reactor-driven runs (and rows created before the column existed).
+    pub trigger_origin: Option<String>,
 }
 
 /// Structure for creating new workflow executions (domain type).

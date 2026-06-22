@@ -63,6 +63,11 @@ pub struct ExecutionSummary {
     pub started_at: String,
     /// RFC 3339 timestamp; `null` while still running.
     pub completed_at: Option<String>,
+    /// How the run was triggered (CLOACI-T-0776): `"manual"` for an operator run
+    /// via the REST execute endpoint; `null` for cron/trigger/reactor-driven runs.
+    /// The UI marks manual runs with a "manual" pill.
+    #[serde(default)]
+    pub trigger_origin: Option<String>,
 }
 
 /// `GET /tenants/{tenant_id}/executions/{id}` response.

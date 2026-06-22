@@ -966,6 +966,12 @@ export interface components {
             /** @description RFC 3339 timestamp. */
             started_at: string;
             status: string;
+            /**
+             * @description How the run was triggered (CLOACI-T-0776): `"manual"` for an operator run
+             *     via the REST execute endpoint; `null` for cron/trigger/reactor-driven runs.
+             *     The UI marks manual runs with a "manual" pill.
+             */
+            trigger_origin?: string | null;
             workflow_name: string;
         };
         /** @description `GET /tenants/{tenant_id}/executions/{id}/tasks` response. */
@@ -1530,6 +1536,12 @@ export interface components {
                 /** @description RFC 3339 timestamp. */
                 started_at: string;
                 status: string;
+                /**
+                 * @description How the run was triggered (CLOACI-T-0776): `"manual"` for an operator run
+                 *     via the REST execute endpoint; `null` for cron/trigger/reactor-driven runs.
+                 *     The UI marks manual runs with a "manual" pill.
+                 */
+                trigger_origin?: string | null;
                 workflow_name: string;
             }[];
             tenant_id: string;

@@ -75,6 +75,9 @@ pub struct UnifiedWorkflowExecution {
     pub pause_reason: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    /// How this run was triggered (CLOACI-T-0776); `Some("manual")` for an
+    /// operator REST run, `None` otherwise.
+    pub trigger_origin: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -604,6 +607,7 @@ impl From<UnifiedWorkflowExecution> for WorkflowExecutionRecord {
             pause_reason: u.pause_reason,
             created_at: u.created_at,
             updated_at: u.updated_at,
+            trigger_origin: u.trigger_origin,
         }
     }
 }

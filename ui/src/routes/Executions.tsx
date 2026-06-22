@@ -19,11 +19,11 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
 import { StatusBadge } from "../components/StatusBadge";
-import { Chip, Dot, MONO, PageHeader, cardSurface } from "../components/aurora";
+import { Chip, Dot, MONO, PageHeader, Pill, cardSurface } from "../components/aurora";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatDuration } from "../util/format";
 import { formatAgo } from "../util/activity";
-import { statusColor } from "../util/tokens";
+import { statusColor, TOKEN } from "../util/tokens";
 
 const PAGE_SIZE = 50;
 
@@ -142,6 +142,9 @@ export function Executions() {
                   </Box>
                 </Group>
                 <Group gap={18} wrap="nowrap" style={{ flex: "none" }}>
+                  {(e as { trigger_origin?: string | null }).trigger_origin === "manual" && (
+                    <Pill color={TOKEN.gold}>manual</Pill>
+                  )}
                   <StatusBadge status={e.status} />
                   <Box className="cl-tnum" style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--fg-2)", width: 64, textAlign: "right" }}>
                     {formatDuration(e.started_at, e.completed_at)}

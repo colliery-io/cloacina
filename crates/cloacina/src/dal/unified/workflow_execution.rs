@@ -382,6 +382,52 @@ impl<'a> WorkflowExecutionDAL<'a> {
         Ok(())
     }
 
+    /// Set a workflow execution's trigger origin (CLOACI-T-0776). Called right
+    /// after creation by the REST execute endpoint to mark an operator run as
+    /// `"manual"`. Best-effort metadata — failures are non-fatal to the run.
+    pub async fn set_trigger_origin(
+        &self,
+        id: UniversalUuid,
+        origin: &str,
+    ) -> Result<(), ValidationError> {
+        let origin = origin.to_string();
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+                conn.interact(move |conn| {
+                    diesel::update(workflow_executions::table.find(id))
+                        .set(workflow_executions::trigger_origin.eq(origin))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+                Ok(())
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+                conn.interact(move |conn| {
+                    diesel::update(workflow_executions::table.find(id))
+                        .set(workflow_executions::trigger_origin.eq(origin))
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+                Ok(())
+            }
+        )
+    }
+
     /// Marks a workflow execution as completed.
     ///
     /// This operation is transactional: the status update and execution event

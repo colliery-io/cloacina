@@ -178,6 +178,30 @@ pub async fn execute_workflow(
                 "Executed workflow '{}' for tenant '{}': {}",
                 name, tenant_id, execution.execution_id
             );
+            // CLOACI-T-0776: mark this as a manual operator run so the UI can
+            // distinguish it from cron/trigger/reactor-driven runs. Best-effort —
+            // a tagging failure must not fail the (already-started) execution.
+            if let Ok(db) = state
+                .tenant_databases
+                .resolve(&tenant_id, &state.database)
+                .await
+            {
+                if let Err(e) = cloacina::dal::DAL::new(db)
+                    .workflow_execution()
+                    .set_trigger_origin(
+                        cloacina::database::universal_types::UniversalUuid::from(
+                            execution.execution_id,
+                        ),
+                        "manual",
+                    )
+                    .await
+                {
+                    warn!(
+                        "failed to mark execution {} as manual: {}",
+                        execution.execution_id, e
+                    );
+                }
+            }
             (
                 StatusCode::ACCEPTED,
                 Json(ExecuteResponse {
@@ -282,6 +306,7 @@ pub async fn list_executions(
                     status: e.status,
                     started_at: e.started_at.0.to_rfc3339(),
                     completed_at: e.completed_at.map(|t| t.0.to_rfc3339()),
+                    trigger_origin: e.trigger_origin,
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
