@@ -205,6 +205,37 @@ pub struct FireRecord {
     pub error: Option<String>,
     /// Graph execution wall-clock for this fire.
     pub duration_ms: u64,
+    /// Input boundary values that triggered this fire: source name → value
+    /// (CLOACI-T-0775). The snapshot the graph ran on.
+    pub inputs: std::collections::HashMap<String, serde_json::Value>,
+    /// Terminal outputs the graph produced, as JSON (CLOACI-T-0775). Empty when
+    /// the executor can't serialize them (e.g. the Python reactor path) or on a
+    /// failed fire.
+    pub outputs: Vec<serde_json::Value>,
+}
+
+/// Decode a fire's input snapshot to `source → JSON value` for the fire log
+/// (CLOACI-T-0775). Each cache entry is a boundary frame `bincode(json_bytes)`
+/// (the `encode_boundary_input` format the FFI bridge decodes), so unwrap the
+/// bincode `Vec<u8>` then parse it as JSON. Falls back to parsing the frame
+/// directly (untyped/raw sources), then to null.
+pub(crate) fn capture_fire_inputs(
+    snapshot: &cloacina_computation_graph::InputCache,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    snapshot
+        .entries_raw()
+        .iter()
+        .map(|(name, frame)| {
+            let value = bincode::deserialize::<Vec<u8>>(frame)
+                .ok()
+                .and_then(|json_bytes| {
+                    serde_json::from_slice::<serde_json::Value>(&json_bytes).ok()
+                })
+                .or_else(|| serde_json::from_slice::<serde_json::Value>(frame).ok())
+                .unwrap_or(serde_json::Value::Null);
+            (name.as_str().to_string(), value)
+        })
+        .collect()
 }
 
 /// How many recent fires to retain in the ring (newest-wins).
@@ -226,8 +257,14 @@ pub struct ReactorStats {
 }
 
 impl ReactorStats {
-    /// Record a successful graph fire; returns the new completed total.
-    pub fn record_fire(&self, duration_ms: u64) -> u64 {
+    /// Record a successful graph fire with its I/O; returns the new completed
+    /// total (CLOACI-T-0766; I/O CLOACI-T-0775).
+    pub fn record_fire(
+        &self,
+        duration_ms: u64,
+        inputs: std::collections::HashMap<String, serde_json::Value>,
+        outputs: Vec<serde_json::Value>,
+    ) -> u64 {
         let now = chrono::Utc::now().timestamp_millis();
         self.last_fire_unix_ms
             .store(now, std::sync::atomic::Ordering::Relaxed);
@@ -236,14 +273,22 @@ impl ReactorStats {
             ok: true,
             error: None,
             duration_ms,
+            inputs,
+            outputs,
         });
         self.fires
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             + 1
     }
 
-    /// Record a failed graph fire (CLOACI-T-0766).
-    pub fn record_failure(&self, duration_ms: u64, error: String) {
+    /// Record a failed graph fire (CLOACI-T-0766). Inputs are still captured so
+    /// an operator can see what triggered the failing fire (CLOACI-T-0775).
+    pub fn record_failure(
+        &self,
+        duration_ms: u64,
+        error: String,
+        inputs: std::collections::HashMap<String, serde_json::Value>,
+    ) {
         let now = chrono::Utc::now().timestamp_millis();
         self.last_fire_unix_ms
             .store(now, std::sync::atomic::Ordering::Relaxed);
@@ -252,6 +297,8 @@ impl ReactorStats {
             ok: false,
             error: Some(error),
             duration_ms,
+            inputs,
+            outputs: Vec::new(),
         });
         self.failures
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -793,6 +840,9 @@ impl Reactor {
                                 write_reactor_firing(
                                     &dal_exec, &tenant_id_exec, &graph_name_exec, &snapshot,
                                 ).await;
+                                // CLOACI-T-0775: capture the triggering inputs before
+                                // the snapshot is moved into the graph call.
+                                let fire_inputs = capture_fire_inputs(&snapshot);
                                 let result = (graph)(snapshot).await;
                                 metrics::counter!(
                                     "cloacina_reactor_fires_total",
@@ -808,9 +858,12 @@ impl Reactor {
                                 )
                                 .record(fire_started.elapsed().as_secs_f64());
                                 match &result {
-                                    GraphResult::Completed { .. } => {
-                                        let fires =
-                                            fire_counter.record_fire(fire_started.elapsed().as_millis() as u64);
+                                    GraphResult::Completed { outputs_json, .. } => {
+                                        let fires = fire_counter.record_fire(
+                                            fire_started.elapsed().as_millis() as u64,
+                                            fire_inputs,
+                                            outputs_json.clone(),
+                                        );
                                         tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                         persist_reactor_state(
                                             &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec, None,
@@ -824,6 +877,7 @@ impl Reactor {
                                         fire_counter.record_failure(
                                             fire_started.elapsed().as_millis() as u64,
                                             e.to_string(),
+                                            fire_inputs,
                                         );
                                         tracing::error!(graph = %graph_name_exec, "graph execution failed: {}", e);
                                     }
@@ -851,6 +905,8 @@ impl Reactor {
                                         write_reactor_firing(
                                             &dal_exec, &tenant_id_exec, &graph_name_exec, &snapshot,
                                         ).await;
+                                        // CLOACI-T-0775: capture inputs before the move.
+                                        let fire_inputs = capture_fire_inputs(&snapshot);
                                         let result = (graph)(snapshot).await;
                                         metrics::counter!(
                                             "cloacina_reactor_fires_total",
@@ -866,9 +922,12 @@ impl Reactor {
                                         )
                                         .record(fire_started.elapsed().as_secs_f64());
                                         match &result {
-                                            GraphResult::Completed { .. } => {
-                                                let fires =
-                                            fire_counter.record_fire(fire_started.elapsed().as_millis() as u64);
+                                            GraphResult::Completed { outputs_json, .. } => {
+                                                let fires = fire_counter.record_fire(
+                                                    fire_started.elapsed().as_millis() as u64,
+                                                    fire_inputs,
+                                                    outputs_json.clone(),
+                                                );
                                                 tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                                 persist_reactor_state(
                                                     &dal_exec, &graph_name_exec, &cache_exec,
@@ -884,6 +943,7 @@ impl Reactor {
                                                 fire_counter.record_failure(
                                                     fire_started.elapsed().as_millis() as u64,
                                                     e.to_string(),
+                                                    fire_inputs,
                                                 );
                                                 tracing::error!("graph execution failed: {}", e);
                                             }

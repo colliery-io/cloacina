@@ -97,6 +97,16 @@ pub struct ReactorFire {
     pub error: Option<String>,
     /// Graph execution wall-clock for this fire, in milliseconds.
     pub duration_ms: u64,
+    /// Input boundary values that triggered this fire: source name → value
+    /// (CLOACI-T-0775). The graph's I/O history, so a fire reads as more than
+    /// "ran in 0ms".
+    #[serde(default)]
+    pub inputs: std::collections::HashMap<String, serde_json::Value>,
+    /// Terminal outputs the graph produced for this fire, as JSON
+    /// (CLOACI-T-0775). Empty when the executor can't serialize them (e.g. the
+    /// Python reactor path) or on a failed fire.
+    #[serde(default)]
+    pub outputs: Vec<serde_json::Value>,
 }
 
 /// `GET /v1/health/reactors/{name}/fires/timeseries` (CLOACI-T-0766): fire counts

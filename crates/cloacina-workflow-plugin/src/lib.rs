@@ -393,7 +393,7 @@ macro_rules! package {
                     let result = rt.block_on(async { (reg.graph_fn)(cache).await });
 
                     match result {
-                        cloacina_computation_graph::GraphResult::Completed { outputs } => {
+                        cloacina_computation_graph::GraphResult::Completed { outputs, .. } => {
                             let terminal_json: ::std::vec::Vec<::std::string::String> = outputs
                                 .iter()
                                 .filter_map(|o| {
@@ -630,7 +630,7 @@ macro_rules! package {
                     let result = rt.block_on(async move { graph_fn(context).await });
 
                     match result {
-                        ::cloacina_computation_graph::GraphResult::Completed { outputs } => {
+                        ::cloacina_computation_graph::GraphResult::Completed { outputs, .. } => {
                             let mut json_outputs: ::std::vec::Vec<::serde_json::Value> =
                                 ::std::vec::Vec::with_capacity(outputs.len());
                             for boxed in outputs.iter() {

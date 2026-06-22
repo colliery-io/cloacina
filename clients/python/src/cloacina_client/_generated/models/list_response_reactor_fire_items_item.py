@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
+
+if TYPE_CHECKING:
+    from ..models.list_response_reactor_fire_items_item_inputs import (
+        ListResponseReactorFireItemsItemInputs,
+    )
+
 
 T = TypeVar("T", bound="ListResponseReactorFireItemsItem")
 
@@ -22,12 +28,21 @@ class ListResponseReactorFireItemsItem:
             fired_at (str): RFC 3339 time the fire completed.
             ok (bool): Whether the graph execution completed (`false` = errored).
             error (None | str | Unset): Error detail for a failed fire.
+            inputs (ListResponseReactorFireItemsItemInputs | Unset): Input boundary values that triggered this fire: source
+                name → value
+                (CLOACI-T-0775). The graph's I/O history, so a fire reads as more than
+                "ran in 0ms".
+            outputs (list[Any] | Unset): Terminal outputs the graph produced for this fire, as JSON
+                (CLOACI-T-0775). Empty when the executor can't serialize them (e.g. the
+                Python reactor path) or on a failed fire.
     """
 
     duration_ms: int
     fired_at: str
     ok: bool
     error: None | str | Unset = UNSET
+    inputs: ListResponseReactorFireItemsItemInputs | Unset = UNSET
+    outputs: list[Any] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -43,6 +58,14 @@ class ListResponseReactorFireItemsItem:
         else:
             error = self.error
 
+        inputs: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.inputs, Unset):
+            inputs = self.inputs.to_dict()
+
+        outputs: list[Any] | Unset = UNSET
+        if not isinstance(self.outputs, Unset):
+            outputs = self.outputs
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -54,11 +77,19 @@ class ListResponseReactorFireItemsItem:
         )
         if error is not UNSET:
             field_dict["error"] = error
+        if inputs is not UNSET:
+            field_dict["inputs"] = inputs
+        if outputs is not UNSET:
+            field_dict["outputs"] = outputs
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.list_response_reactor_fire_items_item_inputs import (
+            ListResponseReactorFireItemsItemInputs,
+        )
+
         d = dict(src_dict)
         duration_ms = d.pop("duration_ms")
 
@@ -75,11 +106,22 @@ class ListResponseReactorFireItemsItem:
 
         error = _parse_error(d.pop("error", UNSET))
 
+        _inputs = d.pop("inputs", UNSET)
+        inputs: ListResponseReactorFireItemsItemInputs | Unset
+        if isinstance(_inputs, Unset):
+            inputs = UNSET
+        else:
+            inputs = ListResponseReactorFireItemsItemInputs.from_dict(_inputs)
+
+        outputs = cast(list[Any], d.pop("outputs", UNSET))
+
         list_response_reactor_fire_items_item = cls(
             duration_ms=duration_ms,
             fired_at=fired_at,
             ok=ok,
             error=error,
+            inputs=inputs,
+            outputs=outputs,
         )
 
         list_response_reactor_fire_items_item.additional_properties = d

@@ -1297,8 +1297,22 @@ export interface components {
                 error?: string | null;
                 /** @description RFC 3339 time the fire completed. */
                 fired_at: string;
+                /**
+                 * @description Input boundary values that triggered this fire: source name → value
+                 *     (CLOACI-T-0775). The graph's I/O history, so a fire reads as more than
+                 *     "ran in 0ms".
+                 */
+                inputs?: {
+                    [key: string]: unknown;
+                };
                 /** @description Whether the graph execution completed (`false` = errored). */
                 ok: boolean;
+                /**
+                 * @description Terminal outputs the graph produced for this fire, as JSON
+                 *     (CLOACI-T-0775). Empty when the executor can't serialize them (e.g. the
+                 *     Python reactor path) or on a failed fire.
+                 */
+                outputs?: unknown[];
             }[];
             total: number;
         };
@@ -1373,8 +1387,22 @@ export interface components {
             error?: string | null;
             /** @description RFC 3339 time the fire completed. */
             fired_at: string;
+            /**
+             * @description Input boundary values that triggered this fire: source name → value
+             *     (CLOACI-T-0775). The graph's I/O history, so a fire reads as more than
+             *     "ran in 0ms".
+             */
+            inputs?: {
+                [key: string]: unknown;
+            };
             /** @description Whether the graph execution completed (`false` = errored). */
             ok: boolean;
+            /**
+             * @description Terminal outputs the graph produced for this fire, as JSON
+             *     (CLOACI-T-0775). Empty when the executor can't serialize them (e.g. the
+             *     Python reactor path) or on a failed fire.
+             */
+            outputs?: unknown[];
         };
         /**
          * @description `GET /v1/health/reactors/{name}/fires/timeseries` (CLOACI-T-0766): fire counts

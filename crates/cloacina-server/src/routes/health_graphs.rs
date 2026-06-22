@@ -578,6 +578,8 @@ pub async fn list_reactor_fires(
                 ok: f.ok,
                 error: f.error,
                 duration_ms: f.duration_ms,
+                inputs: f.inputs,
+                outputs: f.outputs,
             })
             .collect(),
         None => Vec::new(),

@@ -735,9 +735,16 @@ fn generate_node_execution(
                     .push(Box::new(__serialized) as Box<dyn std::any::Any + Send>);
             }
         } else {
+            // CLOACI-T-0775: reactor-driven graphs also serialize their terminal
+            // to `serde_json::Value` so the reactor can record per-fire outputs
+            // (the FFI bridge captures them via downcast-to-Value). Unlike the
+            // trigger-less path this is observability, not a routed result — fall
+            // back to Null rather than panicking if the terminal isn't Serialize.
             quote! {
+                let __serialized: ::serde_json::Value =
+                    ::serde_json::to_value(&#result_var).unwrap_or(::serde_json::Value::Null);
                 __terminal_results
-                    .push(Box::new(#result_var) as Box<dyn std::any::Any + Send>);
+                    .push(Box::new(__serialized) as Box<dyn std::any::Any + Send>);
             }
         };
         Ok(quote! {

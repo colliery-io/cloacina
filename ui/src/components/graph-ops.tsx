@@ -7,7 +7,7 @@
  *  render on the instrumentation from T-0765 (accumulator freshness) + T-0766
  *  (reactor fires log / timeseries) plus the existing graph hooks.
  */
-import { type CSSProperties, type ReactNode } from "react";
+import { type CSSProperties, type ReactNode, useState } from "react";
 import { Tooltip } from "@mantine/core";
 
 import { useReactorFires, useReactorFireTimeseries } from "../api/controls";
@@ -303,8 +303,43 @@ export function AccumulatorTable({ accumulators, onInject }: { accumulators: Acc
 
 // ---- Recent fires -------------------------------------------------------
 
+/** Compact one-line render of a JSON value (CLOACI-T-0775). */
+function compactValue(v: unknown): string {
+  if (v == null) return "null";
+  if (typeof v === "object") {
+    const s = JSON.stringify(v);
+    return s.length > 88 ? `${s.slice(0, 87)}…` : s;
+  }
+  return String(v);
+}
+
+/** One input/output line under a fire — the source/terminal value, compact by
+ *  default, full pretty JSON when the fire is expanded (CLOACI-T-0775). */
+function IOLine({ kind, label, value, expanded }: { kind: "in" | "out"; label?: string; value: unknown; expanded: boolean }) {
+  const accent = kind === "in" ? TOKEN.teal : TOKEN.violet;
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "baseline", minWidth: 0, fontFamily: MONO, fontSize: 10.5 }}>
+      <span style={{ color: accent, flex: "none", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase", width: 22 }}>{kind}</span>
+      {label && <span style={{ color: "var(--muted)", flex: "none" }}>{label}</span>}
+      <span
+        style={{
+          color: "var(--fg-2)",
+          minWidth: 0,
+          whiteSpace: expanded ? "pre-wrap" : "nowrap",
+          overflow: expanded ? "visible" : "hidden",
+          textOverflow: "ellipsis",
+          wordBreak: expanded ? "break-word" : "normal",
+        }}
+      >
+        {expanded && typeof value === "object" ? JSON.stringify(value, null, 2) : compactValue(value)}
+      </span>
+    </div>
+  );
+}
+
 export function RecentFires({ reactor }: { reactor: string | null | undefined }) {
   const { data, isPending, isError, error, refetch } = useReactorFires(reactor, { limit: 30, poll: true });
+  const [open, setOpen] = useState<number | null>(null);
   if (!reactor) return <Empty message="No reactor bound." />;
   if (isPending) return <Loading label="Loading fires…" />;
   if (isError) return <ErrorState error={error} onRetry={refetch} />;
@@ -313,18 +348,40 @@ export function RecentFires({ reactor }: { reactor: string | null | undefined })
 
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
-      {fires.map((f, i) => (
-        <div key={i} style={{ display: "grid", gridTemplateColumns: "18px 1fr 80px 64px", gap: 10, alignItems: "center", padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid var(--border-fainter)" }}>
-          <Dot color={f.ok ? TOKEN.ok : TOKEN.bad} size={8} />
-          <span style={{ fontFamily: MONO, fontSize: 11.5, color: f.ok ? "var(--muted)" : "#b97a7a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {f.ok ? `ran in ${fmtMs(f.duration_ms)}` : (f.error ?? "graph execution failed")}
-          </span>
-          <span style={{ display: "inline-flex" }}>
-            <Pill color={statusColor(f.ok ? "completed" : "failed")}>{f.ok ? "completed" : "failed"}</Pill>
-          </span>
-          <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)", textAlign: "right" }}>{formatAgo(f.fired_at)}</span>
-        </div>
-      ))}
+      {fires.map((f, i) => {
+        const inputs = Object.entries((f.inputs ?? {}) as Record<string, unknown>);
+        const outputs = (f.outputs ?? []) as unknown[];
+        const hasIO = inputs.length > 0 || outputs.length > 0;
+        const expanded = open === i;
+        return (
+          <div key={i} style={{ padding: "9px 0", borderTop: i === 0 ? "none" : "1px solid var(--border-fainter)" }}>
+            <div
+              style={{ display: "grid", gridTemplateColumns: "18px 1fr 80px 64px", gap: 10, alignItems: "center", cursor: hasIO ? "pointer" : "default" }}
+              onClick={() => hasIO && setOpen(expanded ? null : i)}
+            >
+              <Dot color={f.ok ? TOKEN.ok : TOKEN.bad} size={8} />
+              <span style={{ fontFamily: MONO, fontSize: 11.5, color: f.ok ? "var(--muted)" : "#b97a7a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {f.ok ? `ran in ${fmtMs(f.duration_ms)}` : (f.error ?? "graph execution failed")}
+                {hasIO && <span style={{ color: "var(--fainter)", marginLeft: 8 }}>{expanded ? "▾" : "▸"}</span>}
+              </span>
+              <span style={{ display: "inline-flex" }}>
+                <Pill color={statusColor(f.ok ? "completed" : "failed")}>{f.ok ? "completed" : "failed"}</Pill>
+              </span>
+              <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)", textAlign: "right" }}>{formatAgo(f.fired_at)}</span>
+            </div>
+            {hasIO && (
+              <div style={{ marginLeft: 28, marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
+                {inputs.map(([src, val]) => (
+                  <IOLine key={`in-${src}`} kind="in" label={src} value={val} expanded={expanded} />
+                ))}
+                {outputs.map((val, j) => (
+                  <IOLine key={`out-${j}`} kind="out" label={outputs.length > 1 ? `${j}` : undefined} value={val} expanded={expanded} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -261,7 +261,7 @@ async fn test_end_to_end_accumulator_reactor_graph() {
         Box::pin(async move {
             fc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let result = linear_chain_compiled(&cache).await;
-            let captured = if let GraphResult::Completed { outputs } = &result {
+            let captured = if let GraphResult::Completed { outputs, .. } = &result {
                 outputs
                     .iter()
                     .find_map(|o| o.downcast_ref::<OutputConfirmation>().cloned())
@@ -642,7 +642,7 @@ async fn test_batch_accumulator_to_reactor() {
         Box::pin(async move {
             fc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let result = linear_chain_compiled(&cache).await;
-            let captured = if let GraphResult::Completed { outputs } = &result {
+            let captured = if let GraphResult::Completed { outputs, .. } = &result {
                 outputs
                     .iter()
                     .find_map(|o| o.downcast_ref::<OutputConfirmation>().cloned())
@@ -2080,7 +2080,7 @@ async fn test_cloaci_t_0540_triggerless_graph_trait() {
     let result = graph_fn(ctx).await;
 
     match result {
-        cloacina::computation_graph::GraphResult::Completed { outputs } => {
+        cloacina::computation_graph::GraphResult::Completed { outputs, .. } => {
             assert_eq!(outputs.len(), 1, "single terminal node");
             // Macro pre-serializes terminal outputs to Value for trigger-less.
             let v: &Value = outputs[0]

@@ -3746,9 +3746,22 @@
                   "type": "string",
                   "description": "RFC 3339 time the fire completed."
                 },
+                "inputs": {
+                  "type": "object",
+                  "description": "Input boundary values that triggered this fire: source name → value\n(CLOACI-T-0775). The graph's I/O history, so a fire reads as more than\n\"ran in 0ms\".",
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string"
+                  }
+                },
                 "ok": {
                   "type": "boolean",
                   "description": "Whether the graph execution completed (`false` = errored)."
+                },
+                "outputs": {
+                  "type": "array",
+                  "items": {},
+                  "description": "Terminal outputs the graph produced for this fire, as JSON\n(CLOACI-T-0775). Empty when the executor can't serialize them (e.g. the\nPython reactor path) or on a failed fire."
                 }
               }
             }
@@ -3909,9 +3922,22 @@
             "type": "string",
             "description": "RFC 3339 time the fire completed."
           },
+          "inputs": {
+            "type": "object",
+            "description": "Input boundary values that triggered this fire: source name → value\n(CLOACI-T-0775). The graph's I/O history, so a fire reads as more than\n\"ran in 0ms\".",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "ok": {
             "type": "boolean",
             "description": "Whether the graph execution completed (`false` = errored)."
+          },
+          "outputs": {
+            "type": "array",
+            "items": {},
+            "description": "Terminal outputs the graph produced for this fire, as JSON\n(CLOACI-T-0775). Empty when the executor can't serialize them (e.g. the\nPython reactor path) or on a failed fire."
           }
         }
       },

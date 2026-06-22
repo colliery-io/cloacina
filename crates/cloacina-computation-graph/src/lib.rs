@@ -197,14 +197,34 @@ fn hex_encode(bytes: &[u8]) -> String {
 #[derive(Debug)]
 pub enum GraphResult {
     /// Graph executed to completion. Contains terminal node outputs.
-    Completed { outputs: Vec<Box<dyn Any + Send>> },
+    Completed {
+        outputs: Vec<Box<dyn Any + Send>>,
+        /// Terminal outputs as JSON for observability (CLOACI-T-0775). Populated
+        /// when the executor can produce it — the FFI bridge always can; the
+        /// Python reactor path leaves it empty. Powers per-fire output history.
+        outputs_json: Vec<serde_json::Value>,
+    },
     /// Graph execution failed.
     Error(GraphError),
 }
 
 impl GraphResult {
     pub fn completed(outputs: Vec<Box<dyn Any + Send>>) -> Self {
-        Self::Completed { outputs }
+        Self::Completed {
+            outputs,
+            outputs_json: Vec::new(),
+        }
+    }
+
+    /// Completed with the terminal outputs also captured as JSON (CLOACI-T-0775).
+    pub fn completed_with_json(
+        outputs: Vec<Box<dyn Any + Send>>,
+        outputs_json: Vec<serde_json::Value>,
+    ) -> Self {
+        Self::Completed {
+            outputs,
+            outputs_json,
+        }
     }
 
     pub fn error(err: GraphError) -> Self {

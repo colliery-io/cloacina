@@ -131,12 +131,16 @@ export function useInjectAccumulator() {
   });
 }
 
-/** One recorded reactor fire (CLOACI-T-0766). */
+/** One recorded reactor fire (CLOACI-T-0766; I/O CLOACI-T-0775). */
 export interface ReactorFire {
   fired_at: string;
   ok: boolean;
   error: string | null;
   duration_ms: number;
+  /** Input boundary values that triggered this fire: source → value. */
+  inputs?: Record<string, unknown>;
+  /** Terminal outputs the graph produced (JSON). Empty when unavailable. */
+  outputs?: unknown[];
 }
 
 /** Recent fires for a reactor (CLOACI-T-0766), newest first. Polls at 5s while

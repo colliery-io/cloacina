@@ -285,20 +285,22 @@ async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCac
     match result {
         Ok(Ok(ffi_result)) => {
             if ffi_result.success {
-                let outputs: Vec<Box<dyn std::any::Any + Send>> =
-                    if let Some(json_outputs) = ffi_result.terminal_outputs_json {
-                        json_outputs
-                            .into_iter()
-                            .filter_map(|json_str| {
-                                serde_json::from_str::<serde_json::Value>(&json_str)
-                                    .ok()
-                                    .map(|v| Box::new(v) as Box<dyn std::any::Any + Send>)
-                            })
-                            .collect()
-                    } else {
-                        vec![]
-                    };
-                GraphResult::completed(outputs)
+                // CLOACI-T-0775: keep the terminal outputs as JSON (for the
+                // per-fire output history) in addition to the type-erased boxes.
+                let outputs_json: Vec<serde_json::Value> = ffi_result
+                    .terminal_outputs_json
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|json_str| {
+                        serde_json::from_str::<serde_json::Value>(&json_str).ok()
+                    })
+                    .collect();
+                let outputs: Vec<Box<dyn std::any::Any + Send>> = outputs_json
+                    .iter()
+                    .cloned()
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any + Send>)
+                    .collect();
+                GraphResult::completed_with_json(outputs, outputs_json)
             } else {
                 let error_msg = ffi_result
                     .error
