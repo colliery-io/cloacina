@@ -367,20 +367,35 @@ impl cloacina::Task for PythonTaskWrapper {
         }
 
         // 4. on_success runs last, after CG invocation + post_invocation.
+        //    CLOACI-T-0622 follow-up: run it on the blocking pool (like the task
+        //    body at step 1), NOT a direct `Python::with_gil` on the async
+        //    executor worker. Blocking on the GIL inside an async task is a
+        //    PyO3↔tokio deadlock — it intermittently hung scenario_30 (the only
+        //    scenario with callbacks) on the sqlite nightly. Awaiting preserves
+        //    the "callback fires before the task completes" ordering.
         if let Some(callback) = on_success {
-            Python::with_gil(|py| {
-                let mut callback_ctx = cloacina::Context::new();
-                for (k, v) in final_context.data().iter() {
-                    callback_ctx.insert(k.clone(), v.clone()).ok();
-                }
-                let callback_context = PyContext::from_rust_context(callback_ctx);
-                if let Err(e) = callback.call1(py, (&task_id, callback_context)) {
-                    eprintln!(
-                        "[cloaca] on_success callback failed for task '{}': {}",
-                        task_id, e
-                    );
-                }
-            });
+            let data: Vec<(String, serde_json::Value)> = final_context
+                .data()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let tid = task_id.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                Python::with_gil(|py| {
+                    let mut callback_ctx = cloacina::Context::new();
+                    for (k, v) in data {
+                        callback_ctx.insert(k, v).ok();
+                    }
+                    let callback_context = PyContext::from_rust_context(callback_ctx);
+                    if let Err(e) = callback.call1(py, (&tid, callback_context)) {
+                        eprintln!(
+                            "[cloaca] on_success callback failed for task '{}': {}",
+                            tid, e
+                        );
+                    }
+                })
+            })
+            .await;
         }
 
         if let Some(handle) = returned_handle {
