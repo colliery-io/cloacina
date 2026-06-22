@@ -4,14 +4,14 @@ level: task
 title: "Warm up live ops-metrics WS app-wide — no cold-start flash on live pages"
 short_code: "CLOACI-T-0774"
 created_at: 2026-06-22T17:54:57.435893+00:00
-updated_at: 2026-06-22T17:54:57.435893+00:00
+updated_at: 2026-06-22T18:04:25.577437+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -44,6 +44,19 @@ one-time first-login connect can show a brief null. (`operations.ts`→`.tsx` fo
 - 2026-06-22: Implemented. Provider + `useOpsMetrics()` in api/operations.tsx;
   Shell wraps the Outlet; Overview + Operations switched off the per-page hook.
   typecheck + build green. Verifying live.
+- 2026-06-22: Diagnostic screenshot exposed the real cold-start was server-side:
+  the ops-metrics publisher (ops_metrics.rs) was a single global 5s ticker gated
+  on subscribers, so a fresh connection waited up to 5s for the next tick. Added a
+  1s subscriber-poll that pushes an immediate snapshot on first connect, then keeps
+  the 5s cadence (e130cbce). Measured first-frame: ~1.6s (was ≤5s).
+- 2026-06-22: DONE (f10ddea9 client + e130cbce server). Verified live via SPA
+  navigation: Overview (warm) → Workflows → Operations shows full live metrics
+  instantly (150ms; "live", all tiles + agents populated, no "connecting…"). NB:
+  earlier failed checks used page.goto() which forces a full reload — not how the
+  app navigates; with real link clicks the Shell+provider persist and stay warm.
+  Known limitation: the immediate push fires on the FIRST subscriber; a 2nd
+  concurrent UI joining mid-interval waits for the next 5s tick (fine for single-
+  operator; upgrade to a per-subscribe notify if multi-client instant is needed).
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -78,6 +91,10 @@ one-time first-login connect can show a brief null. (`operations.ts`→`.tsx` fo
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
