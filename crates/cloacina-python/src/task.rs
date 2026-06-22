@@ -828,6 +828,7 @@ with score_graph:
             let score_graph = locals.get_item("score_graph").unwrap().unwrap();
 
             let decorator = task(
+                py,
                 Some("scorer".to_string()),
                 None,
                 None,
@@ -839,6 +840,7 @@ with score_graph:
                 None,
                 None,
                 Some(score_graph.unbind()),
+                None,
                 None,
             )
             .unwrap();
@@ -902,6 +904,7 @@ def post(ctx):
             let post = locals.get_item("post").unwrap().unwrap();
 
             let decorator = task(
+                py,
                 Some("post_task".to_string()),
                 None,
                 None,
@@ -914,6 +917,7 @@ def post(ctx):
                 None,
                 Some(g.unbind()),
                 Some(post.unbind()),
+                None,
             )
             .unwrap();
 
@@ -953,6 +957,7 @@ def post(ctx):
             ));
             let post = py.eval(c_str!("lambda ctx: ctx"), None, None).unwrap();
             let decorator = task(
+                py,
                 Some("bad".to_string()),
                 None,
                 None,
@@ -965,6 +970,7 @@ def post(ctx):
                 None,
                 None,
                 Some(post.unbind()),
+                None,
             )
             .unwrap();
 
@@ -1013,6 +1019,7 @@ with g:
             let g = locals.get_item("g").unwrap().unwrap();
             let user_fn = py.eval(c_str!("lambda ctx: ctx"), None, None).unwrap();
             let decorator = task(
+                py,
                 Some("rx_invoker".to_string()),
                 None,
                 None,
@@ -1024,6 +1031,7 @@ with g:
                 None,
                 None,
                 Some(g.unbind()),
+                None,
                 None,
             )
             .unwrap();

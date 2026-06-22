@@ -364,7 +364,9 @@ mod tests {
                 "build_test_wf",
             ));
             let decorator = crate::task::task(
+                py,
                 Some("build_task".to_string()),
+                None,
                 None,
                 None,
                 None,

@@ -197,7 +197,9 @@ mod tests {
 
             // Create and register a task via the @task decorator
             let decorator = task::task(
+                py,
                 Some("greet".to_string()),
+                None,
                 None,
                 None,
                 None,
