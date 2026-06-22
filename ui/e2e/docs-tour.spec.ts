@@ -22,7 +22,9 @@ async function shot(page, name: string, full = false) {
   await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: full });
 }
 
-test("web UI tour", async ({ page, request }) => {
+// @visual: a demo-stack capture utility (refreshes docs/static/images/web-ui/),
+// not part of the functional e2e — excluded from `ui_e2e` like visual.spec.
+test("web UI tour", { tag: "@visual" }, async ({ page, request }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(
