@@ -14,7 +14,7 @@
  */
 import { useMemo } from "react";
 
-import { statusColor, nodeKindColor } from "../util/tokens";
+import { statusColor, nodeKindColor, TOKEN } from "../util/tokens";
 
 const MONO = "'IBM Plex Mono', monospace";
 
@@ -44,6 +44,7 @@ export interface FullDagEdge {
 
 const isDone = (s?: string) => (s ?? "").toLowerCase() === "completed";
 const isRunning = (s?: string) => (s ?? "").toLowerCase() === "running";
+const isSkipped = (s?: string) => (s ?? "").toLowerCase() === "skipped";
 // `skipped` is intentionally NOT dimmed — it's a meaningful terminal state
 // (branch not taken) and renders in rose (statusColor) at full opacity.
 const isDim = (s?: string) => {
@@ -198,15 +199,20 @@ export function FullDag({
           const k = Math.max(34, (x2 - x1) / 2);
           const tgt = byId.get(e.to);
           const srcDone = isDone(byId.get(e.from)?.status);
-          const stroke = flaky(e.from) || flaky(e.to)
-            ? FLAKY_EDGE
-            : !statusMode
-              ? EDGE_KIND
-              : isRunning(tgt?.status)
-                ? ICE
-                : isDone(tgt?.status) && srcDone
-                  ? EDGE_DONE
-                  : EDGE_IDLE;
+          // A route into/out of a skipped node is the path-not-taken: render it
+          // dashed in the skip color so it reads with the dashed skipped node.
+          const skipEdge = isSkipped(byId.get(e.from)?.status) || isSkipped(tgt?.status);
+          const stroke = skipEdge
+            ? TOKEN.skip
+            : flaky(e.from) || flaky(e.to)
+              ? FLAKY_EDGE
+              : !statusMode
+                ? EDGE_KIND
+                : isRunning(tgt?.status)
+                  ? ICE
+                  : isDone(tgt?.status) && srcDone
+                    ? EDGE_DONE
+                    : EDGE_IDLE;
           return (
             <path
               key={i}
@@ -215,6 +221,7 @@ export function FullDag({
               stroke={stroke}
               strokeWidth={1.5}
               strokeOpacity={0.92}
+              strokeDasharray={skipEdge ? "5 4" : undefined}
             />
           );
         })}
@@ -232,7 +239,15 @@ export function FullDag({
               className={isRunning(n.status) ? "cl-pulse" : undefined}
               style={{ cursor: onNodeClick ? "pointer" : "default", opacity: dim ? 0.55 : 1 }}
             >
-              <rect width={NODE_W} height={NODE_H} rx={9} fill="var(--panel)" stroke={`${c}7a`} strokeWidth={1.4} />
+              <rect
+                width={NODE_W}
+                height={NODE_H}
+                rx={9}
+                fill="var(--panel)"
+                stroke={isSkipped(n.status) ? c : `${c}7a`}
+                strokeWidth={1.4}
+                strokeDasharray={isSkipped(n.status) ? "5 4" : undefined}
+              />
               {n.kind ? (
                 <rect x={12} y={NODE_H / 2 - 4} width={8} height={8} rx={2} fill={c} />
               ) : (

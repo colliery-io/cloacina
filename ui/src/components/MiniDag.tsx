@@ -11,7 +11,7 @@
  */
 import { useMemo } from "react";
 
-import { statusColor } from "../util/tokens";
+import { statusColor, TOKEN } from "../util/tokens";
 
 export interface MiniNode {
   id: string;
@@ -33,6 +33,7 @@ const ICE = "#7fb2ff";
 
 const isDone = (s?: string) => s != null && s.toLowerCase() === "completed";
 const isRunning = (s?: string) => s != null && s.toLowerCase() === "running";
+const isSkipped = (s?: string) => s != null && s.toLowerCase() === "skipped";
 const isDim = (s?: string) => {
   const v = (s ?? "").toLowerCase();
   // `skipped` keeps its rose color (not dimmed) — branch-not-taken is signal.
@@ -103,11 +104,14 @@ export function MiniDag({ nodes }: { nodes: MiniNode[] }) {
             const y2 = b.y + NODE / 2;
             const k = Math.max(14, (x2 - x1) * 0.5);
             const dep = byId.get(d);
-            const stroke = isRunning(n.status)
-              ? ICE
-              : isDone(n.status) && isDone(dep?.status)
-                ? EDGE_DONE
-                : EDGE_IDLE;
+            const skipEdge = isSkipped(n.status) || isSkipped(dep?.status);
+            const stroke = skipEdge
+              ? TOKEN.skip
+              : isRunning(n.status)
+                ? ICE
+                : isDone(n.status) && isDone(dep?.status)
+                  ? EDGE_DONE
+                  : EDGE_IDLE;
             return (
               <path
                 key={`${d}->${n.id}`}
@@ -115,6 +119,7 @@ export function MiniDag({ nodes }: { nodes: MiniNode[] }) {
                 fill="none"
                 stroke={stroke}
                 strokeWidth={1.25}
+                strokeDasharray={skipEdge ? "3 2" : undefined}
               />
             );
           }),
