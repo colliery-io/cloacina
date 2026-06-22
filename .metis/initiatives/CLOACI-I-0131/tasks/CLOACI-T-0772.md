@@ -4,14 +4,14 @@ level: task
 title: "Close SDK coverage gate — wrap 10 operator/health endpoints in TS/Rust/Python SDKs"
 short_code: "CLOACI-T-0772"
 created_at: 2026-06-22T12:01:37.808473+00:00
-updated_at: 2026-06-22T12:01:37.808473+00:00
+updated_at: 2026-06-22T12:43:40.694300+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -48,8 +48,14 @@ Wrapped all 11 in the three SDKs:
 (was 30 violations → 0). TS build + `cargo check -p cloacina-client` +
 `_client.py` parse green. The live contract suites have no coverage-enforcement
 (hand-written "hit at least once"), so they pass; adding explicit contract cases
-for the new endpoints is an optional follow-up. Verifying on the dispatched
-nightly (run 27951785808).
+for the new endpoints is an optional follow-up.
+
+### 2026-06-22 — VERIFIED GREEN (6bc09d6c)
+First nightly verify exposed a regen knock-on: `list_agents` moved api/agents →
+api/fleet (the spec's tag) but `_client.py` still imported api.agents →
+ModuleNotFoundError in the python contract suite. Fixed + now verify every
+`_client.py` import resolves. SDK Contract Matrix is **green** on the nightly
+(run 27952950851), along with Code Coverage + UI Acceptance E2E. Done.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -84,6 +90,10 @@ nightly (run 27951785808).
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
