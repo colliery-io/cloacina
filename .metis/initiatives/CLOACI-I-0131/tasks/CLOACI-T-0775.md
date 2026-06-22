@@ -4,14 +4,14 @@ level: task
 title: "Enrich Recent fires with per-fire inputs + outputs (graph I/O history)"
 short_code: "CLOACI-T-0775"
 created_at: 2026-06-22T18:57:22.289475+00:00
-updated_at: 2026-06-22T18:57:48.818462+00:00
+updated_at: 2026-06-22T20:30:06.587118+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -53,6 +53,19 @@ terminal outputs it produced. User chose the full inputs+outputs option.
 
 - 2026-06-22: Scoped. Outputs are type-erased at the reactor BUT the FFI bridge
   has them as JSON before boxing — carry that. Python outputs deferred.
+- 2026-06-22: DONE + user-confirmed (8513e436 + 4ca5298b). Full stack landed:
+  computation-graph `outputs_json` → FFI bridge carries terminal_outputs_json →
+  macro serializes reactor terminals → reactor records inputs+outputs → api-types
+  ReactorFire → /fires handler → SDK regen (gate 38/38) → UI in→out compact +
+  expandable. Two bugs found en route: (1) inputs were hex (entries_as_json is a
+  debug fallback over bincode frames) — now bincode-decode → JSON; (2) outputs
+  always empty because the reactor's graph_fn is the subscriber DISPATCHER
+  (make_subscriber_dispatcher) which fanned out to N bound graphs and returned
+  `completed(vec![])`, discarding outputs — now aggregates each subscriber's
+  outputs_json. Verified live on market_pipeline: inputs {orderbook,pricing} →
+  outputs [{action:"WAIT",confidence}]. Required a no-cache fixture recompile to
+  pick up the macro change. Python-graph outputs remain a follow-up (reactor-path
+  terminals stay opaque).
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -87,6 +100,8 @@ terminal outputs it produced. User chose the full inputs+outputs option.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
