@@ -517,6 +517,20 @@ export class CloacinaClient {
     );
   }
 
+  /** Manually fire a trigger — fans out to every subscribed workflow (CLOACI-T-0777). */
+  async fireTrigger(
+    name: string,
+    body: schemas["FireTriggerRequest"] = {},
+    tenant?: string,
+  ): Promise<schemas["FireTriggerResponse"]> {
+    return unwrap(
+      await this.api.POST("/v1/tenants/{tenant_id}/triggers/{name}/fire", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+        body,
+      }),
+    );
+  }
+
   async resumeTrigger(name: string, tenant?: string): Promise<schemas["TriggerPauseResponse"]> {
     return unwrap(
       await this.api.POST("/v1/tenants/{tenant_id}/triggers/{name}/resume", {

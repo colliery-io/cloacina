@@ -574,6 +574,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/triggers/{name}/fire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/triggers/:name/fire — manually fire a trigger,
+         *     fanning out to every subscribed workflow (CLOACI-T-0777). One operator action
+         *     instead of running each workflow by hand. An optional `event` is merged into
+         *     each fired workflow's context (alongside trigger metadata). The started
+         *     executions are marked `manual` (CLOACI-T-0776).
+         */
+        post: operations["fire_trigger"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/triggers/{name}/pause": {
         parameters: {
             query?: never;
@@ -1018,6 +1041,36 @@ export interface components {
             reactor: string;
             /** @description Source names whose values were injected (empty for `force_fire`). */
             sources_injected: string[];
+        };
+        /**
+         * @description `POST /tenants/{tenant_id}/triggers/{name}/fire` request (CLOACI-T-0777).
+         *     Manually push an event to a trigger; it fans out to every subscribed workflow.
+         */
+        FireTriggerRequest: {
+            /**
+             * @description Optional typed event merged into each fired workflow's context, validated
+             *     against the trigger's declared params (CLOACI-T-0777 P2). Omit to fire with
+             *     just the trigger metadata.
+             */
+            event?: unknown;
+        };
+        /** @description `POST /tenants/{tenant_id}/triggers/{name}/fire` response (CLOACI-T-0777). */
+        FireTriggerResponse: {
+            /** @description The started executions: `(workflow_name, execution_id)`. */
+            executions: components["schemas"]["FiredExecution"][];
+            /**
+             * Format: int32
+             * @description How many subscribed workflows were fired (the fan-out count).
+             */
+            fired: number;
+            tenant_id: string;
+            /** @description The trigger name fired. */
+            trigger: string;
+        };
+        /** @description One workflow fired by a manual trigger fire (CLOACI-T-0777). */
+        FiredExecution: {
+            execution_id: string;
+            workflow_name: string;
         };
         /**
          * @description One row in `GET /v1/health/graphs`, and the `GET /v1/health/graphs/{name}`
@@ -3150,6 +3203,44 @@ export interface operations {
             };
             /** @description Internal error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    fire_trigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Trigger name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FireTriggerRequest"];
+            };
+        };
+        responses: {
+            /** @description Trigger fired; fan-out result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FireTriggerResponse"];
+                };
+            };
+            /** @description No enabled subscribers for this trigger */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

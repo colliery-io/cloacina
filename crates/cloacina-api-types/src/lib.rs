@@ -72,8 +72,9 @@ pub use tenants::{
     CreateTenantRequest, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,
 };
 pub use triggers::{
-    ListTriggersQuery, TriggerDetailResponse, TriggerExecution, TriggerPauseResponse,
-    TriggerScheduleInfo, TriggerScheduleSummary,
+    FireTriggerRequest, FireTriggerResponse, FiredExecution, ListTriggersQuery,
+    TriggerDetailResponse, TriggerExecution, TriggerPauseResponse, TriggerScheduleInfo,
+    TriggerScheduleSummary,
 };
 pub use workflows::{
     WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile,

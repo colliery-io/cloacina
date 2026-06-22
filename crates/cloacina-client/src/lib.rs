@@ -62,7 +62,8 @@ use serde_json::Value;
 use cloacina_api_types::{
     AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateTenantRequest,
     DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse,
-    ExecutionSummary, ExecutionTasksResponse, FireReactorRequest, FireReactorResponse, GraphStatus,
+    ExecutionSummary, ExecutionTasksResponse, FireReactorRequest, FireReactorResponse,
+    FireTriggerRequest, FireTriggerResponse, GraphStatus,
     InjectAccumulatorRequest, InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo,
     KeyRevokedResponse, KeyRole, ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus,
     TenantCreatedResponse, TenantListResponse, TenantRemovedResponse, TenantSummary,
@@ -618,6 +619,19 @@ impl Client {
             &Value::Null,
         )
         .await
+    }
+
+    /// Manually fire a trigger — fans out to every subscribed workflow
+    /// (CLOACI-T-0777).
+    pub async fn fire_trigger(
+        &self,
+        name: &str,
+        request: &FireTriggerRequest,
+        tenant: Option<&str>,
+    ) -> Result<FireTriggerResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(&format!("/v1/tenants/{t}/triggers/{name}/fire"), request)
+            .await
     }
 
     pub async fn resume_trigger(

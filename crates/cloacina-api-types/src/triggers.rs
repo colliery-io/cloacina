@@ -96,6 +96,39 @@ pub struct TriggerPauseResponse {
     pub paused: bool,
 }
 
+/// `POST /tenants/{tenant_id}/triggers/{name}/fire` request (CLOACI-T-0777).
+/// Manually push an event to a trigger; it fans out to every subscribed workflow.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct FireTriggerRequest {
+    /// Optional typed event merged into each fired workflow's context, validated
+    /// against the trigger's declared params (CLOACI-T-0777 P2). Omit to fire with
+    /// just the trigger metadata.
+    #[serde(default)]
+    pub event: Option<serde_json::Value>,
+}
+
+/// `POST /tenants/{tenant_id}/triggers/{name}/fire` response (CLOACI-T-0777).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct FireTriggerResponse {
+    pub tenant_id: String,
+    /// The trigger name fired.
+    pub trigger: String,
+    /// How many subscribed workflows were fired (the fan-out count).
+    pub fired: u32,
+    /// The started executions: `(workflow_name, execution_id)`.
+    pub executions: Vec<FiredExecution>,
+}
+
+/// One workflow fired by a manual trigger fire (CLOACI-T-0777).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct FiredExecution {
+    pub workflow_name: String,
+    pub execution_id: String,
+}
+
 /// One row in `recent_executions` of the trigger detail response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

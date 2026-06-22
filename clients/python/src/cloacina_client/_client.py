@@ -52,6 +52,7 @@ from ._generated.api.keys import (
 from ._generated.api.operational import health, ready
 from ._generated.api.tenants import create_tenant, list_tenants, remove_tenant
 from ._generated.api.triggers import (
+    fire_trigger,
     get_trigger,
     list_triggers,
     pause_trigger,
@@ -404,6 +405,14 @@ class Client(_Base):
     def resume_trigger(self, name: str, tenant: str | None = None):
         return _unwrap(
             resume_trigger.sync_detailed(self.tenant_segment(tenant), name, client=self._gen)
+        )
+
+    def fire_trigger(self, name: str, body, tenant: str | None = None):
+        """Manually fire a trigger — fans out to every subscribed workflow."""
+        return _unwrap(
+            fire_trigger.sync_detailed(
+                self.tenant_segment(tenant), name, client=self._gen, body=body
+            )
         )
 
     # ---- agents ----

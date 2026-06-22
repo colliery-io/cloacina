@@ -18,6 +18,9 @@ from .fire_mode import FireMode
 from .fire_reactor_request import FireReactorRequest
 from .fire_reactor_request_inputs import FireReactorRequestInputs
 from .fire_reactor_response import FireReactorResponse
+from .fire_trigger_request import FireTriggerRequest
+from .fire_trigger_response import FireTriggerResponse
+from .fired_execution import FiredExecution
 from .graph_status import GraphStatus
 from .graph_topology import GraphTopology
 from .graph_topology_edge import GraphTopologyEdge
@@ -103,10 +106,13 @@ __all__ = (
     "ExecutionEventsResponse",
     "ExecutionSummary",
     "ExecutionTasksResponse",
+    "FiredExecution",
     "FireMode",
     "FireReactorRequest",
     "FireReactorRequestInputs",
     "FireReactorResponse",
+    "FireTriggerRequest",
+    "FireTriggerResponse",
     "GraphStatus",
     "GraphTopology",
     "GraphTopologyEdge",

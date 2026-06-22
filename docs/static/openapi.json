@@ -1739,6 +1739,72 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/triggers/{name}/fire": {
+      "post": {
+        "tags": [
+          "triggers"
+        ],
+        "summary": "POST /tenants/:tenant_id/triggers/:name/fire — manually fire a trigger,\nfanning out to every subscribed workflow (CLOACI-T-0777). One operator action\ninstead of running each workflow by hand. An optional `event` is merged into\neach fired workflow's context (alongside trigger metadata). The started\nexecutions are marked `manual` (CLOACI-T-0776).",
+        "operationId": "fire_trigger",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Trigger name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FireTriggerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Trigger fired; fan-out result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FireTriggerResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No enabled subscribers for this trigger",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/triggers/{name}/pause": {
       "post": {
         "tags": [
@@ -3101,6 +3167,63 @@
               "type": "string"
             },
             "description": "Source names whose values were injected (empty for `force_fire`)."
+          }
+        }
+      },
+      "FireTriggerRequest": {
+        "type": "object",
+        "description": "`POST /tenants/{tenant_id}/triggers/{name}/fire` request (CLOACI-T-0777).\nManually push an event to a trigger; it fans out to every subscribed workflow.",
+        "properties": {
+          "event": {
+            "description": "Optional typed event merged into each fired workflow's context, validated\nagainst the trigger's declared params (CLOACI-T-0777 P2). Omit to fire with\njust the trigger metadata."
+          }
+        }
+      },
+      "FireTriggerResponse": {
+        "type": "object",
+        "description": "`POST /tenants/{tenant_id}/triggers/{name}/fire` response (CLOACI-T-0777).",
+        "required": [
+          "tenant_id",
+          "trigger",
+          "fired",
+          "executions"
+        ],
+        "properties": {
+          "executions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FiredExecution"
+            },
+            "description": "The started executions: `(workflow_name, execution_id)`."
+          },
+          "fired": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many subscribed workflows were fired (the fan-out count).",
+            "minimum": 0
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string",
+            "description": "The trigger name fired."
+          }
+        }
+      },
+      "FiredExecution": {
+        "type": "object",
+        "description": "One workflow fired by a manual trigger fire (CLOACI-T-0777).",
+        "required": [
+          "workflow_name",
+          "execution_id"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
           }
         }
       },

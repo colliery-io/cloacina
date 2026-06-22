@@ -1171,6 +1171,10 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/triggers/{name}/resume",
             post(crate::routes::triggers::resume_trigger),
         )
+        .route(
+            "/tenants/{tenant_id}/triggers/{name}/fire",
+            post(crate::routes::triggers::fire_trigger),
+        )
         // Executions (tenant-scoped)
         .route(
             "/tenants/{tenant_id}/workflows/{name}/execute",

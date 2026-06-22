@@ -111,6 +111,7 @@ impl Modify for SecurityAddon {
         crate::routes::triggers::get_trigger,
         crate::routes::triggers::pause_trigger,
         crate::routes::triggers::resume_trigger,
+        crate::routes::triggers::fire_trigger,
         crate::routes::executions::execute_workflow,
         crate::routes::executions::list_executions,
         crate::routes::executions::get_execution,

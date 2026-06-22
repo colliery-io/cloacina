@@ -26,9 +26,12 @@ use tracing::warn;
 use axum::extract::Query;
 
 use cloacina_api_types::{
-    ListTriggersQuery, TenantListResponse, TriggerDetailResponse, TriggerExecution,
-    TriggerPauseResponse, TriggerScheduleInfo, TriggerScheduleSummary,
+    FireTriggerRequest, FireTriggerResponse, FiredExecution, ListTriggersQuery, TenantListResponse,
+    TriggerDetailResponse, TriggerExecution, TriggerPauseResponse, TriggerScheduleInfo,
+    TriggerScheduleSummary,
 };
+
+use cloacina::executor::WorkflowExecutor;
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
@@ -371,4 +374,145 @@ async fn set_trigger_paused(
             ApiError::internal(format!("{}", e)).into_response()
         }
     }
+}
+
+/// POST /tenants/:tenant_id/triggers/:name/fire — manually fire a trigger,
+/// fanning out to every subscribed workflow (CLOACI-T-0777). One operator action
+/// instead of running each workflow by hand. An optional `event` is merged into
+/// each fired workflow's context (alongside trigger metadata). The started
+/// executions are marked `manual` (CLOACI-T-0776).
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/triggers/{name}/fire",
+    tag = "triggers",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Trigger name"),
+    ),
+    request_body = FireTriggerRequest,
+    responses(
+        (status = 200, description = "Trigger fired; fan-out result", body = FireTriggerResponse),
+        (status = 404, description = "No enabled subscribers for this trigger", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn fire_trigger(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name)): Path<(String, String)>,
+    Json(body): Json<FireTriggerRequest>,
+) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+    if !auth.can_write() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
+
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database unavailable: {}", e)).into_response()
+        }
+    };
+
+    // Fan-out set: every enabled, non-paused `trigger` schedule naming this trigger.
+    let schedules = match cloacina::dal::DAL::new(tenant_db.clone())
+        .schedule()
+        .list(None, false, 1000, 0)
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+    };
+    // Every enabled, non-paused schedule naming this trigger — the fan-out set.
+    // Both event (`trigger`) and `cron` schedules carry a trigger_name, so a
+    // manual fire works for either; the value is the fan-out when several
+    // workflows share one trigger name.
+    let subscribers: Vec<_> = schedules
+        .into_iter()
+        .filter(|s| {
+            s.trigger_name.as_deref() == Some(name.as_str()) && s.enabled.0 && !s.paused.0
+        })
+        .collect();
+    if subscribers.is_empty() {
+        return ApiError::not_found(
+            "trigger_not_found",
+            format!("trigger '{}' has no enabled subscribers", name),
+        )
+        .into_response();
+    }
+
+    // Resolve the runner (public reuses the global runner; see execute_workflow).
+    let tenant_runner = if tenant_id == "public" {
+        state.runner.clone()
+    } else {
+        match state
+            .tenant_runners
+            .get_or_create(&tenant_id, tenant_db)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return ApiError::internal(format!("tenant runner unavailable: {}", e))
+                    .into_response()
+            }
+        }
+    };
+
+    let triggered_at = chrono::Utc::now().to_rfc3339();
+    let mut executions: Vec<FiredExecution> = Vec::with_capacity(subscribers.len());
+    for s in &subscribers {
+        let mut context = cloacina::Context::new();
+        let _ = context.insert("trigger_name".to_string(), serde_json::json!(name));
+        let _ = context.insert("triggered_at".to_string(), serde_json::json!(triggered_at));
+        let _ = context.insert("manual_fire".to_string(), serde_json::json!(true));
+        if let Some(serde_json::Value::Object(obj)) = &body.event {
+            for (k, v) in obj {
+                let _ = context.insert(k.clone(), v.clone());
+            }
+        }
+        match tenant_runner.execute_async(&s.workflow_name, context).await {
+            Ok(execution) => {
+                // Mark the run as a manual operator intervention (CLOACI-T-0776).
+                if let Ok(db) = state
+                    .tenant_databases
+                    .resolve(&tenant_id, &state.database)
+                    .await
+                {
+                    let _ = cloacina::dal::DAL::new(db)
+                        .workflow_execution()
+                        .set_trigger_origin(
+                            cloacina::database::universal_types::UniversalUuid::from(
+                                execution.execution_id,
+                            ),
+                            "manual",
+                        )
+                        .await;
+                }
+                executions.push(FiredExecution {
+                    workflow_name: s.workflow_name.clone(),
+                    execution_id: execution.execution_id.to_string(),
+                });
+            }
+            Err(e) => {
+                warn!(
+                    "trigger '{}' fan-out: failed to fire '{}': {}",
+                    name, s.workflow_name, e
+                );
+            }
+        }
+    }
+
+    Json(FireTriggerResponse {
+        tenant_id,
+        trigger: name,
+        fired: executions.len() as u32,
+        executions,
+    })
+    .into_response()
 }
