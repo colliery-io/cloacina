@@ -14,13 +14,14 @@
  *  limitations under the License.
  */
 
-import { Anchor, Box, Button, Divider, Drawer, Group, Menu, Stack, Text, Tooltip } from "@mantine/core";
+import { Anchor, Box, Button, Group, Menu, Text, Tooltip } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { useAccumulators, useGraph } from "../api/health";
 import { useFireReactor } from "../api/controls";
 import { GraphInjectModal, type InjectTarget } from "../components/GraphInjectModal";
+import { GraphNodeModal } from "../components/GraphNodeModal";
 import { type DagEdge, type DagNode } from "../components/Dag";
 import { FullDag } from "../components/FullDag";
 import { GraphHealth } from "../components/GraphHealth";
@@ -47,6 +48,8 @@ type GraphData = {
   reaction_mode?: string | null;
   input_strategy?: string | null;
   topology?: { nodes: TopoNode[]; edges: TopoEdge[] } | null;
+  /** Package whose retained source defines this graph's nodes (CLOACI-T-0773). */
+  source_package?: string | null;
 };
 
 /**
@@ -276,33 +279,12 @@ export function GraphDetail() {
         </>
       )}
 
-      <Drawer
+      <GraphNodeModal
         opened={!!selected}
         onClose={() => setSelected(null)}
-        position="right"
-        size="md"
-        title={detail ? `${detail.kind}: ${detail.title}` : ""}
-      >
-        {detail && (
-          <Stack gap="sm">
-            <span style={{ display: "inline-flex", width: "fit-content" }}>
-              <Pill color={nodeKindColor(detail.kind.toLowerCase())}>{detail.kind}</Pill>
-            </span>
-            {detail.rows.map(([k, v]) => (
-              <div key={k}>
-                <Text size="xs" c="dimmed">
-                  {k}
-                </Text>
-                <Text size="sm">{v}</Text>
-              </div>
-            ))}
-            <Divider />
-            <Text size="xs" c="dimmed">
-              Node source isn't shipped in compiled <code>.cloacina</code> packages, so the function body isn't shown here.
-            </Text>
-          </Stack>
-        )}
-      </Drawer>
+        packageName={gd?.source_package ?? null}
+        target={detail ? { name: detail.title, kind: detail.kind, rows: detail.rows } : null}
+      />
 
       <GraphInjectModal
         target={injectTarget}

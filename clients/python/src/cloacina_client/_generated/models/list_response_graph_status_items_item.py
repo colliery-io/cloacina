@@ -33,6 +33,11 @@ class ListResponseGraphStatusItemsItem:
             last_fired_at (None | str | Unset): RFC 3339 timestamp of the last graph fire; `null` if it hasn't fired yet.
             reaction_mode (None | str | Unset): Reaction mode of the bound reactor: `"when_any"` | `"when_all"`.
             reactor (None | str | Unset): Name of the reactor this graph is bound to (the trigger that fires it).
+            source_package (None | str | Unset): Package whose retained source defines this graph's nodes/reactor, so the
+                UI can fetch it via `GET /workflows/{package}/source` and show node code
+                (CLOACI-T-0773). `None` when the package can't be resolved (e.g. a graph
+                declaring no typed surface). Populated on the single-graph detail endpoint
+                only; the list leaves it `None`.
             topology (GraphTopology | None | Unset):
     """
 
@@ -45,6 +50,7 @@ class ListResponseGraphStatusItemsItem:
     last_fired_at: None | str | Unset = UNSET
     reaction_mode: None | str | Unset = UNSET
     reactor: None | str | Unset = UNSET
+    source_package: None | str | Unset = UNSET
     topology: GraphTopology | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -85,6 +91,12 @@ class ListResponseGraphStatusItemsItem:
         else:
             reactor = self.reactor
 
+        source_package: None | str | Unset
+        if isinstance(self.source_package, Unset):
+            source_package = UNSET
+        else:
+            source_package = self.source_package
+
         topology: dict[str, Any] | None | Unset
         if isinstance(self.topology, Unset):
             topology = UNSET
@@ -113,6 +125,8 @@ class ListResponseGraphStatusItemsItem:
             field_dict["reaction_mode"] = reaction_mode
         if reactor is not UNSET:
             field_dict["reactor"] = reactor
+        if source_package is not UNSET:
+            field_dict["source_package"] = source_package
         if topology is not UNSET:
             field_dict["topology"] = topology
 
@@ -169,6 +183,15 @@ class ListResponseGraphStatusItemsItem:
 
         reactor = _parse_reactor(d.pop("reactor", UNSET))
 
+        def _parse_source_package(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_package = _parse_source_package(d.pop("source_package", UNSET))
+
         def _parse_topology(data: object) -> GraphTopology | None | Unset:
             if data is None:
                 return data
@@ -196,6 +219,7 @@ class ListResponseGraphStatusItemsItem:
             last_fired_at=last_fired_at,
             reaction_mode=reaction_mode,
             reactor=reactor,
+            source_package=source_package,
             topology=topology,
         )
 

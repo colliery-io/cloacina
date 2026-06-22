@@ -230,6 +230,10 @@ pub async fn list_graphs(
                     .last_fire_unix_ms
                     .and_then(chrono::DateTime::from_timestamp_millis)
                     .map(|dt| dt.to_rfc3339()),
+                // Detail-only (CLOACI-T-0773): resolving the source package per
+                // row would add a registry scan per graph; the list doesn't use
+                // it. The single-graph endpoint populates it.
+                source_package: None,
             }
         })
         .collect();
@@ -273,6 +277,38 @@ pub async fn get_graph(
                 serde_json::json!({"state": if !g.running { "stopped" } else { "running" }}),
             );
 
+        // CLOACI-T-0773: resolve which registered package's retained source
+        // defines this graph's nodes, so the UI can fetch it and show node code.
+        // Match the registry's declared surfaces by the reactor name, then by any
+        // accumulator. `None` when nothing matches (untyped package / unknown).
+        let source_package = {
+            let storage = UnifiedRegistryStorage::new(state.database.clone());
+            match WorkflowRegistryImpl::new(storage, state.database.clone()) {
+                Ok(registry) => {
+                    let mut pkg = None;
+                    if let Some(reactor) = g.reactor.as_deref() {
+                        pkg = registry
+                            .find_package_for_surface("reactor", reactor)
+                            .await
+                            .ok()
+                            .flatten();
+                    }
+                    if pkg.is_none() {
+                        for acc in &g.accumulators {
+                            if let Ok(Some(p)) =
+                                registry.find_package_for_surface("accumulator", acc).await
+                            {
+                                pkg = Some(p);
+                                break;
+                            }
+                        }
+                    }
+                    pkg
+                }
+                Err(_) => None,
+            }
+        };
+
         Json(GraphStatus {
             name: g.name,
             health,
@@ -291,6 +327,7 @@ pub async fn get_graph(
                 .last_fire_unix_ms
                 .and_then(chrono::DateTime::from_timestamp_millis)
                 .map(|dt| dt.to_rfc3339()),
+            source_package,
         })
         .into_response()
     } else {

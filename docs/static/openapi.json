@@ -3145,6 +3145,13 @@
             ],
             "description": "Name of the reactor this graph is bound to (the trigger that fires it)."
           },
+          "source_package": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Package whose retained source defines this graph's nodes/reactor, so the\nUI can fetch it via `GET /workflows/{package}/source` and show node code\n(CLOACI-T-0773). `None` when the package can't be resolved (e.g. a graph\ndeclaring no typed surface). Populated on the single-graph detail endpoint\nonly; the list leaves it `None`."
+          },
           "topology": {
             "oneOf": [
               {
@@ -3616,6 +3623,13 @@
                     "null"
                   ],
                   "description": "Name of the reactor this graph is bound to (the trigger that fires it)."
+                },
+                "source_package": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Package whose retained source defines this graph's nodes/reactor, so the\nUI can fetch it via `GET /workflows/{package}/source` and show node code\n(CLOACI-T-0773). `None` when the package can't be resolved (e.g. a graph\ndeclaring no typed surface). Populated on the single-graph detail endpoint\nonly; the list leaves it `None`."
                 },
                 "topology": {
                   "oneOf": [

@@ -1031,6 +1031,14 @@ export interface components {
             reaction_mode?: string | null;
             /** @description Name of the reactor this graph is bound to (the trigger that fires it). */
             reactor?: string | null;
+            /**
+             * @description Package whose retained source defines this graph's nodes/reactor, so the
+             *     UI can fetch it via `GET /workflows/{package}/source` and show node code
+             *     (CLOACI-T-0773). `None` when the package can't be resolved (e.g. a graph
+             *     declaring no typed surface). Populated on the single-graph detail endpoint
+             *     only; the list leaves it `None`.
+             */
+            source_package?: string | null;
             topology?: null | components["schemas"]["GraphTopology"];
         };
         /** @description Node/edge topology of a computation graph (CLOACI-T-0673). */
@@ -1240,6 +1248,14 @@ export interface components {
                 reaction_mode?: string | null;
                 /** @description Name of the reactor this graph is bound to (the trigger that fires it). */
                 reactor?: string | null;
+                /**
+                 * @description Package whose retained source defines this graph's nodes/reactor, so the
+                 *     UI can fetch it via `GET /workflows/{package}/source` and show node code
+                 *     (CLOACI-T-0773). `None` when the package can't be resolved (e.g. a graph
+                 *     declaring no typed surface). Populated on the single-graph detail endpoint
+                 *     only; the list leaves it `None`.
+                 */
+                source_package?: string | null;
                 topology?: null | components["schemas"]["GraphTopology"];
             }[];
             total: number;

@@ -222,6 +222,29 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(Vec::new())
     }
 
+    /// The `package_name` of the registered package that declares the surface
+    /// (`kind` = `"graph"` / `"reactor"` / `"accumulator"`) addressed by `name`,
+    /// scanned across all registered packages (CLOACI-T-0773). Lets the graph
+    /// health endpoint tell the UI which package's retained source defines a
+    /// graph's nodes, so node code is one `…/source` fetch away. `None` when no
+    /// package declares the surface (e.g. a graph with no typed interface). A
+    /// surface match on the reactor or any accumulator resolves the package.
+    pub async fn find_package_for_surface(
+        &self,
+        kind: &str,
+        name: &str,
+    ) -> Result<Option<String>, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        for w in workflows {
+            for surface in &w.declared_surfaces {
+                if surface.kind == kind && surface.name == name {
+                    return Ok(Some(w.package_name.clone()));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// The declared input slot for an accumulator addressed by `name`
     /// (CLOACI-I-0128 T-0758). An accumulator's boundary type is carried as a
     /// per-source slot inside its graph/reactor surface, so this scans all
