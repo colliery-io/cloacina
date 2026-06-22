@@ -15,7 +15,8 @@
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "test:visual": "E2E_BASE_URL=http://localhost:8082 E2E_SERVER_URL=http://localhost:8080 E2E_API_KEY=clk_demo_bootstrap_key_0001 E2E_TENANT=public playwright test visual.spec.ts --project=chromium"
   },
   "dependencies": {
     "@cloacina/client": "file:../clients/typescript",

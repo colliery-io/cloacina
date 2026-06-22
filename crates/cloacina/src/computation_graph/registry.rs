@@ -26,7 +26,7 @@ use tokio::sync::{mpsc, RwLock};
 
 use serde::{Deserialize, Serialize};
 
-use super::accumulator::AccumulatorHealth;
+use super::accumulator::{AccumulatorHealth, FreshnessHandle};
 use super::reactor::{ManualCommand, ReactorHandle};
 use tokio::sync::watch;
 
@@ -220,6 +220,8 @@ struct RegistryInner {
     reactor_policies: HashMap<String, ReactorAuthPolicy>,
     /// Accumulator name → health watch receiver.
     accumulator_health: HashMap<String, watch::Receiver<AccumulatorHealth>>,
+    /// Accumulator name → freshness probe (events_total + last-event), CLOACI-T-0765.
+    accumulator_freshness: HashMap<String, FreshnessHandle>,
     /// Accumulator name → discoverability descriptor (CLOACI-I-0128 follow-up).
     accumulator_meta: HashMap<String, AccumulatorDescriptor>,
 }
@@ -234,6 +236,7 @@ impl EndpointRegistry {
                 accumulator_policies: HashMap::new(),
                 reactor_policies: HashMap::new(),
                 accumulator_health: HashMap::new(),
+                accumulator_freshness: HashMap::new(),
                 accumulator_meta: HashMap::new(),
             })),
         }
@@ -472,6 +475,13 @@ impl EndpointRegistry {
         inner.accumulator_health.insert(name, health_rx);
     }
 
+    /// Register a freshness probe for an accumulator (CLOACI-T-0765): the shared
+    /// events_total + last-event handle off its `BoundarySender`.
+    pub async fn register_accumulator_freshness(&self, name: String, handle: FreshnessHandle) {
+        let mut inner = self.inner.write().await;
+        inner.accumulator_freshness.insert(name, handle);
+    }
+
     /// Get the current health of an accumulator.
     pub async fn get_accumulator_health(&self, name: &str) -> Option<AccumulatorHealth> {
         let inner = self.inner.read().await;
@@ -481,8 +491,10 @@ impl EndpointRegistry {
             .map(|rx| rx.borrow().clone())
     }
 
-    /// List all accumulators with their current health status.
-    pub async fn list_accumulators_with_health(&self) -> Vec<(String, AccumulatorHealth)> {
+    /// List all accumulators with their current health + freshness (CLOACI-T-0765).
+    pub async fn list_accumulators_with_health(
+        &self,
+    ) -> Vec<(String, AccumulatorHealth, Option<FreshnessHandle>)> {
         let inner = self.inner.read().await;
         inner
             .accumulators
@@ -493,7 +505,8 @@ impl EndpointRegistry {
                     .get(name)
                     .map(|rx| rx.borrow().clone())
                     .unwrap_or(AccumulatorHealth::Live); // default for accumulators without health tracking
-                (name.clone(), health)
+                let fresh = inner.accumulator_freshness.get(name).cloned();
+                (name.clone(), health, fresh)
             })
             .collect()
     }
@@ -511,7 +524,7 @@ impl EndpointRegistry {
     pub async fn list_accumulators_with_health_for_key(
         &self,
         ctx: &KeyContext<'_>,
-    ) -> Vec<(String, AccumulatorHealth)> {
+    ) -> Vec<(String, AccumulatorHealth, Option<FreshnessHandle>)> {
         let inner = self.inner.read().await;
         inner
             .accumulators
@@ -533,7 +546,8 @@ impl EndpointRegistry {
                     .get(name)
                     .map(|rx| rx.borrow().clone())
                     .unwrap_or(AccumulatorHealth::Live);
-                (name.clone(), health)
+                let fresh = inner.accumulator_freshness.get(name).cloned();
+                (name.clone(), health, fresh)
             })
             .collect()
     }

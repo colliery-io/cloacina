@@ -14,8 +14,8 @@
  *  limitations under the License.
  */
 
-import { Anchor, Badge, Box, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
-import { useEffect } from "react";
+import { Anchor, Box, Button, Group, Stack, Text } from "@mantine/core";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -29,12 +29,15 @@ import { StatusBadge } from "../components/StatusBadge";
 import { TaskGantt } from "../components/TaskGantt";
 import { TaskTable } from "../components/TaskTable";
 import { WorkflowGraph } from "../components/WorkflowGraph";
+import { TaskCodeModal } from "../components/TaskCodeModal";
 import { ErrorState, Loading } from "../components/states/States";
 import { useExecuteWorkflow, useWorkflow } from "../api/workflows";
 import { mergeEvents } from "../util/events";
 import { formatDuration, formatTimestamp } from "../util/format";
 import { isTerminalStatus } from "../util/status";
 import { topoRank } from "../util/topo";
+import { MONO, cardSurface } from "../components/aurora";
+import { statusColor, TOKEN, pillBg } from "../util/tokens";
 
 /**
  * Execution detail (T-0653 + T-0656). Non-live half shows the REST event
@@ -97,6 +100,8 @@ export function ExecutionDetail() {
   const statusByTask: Record<string, string> = {};
   for (const t of taskList) statusByTask[localId(t.task_name)] = t.status;
 
+  const [codeTask, setCodeTask] = useState<string | null>(null);
+
   const reExecute = useExecuteWorkflow();
   function onReRun() {
     if (!workflowName) return;
@@ -130,23 +135,23 @@ export function ExecutionDetail() {
   return (
     <Stack>
       <Group justify="space-between" align="flex-start">
-        <div>
-          <Anchor component={Link} to="/executions" size="sm">
+        <Box>
+          <Anchor component={Link} to="/executions" size="xs" c="dimmed">
             ← Executions
           </Anchor>
-          <Title order={2}>{workflowName || "Execution"}</Title>
-          <Text size="xs" c="dimmed">
-            {id}
-          </Text>
-        </div>
+          <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)", marginTop: 2 }}>
+            {workflowName || "Execution"}
+          </Box>
+          <Box style={{ fontFamily: MONO, fontSize: 11, color: "var(--faint)", marginTop: 2 }}>{id}</Box>
+        </Box>
         <Button
           size="sm"
-          variant="light"
+          variant="default"
           onClick={onReRun}
           loading={reExecute.isPending}
           disabled={!workflowName}
         >
-          Re-run
+          ↻ Re-run
         </Button>
       </Group>
 
@@ -155,62 +160,44 @@ export function ExecutionDetail() {
       ) : detail.isError ? (
         <ErrorState error={detail.error} onRetry={detail.refetch} />
       ) : (
-        <Card withBorder padding="lg">
-          <Group gap="xl">
+        <Box style={{ ...cardSurface, padding: "15px 18px" }}>
+          <Group gap={32}>
             <span data-testid="execution-status">
               <StatusBadge status={detail.data.status} />
             </span>
-            {!terminal && (
-              <Badge color="blue" variant="dot">
-                live
-              </Badge>
-            )}
-            {workflowName && (
-              <Field label="Workflow">
-                <Text size="sm">{workflowName}</Text>
-              </Field>
-            )}
-            <Field label="Started">
-              <Text size="sm">{formatTimestamp(startedAt)}</Text>
-            </Field>
-            <Field label={terminal ? "Duration" : "Elapsed"}>
-              <Text size="sm">{formatDuration(startedAt, endedAt)}</Text>
-            </Field>
+            {!terminal && <LivePill />}
+            <Field label="Started" value={formatTimestamp(startedAt)} />
+            <Field label={terminal ? "Duration" : "Elapsed"} value={formatDuration(startedAt, endedAt)} />
+            <Field
+              label="Tasks"
+              value={`${taskList.filter((t) => t.status.toLowerCase() === "completed").length}/${taskList.length || "—"}`}
+            />
           </Group>
-        </Card>
+        </Box>
       )}
 
       {workflow.data?.task_graph && workflow.data.task_graph.length > 0 && (
-        <Card withBorder padding="lg">
-          <Group justify="space-between" mb="sm">
-            <Title order={4}>Graph</Title>
-            {!terminal && (
-              <Text size="xs" c="blue">
-                live
-              </Text>
-            )}
-          </Group>
-          <WorkflowGraph tasks={workflow.data.task_graph} statusByTask={statusByTask} />
-          <Group gap="md" mt="xs">
-            <StateKey color="blue" label="running" />
-            <StateKey color="green" label="completed" />
-            <StateKey color="red" label="failed" />
-            <StateKey color="orange" label="cancelled" />
-            <StateKey color="gray" label="pending" />
-            <StateKey color="gray" label="skipped" dashed />
-          </Group>
-        </Card>
+        <Box>
+          <SectionHeader title="Task graph" live={!terminal}>
+            <Group gap="md">
+              <StateKey status="running" />
+              <StateKey status="completed" />
+              <StateKey status="failed" />
+            </Group>
+          </SectionHeader>
+          <WorkflowGraph
+            tasks={workflow.data.task_graph}
+            statusByTask={statusByTask}
+            onNodeClick={(localTaskId) => setCodeTask(localTaskId)}
+          />
+          <Text size="xs" c="dimmed" mt={6}>
+            Click a task to view its source.
+          </Text>
+        </Box>
       )}
 
-      <Card withBorder padding="lg">
-        <Group justify="space-between" mb="sm">
-          <Title order={4}>Tasks</Title>
-          {!terminal && (
-            <Text size="xs" c="blue">
-              live
-            </Text>
-          )}
-        </Group>
+      <Box>
+        <SectionHeader title="Tasks" live={!terminal} />
         {tasks.isPending ? (
           <Loading label="Loading tasks…" />
         ) : tasks.isError ? (
@@ -218,17 +205,10 @@ export function ExecutionDetail() {
         ) : (
           <TaskTable tasks={tasks.data.tasks} order={taskOrder} />
         )}
-      </Card>
+      </Box>
 
-      <Card withBorder padding="lg">
-        <Group justify="space-between" mb="sm">
-          <Title order={4}>Timeline</Title>
-          {!terminal && (
-            <Text size="xs" c="blue">
-              live
-            </Text>
-          )}
-        </Group>
+      <Box>
+        <SectionHeader title="Timeline" live={!terminal} />
         {tasks.isPending ? (
           <Loading label="Loading timeline…" />
         ) : tasks.isError ? (
@@ -236,17 +216,10 @@ export function ExecutionDetail() {
         ) : (
           <TaskGantt tasks={tasks.data.tasks} order={taskOrder} />
         )}
-      </Card>
+      </Box>
 
-      <Card withBorder padding="lg">
-        <Group justify="space-between" mb="sm">
-          <Title order={4}>Event log</Title>
-          {!terminal && (
-            <Text size="xs" c="blue">
-              streaming…
-            </Text>
-          )}
-        </Group>
+      <Box>
+        <SectionHeader title="Event log" live={!terminal} liveLabel="streaming…" />
         {events.isPending ? (
           <Loading label="Loading events…" />
         ) : events.isError ? (
@@ -254,13 +227,22 @@ export function ExecutionDetail() {
         ) : (
           <EventLog events={merged} />
         )}
-      </Card>
+      </Box>
+
+      <TaskCodeModal
+        opened={codeTask !== null}
+        packageName={pkgName}
+        taskName={codeTask ?? ""}
+        onClose={() => setCodeTask(null)}
+      />
     </Stack>
   );
 }
 
-/** A legend swatch for the execution-DAG state colours. */
-function StateKey({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
+/** A legend swatch for the execution-DAG state colours (Aurora tokens, matching
+ *  the DAG node tints). */
+function StateKey({ status, dashed }: { status: string; dashed?: boolean }) {
+  const c = status === "skipped" ? "#5b6573" : statusColor(status);
   return (
     <Group gap={4}>
       <Box
@@ -268,27 +250,47 @@ function StateKey({ color, label, dashed }: { color: string; label: string; dash
           width: 12,
           height: 12,
           borderRadius: 3,
-          background: `var(--mantine-color-${color}-light)`,
-          border: dashed
-            ? `1px dashed var(--mantine-color-${color}-5)`
-            : `1px solid var(--mantine-color-${color}-5)`,
+          background: `${c}1f`,
+          border: dashed ? `1px dashed ${c}` : `1px solid ${c}7a`,
         }}
       />
       <Text size="xs" c="dimmed">
-        {label}
+        {status}
       </Text>
     </Group>
   );
 }
 
-/** A small label-over-value pair for the execution summary row. */
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+/** Label-over-value pair for the execution meta row (spec 04: Mono caps label). */
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <Text size="xs" c="dimmed">
+      <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".07em", textTransform: "uppercase", color: "var(--faint)" }}>
         {label}
-      </Text>
-      {children}
+      </div>
+      <div style={{ fontSize: 13.5, color: "var(--fg)", marginTop: 3 }}>{value}</div>
     </div>
+  );
+}
+
+/** A pulsing live pill. */
+function LivePill() {
+  return (
+    <span style={{ background: pillBg(TOKEN.ice), color: TOKEN.ice, borderRadius: 10, padding: "2px 9px", fontFamily: MONO, fontSize: 10.5, display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <span className="cl-pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: TOKEN.ice, display: "inline-block" }} /> live
+    </span>
+  );
+}
+
+/** Section header: 14/600 title + optional live tag + optional right slot. */
+function SectionHeader({ title, live, liveLabel = "live", children }: { title: string; live?: boolean; liveLabel?: string; children?: React.ReactNode }) {
+  return (
+    <Group justify="space-between" mb={10} style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 8 }}>
+      <Group gap={10}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{title}</span>
+        {live && <span style={{ fontFamily: MONO, fontSize: 10.5, color: TOKEN.ice }}>{liveLabel}</span>}
+      </Group>
+      {children}
+    </Group>
   );
 }

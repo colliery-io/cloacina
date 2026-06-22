@@ -43,6 +43,40 @@ builder.add_task("task_b")
 workflow = builder.build()
 ```
 
+## Declaring input params
+
+`@cloaca.workflow_params(...)` declares a workflow's typed, injectable
+execute-time inputs — the Python parity of Rust's `#[workflow(params(...))]`.
+Apply it to the workflow's entry task. Each entry is `name=Type` (required) or
+`name=(Type, default)` (optional). The compiler turns these into JSON-Schema
+`InputSlot`s exposed on the workflow's `declared_params` and rendered as a typed
+form in the web UI's Run dialog.
+
+```python
+@cloaca.workflow_params(
+    source_id=str,             # required
+    batch_size=(int, 500),     # optional, default 500
+)
+@cloaca.task(dependencies=[])
+def prepare(context):
+    return context
+```
+
+| Form | Meaning |
+|---|---|
+| `name=Type` | Required param (`Type` is `str` / `int` / `float` / `bool`). |
+| `name=(Type, default)` | Optional param with a default. |
+
+Declared params are **validated at the execute API** — supplying an unknown or
+mistyped value, or omitting a required one, is rejected. They are otherwise a
+pass-through into the run context. See
+[Declare workflow inputs](/embed/how-to/declare-workflow-inputs/) for the full
+flow (Rust + Python + the `declared_params` API surface).
+
+> Trigger-/cron-fired workflows are executed with no caller-supplied params, so
+> declare those workflows' params with defaults (optional) to keep them firing
+> unattended.
+
 ## Workflow Properties
 
 ### Basic Properties

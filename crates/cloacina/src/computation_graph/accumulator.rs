@@ -265,8 +265,59 @@ pub struct AccumulatorContext {
 pub struct BoundarySender {
     inner: mpsc::Sender<(SourceName, Vec<u8>)>,
     source_name: SourceName,
-    /// Monotonically increasing sequence counter (shared across clones).
+    /// Monotonically increasing sequence counter (shared across clones). This is
+    /// also the accumulator's `events_total` (one boundary emitted per send).
     sequence: Arc<AtomicU64>,
+    /// Wall-clock (unix millis) of the last successful emit; `0` = never
+    /// (CLOACI-T-0765 freshness). Shared across clones.
+    last_event_ms: Arc<std::sync::atomic::AtomicI64>,
+}
+
+/// Read-only freshness probe for an accumulator (CLOACI-T-0765): the monotonic
+/// emit count + the wall-clock of the last emit, shared (Arc) with the live
+/// `BoundarySender` so the registry/server can sample it without locking.
+#[derive(Clone)]
+pub struct FreshnessHandle {
+    events_total: Arc<AtomicU64>,
+    last_event_ms: Arc<std::sync::atomic::AtomicI64>,
+}
+
+impl Default for FreshnessHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FreshnessHandle {
+    /// A fresh probe (zeroed counters). Share it into a `BoundarySender` via
+    /// `BoundarySender::with_freshness` and register it with the graph registry.
+    pub fn new() -> Self {
+        Self {
+            events_total: Arc::new(AtomicU64::new(0)),
+            last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        }
+    }
+
+    /// Total boundaries emitted since load (monotonic).
+    pub fn events_total(&self) -> u64 {
+        self.events_total.load(Ordering::Relaxed)
+    }
+    /// Unix-millis of the last emit, or `None` if nothing has been emitted yet.
+    pub fn last_event_ms(&self) -> Option<i64> {
+        let v = self.last_event_ms.load(Ordering::Relaxed);
+        if v > 0 {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
+
+fn now_unix_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 impl BoundarySender {
@@ -275,6 +326,23 @@ impl BoundarySender {
             inner: sender,
             source_name,
             sequence: Arc::new(AtomicU64::new(0)),
+            last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        }
+    }
+
+    /// Create a sender that shares its events_total + last-event with a
+    /// pre-made `FreshnessHandle` (CLOACI-T-0765), so the registry can sample
+    /// freshness for the live accumulator.
+    pub fn with_freshness(
+        sender: mpsc::Sender<(SourceName, Vec<u8>)>,
+        source_name: SourceName,
+        freshness: FreshnessHandle,
+    ) -> Self {
+        Self {
+            inner: sender,
+            source_name,
+            sequence: freshness.events_total.clone(),
+            last_event_ms: freshness.last_event_ms.clone(),
         }
     }
 
@@ -288,6 +356,7 @@ impl BoundarySender {
             inner: sender,
             source_name,
             sequence: Arc::new(AtomicU64::new(start_sequence)),
+            last_event_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
         }
     }
 
@@ -301,6 +370,8 @@ impl BoundarySender {
             .await
             .map_err(|e| AccumulatorError::Send(format!("channel send failed: {}", e)))?;
         self.sequence.fetch_add(1, Ordering::SeqCst);
+        // CLOACI-T-0765: stamp last-emit for the freshness probe.
+        self.last_event_ms.store(now_unix_ms(), Ordering::Relaxed);
         Ok(())
     }
 
@@ -312,6 +383,15 @@ impl BoundarySender {
     /// Get the current sequence number (last emitted).
     pub fn sequence_number(&self) -> u64 {
         self.sequence.load(Ordering::SeqCst)
+    }
+
+    /// A shared freshness probe (events_total + last_event), for registration
+    /// with the graph registry so the health endpoint can report freshness.
+    pub fn freshness(&self) -> FreshnessHandle {
+        FreshnessHandle {
+            events_total: self.sequence.clone(),
+            last_event_ms: self.last_event_ms.clone(),
+        }
     }
 }
 

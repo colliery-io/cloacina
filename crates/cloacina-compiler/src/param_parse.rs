@@ -60,6 +60,142 @@ pub fn parse_workflow_params(source_dir: &Path, language: &str) -> Vec<InputSlot
     out
 }
 
+/// Parse `@cloaca.boundary_schema(field=type, ...)` accumulator boundary
+/// declarations from Python source (CLOACI-T-0770) — the parity of deriving
+/// `schemars::JsonSchema` on a Rust boundary type. Each decorated accumulator
+/// yields one `DeclaredSurface` (`kind = "accumulator"`) carrying a single
+/// object-typed slot named after the accumulator, so inject/fire-with render
+/// typed forms. Non-Python languages get their surfaces from the FFI interface.
+/// Best-effort: never errors.
+pub fn parse_boundary_schemas(
+    source_dir: &Path,
+    language: &str,
+) -> Vec<cloacina_api_types::DeclaredSurface> {
+    if !language.eq_ignore_ascii_case("python") {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    walk_py_surfaces(source_dir, &mut out);
+    out
+}
+
+fn walk_py_surfaces(dir: &Path, out: &mut Vec<cloacina_api_types::DeclaredSurface>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(ft) = entry.file_type() else { continue };
+        if ft.is_dir() {
+            if path.file_name().map(|n| n == "target").unwrap_or(false) {
+                continue;
+            }
+            walk_py_surfaces(&path, out);
+        } else if ft.is_file() && path.extension().and_then(|e| e.to_str()) == Some("py") {
+            if entry
+                .metadata()
+                .map(|m| m.len() > MAX_SOURCE_BYTES)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            if let Ok(contents) = std::fs::read_to_string(&path) {
+                parse_file_surfaces(&contents, out);
+            }
+        }
+    }
+}
+
+/// Find every `boundary_schema(...)` decorator, build its object schema, and
+/// attach it to the accumulator it decorates (the next `def NAME` below it).
+fn parse_file_surfaces(contents: &str, out: &mut Vec<cloacina_api_types::DeclaredSurface>) {
+    let needle = "boundary_schema(";
+    let mut from = 0usize;
+    while let Some(rel) = contents[from..].find(needle) {
+        let pos = from + rel;
+        let after = &contents[pos + needle.len()..];
+        let Some((args, consumed)) = take_balanced(after) else {
+            break;
+        };
+        from = pos + needle.len() + consumed;
+        let props = parse_object_props(args);
+        if props.is_empty() {
+            continue;
+        }
+        let Some(acc_name) = next_def_name(&after[consumed..]) else {
+            continue;
+        };
+        if out.iter().any(|s| s.name == acc_name) {
+            continue;
+        }
+        let required: Vec<serde_json::Value> = props
+            .iter()
+            .map(|(k, _)| serde_json::Value::String(k.clone()))
+            .collect();
+        let mut properties = serde_json::Map::new();
+        for (k, v) in &props {
+            properties.insert(k.clone(), v.clone());
+        }
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        });
+        // Optional slot: an operator may inject, but isn't required to.
+        let slot = InputSlot::optional(&acc_name, schema, None);
+        out.push(cloacina_api_types::DeclaredSurface {
+            kind: "accumulator".to_string(),
+            name: acc_name,
+            slots: vec![slot],
+        });
+    }
+}
+
+/// `field=type, …` → ordered (name, type-schema) pairs (first decl per name wins).
+fn parse_object_props(args: &str) -> Vec<(String, serde_json::Value)> {
+    let mut out: Vec<(String, serde_json::Value)> = Vec::new();
+    for part in split_top_level(args, ',') {
+        let part = part.trim();
+        let Some(eq) = part.find('=') else { continue };
+        let name = part[..eq].trim();
+        let ty = part[eq + 1..].trim();
+        if name.is_empty() || out.iter().any(|(n, _)| n == name) {
+            continue;
+        }
+        if let Some(schema) = py_type_to_schema(ty) {
+            out.push((name.to_string(), schema));
+        }
+    }
+    out
+}
+
+/// The name in the first `def NAME(` / `async def NAME(` after `s` (the
+/// accumulator the decorator is applied to). Decorator lines in between have no
+/// `def`, so the first hit is the right function.
+fn next_def_name(s: &str) -> Option<String> {
+    let mut rest = s;
+    while let Some(p) = rest.find("def ") {
+        // Require `def` to start a token (preceded by start/space/newline).
+        let prev_ok = rest[..p]
+            .chars()
+            .next_back()
+            .map(|c| c.is_whitespace())
+            .unwrap_or(true);
+        let tail = &rest[p + 4..];
+        if prev_ok {
+            let name: String = tail
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+        rest = tail;
+    }
+    None
+}
+
 fn walk_py(dir: &Path, out: &mut Vec<InputSlot>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -256,6 +392,52 @@ mod tests {
         let mut out = Vec::new();
         parse_file(src, &mut out);
         out
+    }
+
+    fn surfaces(src: &str) -> Vec<cloacina_api_types::DeclaredSurface> {
+        let mut out = Vec::new();
+        parse_file_surfaces(src, &mut out);
+        out
+    }
+
+    #[test]
+    fn boundary_schema_builds_accumulator_surface() {
+        let src = r#"
+@cloaca.boundary_schema(bid=float, ask=float)
+@cloaca.passthrough_accumulator
+def py_alpha(event):
+    return event
+"#;
+        let s = surfaces(src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].kind, "accumulator");
+        assert_eq!(s[0].name, "py_alpha");
+        assert_eq!(s[0].slots.len(), 1);
+        let slot = &s[0].slots[0];
+        assert_eq!(slot.name, "py_alpha");
+        assert_eq!(slot.schema["type"], serde_json::json!("object"));
+        assert_eq!(
+            slot.schema["properties"]["bid"]["type"],
+            serde_json::json!("number")
+        );
+        assert_eq!(
+            slot.schema["properties"]["ask"]["type"],
+            serde_json::json!("number")
+        );
+    }
+
+    #[test]
+    fn boundary_schema_skips_decorator_between_it_and_def() {
+        // A decorator with its own parens sits between the schema and the def.
+        let src = r#"
+@cloaca.boundary_schema(value=int)
+@cloaca.state_accumulator(capacity=5)
+def py_window(event):
+    return event
+"#;
+        let s = surfaces(src);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].name, "py_window");
     }
 
     #[test]

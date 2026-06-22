@@ -62,7 +62,7 @@ export function TaskRuntimeChart({ stats }: { stats: TaskRuntimeStat[] }) {
               openDelay={150}
               position="top"
             >
-              <Box style={{ position: "relative", height: 18, background: "var(--mantine-color-gray-1)", borderRadius: 3 }}>
+              <Box style={{ position: "relative", height: 18, background: "var(--inset)", borderRadius: 3 }}>
                 {/* mean bar from zero — length ranks the tasks by duration */}
                 <Box
                   style={{
@@ -71,7 +71,7 @@ export function TaskRuntimeChart({ stats }: { stats: TaskRuntimeStat[] }) {
                     width: `${pos(s.avgMs)}%`,
                     top: 2,
                     bottom: 2,
-                    background: "var(--mantine-color-blue-6)",
+                    background: "#7fb2ff",
                     borderRadius: 3,
                   }}
                 />
@@ -85,7 +85,7 @@ export function TaskRuntimeChart({ stats }: { stats: TaskRuntimeStat[] }) {
                         width: `${pos(spread)}%`,
                         top: 8,
                         height: 2,
-                        background: "var(--mantine-color-blue-9)",
+                        background: "#5b86c9",
                       }}
                     />
                     {[s.minMs, s.maxMs].map((m, i) => (
@@ -97,7 +97,7 @@ export function TaskRuntimeChart({ stats }: { stats: TaskRuntimeStat[] }) {
                           top: 4,
                           height: 10,
                           width: 2,
-                          background: "var(--mantine-color-blue-9)",
+                          background: "#5b86c9",
                         }}
                       />
                     ))}
@@ -112,8 +112,8 @@ export function TaskRuntimeChart({ stats }: { stats: TaskRuntimeStat[] }) {
         );
       })}
       <Group gap="md" mt={4}>
-        <Legend swatch="var(--mantine-color-blue-6)" label="mean duration" />
-        <Legend swatch="var(--mantine-color-blue-9)" label="min–max across runs" />
+        <Legend swatch="#7fb2ff" label="mean duration" />
+        <Legend swatch="#5b86c9" label="min–max across runs" />
       </Group>
     </Box>
   );

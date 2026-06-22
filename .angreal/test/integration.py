@@ -141,6 +141,19 @@ def integration(
     backends_to_run = [b for b, on in (("postgres", run_postgres), ("sqlite", run_sqlite)) if on]
 
     cargo_features = features if features else "postgres,sqlite,macros"
+    # When a single backend is explicitly requested (and --features wasn't
+    # overridden), compile for THAT backend only. `get_or_init_fixture()` is
+    # `#[cfg(feature = "postgres")]` → it resolves to Postgres whenever the
+    # postgres feature is compiled in, so a both-features build run under
+    # `--backend sqlite` makes default-fixture tests (e.g. scheduler::trigger_rules)
+    # reach for Postgres — which the sqlite lane doesn't start. A name `filter`
+    # that matches those tests then fails spuriously. Single-backend builds keep
+    # the fixture aligned with the lane and make filters robust. The default
+    # (no --backend) still compiles once with both backends.
+    if features is None and backend == "sqlite":
+        cargo_features = "sqlite,macros"
+    elif features is None and backend == "postgres":
+        cargo_features = "postgres,macros"
     is_default_features = cargo_features == "postgres,sqlite,macros"
 
     if is_default_features:

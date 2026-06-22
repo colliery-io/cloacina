@@ -1223,6 +1223,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             compiled,
             std::collections::HashMap::new(),
             Vec::new(),
+            Vec::new(),
         )
         .await
     }
@@ -1240,6 +1241,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             crate::registry::loader::package_loader::TaskDocs,
         >,
         declared_params: Vec<cloacina_api_types::InputSlot>,
+        declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
     ) -> Result<(), RegistryError> {
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::{
@@ -1258,7 +1260,13 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         // workflow by name when package name ≠ workflow name.
         // (CLOACI-T-0671 / CLOACI-T-0663)
         let merged_metadata_json: Option<String> = match self
-            .extract_and_merge_build_metadata(package_id, &compiled, &task_docs, &declared_params)
+            .extract_and_merge_build_metadata(
+                package_id,
+                &compiled,
+                &task_docs,
+                &declared_params,
+                &declared_surfaces,
+            )
             .await
         {
             Ok(json) => json,
@@ -1442,6 +1450,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             crate::registry::loader::package_loader::TaskDocs,
         >,
         source_declared_params: &[cloacina_api_types::InputSlot],
+        source_declared_surfaces: &[cloacina_api_types::DeclaredSurface],
     ) -> Result<Option<String>, RegistryError> {
         use crate::dal::unified::models::UnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
@@ -1452,7 +1461,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             // if the compiler parsed declared params from the Python source,
             // persist them onto the stored (manifest-derived) metadata — this is
             // the Python parity carry path. Nothing else to merge.
-            if source_declared_params.is_empty() {
+            if source_declared_params.is_empty() && source_declared_surfaces.is_empty() {
                 return Ok(None);
             }
             let pid = UniversalUuid(package_id);
@@ -1500,6 +1509,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             let mut merged: crate::registry::loader::package_loader::PackageMetadata =
                 serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
             merged.declared_params = source_declared_params.to_vec();
+            // CLOACI-T-0770: carry source-parsed CG boundary surfaces too.
+            merged.declared_surfaces = source_declared_surfaces.to_vec();
             let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
             return Ok(Some(json));
         }

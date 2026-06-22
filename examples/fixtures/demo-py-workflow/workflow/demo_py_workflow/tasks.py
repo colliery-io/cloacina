@@ -1,7 +1,12 @@
 """Demo Python task workflow (CLOACI-I-0117 / T-0664).
 
-A minimal two-task Python workflow that the reconciler loads via PyO3 — proves
-the Python packaging path end-to-end in the demo (Workflows + Executions).
+A branching Python workflow that the reconciler loads via PyO3 — proves the
+Python packaging path end-to-end in the demo (Workflows + Executions). Python
+tasks have no trigger-rule gating, so this fans out + fans in (non-linear) but
+does not skip — the skipped-node demos are the Rust fixtures.
+
+    prepare ──┬─▶ transform ─▶ finish
+              └─▶ validate ───┘
 """
 from __future__ import annotations
 
@@ -22,6 +27,18 @@ def prepare(context):
 
 
 @cloaca.task(dependencies=["prepare"])
+def transform(context):
+    context.set("demo_py_transform", True)
+    return context
+
+
+@cloaca.task(dependencies=["prepare"])
+def validate(context):
+    context.set("demo_py_validate", True)
+    return context
+
+
+@cloaca.task(dependencies=["transform", "validate"])
 def finish(context):
     context.set("demo_py_workflow_ran", True)
     return context

@@ -4,14 +4,14 @@ level: initiative
 title: "Explicit injectable input interfaces — typed, named inputs for workflows, accumulators, and reactors"
 short_code: "CLOACI-I-0128"
 created_at: 2026-06-20T14:58:35.112535+00:00
-updated_at: 2026-06-20T16:46:58.010052+00:00
+updated_at: 2026-06-21T02:29:48.607789+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

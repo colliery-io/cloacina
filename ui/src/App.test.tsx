@@ -40,7 +40,7 @@ function renderAt(path: string) {
 describe("auth gate", () => {
   it("redirects an unauthenticated visit to the connect screen", () => {
     renderAt("/");
-    expect(screen.getByText("Connect to Cloacina")).toBeInTheDocument();
+    expect(screen.getByText("Connect to a server")).toBeInTheDocument();
   });
 
   it("shows the connect form fields", () => {

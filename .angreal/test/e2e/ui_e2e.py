@@ -173,7 +173,10 @@ def _run_playwright(summary_file: Path, bad_pkg: Path, smoke: bool):
         "E2E_BAD_PACKAGE": str(bad_pkg),
         "CI": os.environ.get("CI", ""),
     }
-    cmd = ["npx", "playwright", "test", "--reporter=list"]
+    # The @visual suite (CLOACI-T-0771) is a pixel gate with its own committed
+    # baselines + environment (the demo stack), run by the `ui-visual` workflow —
+    # exclude it here so the functional e2e isn't coupled to screenshot baselines.
+    cmd = ["npx", "playwright", "test", "--reporter=list", "--grep-invert", "@visual"]
     if smoke:
         cmd += ["--grep", "@smoke"]
     _run(cmd, cwd=UI_DIR, env=env)

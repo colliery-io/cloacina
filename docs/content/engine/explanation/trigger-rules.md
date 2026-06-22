@@ -135,6 +135,47 @@ trigger_rules = task_failed("fetch_data")
 trigger_rules = all(task_failed("fetch_data"))
 ```
 
+## Python Authoring
+
+Python tasks have full parity with the Rust DSL: pass `trigger_rules=` to
+`@cloaca.task`, built from the `cloaca` helpers. A gated Python task whose rule
+fails lands in the same real `Skipped` state as Rust (its function never runs),
+and fan-in past a skipped dependency still resolves.
+
+```python
+import cloaca
+
+@cloaca.task(dependencies=["fetch"])
+def fetch(context):
+    context.set("ready", True)
+    return context
+
+# Single condition (wrapped in all(...) automatically), like the Rust shorthand:
+@cloaca.task(
+    dependencies=["fetch"],
+    trigger_rules=cloaca.context_value("ready", "Equals", True),
+)
+def process(context):
+    return context
+
+# Combinators + conditions mirror the Rust names:
+@cloaca.task(
+    dependencies=["fetch", "process"],
+    trigger_rules=cloaca.any_of(
+        cloaca.task_failed("fetch"),
+        cloaca.task_skipped("process"),
+    ),
+)
+def on_trouble(context):
+    return context
+```
+
+Conditions: `cloaca.context_value(key, operator, value)`, `cloaca.task_success(name)`,
+`cloaca.task_failed(name)`, `cloaca.task_skipped(name)`. Rules: `cloaca.all_of(...)`,
+`cloaca.any_of(...)`, `cloaca.none_of(...)`, `cloaca.always()`. Operators accept the
+canonical names (`"Equals"`, `"GreaterThan"`, `"Exists"`, …) or common aliases
+(`"=="`, `">"`). Invalid rules raise a `ValueError` at decoration time.
+
 ## Evaluation Semantics
 
 Understanding when and how trigger rules are evaluated is critical for building correct

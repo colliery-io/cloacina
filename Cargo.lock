@@ -649,6 +649,7 @@ dependencies = [
  "chrono",
  "clap",
  "cloacina",
+ "cloacina-api-types",
  "dirs 6.0.0",
  "fidius-core",
  "hex",

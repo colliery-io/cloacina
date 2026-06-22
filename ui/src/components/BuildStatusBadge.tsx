@@ -14,25 +14,22 @@
  *  limitations under the License.
  */
 
-import { Badge } from "@mantine/core";
+import { Pill } from "./aurora";
+import { TOKEN } from "../util/tokens";
 
 /**
- * Build-status badge (T-0652). Color is keyed off the server's status
- * string; unknown values fall back to gray rather than crash — the set of
- * statuses lives server-side, so we don't hard-assert the enum (REQ-007
- * "render defensively"). Reused on the overview (T-0655).
+ * Build-status badge (T-0652). Color is keyed off the server's status string;
+ * unknown values fall back to muted rather than crash — the set of statuses
+ * lives server-side, so we don't hard-assert the enum (REQ-007 "render
+ * defensively"). Reused on the overview (T-0655). Aurora token pill.
  */
 const COLOR: Record<string, string> = {
-  success: "green",
-  failed: "red",
-  building: "blue",
-  pending: "gray",
+  success: TOKEN.ok,
+  failed: TOKEN.bad,
+  building: TOKEN.ice,
+  pending: TOKEN.muted,
 };
 
 export function BuildStatusBadge({ status }: { status: string }) {
-  return (
-    <Badge color={COLOR[status] ?? "gray"} variant="light">
-      {status}
-    </Badge>
-  );
+  return <Pill color={COLOR[status] ?? TOKEN.muted}>{status}</Pill>;
 }

@@ -14,12 +14,13 @@
  *  limitations under the License.
  */
 
-import { Alert, Anchor, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
+import { Alert, Anchor, Box, Button, Stack, Text } from "@mantine/core";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useUploadWorkflow } from "../api/workflows";
 import { ErrorState } from "../components/states/States";
+import { MONO, cardSurface } from "../components/aurora";
 
 /**
  * Workflow package upload (T-0657 / REQ-003 write half, UC-3). Select a
@@ -37,14 +38,17 @@ export function WorkflowUpload() {
 
   return (
     <Stack maw={560}>
-      <div>
-        <Anchor component={Link} to="/workflows" size="sm">
+      <Box>
+        <Anchor component={Link} to="/workflows" size="xs" c="dimmed">
           ← Workflows
         </Anchor>
-        <Title order={2}>Upload workflow</Title>
-      </div>
+        <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)", marginTop: 2 }}>Upload workflow</Box>
+        <Box style={{ fontFamily: MONO, fontSize: 11, color: "var(--faint)", marginTop: 2 }}>
+          Register a compiled .cloacina package for this tenant.
+        </Box>
+      </Box>
 
-      <Card withBorder padding="lg">
+      <Box style={{ ...cardSurface, padding: "16px 18px" }}>
         <Stack>
           <input
             ref={inputRef}
@@ -56,27 +60,40 @@ export function WorkflowUpload() {
               upload.reset();
             }}
           />
-          <Group>
-            <Button variant="default" onClick={() => inputRef.current?.click()}>
-              Choose .cloacina file
-            </Button>
-            <Text size="sm" c={file ? undefined : "dimmed"}>
-              {file ? file.name : "no file selected"}
-            </Text>
-          </Group>
+          {/* Drop area */}
+          <Box
+            onClick={() => inputRef.current?.click()}
+            style={{
+              border: "1px dashed var(--border-control)",
+              borderRadius: 10,
+              background: "var(--inset)",
+              padding: "22px 16px",
+              textAlign: "center",
+              cursor: "pointer",
+            }}
+          >
+            <Box style={{ fontSize: 13, color: "var(--fg-2)" }}>
+              {file ? "Selected file" : "Choose a .cloacina package"}
+            </Box>
+            <Box style={{ fontFamily: MONO, fontSize: 12, color: file ? "var(--ice)" : "var(--faint)", marginTop: 4 }}>
+              {file ? file.name : "click to browse"}
+            </Box>
+          </Box>
 
           <Button
             disabled={!file}
             loading={upload.isPending}
+            color="ice"
+            styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
             onClick={() => file && upload.mutate(file)}
           >
-            Upload
+            ↑ Upload
           </Button>
 
           {upload.isError && <ErrorState error={upload.error} />}
 
           {upload.isSuccess && (
-            <Alert color="green" title="Uploaded">
+            <Alert color="ok" title="Uploaded">
               <Text size="sm">
                 Package registered.{" "}
                 <Anchor component={Link} to={`/workflows/${upload.data.package_id}`}>
@@ -86,7 +103,7 @@ export function WorkflowUpload() {
             </Alert>
           )}
         </Stack>
-      </Card>
+      </Box>
     </Stack>
   );
 }

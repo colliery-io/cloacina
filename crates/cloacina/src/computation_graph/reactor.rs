@@ -193,28 +193,99 @@ pub use cloacina_api_types::reactor::{ReactorCommand, ReactorResponse};
 /// its [`ReactorHandle`] so the scheduler/API can report live activity
 /// (CLOACI-I-0124 / WS-10): total graph fires + the wall-clock time of the last
 /// fire. Throughput is derived by the caller from successive `fires` samples.
+/// One recorded reactor fire (CLOACI-T-0766) — the observable unit behind the
+/// operational view's "Recent fires". Captures outcome + wall time + duration.
+#[derive(Debug, Clone)]
+pub struct FireRecord {
+    /// Unix-epoch millis when the fire completed.
+    pub fired_at_ms: i64,
+    /// Whether the graph execution completed (false = errored).
+    pub ok: bool,
+    /// Error detail for a failed fire.
+    pub error: Option<String>,
+    /// Graph execution wall-clock for this fire.
+    pub duration_ms: u64,
+}
+
+/// How many recent fires to retain in the ring (newest-wins).
+const FIRE_LOG_CAP: usize = 200;
+/// Per-minute cadence buckets retained for the activity heatmap.
+const FIRE_BUCKETS: usize = 60;
+
 #[derive(Debug, Default)]
 pub struct ReactorStats {
     fires: std::sync::atomic::AtomicU64,
+    /// Failed fires (graph execution errored), CLOACI-T-0766.
+    failures: std::sync::atomic::AtomicU64,
     /// Unix-epoch millis of the last fire; `0` means "never fired".
     last_fire_unix_ms: std::sync::atomic::AtomicI64,
+    /// Ring of recent fires (newest at the back), CLOACI-T-0766.
+    recent: std::sync::Mutex<std::collections::VecDeque<FireRecord>>,
+    /// Per-minute fire counts: `(minute_epoch, count)`, ascending minute.
+    buckets: std::sync::Mutex<std::collections::VecDeque<(i64, u32)>>,
 }
 
 impl ReactorStats {
-    /// Record a graph fire; returns the new total.
-    pub fn record_fire(&self) -> u64 {
-        self.last_fire_unix_ms.store(
-            chrono::Utc::now().timestamp_millis(),
-            std::sync::atomic::Ordering::Relaxed,
-        );
+    /// Record a successful graph fire; returns the new completed total.
+    pub fn record_fire(&self, duration_ms: u64) -> u64 {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.last_fire_unix_ms
+            .store(now, std::sync::atomic::Ordering::Relaxed);
+        self.push(FireRecord {
+            fired_at_ms: now,
+            ok: true,
+            error: None,
+            duration_ms,
+        });
         self.fires
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             + 1
     }
 
-    /// Total fires so far.
+    /// Record a failed graph fire (CLOACI-T-0766).
+    pub fn record_failure(&self, duration_ms: u64, error: String) {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.last_fire_unix_ms
+            .store(now, std::sync::atomic::Ordering::Relaxed);
+        self.push(FireRecord {
+            fired_at_ms: now,
+            ok: false,
+            error: Some(error),
+            duration_ms,
+        });
+        self.failures
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Append to the recent ring + bump the current per-minute bucket.
+    fn push(&self, record: FireRecord) {
+        let minute = record.fired_at_ms / 60_000;
+        if let Ok(mut recent) = self.recent.lock() {
+            recent.push_back(record);
+            while recent.len() > FIRE_LOG_CAP {
+                recent.pop_front();
+            }
+        }
+        if let Ok(mut buckets) = self.buckets.lock() {
+            match buckets.back_mut() {
+                Some((m, c)) if *m == minute => *c += 1,
+                _ => buckets.push_back((minute, 1)),
+            }
+            // Keep a little more than the window so reads can align cleanly.
+            while buckets.len() > FIRE_BUCKETS + 4 {
+                buckets.pop_front();
+            }
+        }
+    }
+
+    /// Total successful fires so far.
     pub fn fires(&self) -> u64 {
         self.fires.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Total failed fires so far.
+    pub fn failures(&self) -> u64 {
+        self.failures.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Unix-epoch millis of the last fire, or `None` if it hasn't fired yet.
@@ -226,6 +297,31 @@ impl ReactorStats {
             0 => None,
             v => Some(v),
         }
+    }
+
+    /// The most recent fires, newest first, up to `limit` (CLOACI-T-0766).
+    pub fn recent_fires(&self, limit: usize) -> Vec<FireRecord> {
+        self.recent
+            .lock()
+            .map(|r| r.iter().rev().take(limit).cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Fires per minute for the last `FIRE_BUCKETS` minutes, oldest→newest,
+    /// gaps filled with 0 and aligned to the current minute (CLOACI-T-0766).
+    pub fn fire_timeseries(&self) -> Vec<u32> {
+        let now_min = chrono::Utc::now().timestamp_millis() / 60_000;
+        let counts: std::collections::HashMap<i64, u32> = self
+            .buckets
+            .lock()
+            .map(|b| b.iter().copied().collect())
+            .unwrap_or_default();
+        (0..FIRE_BUCKETS as i64)
+            .map(|i| {
+                let minute = now_min - (FIRE_BUCKETS as i64 - 1 - i);
+                counts.get(&minute).copied().unwrap_or(0)
+            })
+            .collect()
     }
 }
 
@@ -713,7 +809,8 @@ impl Reactor {
                                 .record(fire_started.elapsed().as_secs_f64());
                                 match &result {
                                     GraphResult::Completed { .. } => {
-                                        let fires = fire_counter.record_fire();
+                                        let fires =
+                                            fire_counter.record_fire(fire_started.elapsed().as_millis() as u64);
                                         tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                         persist_reactor_state(
                                             &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec, None,
@@ -724,6 +821,10 @@ impl Reactor {
                                         }
                                     }
                                     GraphResult::Error(e) => {
+                                        fire_counter.record_failure(
+                                            fire_started.elapsed().as_millis() as u64,
+                                            e.to_string(),
+                                        );
                                         tracing::error!(graph = %graph_name_exec, "graph execution failed: {}", e);
                                     }
                                 }
@@ -766,7 +867,8 @@ impl Reactor {
                                         .record(fire_started.elapsed().as_secs_f64());
                                         match &result {
                                             GraphResult::Completed { .. } => {
-                                                let fires = fire_counter.record_fire();
+                                                let fires =
+                                            fire_counter.record_fire(fire_started.elapsed().as_millis() as u64);
                                                 tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                                 persist_reactor_state(
                                                     &dal_exec, &graph_name_exec, &cache_exec,
@@ -779,6 +881,10 @@ impl Reactor {
                                                 }
                                             }
                                             GraphResult::Error(e) => {
+                                                fire_counter.record_failure(
+                                                    fire_started.elapsed().as_millis() as u64,
+                                                    e.to_string(),
+                                                );
                                                 tracing::error!("graph execution failed: {}", e);
                                             }
                                         }

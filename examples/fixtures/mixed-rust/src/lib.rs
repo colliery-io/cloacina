@@ -87,7 +87,12 @@ pub mod mixed_graph {
 #[workflow(
     name = "mixed_workflow",
     description = "Mixed-primitive fixture workflow",
-    triggers = ["mixed_trigger"]
+    triggers = ["mixed_trigger"],
+    // CLOACI-T-0768: declared injectors. All defaulted — trigger fires unattended.
+    params(
+        signal_id: String = "sig-demo",
+        window_ms: u32 = 1000,
+    )
 )]
 pub mod mixed_wf {
     use super::*;

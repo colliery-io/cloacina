@@ -14,38 +14,38 @@
  *  limitations under the License.
  */
 
-import {
-  Alert,
-  Anchor,
-  Button,
-  Card,
-  Group,
-  List,
-  Modal,
-  Stack,
-  Text,
-  Textarea,
-  Title,
-} from "@mantine/core";
+import { Alert, Anchor, Box, Button, Group, List, Modal, Stack, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { useDeleteWorkflow, useExecuteWorkflow, useWorkflow } from "../api/workflows";
+import { useDeleteWorkflow, useWorkflow } from "../api/workflows";
+import { usePauseWorkflow } from "../api/controls";
 import { useWorkflowTaskRuntimes } from "../api/executions";
 import { BuildStatusBadge } from "../components/BuildStatusBadge";
 import { CombinedTimeline } from "../components/CombinedTimeline";
-import { TaskRuntimeChart } from "../components/TaskRuntimeChart";
+import { InputsCard } from "../components/InputsCard";
+import { RunHeatmap } from "../components/RunHeatmap";
+import { RunWorkflowModal } from "../components/RunWorkflowModal";
+import { ScheduleCard } from "../components/ScheduleCard";
+import { StatusStrip } from "../components/StatusStrip";
+import { TaskCodeModal } from "../components/TaskCodeModal";
+import { TaskHealthTable } from "../components/TaskHealthTable";
 import { WorkflowGraph } from "../components/WorkflowGraph";
+import { MONO, Panel, Pill } from "../components/aurora";
 import { Empty, ErrorState, Loading } from "../components/states/States";
 import { classifyError } from "../api/errors";
 import { formatTimestamp } from "../util/format";
 import { topoRank } from "../util/topo";
+import { TOKEN } from "../util/tokens";
 
 /**
- * Workflow detail (T-0652 read + T-0657 write). Execute (with optional JSON
- * context) → redirect to the new execution's detail (the UC-1 hand-off to
- * the live stream). Delete with a confirm. Errors surface typed (REQ-007).
+ * Workflow detail — operational DAG view (CLOACI-T-0764). Restores the operator
+ * questions the redesign dropped: is it green lately, what's running, when does
+ * it next fire, which task is flaky. Status strip + recent-runs heatmap +
+ * schedule/inputs + reliability-overlay DAG + task-health table + scheduler-wait
+ * timeline, over the existing hooks. Execute (typed) / Pause / Delete from the
+ * header.
  */
 export function WorkflowDetail() {
   const { name = "" } = useParams();
@@ -54,202 +54,181 @@ export function WorkflowDetail() {
 
   const [execOpen, execModal] = useDisclosure(false);
   const [delOpen, delModal] = useDisclosure(false);
-  const [contextText, setContextText] = useState("");
-  const [contextErr, setContextErr] = useState<string | null>(null);
+  const [codeTask, setCodeTask] = useState<string | null>(null);
 
-  const execute = useExecuteWorkflow();
   const del = useDeleteWorkflow();
+  const pause = usePauseWorkflow();
 
-  // Cross-run task-duration aggregate (Airflow "Task Duration"). Sampled over
-  // the most recent runs and ordered by the DAG's topological rank so the chart
-  // reads in nominal run order. Keyed by the registered workflow name.
-  const RUNS_SAMPLED = 40;
-  const runtimes = useWorkflowTaskRuntimes(data?.workflow_name ?? "", { runs: RUNS_SAMPLED });
-  const runtimeRank = data?.task_graph ? topoRank(data.task_graph) : undefined;
-  const runtimeStats = [...runtimes.stats].sort((a, b) => {
-    const ar = runtimeRank?.get(a.taskName) ?? Number.MAX_SAFE_INTEGER;
-    const br = runtimeRank?.get(b.taskName) ?? Number.MAX_SAFE_INTEGER;
-    return ar - br || b.avgMs - a.avgMs;
-  });
+  const RUNS = 40;
+  const runtimes = useWorkflowTaskRuntimes(data?.workflow_name ?? "", { runs: RUNS });
+  const rank = data?.task_graph ? topoRank(data.task_graph) : undefined;
+  const stats = useMemo(
+    () =>
+      [...runtimes.stats].sort((a, b) => {
+        const ar = rank?.get(a.taskName) ?? Number.MAX_SAFE_INTEGER;
+        const br = rank?.get(b.taskName) ?? Number.MAX_SAFE_INTEGER;
+        return ar - br || b.avgMs - a.avgMs;
+      }),
+    [runtimes.stats, rank],
+  );
 
-  function onExecute() {
-    let context: unknown;
-    const trimmed = contextText.trim();
-    if (trimmed) {
-      try {
-        context = JSON.parse(trimmed);
-      } catch {
-        setContextErr("Context must be valid JSON.");
-        return;
-      }
+  // Per-task last status + failure counts drive the DAG overlay + health dots.
+  const { statusByTask, failByTask } = useMemo(() => {
+    const s: Record<string, string> = {};
+    const f: Record<string, number> = {};
+    for (const r of runtimes.stats) {
+      if (r.lastStatus) s[r.taskName] = r.lastStatus;
+      if (r.failCount > 0) f[r.taskName] = r.failCount;
     }
-    setContextErr(null);
-    // Execute by the registered workflow name, not the package name: the runner
-    // registry is keyed by workflow name and the two differ under the standard
-    // convention (package `demo-slow-rust` → workflow `demo_slow_workflow`).
-    // Fall back to the package name for packages predating workflow-name
-    // persistence. (CLOACI-T-0671)
-    const execName = data?.workflow_name || name;
-    execute.mutate(
-      { name: execName, context },
-      {
-        onSuccess: (res) => {
-          execModal.close();
-          navigate(`/executions/${res.execution_id}`);
-        },
-      },
-    );
-  }
+    return { statusByTask: s, failByTask: f };
+  }, [runtimes.stats]);
 
   function onDelete() {
     if (!data) return;
-    del.mutate(
-      { name, version: data.version },
-      { onSuccess: () => navigate("/workflows") },
-    );
+    del.mutate({ name, version: data.version }, { onSuccess: () => navigate("/workflows") });
   }
 
+  if (isPending) return <Loading label="Loading workflow…" />;
+  if (isError) return <ErrorState error={error} onRetry={refetch} />;
+  if (!data) return <Empty message="Workflow not found." />;
+
+  const wfName = data.workflow_name || name;
+
   return (
-    <Stack>
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {/* Header */}
       <Group justify="space-between" align="flex-start">
-        <div>
-          <Anchor component={Link} to="/workflows" size="sm">
+        <Box>
+          <Anchor component={Link} to="/workflows" size="xs" c="dimmed" style={{ fontFamily: MONO }}>
             ← Workflows
           </Anchor>
-          <Title order={2}>{name}</Title>
-        </div>
-        <Group gap="xs">
-          <Button onClick={execModal.open} disabled={!data}>
-            Execute
+          <Group gap={10} mt={3}>
+            <span style={{ fontSize: 23, fontWeight: 600, color: "var(--fg-bright)", letterSpacing: "-.01em" }}>{name}</span>
+            {data.paused && <Pill color={TOKEN.gold}>⏸ paused</Pill>}
+          </Group>
+          <Group gap={8} mt={5}>
+            <BuildStatusBadge status={data.build_status} />
+            <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--faint)" }}>
+              v{data.version} · created {formatTimestamp(data.created_at)} · workflow{" "}
+              <span style={{ color: "var(--muted)" }}>{wfName}</span>
+            </span>
+          </Group>
+        </Box>
+        <Group gap={8}>
+          <Button color="ice" radius={8} styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} onClick={execModal.open}>
+            ▸ Execute
           </Button>
-          <Button color="red" variant="light" onClick={delModal.open} disabled={!data}>
+          <Button
+            variant="default"
+            radius={8}
+            loading={pause.isPending}
+            onClick={() => pause.mutate({ name, paused: !data.paused })}
+          >
+            {data.paused ? "▸ Resume" : "⏸ Pause"}
+          </Button>
+          <Button color="bad" variant="subtle" radius={8} onClick={delModal.open}>
             Delete
           </Button>
         </Group>
       </Group>
 
-      {isPending ? (
-        <Loading label="Loading workflow…" />
-      ) : isError ? (
-        <ErrorState error={error} onRetry={refetch} />
-      ) : !data ? (
-        <Empty message="Workflow not found." />
-      ) : (
-        <Card withBorder padding="lg">
-          <Stack gap="md">
-            <Group>
-              <BuildStatusBadge status={data.build_status} />
-              <Text c="dimmed" size="sm">
-                v{data.version} · created {formatTimestamp(data.created_at)}
-              </Text>
-            </Group>
-            {data.description && <Text>{data.description}</Text>}
-            {data.build_error && (
-              <Alert color="red" title="Build error" role="alert">
-                <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                  {data.build_error}
-                </Text>
-              </Alert>
-            )}
-            <div>
-              <Text fw={600} mb="xs">
-                Tasks ({data.tasks.length})
-              </Text>
-              {data.tasks.length === 0 ? (
-                <Text c="dimmed" size="sm">
-                  No tasks.
-                </Text>
-              ) : data.task_graph && data.task_graph.length > 0 ? (
-                <WorkflowGraph tasks={data.task_graph} />
-              ) : (
-                <List size="sm">
-                  {data.tasks.map((t) => (
-                    <List.Item key={t}>{t}</List.Item>
-                  ))}
-                </List>
-              )}
-            </div>
-          </Stack>
-        </Card>
+      {/* Build error (if any) */}
+      {data.build_error && (
+        <Alert color="bad" title="Build error" role="alert">
+          <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+            {data.build_error}
+          </Text>
+        </Alert>
       )}
 
-      {data && (
-        <Card withBorder padding="lg">
-          <Group justify="space-between" mb="sm">
-            <Title order={4}>Task runtimes</Title>
-            <Text size="xs" c="dimmed">
-              avg over last {runtimes.runsCounted} run{runtimes.runsCounted === 1 ? "" : "s"}
-            </Text>
-          </Group>
-          {runtimes.isPending ? (
-            <Loading label="Aggregating run durations…" />
-          ) : runtimes.isError ? (
-            <Text size="sm" c="dimmed">
-              Couldn't load run history.
-            </Text>
-          ) : (
-            <TaskRuntimeChart stats={runtimeStats} />
-          )}
-        </Card>
-      )}
+      {/* Status strip */}
+      <StatusStrip workflow={wfName} />
 
-      {data && (
-        <Card withBorder padding="lg">
-          <Group justify="space-between" mb="sm">
-            <Title order={4}>Combined timeline</Title>
-            <Text size="xs" c="dimmed">
-              span &amp; wait distribution · last {runtimes.runsCounted} run
-              {runtimes.runsCounted === 1 ? "" : "s"}
-            </Text>
-          </Group>
-          {runtimes.isPending ? (
-            <Loading label="Aligning run timelines…" />
-          ) : runtimes.isError ? (
-            <Text size="sm" c="dimmed">
-              Couldn't load run history.
-            </Text>
-          ) : (
-            <CombinedTimeline runs={runtimes.runs} graph={data.task_graph} />
-          )}
-        </Card>
-      )}
+      {/* Schedule + Inputs */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "stretch" }}>
+        <ScheduleCard workflow={wfName} />
+        <InputsCard packageName={name} />
+      </div>
 
-      {/* Execute */}
-      <Modal opened={execOpen} onClose={execModal.close} title={`Execute ${name}`}>
-        <Stack>
-          <Textarea
-            label="Context (JSON, optional)"
-            placeholder='{ "input": 42 }'
-            autosize
-            minRows={4}
-            value={contextText}
-            onChange={(e) => setContextText(e.currentTarget.value)}
-            error={contextErr}
-          />
-          {execute.isError && (
-            <Text c="red" size="sm">
-              {classifyError(execute.error).message}
-            </Text>
-          )}
-          <Group justify="flex-end">
-            <Button variant="default" onClick={execModal.close}>
-              Cancel
-            </Button>
-            <Button loading={execute.isPending} onClick={onExecute}>
-              Execute
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+      {/* Recent runs */}
+      <Panel title="Recent runs" caption="last 40 · bar height = duration · hover for detail">
+        <RunHeatmap workflow={wfName} />
+      </Panel>
 
-      {/* Delete confirm */}
-      <Modal opened={delOpen} onClose={delModal.close} title="Delete workflow?">
+      {/* Task graph */}
+      <Panel
+        title="Task graph"
+        right={
+          <Group gap={14}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: TOKEN.ok }} /> last run ok
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 10.5, color: TOKEN.gold }}>⚠ failures in window</span>
+          </Group>
+        }
+      >
+        {data.task_graph && data.task_graph.length > 0 ? (
+          <>
+            <WorkflowGraph
+              tasks={data.task_graph}
+              statusByTask={statusByTask}
+              failByTask={failByTask}
+              onNodeClick={(id) => setCodeTask(id)}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              Click a task to view its source.
+            </Text>
+          </>
+        ) : data.tasks.length === 0 ? (
+          <Text c="dimmed" size="sm">
+            No tasks.
+          </Text>
+        ) : (
+          <List size="sm">
+            {data.tasks.map((t) => (
+              <List.Item key={t}>{t}</List.Item>
+            ))}
+          </List>
+        )}
+      </Panel>
+
+      {/* Task health */}
+      <Panel title="Task health" caption="duration, failures & retries over last 40 runs">
+        {runtimes.isPending ? (
+          <Loading label="Aggregating task health…" />
+        ) : runtimes.isError ? (
+          <Text size="sm" c="dimmed">
+            Couldn't load run history.
+          </Text>
+        ) : (
+          <TaskHealthTable stats={stats} />
+        )}
+      </Panel>
+
+      {/* Combined timeline */}
+      <Panel title="Combined timeline" caption={`scheduler wait · last ${runtimes.runsCounted} run${runtimes.runsCounted === 1 ? "" : "s"}`}>
+        {runtimes.isPending ? (
+          <Loading label="Aligning run timelines…" />
+        ) : runtimes.isError ? (
+          <Text size="sm" c="dimmed">
+            Couldn't load run history.
+          </Text>
+        ) : (
+          <CombinedTimeline runs={runtimes.runs} graph={data.task_graph} />
+        )}
+      </Panel>
+
+      {/* Modals */}
+      <RunWorkflowModal opened={execOpen} packageName={name} workflowName={wfName} onClose={execModal.close} />
+      <TaskCodeModal opened={codeTask !== null} packageName={name} taskName={codeTask ?? ""} onClose={() => setCodeTask(null)} />
+
+      <Modal opened={delOpen} onClose={delModal.close} title="Delete workflow?" centered>
         <Stack>
           <Text size="sm">
-            Unregister <b>{name}</b> v{data?.version}? This removes the package from the tenant.
+            Unregister <b>{name}</b> v{data.version}? This removes the package from the tenant.
           </Text>
           {del.isError && (
-            <Text c="red" size="sm">
+            <Text c="bad" size="sm">
               {classifyError(del.error).message}
             </Text>
           )}
@@ -257,12 +236,12 @@ export function WorkflowDetail() {
             <Button variant="default" onClick={delModal.close}>
               Cancel
             </Button>
-            <Button color="red" loading={del.isPending} onClick={onDelete}>
+            <Button color="bad" loading={del.isPending} onClick={onDelete}>
               Delete
             </Button>
           </Group>
         </Stack>
       </Modal>
-    </Stack>
+    </div>
   );
 }

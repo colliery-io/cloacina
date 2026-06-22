@@ -231,3 +231,73 @@ class TestTriggerRules:
         print("✓ All trigger rule patterns work correctly")
 
         print("✓ Comprehensive trigger rule patterns test completed")
+
+    def test_real_trigger_rule_gating_skips_task(self, shared_runner):
+        """CLOACI-T-0763: real trigger-rule gating (parity with Rust).
+
+        Unlike the simulation above (tasks run + branch internally), a gated task
+        whose rule fails is genuinely *Skipped* by the planner — its function
+        never executes — and a fan-in past the skipped dependency still completes
+        the workflow. We prove the body never ran by recording a flag at the top
+        of the gated task: its absence after a Completed run == Skipped.
+        """
+        import cloaca
+
+        # --- gate OFF → the optional task is Skipped --------------------------
+        with cloaca.WorkflowBuilder("real_gating_off_workflow") as builder:
+            builder.description("Real trigger-rule gating → Skipped")
+
+            @cloaca.task(id="source")
+            def source(context):
+                context.set("do_optional", False)  # gate the branch off
+                return context
+
+            @cloaca.task(
+                id="optional",
+                dependencies=["source"],
+                trigger_rules=cloaca.context_value("do_optional", "Equals", True),
+            )
+            def optional(context):
+                context.set("optional_ran", True)  # must never run
+                return context
+
+            @cloaca.task(id="always_sibling", dependencies=["source"])
+            def always_sibling(context):
+                context.set("sibling_ran", True)
+                return context
+
+            @cloaca.task(id="sink", dependencies=["optional", "always_sibling"])
+            def sink(context):
+                context.set("sink_ran", True)  # fan-in past a Skipped dep
+                return context
+
+        result = shared_runner.execute("real_gating_off_workflow", cloaca.Context({}))
+        assert result is not None
+        assert result.status == "Completed"
+        assert result.final_context.get("optional_ran") is None  # Skipped → body never ran
+        assert result.final_context.get("sibling_ran") is True
+        assert result.final_context.get("sink_ran") is True  # fan-in resolved past the skip
+        print("✓ gated task is Skipped (body never ran) and fan-in resolves")
+
+        # --- gate ON → the same task runs ------------------------------------
+        with cloaca.WorkflowBuilder("real_gating_on_workflow") as builder:
+            builder.description("Trigger-rule gate satisfied → runs")
+
+            @cloaca.task(id="source2")
+            def source2(context):
+                context.set("do_optional", True)
+                return context
+
+            @cloaca.task(
+                id="optional2",
+                dependencies=["source2"],
+                trigger_rules=cloaca.context_value("do_optional", "Equals", True),
+            )
+            def optional2(context):
+                context.set("optional_ran", True)
+                return context
+
+        result2 = shared_runner.execute("real_gating_on_workflow", cloaca.Context({}))
+        assert result2.status == "Completed"
+        assert result2.final_context.get("optional_ran") is True
+        print("✓ satisfied gate runs the task — real Python trigger-rule parity")

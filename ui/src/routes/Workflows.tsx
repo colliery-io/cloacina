@@ -14,18 +14,20 @@
  *  limitations under the License.
  */
 
-import { Button, Group, Stack, Table, Text, Title } from "@mantine/core";
-import { useMemo } from "react";
+import { Box, Button, Group } from "@mantine/core";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
 import { useWorkflows } from "../api/workflows";
+import { usePauseWorkflow } from "../api/controls";
 import { RunCircles, type RunDot } from "../components/RunCircles";
-import { RecentTasksCell } from "../components/RecentTasksCell";
+import { RunWorkflowModal } from "../components/RunWorkflowModal";
+import { MONO, PageHeader, cardSurface } from "../components/aurora";
 import { Empty, ErrorState, Loading } from "../components/states/States";
-import { formatTimestamp } from "../util/format";
+import { formatAgo } from "../util/activity";
+import { TOKEN, pillBg } from "../util/tokens";
 
-/** Bucket recent executions (newest-first) by workflow name for the run circles. */
 function useRecentRunsByWorkflow(): Map<string, RunDot[]> {
   const recent = useExecutions({ limit: 200, offset: 0 });
   return useMemo(() => {
@@ -39,29 +41,36 @@ function useRecentRunsByWorkflow(): Map<string, RunDot[]> {
   }, [recent.data]);
 }
 
-/**
- * Workflows list (T-0652 / REQ-003 read half). Establishes the list view
- * pattern: query hook → loading/empty/error states → table with row → detail.
- */
+/** Workflows list (Aurora Dark, spec 06): package cards with version badge,
+ *  run-history, and a Run action. */
 export function Workflows() {
   const navigate = useNavigate();
   const { data, isPending, isError, error, refetch } = useWorkflows();
   const runsByWorkflow = useRecentRunsByWorkflow();
+  const pause = usePauseWorkflow();
+  const [runTarget, setRunTarget] = useState<{ pkg: string; workflow: string } | null>(null);
 
-  // Only real workflows belong here. A package with no workflow tasks is a
-  // pure computation-graph package — it lives in the Graphs view, not the
-  // workflow list. (A CG wrapped in `#[workflow]` + a trigger *does* have a
-  // task, so it stays.) CLOACI-I-0124 / WS-10.
   const items = (data?.items ?? []).filter((w) => w.tasks.length > 0);
 
   return (
-    <Stack>
-      <Group justify="space-between">
-        <Title order={2}>Workflows</Title>
-        <Button component={Link} to="/workflows/upload">
-          Upload
-        </Button>
-      </Group>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <PageHeader
+        title="Workflows"
+        sub={`${items.length} packages`}
+        right={
+          <Button
+            component={Link}
+            to="/workflows/upload"
+            color="ice"
+            radius={9}
+            size="sm"
+            styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
+          >
+            ↑ Upload package
+          </Button>
+        }
+      />
+
       {isPending ? (
         <Loading label="Loading workflows…" />
       ) : isError ? (
@@ -69,48 +78,75 @@ export function Workflows() {
       ) : items.length === 0 ? (
         <Empty message="No workflows uploaded yet." />
       ) : (
-        <Table highlightOnHover stickyHeader>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Package</Table.Th>
-              <Table.Th>Version</Table.Th>
-              <Table.Th>Tasks</Table.Th>
-              <Table.Th>Recent runs</Table.Th>
-              <Table.Th>Recent tasks</Table.Th>
-              <Table.Th>Created</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {items.map((w) => (
-              <Table.Tr
-                key={w.id}
-                style={{ cursor: "pointer" }}
-                onClick={() => navigate(`/workflows/${encodeURIComponent(w.package_name)}`)}
-              >
-                <Table.Td>
-                  <Text fw={500}>{w.package_name}</Text>
-                  {w.description && (
-                    <Text size="xs" c="dimmed">
-                      {w.description}
-                    </Text>
-                  )}
-                </Table.Td>
-                <Table.Td>{w.version}</Table.Td>
-                <Table.Td>{w.tasks.length}</Table.Td>
-                <Table.Td>
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          {items.map((w) => (
+            <Box
+              key={w.id}
+              style={{ ...cardSurface, padding: "13px 16px", cursor: "pointer" }}
+              onClick={() => navigate(`/workflows/${encodeURIComponent(w.package_name)}`)}
+            >
+              <Group justify="space-between" wrap="nowrap">
+                <Group gap={11} wrap="nowrap" style={{ minWidth: 0 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 2, background: TOKEN.ice, flex: "none" }} />
+                  <Box style={{ minWidth: 0 }}>
+                    <Group gap={8} wrap="nowrap">
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)" }}>{w.package_name}</span>
+                      <span style={{ background: pillBg(TOKEN.violet), color: TOKEN.violet, borderRadius: 10, padding: "1px 7px", fontFamily: MONO, fontSize: 10.5 }}>
+                        v{w.version}
+                      </span>
+                      {w.paused && (
+                        <span style={{ background: pillBg(TOKEN.gold), color: TOKEN.gold, borderRadius: 10, padding: "1px 7px", fontFamily: MONO, fontSize: 10.5 }}>
+                          paused
+                        </span>
+                      )}
+                      <span style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>
+                        {w.tasks.length} task{w.tasks.length === 1 ? "" : "s"}
+                      </span>
+                    </Group>
+                    {w.description && (
+                      <Box style={{ fontSize: 12, color: "var(--muted)", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {w.description} · updated {formatAgo(w.created_at)}
+                      </Box>
+                    )}
+                  </Box>
+                </Group>
+                <Group gap={10} wrap="nowrap" style={{ flex: "none" }}>
                   <RunCircles runs={runsByWorkflow.get(w.workflow_name) ?? []} />
-                </Table.Td>
-                <Table.Td>
-                  <RecentTasksCell
-                    executionId={runsByWorkflow.get(w.workflow_name)?.[0]?.id ?? null}
-                  />
-                </Table.Td>
-                <Table.Td>{formatTimestamp(w.created_at)}</Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    styles={{ root: { color: "var(--muted)" } }}
+                    loading={pause.isPending && pause.variables?.name === w.package_name}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      pause.mutate({ name: w.package_name, paused: !w.paused });
+                    }}
+                  >
+                    {w.paused ? "Resume" : "Pause"}
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="default"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      setRunTarget({ pkg: w.package_name, workflow: w.workflow_name });
+                    }}
+                  >
+                    ▸ Run
+                  </Button>
+                </Group>
+              </Group>
+            </Box>
+          ))}
+        </div>
       )}
-    </Stack>
+
+      <RunWorkflowModal
+        opened={runTarget !== null}
+        packageName={runTarget?.pkg ?? ""}
+        workflowName={runTarget?.workflow ?? ""}
+        onClose={() => setRunTarget(null)}
+      />
+    </div>
   );
 }

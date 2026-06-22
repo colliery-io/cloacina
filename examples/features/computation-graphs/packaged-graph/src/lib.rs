@@ -26,13 +26,14 @@ cloacina_workflow_plugin::package!();
 
 // --- Boundary types ---
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// CLOACI-T-0768: JsonSchema opts these boundaries into typed inject/fire forms.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct OrderBookData {
     pub best_bid: f64,
     pub best_ask: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PricingData {
     pub mid_price: f64,
 }

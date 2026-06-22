@@ -27,7 +27,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { executionStatusColor } from "../util/status";
+import { statusColor, nodeKindColor, TOKEN } from "../util/tokens";
 
 /** Node role — drives styling so triggers/reactors/accumulators read as
  *  distinct from the compute nodes (CLOACI-I-0124 / WS-4). */
@@ -50,34 +50,20 @@ export interface DagNode {
  *  `skipped` is rendered distinctly (dashed, dimmed) so a branch-not-taken
  *  reads as neither failed nor completed. */
 function statusStyle(status: string): { background: string; border: string } {
+  const c = statusColor(status);
   if (status.toLowerCase() === "skipped") {
-    return {
-      background: "var(--mantine-color-gray-1)",
-      border: "1px dashed var(--mantine-color-gray-5)",
-    };
+    // Salmon + dashed: branch-not-taken reads as neither failed nor completed.
+    return { background: `${c}1f`, border: `1px dashed ${c}` };
   }
-  const c = executionStatusColor(status);
-  return {
-    background: `var(--mantine-color-${c}-light)`,
-    border: `1px solid var(--mantine-color-${c}-5)`,
-  };
+  return { background: `${c}1f`, border: `1px solid ${c}7a` };
 }
 
-/** Per-kind fill/border (Mantine light-variant CSS vars). */
+/** Per-kind fill/border (Aurora token tints over the panel surface). */
 const KIND_STYLE: Record<DagNodeKind, { background?: string; border?: string }> = {
-  compute: {},
-  accumulator: {
-    background: "var(--mantine-color-blue-light)",
-    border: "1px solid var(--mantine-color-blue-4)",
-  },
-  reactor: {
-    background: "var(--mantine-color-grape-light)",
-    border: "1px solid var(--mantine-color-grape-4)",
-  },
-  trigger: {
-    background: "var(--mantine-color-orange-light)",
-    border: "1px solid var(--mantine-color-orange-4)",
-  },
+  compute: { background: "var(--panel)", border: "1px solid var(--border-control)" },
+  accumulator: { background: `${nodeKindColor("accumulator")}1f`, border: `1px solid ${nodeKindColor("accumulator")}7a` },
+  reactor: { background: `${nodeKindColor("reactor")}1f`, border: `1px solid ${nodeKindColor("reactor")}7a` },
+  trigger: { background: `${TOKEN.gold}1f`, border: `1px solid ${TOKEN.gold}7a` },
 };
 
 /** A directed edge `from → to`, with an optional label (e.g. routing variant). */
@@ -142,7 +128,9 @@ export function Dag({
           width: NODE_W,
           fontSize: 13,
           borderRadius: 8,
-          border: "1px solid var(--mantine-color-default-border)",
+          color: "var(--fg)",
+          fontFamily: "'IBM Plex Mono', monospace",
+          border: "1px solid var(--border-control)",
           padding: "8px 10px",
           ...(n.status ? statusStyle(n.status) : KIND_STYLE[n.kind ?? "compute"]),
         },
@@ -153,7 +141,10 @@ export function Dag({
   }, [nodes, edges]);
 
   return (
-    <div style={{ height }} data-testid={testId}>
+    <div
+      style={{ height, background: "var(--inset)", borderRadius: 10, border: "1px solid var(--border-soft)" }}
+      data-testid={testId}
+    >
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}

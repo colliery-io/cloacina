@@ -25,7 +25,7 @@
 //! registered-but-not-running graphs.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::IntoResponse,
     Extension, Json,
 };
@@ -40,7 +40,8 @@ use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
 use cloacina_api_types::{
     AccumulatorStatus, DeclaredSurface, FireMode, FireReactorRequest, FireReactorResponse,
-    GraphStatus, InjectAccumulatorRequest, InjectAccumulatorResponse, ListResponse, ReactorStatus,
+    GraphStatus, InjectAccumulatorRequest, InjectAccumulatorResponse, ListResponse, ReactorFire,
+    ReactorFireTimeseries, ReactorStatus,
 };
 
 use crate::routes::auth::AuthenticatedKey;
@@ -103,12 +104,27 @@ pub async fn list_accumulators(
     // list surfaces the relationship, not just name + health.
     let mut accumulators: Vec<AccumulatorStatus> =
         Vec::with_capacity(accumulators_with_health.len());
-    for (name, health) in accumulators_with_health {
+    for (name, health, freshness) in accumulators_with_health {
         let descriptor = state.endpoint_registry.accumulator_descriptor(&name).await;
+        // CLOACI-T-0765: promote freshness from the runtime probe (None until the
+        // accumulator has emitted / on runtimes predating the probe).
+        let last_event_at = freshness
+            .as_ref()
+            .and_then(|f| f.last_event_ms())
+            .map(|ms| {
+                chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            });
+        let events_total = freshness.as_ref().map(|f| f.events_total());
         accumulators.push(AccumulatorStatus {
+            state: Some(health.to_string()),
             status: serde_json::to_value(health).unwrap_or(serde_json::Value::Null),
             reactor: descriptor.as_ref().map(|d| d.reactor.clone()),
             tenant_id: descriptor.and_then(|d| d.tenant_id),
+            last_event_at,
+            events_total,
+            error: None,
             name,
         });
     }
@@ -468,6 +484,97 @@ pub async fn fire_reactor(
             .into_response()
         }
     }
+}
+
+/// Query for the recent-fires endpoint.
+#[derive(serde::Deserialize)]
+pub struct FiresQuery {
+    /// Max fires to return (newest first); default 50, capped at 200.
+    pub limit: Option<usize>,
+}
+
+/// True if a reactor named `name` is visible to the caller (reuses the graph
+/// tenant gate against the scheduler's reactor list).
+async fn reactor_visible(state: &AppState, auth: &AuthenticatedKey, name: &str) -> bool {
+    state
+        .graph_scheduler
+        .list_reactors()
+        .await
+        .into_iter()
+        .any(|r| r.name == name && graph_visible(auth, r.tenant_id.as_deref()))
+}
+
+/// GET /v1/health/reactors/{name}/fires — recent fires with outcome + duration
+/// (CLOACI-T-0766). Makes the reactive layer observable: what fired, did it
+/// complete, how long, and why it failed.
+#[utoipa::path(
+    get,
+    path = "/v1/health/reactors/{name}/fires",
+    tag = "graph-health",
+    params(("name" = String, Path, description = "Reactor name")),
+    responses(
+        (status = 200, description = "Recent fires, newest first", body = ListResponse<ReactorFire>),
+        (status = 404, description = "Reactor not found / not visible", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn list_reactor_fires(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path(name): Path<String>,
+    Query(q): Query<FiresQuery>,
+) -> impl IntoResponse {
+    if !reactor_visible(&state, &auth, &name).await {
+        return ApiError::not_found("reactor_not_found", format!("reactor '{}' not found", name))
+            .into_response();
+    }
+    let limit = q.limit.unwrap_or(50).min(200);
+    let fires: Vec<ReactorFire> = match state.endpoint_registry.get_reactor_handle(&name).await {
+        Some(handle) => handle
+            .stats
+            .recent_fires(limit)
+            .into_iter()
+            .map(|f| ReactorFire {
+                fired_at: chrono::DateTime::<chrono::Utc>::from_timestamp_millis(f.fired_at_ms)
+                    .map(|d| d.to_rfc3339())
+                    .unwrap_or_default(),
+                ok: f.ok,
+                error: f.error,
+                duration_ms: f.duration_ms,
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+    Json(ListResponse::new(fires)).into_response()
+}
+
+/// GET /v1/health/reactors/{name}/fires/timeseries — fires per minute, last 60
+/// minutes (CLOACI-T-0766), for the fire-activity heatmap.
+#[utoipa::path(
+    get,
+    path = "/v1/health/reactors/{name}/fires/timeseries",
+    tag = "graph-health",
+    params(("name" = String, Path, description = "Reactor name")),
+    responses(
+        (status = 200, description = "Per-minute fire counts (oldest first)", body = ReactorFireTimeseries),
+        (status = 404, description = "Reactor not found / not visible", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn reactor_fire_timeseries(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    if !reactor_visible(&state, &auth, &name).await {
+        return ApiError::not_found("reactor_not_found", format!("reactor '{}' not found", name))
+            .into_response();
+    }
+    let buckets = match state.endpoint_registry.get_reactor_handle(&name).await {
+        Some(handle) => handle.stats.fire_timeseries(),
+        None => vec![0; 60],
+    };
+    Json(ReactorFireTimeseries { buckets }).into_response()
 }
 
 /// POST /v1/health/accumulators/{name}/inject — push a single typed event into

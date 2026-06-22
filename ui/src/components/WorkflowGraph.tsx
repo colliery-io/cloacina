@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-import { Dag, type DagEdge, type DagNode } from "./Dag";
+import { FullDag, type FullDagEdge, type FullDagNode } from "./FullDag";
 
 /** A task node: its id and the ids of the tasks it depends on. */
 export interface TaskGraphNode {
@@ -34,13 +34,21 @@ export interface TaskGraphNode {
 export function WorkflowGraph({
   tasks,
   statusByTask,
+  onNodeClick,
+  failByTask,
 }: {
   tasks: TaskGraphNode[];
   statusByTask?: Record<string, string>;
+  /** CLOACI-I-0129: click a task node → e.g. open its source (T-0750). */
+  onNodeClick?: (id: string) => void;
+  /** CLOACI-T-0764: local task id → failures in window (reliability overlay). */
+  failByTask?: Record<string, number>;
 }) {
-  const nodes: DagNode[] = tasks.map((t) => ({ id: t.id, status: statusByTask?.[t.id] }));
-  const edges: DagEdge[] = tasks.flatMap((t) =>
+  const nodes: FullDagNode[] = tasks.map((t) => ({ id: t.id, label: t.id, status: statusByTask?.[t.id] }));
+  const edges: FullDagEdge[] = tasks.flatMap((t) =>
     t.dependencies.map((dep) => ({ from: dep, to: t.id })),
   );
-  return <Dag nodes={nodes} edges={edges} testId="workflow-graph" />;
+  return (
+    <FullDag nodes={nodes} edges={edges} testId="workflow-graph" onNodeClick={onNodeClick} failByNode={failByTask} />
+  );
 }

@@ -1,0 +1,98 @@
+/*
+ *  Copyright 2025-2026 Colliery Software
+ *  SPDX-License-Identifier: Apache-2.0
+ *
+ *  Aurora Dark design tokens (CLOACI-I-0129). The full token table lives in
+ *  ui/design/aurora-dark/README.md; this is its CSS realization. Component
+ *  code references these custom properties directly (var(--panel), var(--ice),
+ *  …) so the per-screen specs map 1:1. The Mantine accent/dark palettes in
+ *  theme.ts mirror the same hexes so built-in Mantine components match.
+ */
+
+:root {
+  /* Surfaces */
+  --bg: #0e1116;
+  --sidebar: #12161c;
+  --panel: #161a21;
+  --panel-2: #13171e;
+  --inset: #0a0c10;
+  --control: #1b2129;
+  --border: #232a34;
+  --border-soft: #1d232c;
+  --border-fainter: #15191f;
+  --border-control: #2a3340;
+
+  /* Text */
+  --fg: #e6e9ee;
+  --fg-bright: #f1f4f8;
+  --fg-2: #c3cbd5;
+  --muted: #8b95a3;
+  --faint: #5b6573;
+  --fainter: #4a525e;
+
+  /* Accents & semantic status */
+  --ice: #7fb2ff;
+  --brand-stroke: #8fbcff;
+  --teal: #5fd0c5;
+  --violet: #9d8cff;
+  --gold: #d8a657;
+  --ok: #4bd07f;
+  --bad: #f06464;
+
+  /* Gradients */
+  --aurora-2: linear-gradient(90deg, #5fd0c5, #7fb2ff);
+  --aurora-3: linear-gradient(90deg, #5fd0c5, #7fb2ff, #9d8cff);
+
+  /* Map Mantine's dark surface/text vars onto our tokens so built-in
+     components (Card, Paper, Input, Menu, …) inherit the Aurora surfaces. */
+  --mantine-color-body: var(--bg);
+  --mantine-color-text: var(--fg);
+  --mantine-color-dimmed: var(--muted);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tabular numerals for live-updating numbers (durations, counts, throughput). */
+.cl-tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbars: 9px, faint thumb, transparent track (spec §Radius/shadow/layout). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #283039 transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #283039;
+  border-radius: 9px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Running DAG node pulse (spec §"DAG rendering" #3: opacity .45 ↔ 1). */
+@keyframes cl-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.cl-pulse {
+  animation: cl-pulse 1.4s ease-in-out infinite;
+}

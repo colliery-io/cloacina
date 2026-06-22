@@ -46,6 +46,11 @@ pub enum BuildOutcome {
         /// params come from the FFI input-interface entrypoint) and for Python
         /// packages that declare none.
         declared_params: Vec<cloacina::input_interface::InputSlot>,
+        /// CLOACI-T-0770: declared CG boundary surfaces parsed from the package
+        /// source (Python `cloaca.boundary_schema(...)` on accumulators). Empty
+        /// for Rust (surfaces come from the FFI input-interface) and for Python
+        /// packages with no boundary schemas.
+        declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
     },
     Failed(String),
     /// The cargo subprocess exceeded `CompilerConfig::build_timeout` and was
@@ -111,10 +116,11 @@ pub async fn execute_build(
     config: &CompilerConfig,
 ) -> BuildOutcome {
     match run_build(registry, package_id, config).await {
-        Ok((artifact, task_docs, declared_params)) => BuildOutcome::Success {
+        Ok((artifact, task_docs, declared_params, declared_surfaces)) => BuildOutcome::Success {
             artifact,
             task_docs,
             declared_params,
+            declared_surfaces,
         },
         Err(BuildError::Failed { reason, .. }) => BuildOutcome::Failed(reason),
         Err(BuildError::TimedOut { elapsed }) => BuildOutcome::TimedOut { elapsed },
@@ -165,6 +171,7 @@ async fn run_build(
         Vec<u8>,
         TaskDocsMap,
         Vec<cloacina::input_interface::InputSlot>,
+        Vec<cloacina_api_types::DeclaredSurface>,
     ),
     BuildError,
 > {
@@ -221,6 +228,10 @@ async fn run_build(
     // Rust it's empty (the FFI input-interface entrypoint is authoritative).
     let declared_params = crate::param_parse::parse_workflow_params(&source_dir, &language);
 
+    // CLOACI-T-0770: parse declared CG boundary surfaces (Python
+    // `cloaca.boundary_schema(...)`) from the same source. Empty for Rust.
+    let declared_surfaces = crate::param_parse::parse_boundary_schemas(&source_dir, &language);
+
     info!(
         %package_id,
         package_name = %meta.package_name,
@@ -270,6 +281,7 @@ async fn run_build(
             Vec<u8>,
             TaskDocsMap,
             Vec<cloacina::input_interface::InputSlot>,
+            Vec<cloacina_api_types::DeclaredSurface>,
         ),
         BuildError,
     > = match result {
@@ -294,7 +306,12 @@ async fn run_build(
                 declared_params = declared_params.len(),
                 "build succeeded"
             );
-            Ok((success.artifact, task_docs, declared_params))
+            Ok((
+                success.artifact,
+                task_docs,
+                declared_params,
+                declared_surfaces,
+            ))
         }
         Err(BuildError::Failed {
             reason,
