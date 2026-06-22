@@ -1,0 +1,109 @@
+---
+name: UI Visual Regression
+
+# Pixel gate for the Aurora Dark design system (CLOACI-T-0771): runs the
+# Playwright @visual suite (ui/e2e/visual.spec.ts) against the demo stack and
+# diffs against committed baselines.
+#
+# Baselines are OS-specific (font antialiasing), so the committed darwin set
+# can't be asserted on the ubuntu runner. This workflow generates + commits the
+# matching LINUX baselines on demand, then gates against them on a schedule.
+#
+# Bootstrap (one-time): run via the Actions tab with `update_baselines = true`
+# to generate + commit `*-chromium-linux.png`. After that the nightly run gates;
+# add a `pull_request` trigger (paths: ui/**) to promote it to a PR gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_baselines:
+        description: "Regenerate + commit the linux visual baselines"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 7 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ui-visual-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visual:
+    name: Aurora Dark pixel gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install angreal
+        run: pip install angreal
+
+      - name: Bring up the demo stack
+        run: angreal ui up
+
+      - name: Wait for graphs to register
+        run: |
+          for i in $(seq 1 60); do
+            n=$(curl -s http://localhost:8080/v1/health/graphs \
+              -H "Authorization: Bearer clk_demo_bootstrap_key_0001" \
+              | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('items',[])))" 2>/dev/null || echo 0)
+            echo "registered graphs: $n"
+            [ "$n" -ge 1 ] && exit 0
+            sleep 5
+          done
+          echo "graphs did not register in time" >&2
+          docker compose -f docker/docker-compose.demo.yml ps || true
+          exit 1
+
+      - name: Build SDK + UI deps
+        run: |
+          (cd clients/typescript && npm ci && npm run build)
+          (cd ui && npm install)
+
+      - name: Install Playwright browser
+        working-directory: ui
+        run: npx playwright install --with-deps chromium
+
+      - name: Visual gate (assert)
+        if: ${{ github.event_name == 'schedule' || inputs.update_baselines == false }}
+        working-directory: ui
+        run: npm run test:visual
+
+      - name: Refresh baselines
+        if: ${{ inputs.update_baselines == true }}
+        working-directory: ui
+        run: npm run test:visual -- --update-snapshots
+
+      - name: Commit refreshed baselines
+        if: ${{ inputs.update_baselines == true }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ui/e2e/visual.spec.ts-snapshots
+          if git diff --cached --quiet; then
+            echo "baselines unchanged"
+          else
+            git commit -m "test(ui): refresh linux visual baselines [skip ci]"
+            git push
+          fi
+
+      - name: Upload diffs on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diffs
+          path: ui/test-results/
+          if-no-files-found: ignore

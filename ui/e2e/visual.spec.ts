@@ -66,7 +66,7 @@ async function settle(page: import("@playwright/test").Page) {
   await page.waitForTimeout(900);
 }
 
-test("connect gate", async ({ page }) => {
+test("connect gate", { tag: "@visual" }, async ({ page }) => {
   await page.context().clearCookies();
   await page.addInitScript((key) => window.sessionStorage.removeItem(key), STORAGE_KEY);
   await page.goto("/connect");
@@ -85,7 +85,7 @@ const ROUTES: Array<{ name: string; path: string }> = [
 ];
 
 for (const { name, path } of ROUTES) {
-  test(name, async ({ page }) => {
+  test(name, { tag: "@visual" }, async ({ page }) => {
     await page.goto(path);
     await settle(page);
     await expect(page).toHaveScreenshot(`${name}.png`, { ...SHOT, mask: masks(page) });
