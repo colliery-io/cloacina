@@ -254,20 +254,27 @@ fn make_subscriber_dispatcher(
             });
             let results = futures::future::join_all(futures).await;
 
-            // Pass 2: log per-subscriber errors. No short-circuit; the reactor
-            // treats this as one firing regardless of how many subscribers
-            // succeeded.
+            // Pass 2: log per-subscriber errors + aggregate their terminal
+            // outputs (CLOACI-T-0775) so the reactor records per-fire outputs.
+            // No short-circuit; the reactor treats this as one firing regardless
+            // of how many subscribers succeeded.
+            let mut outputs_json: Vec<serde_json::Value> = Vec::new();
             for (graph_name, result) in results {
-                if let GraphResult::Error(e) = result {
-                    tracing::error!(
-                        reactor = %reactor_name,
-                        graph = %graph_name,
-                        "subscriber graph failed: {}",
-                        e
-                    );
+                match result {
+                    GraphResult::Error(e) => {
+                        tracing::error!(
+                            reactor = %reactor_name,
+                            graph = %graph_name,
+                            "subscriber graph failed: {}",
+                            e
+                        );
+                    }
+                    GraphResult::Completed {
+                        outputs_json: oj, ..
+                    } => outputs_json.extend(oj),
                 }
             }
-            GraphResult::completed(vec![])
+            GraphResult::completed_with_json(vec![], outputs_json)
         })
     })
 }
