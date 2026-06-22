@@ -4,14 +4,14 @@ level: initiative
 title: "Graph operational instrumentation + GraphDetail operational view"
 short_code: "CLOACI-I-0131"
 created_at: 2026-06-21T19:19:59.673693+00:00
-updated_at: 2026-06-21T19:19:59.673693+00:00
+updated_at: 2026-06-22T01:17:58.385492+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
