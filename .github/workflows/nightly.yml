@@ -13,6 +13,13 @@ concurrency:
   group: nightly
   cancel-in-progress: true
 
+# Resilience against transient crates.io download flakes ([56] connection reset /
+# SSL eof) that have repeatedly failed coverage (cargo install cargo-tarpaulin)
+# and sdk-contract on otherwise-green code. cargo retries its own fetches.
+env:
+  CARGO_NET_RETRY: "10"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
 jobs:
   # -----------------------------------------------------------------------
   # Full test suite — unit, integration, macros, feature builds
