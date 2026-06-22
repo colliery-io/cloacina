@@ -25,6 +25,9 @@ export interface Acc {
   last_event_at?: string | null;
   events_total?: number | null;
   error?: string | null;
+  /** Operator-inject count + last-inject time (CLOACI-T-0776) — manual interventions. */
+  operator_injects?: number | null;
+  last_operator_inject_at?: string | null;
 }
 
 const STALE_MS = 30_000;
@@ -260,6 +263,15 @@ export function AccumulatorTable({ accumulators, onInject }: { accumulators: Acc
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                 <Dot color={c} size={7} />
                 <span style={{ fontFamily: MONO, fontSize: 12.5, color: "#dce2e9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+                {(a.operator_injects ?? 0) > 0 && (
+                  <Tooltip
+                    label={`${a.operator_injects} operator inject${a.operator_injects === 1 ? "" : "s"}${a.last_operator_inject_at ? ` · last ${formatAgo(a.last_operator_inject_at)}` : ""}`}
+                  >
+                    <span style={{ flex: "none" }}>
+                      <Pill color={TOKEN.gold}>manual</Pill>
+                    </span>
+                  </Tooltip>
+                )}
               </span>
               <span style={{ fontSize: 12, color: c }}>{explainToken(a.state ?? "unknown").label}</span>
               <span style={{ fontFamily: MONO, fontSize: 11.5, color: stale ? TOKEN.gold : "var(--muted)" }}>{formatAgo(a.last_event_at)}</span>
@@ -360,9 +372,12 @@ export function RecentFires({ reactor }: { reactor: string | null | undefined })
               onClick={() => hasIO && setOpen(expanded ? null : i)}
             >
               <Dot color={f.ok ? TOKEN.ok : TOKEN.bad} size={8} />
-              <span style={{ fontFamily: MONO, fontSize: 11.5, color: f.ok ? "var(--muted)" : "#b97a7a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {f.ok ? `ran in ${fmtMs(f.duration_ms)}` : (f.error ?? "graph execution failed")}
-                {hasIO && <span style={{ color: "var(--fainter)", marginLeft: 8 }}>{expanded ? "▾" : "▸"}</span>}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                {f.manual && <Pill color={TOKEN.gold}>manual</Pill>}
+                <span style={{ fontFamily: MONO, fontSize: 11.5, color: f.ok ? "var(--muted)" : "#b97a7a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                  {f.ok ? `ran in ${fmtMs(f.duration_ms)}` : (f.error ?? "graph execution failed")}
+                </span>
+                {hasIO && <span style={{ color: "var(--fainter)", flex: "none" }}>{expanded ? "▾" : "▸"}</span>}
               </span>
               <span style={{ display: "inline-flex" }}>
                 <Pill color={statusColor(f.ok ? "completed" : "failed")}>{f.ok ? "completed" : "failed"}</Pill>

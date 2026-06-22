@@ -2637,8 +2637,21 @@
             ],
             "description": "Wall-clock of the last boundary this accumulator emitted (RFC3339), or\n`None` if it hasn't emitted yet / the runtime predates freshness tracking."
           },
+          "last_operator_inject_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 time of the last operator inject, or `None` if never\n(CLOACI-T-0776)."
+          },
           "name": {
             "type": "string"
+          },
+          "operator_injects": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of operator injects into this accumulator since load\n(CLOACI-T-0776) — manual interventions via the REST/WS inject paths. `0`\nwhen never injected. The UI marks injected accumulators with a \"manual\" pill.",
+            "minimum": 0
           },
           "reactor": {
             "type": [
@@ -3445,8 +3458,21 @@
                   ],
                   "description": "Wall-clock of the last boundary this accumulator emitted (RFC3339), or\n`None` if it hasn't emitted yet / the runtime predates freshness tracking."
                 },
+                "last_operator_inject_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 time of the last operator inject, or `None` if never\n(CLOACI-T-0776)."
+                },
                 "name": {
                   "type": "string"
+                },
+                "operator_injects": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Number of operator injects into this accumulator since load\n(CLOACI-T-0776) — manual interventions via the REST/WS inject paths. `0`\nwhen never injected. The UI marks injected accumulators with a \"manual\" pill.",
+                  "minimum": 0
                 },
                 "reactor": {
                   "type": [
@@ -3754,6 +3780,10 @@
                     "type": "string"
                   }
                 },
+                "manual": {
+                  "type": "boolean",
+                  "description": "Whether this fire was a manual operator intervention\n(`force_fire`/`fire_with`) rather than a criteria-driven fire over real\nboundary events (CLOACI-T-0776). The UI marks it with a \"manual\" pill."
+                },
                 "ok": {
                   "type": "boolean",
                   "description": "Whether the graph execution completed (`false` = errored)."
@@ -3929,6 +3959,10 @@
             "propertyNames": {
               "type": "string"
             }
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "Whether this fire was a manual operator intervention\n(`force_fire`/`fire_with`) rather than a criteria-driven fire over real\nboundary events (CLOACI-T-0776). The UI marks it with a \"manual\" pill."
           },
           "ok": {
             "type": "boolean",

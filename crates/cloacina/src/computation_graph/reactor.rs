@@ -165,11 +165,12 @@ impl Default for DirtyFlags {
 }
 
 /// Signals sent from receiver to executor.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum StrategySignal {
     /// A boundary was received — check reaction criteria.
     BoundaryReceived,
-    /// Force-fire regardless of criteria.
+    /// Force-fire regardless of criteria (only sent for a manual operator
+    /// command — `force_fire`/`fire_with`). CLOACI-T-0776.
     ForceFire,
 }
 
@@ -212,6 +213,10 @@ pub struct FireRecord {
     /// the executor can't serialize them (e.g. the Python reactor path) or on a
     /// failed fire.
     pub outputs: Vec<serde_json::Value>,
+    /// Whether this fire was triggered by a manual operator command
+    /// (`force_fire`/`fire_with`) rather than the reactor's criteria over real
+    /// boundary events (CLOACI-T-0776). Surfaced so the UI can mark it.
+    pub manual: bool,
 }
 
 /// Decode a fire's input snapshot to `source → JSON value` for the fire log
@@ -264,6 +269,7 @@ impl ReactorStats {
         duration_ms: u64,
         inputs: std::collections::HashMap<String, serde_json::Value>,
         outputs: Vec<serde_json::Value>,
+        manual: bool,
     ) -> u64 {
         let now = chrono::Utc::now().timestamp_millis();
         self.last_fire_unix_ms
@@ -275,6 +281,7 @@ impl ReactorStats {
             duration_ms,
             inputs,
             outputs,
+            manual,
         });
         self.fires
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -288,6 +295,7 @@ impl ReactorStats {
         duration_ms: u64,
         error: String,
         inputs: std::collections::HashMap<String, serde_json::Value>,
+        manual: bool,
     ) {
         let now = chrono::Utc::now().timestamp_millis();
         self.last_fire_unix_ms
@@ -299,6 +307,7 @@ impl ReactorStats {
             duration_ms,
             inputs,
             outputs: Vec::new(),
+            manual,
         });
         self.failures
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -820,6 +829,10 @@ impl Reactor {
         loop {
             tokio::select! {
                 Some(signal) = strategy_rx.recv() => {
+                    // CLOACI-T-0776: a ForceFire signal is only sent for a manual
+                    // operator command (force_fire/fire_with), so the resulting
+                    // fire is a manual intervention.
+                    let is_manual = matches!(signal, StrategySignal::ForceFire);
                     match input_strategy {
                         InputStrategy::Latest => {
                             let should_run = match signal {
@@ -863,6 +876,7 @@ impl Reactor {
                                             fire_started.elapsed().as_millis() as u64,
                                             fire_inputs,
                                             outputs_json.clone(),
+                                            is_manual,
                                         );
                                         tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                         persist_reactor_state(
@@ -878,6 +892,7 @@ impl Reactor {
                                             fire_started.elapsed().as_millis() as u64,
                                             e.to_string(),
                                             fire_inputs,
+                                            is_manual,
                                         );
                                         tracing::error!(graph = %graph_name_exec, "graph execution failed: {}", e);
                                     }
@@ -927,6 +942,7 @@ impl Reactor {
                                                     fire_started.elapsed().as_millis() as u64,
                                                     fire_inputs,
                                                     outputs_json.clone(),
+                                                    is_manual,
                                                 );
                                                 tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                                 persist_reactor_state(
@@ -944,6 +960,7 @@ impl Reactor {
                                                     fire_started.elapsed().as_millis() as u64,
                                                     e.to_string(),
                                                     fire_inputs,
+                                                    is_manual,
                                                 );
                                                 tracing::error!("graph execution failed: {}", e);
                                             }

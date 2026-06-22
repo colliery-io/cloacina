@@ -776,7 +776,19 @@ export interface components {
              *     `None` if it hasn't emitted yet / the runtime predates freshness tracking.
              */
             last_event_at?: string | null;
+            /**
+             * @description RFC 3339 time of the last operator inject, or `None` if never
+             *     (CLOACI-T-0776).
+             */
+            last_operator_inject_at?: string | null;
             name: string;
+            /**
+             * Format: int64
+             * @description Number of operator injects into this accumulator since load
+             *     (CLOACI-T-0776) — manual interventions via the REST/WS inject paths. `0`
+             *     when never injected. The UI marks injected accumulators with a "manual" pill.
+             */
+            operator_injects?: number;
             /**
              * @description The reactor (graph) this accumulator feeds, self-registered by the graph
              *     at load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't
@@ -1165,7 +1177,19 @@ export interface components {
                  *     `None` if it hasn't emitted yet / the runtime predates freshness tracking.
                  */
                 last_event_at?: string | null;
+                /**
+                 * @description RFC 3339 time of the last operator inject, or `None` if never
+                 *     (CLOACI-T-0776).
+                 */
+                last_operator_inject_at?: string | null;
                 name: string;
+                /**
+                 * Format: int64
+                 * @description Number of operator injects into this accumulator since load
+                 *     (CLOACI-T-0776) — manual interventions via the REST/WS inject paths. `0`
+                 *     when never injected. The UI marks injected accumulators with a "manual" pill.
+                 */
+                operator_injects?: number;
                 /**
                  * @description The reactor (graph) this accumulator feeds, self-registered by the graph
                  *     at load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't
@@ -1305,6 +1329,12 @@ export interface components {
                 inputs?: {
                     [key: string]: unknown;
                 };
+                /**
+                 * @description Whether this fire was a manual operator intervention
+                 *     (`force_fire`/`fire_with`) rather than a criteria-driven fire over real
+                 *     boundary events (CLOACI-T-0776). The UI marks it with a "manual" pill.
+                 */
+                manual?: boolean;
                 /** @description Whether the graph execution completed (`false` = errored). */
                 ok: boolean;
                 /**
@@ -1395,6 +1425,12 @@ export interface components {
             inputs?: {
                 [key: string]: unknown;
             };
+            /**
+             * @description Whether this fire was a manual operator intervention
+             *     (`force_fire`/`fire_with`) rather than a criteria-driven fire over real
+             *     boundary events (CLOACI-T-0776). The UI marks it with a "manual" pill.
+             */
+            manual?: boolean;
             /** @description Whether the graph execution completed (`false` = errored). */
             ok: boolean;
             /**

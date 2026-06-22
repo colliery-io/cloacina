@@ -29,6 +29,9 @@ class ReactorFire:
             inputs (ReactorFireInputs | Unset): Input boundary values that triggered this fire: source name → value
                 (CLOACI-T-0775). The graph's I/O history, so a fire reads as more than
                 "ran in 0ms".
+            manual (bool | Unset): Whether this fire was a manual operator intervention
+                (`force_fire`/`fire_with`) rather than a criteria-driven fire over real
+                boundary events (CLOACI-T-0776). The UI marks it with a "manual" pill.
             outputs (list[Any] | Unset): Terminal outputs the graph produced for this fire, as JSON
                 (CLOACI-T-0775). Empty when the executor can't serialize them (e.g. the
                 Python reactor path) or on a failed fire.
@@ -39,6 +42,7 @@ class ReactorFire:
     ok: bool
     error: None | str | Unset = UNSET
     inputs: ReactorFireInputs | Unset = UNSET
+    manual: bool | Unset = UNSET
     outputs: list[Any] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -59,6 +63,8 @@ class ReactorFire:
         if not isinstance(self.inputs, Unset):
             inputs = self.inputs.to_dict()
 
+        manual = self.manual
+
         outputs: list[Any] | Unset = UNSET
         if not isinstance(self.outputs, Unset):
             outputs = self.outputs
@@ -76,6 +82,8 @@ class ReactorFire:
             field_dict["error"] = error
         if inputs is not UNSET:
             field_dict["inputs"] = inputs
+        if manual is not UNSET:
+            field_dict["manual"] = manual
         if outputs is not UNSET:
             field_dict["outputs"] = outputs
 
@@ -108,6 +116,8 @@ class ReactorFire:
         else:
             inputs = ReactorFireInputs.from_dict(_inputs)
 
+        manual = d.pop("manual", UNSET)
+
         outputs = cast(list[Any], d.pop("outputs", UNSET))
 
         reactor_fire = cls(
@@ -116,6 +126,7 @@ class ReactorFire:
             ok=ok,
             error=error,
             inputs=inputs,
+            manual=manual,
             outputs=outputs,
         )
 

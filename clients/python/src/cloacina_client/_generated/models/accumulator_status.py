@@ -23,6 +23,11 @@ class AccumulatorStatus:
         events_total (int | None | Unset): Total boundaries emitted since load (monotonic). `None` when untracked.
         last_event_at (None | str | Unset): Wall-clock of the last boundary this accumulator emitted (RFC3339), or
             `None` if it hasn't emitted yet / the runtime predates freshness tracking.
+        last_operator_inject_at (None | str | Unset): RFC 3339 time of the last operator inject, or `None` if never
+            (CLOACI-T-0776).
+        operator_injects (int | Unset): Number of operator injects into this accumulator since load
+            (CLOACI-T-0776) — manual interventions via the REST/WS inject paths. `0`
+            when never injected. The UI marks injected accumulators with a "manual" pill.
         reactor (None | str | Unset): The reactor (graph) this accumulator feeds, self-registered by the graph
             at load (CLOACI-I-0128 follow-up). `None` for older runtimes that didn't
             register the descriptor. Lets an operator see what pushing to
@@ -37,6 +42,8 @@ class AccumulatorStatus:
     error: None | str | Unset = UNSET
     events_total: int | None | Unset = UNSET
     last_event_at: None | str | Unset = UNSET
+    last_operator_inject_at: None | str | Unset = UNSET
+    operator_injects: int | Unset = UNSET
     reactor: None | str | Unset = UNSET
     state: None | str | Unset = UNSET
     tenant_id: None | str | Unset = UNSET
@@ -64,6 +71,14 @@ class AccumulatorStatus:
             last_event_at = UNSET
         else:
             last_event_at = self.last_event_at
+
+        last_operator_inject_at: None | str | Unset
+        if isinstance(self.last_operator_inject_at, Unset):
+            last_operator_inject_at = UNSET
+        else:
+            last_operator_inject_at = self.last_operator_inject_at
+
+        operator_injects = self.operator_injects
 
         reactor: None | str | Unset
         if isinstance(self.reactor, Unset):
@@ -97,6 +112,10 @@ class AccumulatorStatus:
             field_dict["events_total"] = events_total
         if last_event_at is not UNSET:
             field_dict["last_event_at"] = last_event_at
+        if last_operator_inject_at is not UNSET:
+            field_dict["last_operator_inject_at"] = last_operator_inject_at
+        if operator_injects is not UNSET:
+            field_dict["operator_injects"] = operator_injects
         if reactor is not UNSET:
             field_dict["reactor"] = reactor
         if state is not UNSET:
@@ -140,6 +159,19 @@ class AccumulatorStatus:
 
         last_event_at = _parse_last_event_at(d.pop("last_event_at", UNSET))
 
+        def _parse_last_operator_inject_at(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        last_operator_inject_at = _parse_last_operator_inject_at(
+            d.pop("last_operator_inject_at", UNSET)
+        )
+
+        operator_injects = d.pop("operator_injects", UNSET)
+
         def _parse_reactor(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -173,6 +205,8 @@ class AccumulatorStatus:
             error=error,
             events_total=events_total,
             last_event_at=last_event_at,
+            last_operator_inject_at=last_operator_inject_at,
+            operator_injects=operator_injects,
             reactor=reactor,
             state=state,
             tenant_id=tenant_id,

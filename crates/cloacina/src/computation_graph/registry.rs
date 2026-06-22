@@ -224,6 +224,11 @@ struct RegistryInner {
     accumulator_freshness: HashMap<String, FreshnessHandle>,
     /// Accumulator name → discoverability descriptor (CLOACI-I-0128 follow-up).
     accumulator_meta: HashMap<String, AccumulatorDescriptor>,
+    /// Accumulator name → `(operator-inject count, last-inject epoch ms)`
+    /// (CLOACI-T-0776). Every `send_to_accumulator` is an operator inject — real
+    /// source events arrive on the accumulator's own socket, not here — so this
+    /// counts manual interventions for the UI to mark.
+    accumulator_injects: HashMap<String, (u64, i64)>,
 }
 
 impl EndpointRegistry {
@@ -238,8 +243,20 @@ impl EndpointRegistry {
                 accumulator_health: HashMap::new(),
                 accumulator_freshness: HashMap::new(),
                 accumulator_meta: HashMap::new(),
+                accumulator_injects: HashMap::new(),
             })),
         }
+    }
+
+    /// `(operator-inject count, last-inject epoch ms)` for an accumulator, or
+    /// `None` if it has never been operator-injected (CLOACI-T-0776).
+    pub async fn accumulator_inject_stat(&self, name: &str) -> Option<(u64, i64)> {
+        self.inner
+            .read()
+            .await
+            .accumulator_injects
+            .get(name)
+            .copied()
     }
 
     /// Register an accumulator's socket sender under a name.
@@ -416,6 +433,19 @@ impl EndpointRegistry {
         // Prune closed channels (reverse order to preserve indices)
         for i in closed.into_iter().rev() {
             senders.remove(i);
+        }
+
+        // CLOACI-T-0776: record the operator inject (count + time) so the UI can
+        // mark the accumulator as manually intervened. Only reached via the
+        // operator REST/WS inject paths.
+        if sent > 0 {
+            let now = chrono::Utc::now().timestamp_millis();
+            let entry = inner
+                .accumulator_injects
+                .entry(name.to_string())
+                .or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 = now;
         }
 
         if sent == 0 {

@@ -49,6 +49,15 @@ pub struct AccumulatorStatus {
     /// Degradation detail when the source is unhealthy (e.g. connection error).
     #[serde(default)]
     pub error: Option<String>,
+    /// Number of operator injects into this accumulator since load
+    /// (CLOACI-T-0776) — manual interventions via the REST/WS inject paths. `0`
+    /// when never injected. The UI marks injected accumulators with a "manual" pill.
+    #[serde(default)]
+    pub operator_injects: u64,
+    /// RFC 3339 time of the last operator inject, or `None` if never
+    /// (CLOACI-T-0776).
+    #[serde(default)]
+    pub last_operator_inject_at: Option<String>,
 }
 
 /// One row in `GET /v1/health/reactors` (CLOACI-T-0742). Reactor-first view:
@@ -107,6 +116,11 @@ pub struct ReactorFire {
     /// Python reactor path) or on a failed fire.
     #[serde(default)]
     pub outputs: Vec<serde_json::Value>,
+    /// Whether this fire was a manual operator intervention
+    /// (`force_fire`/`fire_with`) rather than a criteria-driven fire over real
+    /// boundary events (CLOACI-T-0776). The UI marks it with a "manual" pill.
+    #[serde(default)]
+    pub manual: bool,
 }
 
 /// `GET /v1/health/reactors/{name}/fires/timeseries` (CLOACI-T-0766): fire counts

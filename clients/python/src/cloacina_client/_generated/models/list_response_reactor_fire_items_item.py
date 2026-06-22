@@ -32,6 +32,9 @@ class ListResponseReactorFireItemsItem:
                 name → value
                 (CLOACI-T-0775). The graph's I/O history, so a fire reads as more than
                 "ran in 0ms".
+            manual (bool | Unset): Whether this fire was a manual operator intervention
+                (`force_fire`/`fire_with`) rather than a criteria-driven fire over real
+                boundary events (CLOACI-T-0776). The UI marks it with a "manual" pill.
             outputs (list[Any] | Unset): Terminal outputs the graph produced for this fire, as JSON
                 (CLOACI-T-0775). Empty when the executor can't serialize them (e.g. the
                 Python reactor path) or on a failed fire.
@@ -42,6 +45,7 @@ class ListResponseReactorFireItemsItem:
     ok: bool
     error: None | str | Unset = UNSET
     inputs: ListResponseReactorFireItemsItemInputs | Unset = UNSET
+    manual: bool | Unset = UNSET
     outputs: list[Any] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -62,6 +66,8 @@ class ListResponseReactorFireItemsItem:
         if not isinstance(self.inputs, Unset):
             inputs = self.inputs.to_dict()
 
+        manual = self.manual
+
         outputs: list[Any] | Unset = UNSET
         if not isinstance(self.outputs, Unset):
             outputs = self.outputs
@@ -79,6 +85,8 @@ class ListResponseReactorFireItemsItem:
             field_dict["error"] = error
         if inputs is not UNSET:
             field_dict["inputs"] = inputs
+        if manual is not UNSET:
+            field_dict["manual"] = manual
         if outputs is not UNSET:
             field_dict["outputs"] = outputs
 
@@ -113,6 +121,8 @@ class ListResponseReactorFireItemsItem:
         else:
             inputs = ListResponseReactorFireItemsItemInputs.from_dict(_inputs)
 
+        manual = d.pop("manual", UNSET)
+
         outputs = cast(list[Any], d.pop("outputs", UNSET))
 
         list_response_reactor_fire_items_item = cls(
@@ -121,6 +131,7 @@ class ListResponseReactorFireItemsItem:
             ok=ok,
             error=error,
             inputs=inputs,
+            manual=manual,
             outputs=outputs,
         )
 

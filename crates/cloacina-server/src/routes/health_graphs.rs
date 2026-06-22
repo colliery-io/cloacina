@@ -117,6 +117,17 @@ pub async fn list_accumulators(
                     .unwrap_or_default()
             });
         let events_total = freshness.as_ref().map(|f| f.events_total());
+        // CLOACI-T-0776: operator-inject count + last-inject time, so the UI can
+        // mark accumulators that a human has manually injected into.
+        let (operator_injects, last_operator_inject_at) =
+            match state.endpoint_registry.accumulator_inject_stat(&name).await {
+                Some((count, ms)) => (
+                    count,
+                    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+                        .map(|dt| dt.to_rfc3339()),
+                ),
+                None => (0, None),
+            };
         accumulators.push(AccumulatorStatus {
             state: Some(health.to_string()),
             status: serde_json::to_value(health).unwrap_or(serde_json::Value::Null),
@@ -125,6 +136,8 @@ pub async fn list_accumulators(
             last_event_at,
             events_total,
             error: None,
+            operator_injects,
+            last_operator_inject_at,
             name,
         });
     }
@@ -580,6 +593,7 @@ pub async fn list_reactor_fires(
                 duration_ms: f.duration_ms,
                 inputs: f.inputs,
                 outputs: f.outputs,
+                manual: f.manual,
             })
             .collect(),
         None => Vec::new(),

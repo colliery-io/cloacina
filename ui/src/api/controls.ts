@@ -141,6 +141,8 @@ export interface ReactorFire {
   inputs?: Record<string, unknown>;
   /** Terminal outputs the graph produced (JSON). Empty when unavailable. */
   outputs?: unknown[];
+  /** Whether this fire was a manual operator intervention (force_fire/fire_with). */
+  manual?: boolean;
 }
 
 /** Recent fires for a reactor (CLOACI-T-0766), newest first. Polls at 5s while
