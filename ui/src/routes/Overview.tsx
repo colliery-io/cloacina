@@ -61,7 +61,9 @@ export function Overview() {
       {/* Header */}
       <Group justify="space-between" align="flex-start">
         <Box>
-          <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)" }}>Overview</Box>
+          <Box component="h2" style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)", margin: 0 }}>
+            Overview
+          </Box>
           <Box style={{ fontFamily: MONO, fontSize: 11, color: "var(--faint)", marginTop: 2 }}>
             tenant {connection?.tenant ?? "—"} · {recentItems.length} runs tracked
           </Box>

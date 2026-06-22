@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from ._generated import AuthenticatedClient
-from ._generated.api.agents import list_agents
+from ._generated.api.fleet import list_agents
 from ._generated.api.compiler import compiler_status
 from ._generated.api.executions import (
     execute_workflow,

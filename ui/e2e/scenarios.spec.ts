@@ -43,8 +43,10 @@ test("following an in-flight run reaches a terminal state", async ({ page }) => 
   test.skip(!INFLIGHT_ID, "no in-flight execution id provided by the harness");
 
   await page.goto(`/executions/${INFLIGHT_ID}`);
-  await expect(page.getByRole("heading", { name: "Execution" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Event log" })).toBeVisible();
+  // Aurora redesign: the detail's landmarks are the workflow-name title + the
+  // "Task graph" / "Event log" section labels (not a generic "Execution" heading).
+  await expect(page.getByText("Task graph")).toBeVisible();
+  await expect(page.getByText("Event log")).toBeVisible();
 
   // The chained steps finish and the status badge flips to a terminal state.
   // Assert on the badge specifically (testid, not stray page text) within a
@@ -62,9 +64,9 @@ test("the failed run shows its status and event log @smoke", async ({ page }) =>
   test.skip(!FAILED_ID, "no failed execution id provided by the harness");
 
   await page.goto(`/executions/${FAILED_ID}`);
-  await expect(page.getByRole("heading", { name: "Execution" })).toBeVisible();
+  await expect(page.getByText("Task graph")).toBeVisible();
   await expect(page.getByText(/failed/i).first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Event log" })).toBeVisible();
+  await expect(page.getByText("Event log")).toBeVisible();
 });
 
 /**

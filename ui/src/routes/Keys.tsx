@@ -84,7 +84,7 @@ export function Keys() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
           {items.map((k) => (
-            <Box key={k.id} style={{ background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 15px" }}>
+            <Box key={k.id} role="row" aria-label={k.name} style={{ background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 15px" }}>
               <Group justify="space-between" wrap="nowrap">
                 <Group gap={12} wrap="nowrap" style={{ minWidth: 0 }}>
                   <Box style={{ width: 30, height: 30, borderRadius: 8, background: "var(--panel)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
