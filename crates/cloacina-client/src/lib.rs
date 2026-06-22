@@ -61,11 +61,14 @@ use serde_json::Value;
 
 use cloacina_api_types::{
     AccumulatorStatus, AgentInfo, CompilerStatus, CreateKeyRequest, CreateTenantRequest,
-    ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse, ExecutionSummary,
-    ExecutionTasksResponse, GraphStatus, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
-    ListResponse, ReactorStatus, TenantCreatedResponse, TenantListResponse, TenantRemovedResponse,
-    TenantSummary, TriggerDetailResponse, TriggerScheduleSummary, WorkflowDeletedResponse,
-    WorkflowDetail, WorkflowSummary, WorkflowUploadedResponse, WsTicketResponse,
+    DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse,
+    ExecutionSummary, ExecutionTasksResponse, FireReactorRequest, FireReactorResponse, GraphStatus,
+    InjectAccumulatorRequest, InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo,
+    KeyRevokedResponse, KeyRole, ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus,
+    TenantCreatedResponse, TenantListResponse, TenantRemovedResponse, TenantSummary,
+    TriggerDetailResponse, TriggerPauseResponse, TriggerScheduleSummary, WorkflowDeletedResponse,
+    WorkflowDetail, WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary,
+    WorkflowUploadedResponse, WsTicketResponse,
 };
 
 /// Builder for [`Client`].
@@ -518,6 +521,116 @@ impl Client {
 
     pub async fn list_reactors(&self) -> Result<ListResponse<ReactorStatus>, ClientError> {
         self.get_json("/v1/health/reactors").await
+    }
+
+    // ---- reactor operator controls (CLOACI-T-0772) ----
+
+    pub async fn fire_reactor(
+        &self,
+        name: &str,
+        request: &FireReactorRequest,
+    ) -> Result<FireReactorResponse, ClientError> {
+        self.post_json(&format!("/v1/health/reactors/{name}/fire"), request)
+            .await
+    }
+
+    pub async fn list_reactor_fires(
+        &self,
+        name: &str,
+    ) -> Result<ListResponse<ReactorFire>, ClientError> {
+        self.get_json(&format!("/v1/health/reactors/{name}/fires"))
+            .await
+    }
+
+    pub async fn reactor_fire_timeseries(
+        &self,
+        name: &str,
+    ) -> Result<ReactorFireTimeseries, ClientError> {
+        self.get_json(&format!("/v1/health/reactors/{name}/fires/timeseries"))
+            .await
+    }
+
+    pub async fn reactor_interface(&self, name: &str) -> Result<DeclaredSurface, ClientError> {
+        self.get_json(&format!("/v1/health/reactors/{name}/interface"))
+            .await
+    }
+
+    pub async fn accumulator_interface(&self, name: &str) -> Result<DeclaredSurface, ClientError> {
+        self.get_json(&format!("/v1/health/accumulators/{name}/interface"))
+            .await
+    }
+
+    pub async fn inject_accumulator(
+        &self,
+        name: &str,
+        request: &InjectAccumulatorRequest,
+    ) -> Result<InjectAccumulatorResponse, ClientError> {
+        self.post_json(&format!("/v1/health/accumulators/{name}/inject"), request)
+            .await
+    }
+
+    // ---- workflow & trigger pause/resume + source (CLOACI-T-0772) ----
+
+    pub async fn pause_workflow(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowPauseResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/workflows/{name}/pause"),
+            &Value::Null,
+        )
+        .await
+    }
+
+    pub async fn resume_workflow(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowPauseResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/workflows/{name}/resume"),
+            &Value::Null,
+        )
+        .await
+    }
+
+    pub async fn get_workflow_source(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowSourceResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/workflows/{name}/source"))
+            .await
+    }
+
+    pub async fn pause_trigger(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<TriggerPauseResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/triggers/{name}/pause"),
+            &Value::Null,
+        )
+        .await
+    }
+
+    pub async fn resume_trigger(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<TriggerPauseResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(
+            &format!("/v1/tenants/{t}/triggers/{name}/resume"),
+            &Value::Null,
+        )
+        .await
     }
 
     // ---- fleet / compiler ----

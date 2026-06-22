@@ -424,4 +424,104 @@ export class CloacinaClient {
       }),
     );
   }
+
+  // ---- reactor operator controls (CLOACI-T-0772) ----
+
+  async fireReactor(
+    name: string,
+    body: schemas["FireReactorRequest"],
+  ): Promise<schemas["FireReactorResponse"]> {
+    return unwrap(
+      await this.api.POST("/v1/health/reactors/{name}/fire", {
+        params: { path: { name } },
+        body,
+      }),
+    );
+  }
+
+  async listReactorFires(name: string): Promise<schemas["ListResponse_ReactorFire"]> {
+    return unwrap(
+      await this.api.GET("/v1/health/reactors/{name}/fires", {
+        params: { path: { name } },
+      }),
+    );
+  }
+
+  async reactorFireTimeseries(name: string): Promise<schemas["ReactorFireTimeseries"]> {
+    return unwrap(
+      await this.api.GET("/v1/health/reactors/{name}/fires/timeseries", {
+        params: { path: { name } },
+      }),
+    );
+  }
+
+  async reactorInterface(name: string): Promise<schemas["DeclaredSurface"]> {
+    return unwrap(
+      await this.api.GET("/v1/health/reactors/{name}/interface", {
+        params: { path: { name } },
+      }),
+    );
+  }
+
+  async accumulatorInterface(name: string): Promise<schemas["DeclaredSurface"]> {
+    return unwrap(
+      await this.api.GET("/v1/health/accumulators/{name}/interface", {
+        params: { path: { name } },
+      }),
+    );
+  }
+
+  async injectAccumulator(
+    name: string,
+    body: schemas["InjectAccumulatorRequest"],
+  ): Promise<schemas["InjectAccumulatorResponse"]> {
+    return unwrap(
+      await this.api.POST("/v1/health/accumulators/{name}/inject", {
+        params: { path: { name } },
+        body,
+      }),
+    );
+  }
+
+  // ---- workflow & trigger pause/resume + source (CLOACI-T-0772) ----
+
+  async pauseWorkflow(name: string, tenant?: string): Promise<schemas["WorkflowPauseResponse"]> {
+    return unwrap(
+      await this.api.POST("/v1/tenants/{tenant_id}/workflows/{name}/pause", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
+    );
+  }
+
+  async resumeWorkflow(name: string, tenant?: string): Promise<schemas["WorkflowPauseResponse"]> {
+    return unwrap(
+      await this.api.POST("/v1/tenants/{tenant_id}/workflows/{name}/resume", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
+    );
+  }
+
+  async getWorkflowSource(name: string, tenant?: string): Promise<schemas["WorkflowSourceResponse"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/workflows/{name}/source", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
+    );
+  }
+
+  async pauseTrigger(name: string, tenant?: string): Promise<schemas["TriggerPauseResponse"]> {
+    return unwrap(
+      await this.api.POST("/v1/tenants/{tenant_id}/triggers/{name}/pause", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
+    );
+  }
+
+  async resumeTrigger(name: string, tenant?: string): Promise<schemas["TriggerPauseResponse"]> {
+    return unwrap(
+      await this.api.POST("/v1/tenants/{tenant_id}/triggers/{name}/resume", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
+    );
+  }
 }

@@ -1,19 +1,25 @@
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.declared_surface import DeclaredSurface
 from ...models.error_body import ErrorBody
 from ...types import Response
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    name: str,
+) -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
         "method": "get",
-        "url": "/v1/agents",
+        "url": "/v1/health/accumulators/{name}/interface".format(
+            name=quote(str(name), safe=""),
+        ),
     }
 
     return _kwargs
@@ -21,9 +27,11 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ErrorBody | None:
-    if 200 <= response.status_code < 300:
-        return response.json()
+) -> DeclaredSurface | ErrorBody | None:
+    if response.status_code == 200:
+        response_200 = DeclaredSurface.from_dict(response.json())
+
+        return response_200
 
     if response.status_code == 401:
         response_401 = ErrorBody.from_dict(response.json())
@@ -38,7 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ErrorBody]:
+) -> Response[DeclaredSurface | ErrorBody]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -48,20 +56,29 @@ def _build_response(
 
 
 def sync_detailed(
+    name: str,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ErrorBody]:
-    """GET /v1/agents — list registered execution agents.
+) -> Response[DeclaredSurface | ErrorBody]:
+    """GET /v1/health/accumulators/{name}/interface — the accumulator's declared
+    input interface (CLOACI-I-0128 T-0758): the single boundary slot an operator
+    supplies to `inject`. Empty `slots` means undeclared/untyped. Read-only
+    discovery; the same slot backs the validation in `inject_accumulator`.
+
+    Args:
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ErrorBody]
+        Response[DeclaredSurface | ErrorBody]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        name=name,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -71,39 +88,56 @@ def sync_detailed(
 
 
 def sync(
+    name: str,
     *,
     client: AuthenticatedClient,
-) -> Any | ErrorBody | None:
-    """GET /v1/agents — list registered execution agents.
+) -> DeclaredSurface | ErrorBody | None:
+    """GET /v1/health/accumulators/{name}/interface — the accumulator's declared
+    input interface (CLOACI-I-0128 T-0758): the single boundary slot an operator
+    supplies to `inject`. Empty `slots` means undeclared/untyped. Read-only
+    discovery; the same slot backs the validation in `inject_accumulator`.
+
+    Args:
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ErrorBody
+        DeclaredSurface | ErrorBody
     """
 
     return sync_detailed(
+        name=name,
         client=client,
     ).parsed
 
 
 async def asyncio_detailed(
+    name: str,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ErrorBody]:
-    """GET /v1/agents — list registered execution agents.
+) -> Response[DeclaredSurface | ErrorBody]:
+    """GET /v1/health/accumulators/{name}/interface — the accumulator's declared
+    input interface (CLOACI-I-0128 T-0758): the single boundary slot an operator
+    supplies to `inject`. Empty `slots` means undeclared/untyped. Read-only
+    discovery; the same slot backs the validation in `inject_accumulator`.
+
+    Args:
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ErrorBody]
+        Response[DeclaredSurface | ErrorBody]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        name=name,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -111,21 +145,29 @@ async def asyncio_detailed(
 
 
 async def asyncio(
+    name: str,
     *,
     client: AuthenticatedClient,
-) -> Any | ErrorBody | None:
-    """GET /v1/agents — list registered execution agents.
+) -> DeclaredSurface | ErrorBody | None:
+    """GET /v1/health/accumulators/{name}/interface — the accumulator's declared
+    input interface (CLOACI-I-0128 T-0758): the single boundary slot an operator
+    supplies to `inject`. Empty `slots` means undeclared/untyped. Read-only
+    discovery; the same slot backs the validation in `inject_accumulator`.
+
+    Args:
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ErrorBody
+        DeclaredSurface | ErrorBody
     """
 
     return (
         await asyncio_detailed(
+            name=name,
             client=client,
         )
     ).parsed

@@ -31,10 +31,16 @@ from ._generated.api.executions import (
     list_executions,
 )
 from ._generated.api.graph_health import (
+    fire_reactor,
+    get_accumulator_interface,
     get_graph,
+    get_reactor_interface,
+    inject_accumulator,
     list_accumulators,
     list_graphs,
+    list_reactor_fires,
     list_reactors,
+    reactor_fire_timeseries,
 )
 from ._generated.api.keys import (
     create_key,
@@ -45,11 +51,19 @@ from ._generated.api.keys import (
 )
 from ._generated.api.operational import health, ready
 from ._generated.api.tenants import create_tenant, list_tenants, remove_tenant
-from ._generated.api.triggers import get_trigger, list_triggers
+from ._generated.api.triggers import (
+    get_trigger,
+    list_triggers,
+    pause_trigger,
+    resume_trigger,
+)
 from ._generated.api.workflows import (
     delete_workflow,
     get_workflow,
+    get_workflow_source,
     list_workflows,
+    pause_workflow,
+    resume_workflow,
     upload_workflow,
 )
 from ._generated.models import (
@@ -344,6 +358,53 @@ class Client(_Base):
 
     def list_reactors(self):
         return _unwrap(list_reactors.sync_detailed(client=self._gen))
+
+    # ---- reactor operator controls (CLOACI-T-0772) ----
+
+    def fire_reactor(self, name: str, body):
+        return _unwrap(fire_reactor.sync_detailed(name, client=self._gen, body=body))
+
+    def list_reactor_fires(self, name: str):
+        return _unwrap(list_reactor_fires.sync_detailed(name, client=self._gen))
+
+    def reactor_fire_timeseries(self, name: str):
+        return _unwrap(reactor_fire_timeseries.sync_detailed(name, client=self._gen))
+
+    def get_reactor_interface(self, name: str):
+        return _unwrap(get_reactor_interface.sync_detailed(name, client=self._gen))
+
+    def get_accumulator_interface(self, name: str):
+        return _unwrap(get_accumulator_interface.sync_detailed(name, client=self._gen))
+
+    def inject_accumulator(self, name: str, body):
+        return _unwrap(inject_accumulator.sync_detailed(name, client=self._gen, body=body))
+
+    # ---- workflow & trigger pause/resume + source (CLOACI-T-0772) ----
+
+    def pause_workflow(self, name: str, tenant: str | None = None):
+        return _unwrap(
+            pause_workflow.sync_detailed(self.tenant_segment(tenant), name, client=self._gen)
+        )
+
+    def resume_workflow(self, name: str, tenant: str | None = None):
+        return _unwrap(
+            resume_workflow.sync_detailed(self.tenant_segment(tenant), name, client=self._gen)
+        )
+
+    def get_workflow_source(self, name: str, tenant: str | None = None):
+        return _unwrap(
+            get_workflow_source.sync_detailed(self.tenant_segment(tenant), name, client=self._gen)
+        )
+
+    def pause_trigger(self, name: str, tenant: str | None = None):
+        return _unwrap(
+            pause_trigger.sync_detailed(self.tenant_segment(tenant), name, client=self._gen)
+        )
+
+    def resume_trigger(self, name: str, tenant: str | None = None):
+        return _unwrap(
+            resume_trigger.sync_detailed(self.tenant_segment(tenant), name, client=self._gen)
+        )
 
     # ---- agents ----
 

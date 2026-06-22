@@ -5,8 +5,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.compiler_status import CompilerStatus
 from ...models.error_body import ErrorBody
+from ...models.list_response_agent_info import ListResponseAgentInfo
 from ...types import Response
 
 
@@ -14,7 +14,7 @@ def _get_kwargs() -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
         "method": "get",
-        "url": "/v1/compiler/status",
+        "url": "/v1/agents",
     }
 
     return _kwargs
@@ -22,9 +22,9 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> CompilerStatus | ErrorBody | None:
+) -> ErrorBody | ListResponseAgentInfo | None:
     if response.status_code == 200:
-        response_200 = CompilerStatus.from_dict(response.json())
+        response_200 = ListResponseAgentInfo.from_dict(response.json())
 
         return response_200
 
@@ -38,11 +38,6 @@ def _parse_response(
 
         return response_403
 
-    if response.status_code == 500:
-        response_500 = ErrorBody.from_dict(response.json())
-
-        return response_500
-
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -51,7 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[CompilerStatus | ErrorBody]:
+) -> Response[ErrorBody | ListResponseAgentInfo]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -63,15 +58,17 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[CompilerStatus | ErrorBody]:
-    """`GET /v1/compiler/status` — build-pipeline status (admin only).
+) -> Response[ErrorBody | ListResponseAgentInfo]:
+    """`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
+    roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
+    registered against *this* server instance.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CompilerStatus | ErrorBody]
+        Response[ErrorBody | ListResponseAgentInfo]
     """
 
     kwargs = _get_kwargs()
@@ -86,15 +83,17 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> CompilerStatus | ErrorBody | None:
-    """`GET /v1/compiler/status` — build-pipeline status (admin only).
+) -> ErrorBody | ListResponseAgentInfo | None:
+    """`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
+    roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
+    registered against *this* server instance.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CompilerStatus | ErrorBody
+        ErrorBody | ListResponseAgentInfo
     """
 
     return sync_detailed(
@@ -105,15 +104,17 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[CompilerStatus | ErrorBody]:
-    """`GET /v1/compiler/status` — build-pipeline status (admin only).
+) -> Response[ErrorBody | ListResponseAgentInfo]:
+    """`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
+    roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
+    registered against *this* server instance.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CompilerStatus | ErrorBody]
+        Response[ErrorBody | ListResponseAgentInfo]
     """
 
     kwargs = _get_kwargs()
@@ -126,15 +127,17 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> CompilerStatus | ErrorBody | None:
-    """`GET /v1/compiler/status` — build-pipeline status (admin only).
+) -> ErrorBody | ListResponseAgentInfo | None:
+    """`GET /v1/agents` — operator-facing snapshot of the execution-agent fleet
+    roster (admin only). CLOACI-I-0124 / WS-0b. Per-replica: reflects the agents
+    registered against *this* server instance.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CompilerStatus | ErrorBody
+        ErrorBody | ListResponseAgentInfo
     """
 
     return (

@@ -1,20 +1,25 @@
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.compiler_status import CompilerStatus
 from ...models.error_body import ErrorBody
+from ...models.list_response_reactor_fire import ListResponseReactorFire
 from ...types import Response
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    name: str,
+) -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
         "method": "get",
-        "url": "/v1/compiler/status",
+        "url": "/v1/health/reactors/{name}/fires".format(
+            name=quote(str(name), safe=""),
+        ),
     }
 
     return _kwargs
@@ -22,26 +27,16 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> CompilerStatus | ErrorBody | None:
+) -> ErrorBody | ListResponseReactorFire | None:
     if response.status_code == 200:
-        response_200 = CompilerStatus.from_dict(response.json())
+        response_200 = ListResponseReactorFire.from_dict(response.json())
 
         return response_200
 
-    if response.status_code == 401:
-        response_401 = ErrorBody.from_dict(response.json())
+    if response.status_code == 404:
+        response_404 = ErrorBody.from_dict(response.json())
 
-        return response_401
-
-    if response.status_code == 403:
-        response_403 = ErrorBody.from_dict(response.json())
-
-        return response_403
-
-    if response.status_code == 500:
-        response_500 = ErrorBody.from_dict(response.json())
-
-        return response_500
+        return response_404
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -51,7 +46,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[CompilerStatus | ErrorBody]:
+) -> Response[ErrorBody | ListResponseReactorFire]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -61,20 +56,28 @@ def _build_response(
 
 
 def sync_detailed(
+    name: str,
     *,
     client: AuthenticatedClient,
-) -> Response[CompilerStatus | ErrorBody]:
-    """`GET /v1/compiler/status` — build-pipeline status (admin only).
+) -> Response[ErrorBody | ListResponseReactorFire]:
+    """GET /v1/health/reactors/{name}/fires — recent fires with outcome + duration
+    (CLOACI-T-0766). Makes the reactive layer observable: what fired, did it
+    complete, how long, and why it failed.
+
+    Args:
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CompilerStatus | ErrorBody]
+        Response[ErrorBody | ListResponseReactorFire]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        name=name,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -84,39 +87,54 @@ def sync_detailed(
 
 
 def sync(
+    name: str,
     *,
     client: AuthenticatedClient,
-) -> CompilerStatus | ErrorBody | None:
-    """`GET /v1/compiler/status` — build-pipeline status (admin only).
+) -> ErrorBody | ListResponseReactorFire | None:
+    """GET /v1/health/reactors/{name}/fires — recent fires with outcome + duration
+    (CLOACI-T-0766). Makes the reactive layer observable: what fired, did it
+    complete, how long, and why it failed.
+
+    Args:
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CompilerStatus | ErrorBody
+        ErrorBody | ListResponseReactorFire
     """
 
     return sync_detailed(
+        name=name,
         client=client,
     ).parsed
 
 
 async def asyncio_detailed(
+    name: str,
     *,
     client: AuthenticatedClient,
-) -> Response[CompilerStatus | ErrorBody]:
-    """`GET /v1/compiler/status` — build-pipeline status (admin only).
+) -> Response[ErrorBody | ListResponseReactorFire]:
+    """GET /v1/health/reactors/{name}/fires — recent fires with outcome + duration
+    (CLOACI-T-0766). Makes the reactive layer observable: what fired, did it
+    complete, how long, and why it failed.
+
+    Args:
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CompilerStatus | ErrorBody]
+        Response[ErrorBody | ListResponseReactorFire]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        name=name,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -124,21 +142,28 @@ async def asyncio_detailed(
 
 
 async def asyncio(
+    name: str,
     *,
     client: AuthenticatedClient,
-) -> CompilerStatus | ErrorBody | None:
-    """`GET /v1/compiler/status` — build-pipeline status (admin only).
+) -> ErrorBody | ListResponseReactorFire | None:
+    """GET /v1/health/reactors/{name}/fires — recent fires with outcome + duration
+    (CLOACI-T-0766). Makes the reactive layer observable: what fired, did it
+    complete, how long, and why it failed.
+
+    Args:
+        name (str):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CompilerStatus | ErrorBody
+        ErrorBody | ListResponseReactorFire
     """
 
     return (
         await asyncio_detailed(
+            name=name,
             client=client,
         )
     ).parsed

@@ -24,6 +24,9 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
         cron_expression (None | str | Unset):
         last_run_at (None | str | Unset): RFC 3339 timestamp.
         next_run_at (None | str | Unset): RFC 3339 timestamp.
+        paused (bool | Unset): Whether the schedule is paused (CLOACI-T-0749). A paused schedule is not
+            fired by the scheduler until resumed; distinct from `enabled`.
+        paused_at (None | str | Unset): RFC 3339 timestamp of when it was paused, if paused.
         poll_interval_ms (int | None | Unset):
         trigger_name (None | str | Unset):
     """
@@ -36,6 +39,8 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
     cron_expression: None | str | Unset = UNSET
     last_run_at: None | str | Unset = UNSET
     next_run_at: None | str | Unset = UNSET
+    paused: bool | Unset = UNSET
+    paused_at: None | str | Unset = UNSET
     poll_interval_ms: int | None | Unset = UNSET
     trigger_name: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -69,6 +74,14 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
         else:
             next_run_at = self.next_run_at
 
+        paused = self.paused
+
+        paused_at: None | str | Unset
+        if isinstance(self.paused_at, Unset):
+            paused_at = UNSET
+        else:
+            paused_at = self.paused_at
+
         poll_interval_ms: int | None | Unset
         if isinstance(self.poll_interval_ms, Unset):
             poll_interval_ms = UNSET
@@ -98,6 +111,10 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
             field_dict["last_run_at"] = last_run_at
         if next_run_at is not UNSET:
             field_dict["next_run_at"] = next_run_at
+        if paused is not UNSET:
+            field_dict["paused"] = paused
+        if paused_at is not UNSET:
+            field_dict["paused_at"] = paused_at
         if poll_interval_ms is not UNSET:
             field_dict["poll_interval_ms"] = poll_interval_ms
         if trigger_name is not UNSET:
@@ -145,6 +162,17 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
 
         next_run_at = _parse_next_run_at(d.pop("next_run_at", UNSET))
 
+        paused = d.pop("paused", UNSET)
+
+        def _parse_paused_at(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        paused_at = _parse_paused_at(d.pop("paused_at", UNSET))
+
         def _parse_poll_interval_ms(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -172,6 +200,8 @@ class TenantListResponseTriggerScheduleSummaryItemsItem:
             cron_expression=cron_expression,
             last_run_at=last_run_at,
             next_run_at=next_run_at,
+            paused=paused,
+            paused_at=paused_at,
             poll_interval_ms=poll_interval_ms,
             trigger_name=trigger_name,
         )

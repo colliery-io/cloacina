@@ -6,6 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error_body import ErrorBody
+from ...models.list_response_reactor_status import ListResponseReactorStatus
 from ...types import Response
 
 
@@ -21,9 +22,11 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ErrorBody | None:
-    if 200 <= response.status_code < 300:
-        return response.json()
+) -> ErrorBody | ListResponseReactorStatus | None:
+    if response.status_code == 200:
+        response_200 = ListResponseReactorStatus.from_dict(response.json())
+
+        return response_200
 
     if response.status_code == 401:
         response_401 = ErrorBody.from_dict(response.json())
@@ -38,7 +41,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ErrorBody]:
+) -> Response[ErrorBody | ListResponseReactorStatus]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -50,16 +53,17 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ErrorBody]:
-    """GET /v1/health/reactors — list reactors with health, filtered by the
-    caller's authorization.
+) -> Response[ErrorBody | ListResponseReactorStatus]:
+    """GET /v1/health/reactors — list loaded reactors visible to the caller
+    (CLOACI-T-0742). Reactor-first: includes reactors with no graph bound, which
+    `list_graphs` omits. Visibility reuses the same tenant gate as graphs.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ErrorBody]
+        Response[ErrorBody | ListResponseReactorStatus]
     """
 
     kwargs = _get_kwargs()
@@ -74,16 +78,17 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> Any | ErrorBody | None:
-    """GET /v1/health/reactors — list reactors with health, filtered by the
-    caller's authorization.
+) -> ErrorBody | ListResponseReactorStatus | None:
+    """GET /v1/health/reactors — list loaded reactors visible to the caller
+    (CLOACI-T-0742). Reactor-first: includes reactors with no graph bound, which
+    `list_graphs` omits. Visibility reuses the same tenant gate as graphs.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ErrorBody
+        ErrorBody | ListResponseReactorStatus
     """
 
     return sync_detailed(
@@ -94,16 +99,17 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ErrorBody]:
-    """GET /v1/health/reactors — list reactors with health, filtered by the
-    caller's authorization.
+) -> Response[ErrorBody | ListResponseReactorStatus]:
+    """GET /v1/health/reactors — list loaded reactors visible to the caller
+    (CLOACI-T-0742). Reactor-first: includes reactors with no graph bound, which
+    `list_graphs` omits. Visibility reuses the same tenant gate as graphs.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ErrorBody]
+        Response[ErrorBody | ListResponseReactorStatus]
     """
 
     kwargs = _get_kwargs()
@@ -116,16 +122,17 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> Any | ErrorBody | None:
-    """GET /v1/health/reactors — list reactors with health, filtered by the
-    caller's authorization.
+) -> ErrorBody | ListResponseReactorStatus | None:
+    """GET /v1/health/reactors — list loaded reactors visible to the caller
+    (CLOACI-T-0742). Reactor-first: includes reactors with no graph bound, which
+    `list_graphs` omits. Visibility reuses the same tenant gate as graphs.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ErrorBody
+        ErrorBody | ListResponseReactorStatus
     """
 
     return (

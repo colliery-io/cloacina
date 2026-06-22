@@ -21,7 +21,13 @@ class WorkflowSummary:
         package_name (str):
         tasks (list[str]): Task IDs included in this package.
         version (str):
+        workflow_name (str): Executable workflow name (the identifier to execute by). Differs from
+            `package_name` under the standard convention (package `demo-slow-rust`
+            → workflow `demo_slow_workflow`). Falls back to `package_name` for
+            packages predating workflow-name persistence. (CLOACI-T-0671)
         description (None | str | Unset):
+        paused (bool | Unset): Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
+            new executions until resumed.
     """
 
     created_at: str
@@ -29,7 +35,9 @@ class WorkflowSummary:
     package_name: str
     tasks: list[str]
     version: str
+    workflow_name: str
     description: None | str | Unset = UNSET
+    paused: bool | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -43,11 +51,15 @@ class WorkflowSummary:
 
         version = self.version
 
+        workflow_name = self.workflow_name
+
         description: None | str | Unset
         if isinstance(self.description, Unset):
             description = UNSET
         else:
             description = self.description
+
+        paused = self.paused
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -58,10 +70,13 @@ class WorkflowSummary:
                 "package_name": package_name,
                 "tasks": tasks,
                 "version": version,
+                "workflow_name": workflow_name,
             }
         )
         if description is not UNSET:
             field_dict["description"] = description
+        if paused is not UNSET:
+            field_dict["paused"] = paused
 
         return field_dict
 
@@ -78,6 +93,8 @@ class WorkflowSummary:
 
         version = d.pop("version")
 
+        workflow_name = d.pop("workflow_name")
+
         def _parse_description(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -87,13 +104,17 @@ class WorkflowSummary:
 
         description = _parse_description(d.pop("description", UNSET))
 
+        paused = d.pop("paused", UNSET)
+
         workflow_summary = cls(
             created_at=created_at,
             id=id,
             package_name=package_name,
             tasks=tasks,
             version=version,
+            workflow_name=workflow_name,
             description=description,
+            paused=paused,
         )
 
         workflow_summary.additional_properties = d
