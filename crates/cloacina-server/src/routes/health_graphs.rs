@@ -715,6 +715,12 @@ pub async fn inject_accumulator(
         .await
     {
         Ok(delivered) => {
+            // CLOACI-T-0776: count this as an operator inject (the REST endpoint
+            // is the human path; the WS push is data-source feed and is excluded).
+            state
+                .endpoint_registry
+                .note_accumulator_operator_inject(&name)
+                .await;
             audit::log_accumulator_manual_inject(
                 &name,
                 auth.key_id.into(),

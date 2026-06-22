@@ -248,6 +248,21 @@ impl EndpointRegistry {
         }
     }
 
+    /// Record an operator inject into an accumulator (CLOACI-T-0776). Called only
+    /// from the REST inject endpoint — the true human-operator path. (The WS
+    /// accumulator-push path also goes through `send_to_accumulator` but is the
+    /// data-source feed, e.g. the demo producer, so it must NOT count here.)
+    pub async fn note_accumulator_operator_inject(&self, name: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut inner = self.inner.write().await;
+        let entry = inner
+            .accumulator_injects
+            .entry(name.to_string())
+            .or_insert((0, 0));
+        entry.0 += 1;
+        entry.1 = now;
+    }
+
     /// `(operator-inject count, last-inject epoch ms)` for an accumulator, or
     /// `None` if it has never been operator-injected (CLOACI-T-0776).
     pub async fn accumulator_inject_stat(&self, name: &str) -> Option<(u64, i64)> {
@@ -433,19 +448,6 @@ impl EndpointRegistry {
         // Prune closed channels (reverse order to preserve indices)
         for i in closed.into_iter().rev() {
             senders.remove(i);
-        }
-
-        // CLOACI-T-0776: record the operator inject (count + time) so the UI can
-        // mark the accumulator as manually intervened. Only reached via the
-        // operator REST/WS inject paths.
-        if sent > 0 {
-            let now = chrono::Utc::now().timestamp_millis();
-            let entry = inner
-                .accumulator_injects
-                .entry(name.to_string())
-                .or_insert((0, 0));
-            entry.0 += 1;
-            entry.1 = now;
         }
 
         if sent == 0 {
