@@ -4,14 +4,14 @@ level: task
 title: "Graph node code-on-click — source_package on graph health + modal-ify the CG node viewer"
 short_code: "CLOACI-T-0773"
 created_at: 2026-06-22T14:36:39.923583+00:00
-updated_at: 2026-06-22T14:39:56.435712+00:00
+updated_at: 2026-06-22T14:59:22.080312+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,13 @@ best-effort decl / full file at the mention). Keep the role/routing rows.
   resolve. UI: new `GraphNodeModal` (metadata rows + per-kind source extraction:
   compute fn / `#[reactor]` block / full-file fallback) replaces the Drawer;
   typecheck + build green. Rebuilding server+ui demo containers to verify live.
+- 2026-06-22: DONE (35d41780). Verified live on the demo: `combine` node opens the
+  modal showing `pub async fn combine` + Inputs/Upstream/Routes; the reactor node
+  shows its `#[reactor(name=…, accumulators=…, criteria=…)] pub struct` block +
+  criteria/strategy/role. `source_package` resolves to `demo-pipeline-rust` on the
+  graph API. Accumulator nodes have no standalone decl → fall to full-file at the
+  mention (still reachable, the original complaint). Both asks met: code shows,
+  consistent modal. Committed + pushed.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -98,6 +105,8 @@ best-effort decl / full file at the mention). Keep the role/routing rows.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
