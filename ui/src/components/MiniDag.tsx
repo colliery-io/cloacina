@@ -35,7 +35,7 @@ const isDone = (s?: string) => s != null && s.toLowerCase() === "completed";
 const isRunning = (s?: string) => s != null && s.toLowerCase() === "running";
 const isDim = (s?: string) => {
   const v = (s ?? "").toLowerCase();
-  // `skipped` keeps its salmon color (not dimmed) — branch-not-taken is signal.
+  // `skipped` keeps its cyan color (not dimmed) — branch-not-taken is signal.
   return v === "" || v === "pending" || v === "not_started";
 };
 

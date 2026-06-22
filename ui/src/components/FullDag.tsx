@@ -45,7 +45,7 @@ export interface FullDagEdge {
 const isDone = (s?: string) => (s ?? "").toLowerCase() === "completed";
 const isRunning = (s?: string) => (s ?? "").toLowerCase() === "running";
 // `skipped` is intentionally NOT dimmed — it's a meaningful terminal state
-// (branch not taken) and renders in salmon (statusColor) at full opacity.
+// (branch not taken) and renders in cyan (statusColor) at full opacity.
 const isDim = (s?: string) => {
   const v = (s ?? "").toLowerCase();
   return v === "pending" || v === "not_started";
