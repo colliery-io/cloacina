@@ -16,7 +16,7 @@
 
 import { followOpsMetrics } from "@cloacina/client";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { useAuth, useClient } from "../auth/AuthContext";
 
@@ -123,13 +123,28 @@ export function useServerHealth() {
  * (and across a reconnect the SDK re-subscribes automatically). `enabled` gates
  * the subscription to when the page is mounted.
  */
-export function useLiveOpsMetrics(enabled: boolean): OpsMetrics | null {
+const OpsMetricsContext = createContext<OpsMetrics | null>(null);
+
+/**
+ * App-level live ops-metrics WS (CLOACI-T-0718; warm-up CLOACI-T-0774). Mounted
+ * once in the Shell so the single subscription connects right after login and
+ * **stays warm for the whole session**, retaining the last snapshot across
+ * navigation. Previously each live page (Overview, Operations) opened its own WS
+ * on mount and reset to `null` first — so every visit flashed "connecting…" /
+ * "down" until the first frame. Now a page just reads the already-warm value.
+ */
+export function OpsMetricsProvider({ children }: { children: ReactNode }) {
+  const { connection } = useAuth();
   const client = useClient();
   const [metrics, setMetrics] = useState<OpsMetrics | null>(null);
 
   useEffect(() => {
-    if (!enabled) return;
-    setMetrics(null);
+    if (!connection) {
+      setMetrics(null);
+      return;
+    }
+    // Don't reset on reconnect: keep showing the last snapshot (stale-while-
+    // revalidate) rather than blanking to a "down"-looking empty state.
     const controller = new AbortController();
     (async () => {
       try {
@@ -142,7 +157,13 @@ export function useLiveOpsMetrics(enabled: boolean): OpsMetrics | null {
       }
     })();
     return () => controller.abort();
-  }, [client, enabled]);
+  }, [client, connection]);
 
-  return metrics;
+  return <OpsMetricsContext.Provider value={metrics}>{children}</OpsMetricsContext.Provider>;
+}
+
+/** The latest ops-metrics snapshot from the always-warm app-level WS, or `null`
+ *  only during the one-time first connect. */
+export function useOpsMetrics(): OpsMetrics | null {
+  return useContext(OpsMetricsContext);
 }

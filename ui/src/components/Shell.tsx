@@ -26,7 +26,7 @@ import {
 import { NavLink as RouterNavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
-import { useServerHealth } from "../api/operations";
+import { OpsMetricsProvider, useServerHealth } from "../api/operations";
 import { useWorkflows } from "../api/workflows";
 import { useGraphs } from "../api/health";
 import { useExecutions } from "../api/executions";
@@ -277,7 +277,11 @@ export function Shell() {
 
       <AppShell.Main style={{ background: "var(--bg)" }}>
         <Box style={{ padding: "22px 28px" }}>
-          <Outlet />
+          {/* App-level live ops-metrics WS — connects at login, stays warm for
+              the session so live pages never cold-start (CLOACI-T-0774). */}
+          <OpsMetricsProvider>
+            <Outlet />
+          </OpsMetricsProvider>
         </Box>
       </AppShell.Main>
     </AppShell>

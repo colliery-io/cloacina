@@ -21,7 +21,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useExecutions } from "../api/executions";
 import { useGraphs } from "../api/health";
 import { useWorkflows } from "../api/workflows";
-import { useLiveOpsMetrics } from "../api/operations";
+import { useOpsMetrics } from "../api/operations";
 import { useAuth } from "../auth/AuthContext";
 import { ActiveRunCard } from "../components/ActiveRunCard";
 import { GraphMiniCard } from "../components/GraphMiniCard";
@@ -39,7 +39,7 @@ export function Overview() {
   const workflows = useWorkflows();
   const graphs = useGraphs();
   const recent = useExecutions({ limit: 200, offset: 0 });
-  const ops = useLiveOpsMetrics(!!connection);
+  const ops = useOpsMetrics();
 
   const wfItems = (workflows.data?.items ?? []).filter((w) => w.tasks.length > 0);
   const graphItems = graphs.data?.items ?? [];

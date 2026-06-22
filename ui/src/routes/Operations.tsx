@@ -17,7 +17,7 @@
 import { Box, Button, Group, Loader, Modal, SimpleGrid, Table, TextInput } from "@mantine/core";
 import { type CSSProperties, type ReactNode, useState } from "react";
 
-import { useLiveOpsMetrics } from "../api/operations";
+import { useOpsMetrics } from "../api/operations";
 import { Dot, MONO } from "../components/aurora";
 import { TOKEN, pillBg } from "../util/tokens";
 
@@ -64,7 +64,7 @@ const compilerColor = (s: string) =>
  * plus the execution-agent roster and the (mock) add-agent enrollment flow.
  */
 export function Operations() {
-  const m = useLiveOpsMetrics(true);
+  const m = useOpsMetrics();
   const [addOpen, setAddOpen] = useState(false);
 
   const busy = m ? m.fleet.reduce((a, f) => a + f.in_flight, 0) : 0;
