@@ -13,6 +13,35 @@ import { useEffect, useMemo, useState } from "react";
 import { useWorkflowSource, type WorkflowSourceFile } from "../api/controls";
 import { MONO } from "./aurora";
 
+/** Walk back from a `fn`/`def` line over its doc-comment + attribute/decorator
+ *  prelude — INCLUDING multi-line attributes whose closing line (e.g. `)]`) does
+ *  not itself start with `#[`/`@`. Bracket-depth aware over `()` and `[]`, so a
+ *  trigger-gated task whose `#[task( … )]` / `@task( … )` spans several lines is
+ *  captured whole. (Previously the walk-back stopped at the `)]` line, the
+ *  `#[task` check failed, and the task fell through to the full-file dump — so
+ *  every skippable/trigger-gated task was unreadable.) Returns the prelude's
+ *  0-based start index. */
+function preludeStart(lines: string[], i: number, py: boolean): number {
+  const head = py ? /^\s*[@#]/ : /^\s*(#!?\[|\/\/|pub\b|async\b|unsafe\b|const\b)/;
+  let start = i;
+  let depth = 0;
+  while (start - 1 >= 0) {
+    const prev = lines[start - 1];
+    if (prev.trim() === "" && depth === 0) break;
+    for (const ch of prev) {
+      if (ch === ")" || ch === "]") depth++;
+      else if (ch === "(" || ch === "[") depth--;
+    }
+    if (depth < 0) depth = 0;
+    if (depth > 0 || head.test(prev)) {
+      start--;
+      continue;
+    }
+    break;
+  }
+  return start;
+}
+
 /** Extract a single task's definition (decorators/attributes + body) from a
  *  source file, returning the snippet + its 1-based start line, or null if the
  *  task isn't found in this file. Brace/indent matching is heuristic — good
@@ -29,8 +58,7 @@ function extractTask(
       const m = lines[i].match(/^(\s*)(?:async\s+)?def\s+([A-Za-z0-9_]+)\s*\(/);
       if (!m || m[2] !== taskName) continue;
       const indent = m[1].length;
-      let start = i;
-      while (start - 1 >= 0 && /^\s*(@|#)/.test(lines[start - 1])) start--;
+      const start = preludeStart(lines, i, true);
       let end = i + 1;
       for (; end < lines.length; end++) {
         if (lines[end].trim() === "") continue;
@@ -46,8 +74,7 @@ function extractTask(
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(/\bfn\s+([A-Za-z0-9_]+)\s*[(<]/);
     if (!m || m[1] !== taskName) continue;
-    let start = i;
-    while (start - 1 >= 0 && /^\s*(#\[|\/\/\/|\/\/!|\/\/|pub\b)/.test(lines[start - 1])) start--;
+    const start = preludeStart(lines, i, false);
     // Require a #[task attribute in the gathered prelude, else it's a plain fn.
     const prelude = lines.slice(start, i + 1).join("\n");
     if (!/#\[\s*task/.test(prelude)) continue;
@@ -103,12 +130,14 @@ export function TaskCodeModal({
 
   const [mode, setMode] = useState<"task" | "file">("task");
   const [sel, setSel] = useState<string | null>(null);
-  // Default to the file holding the task (or the first code file) and to
-  // task-only view whenever the task could be isolated.
+  // Default to the file holding the task and to task-only view whenever the task
+  // could be isolated. If extraction misses, still open the file that *mentions*
+  // the task (not a random first file) so the source is one scroll away.
   useEffect(() => {
-    setSel(found?.file.path ?? files[0]?.path ?? null);
+    const mentions = files.find((f) => /\.(rs|py)$/.test(f.path) && f.contents.includes(taskName));
+    setSel(found?.file.path ?? mentions?.path ?? files[0]?.path ?? null);
     setMode(found ? "task" : "file");
-  }, [found, files]);
+  }, [found, files, taskName]);
 
   const active: WorkflowSourceFile | undefined = files.find((f) => f.path === sel) ?? files[0];
   const showTask = mode === "task" && found;
