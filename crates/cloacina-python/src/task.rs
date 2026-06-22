@@ -141,7 +141,11 @@ impl PythonTaskWrapper {
     /// `PyContext` built from the current task context. Errors from the
     /// callback are logged and swallowed — the task already has its own
     /// terminal error to surface.
-    fn fire_on_failure(
+    /// CLOACI-T-0622 follow-up: runs the callback on the blocking pool, NOT a
+    /// direct `Python::with_gil` on the async executor worker (the PyO3↔tokio
+    /// deadlock that hung scenario_30, and via the CG path, scenario_32). `async`
+    /// so callers `.await` it; the GIL is acquired only inside `spawn_blocking`.
+    async fn fire_on_failure(
         &self,
         task_id: &str,
         message: &str,
@@ -151,19 +155,30 @@ impl PythonTaskWrapper {
         let Some(callback) = on_failure else {
             return;
         };
-        Python::with_gil(|py| {
-            let mut ctx = cloacina::Context::new();
-            for (k, v) in context.data().iter() {
-                ctx.insert(k.clone(), v.clone()).ok();
-            }
-            let py_ctx = super::context::PyContext::from_rust_context(ctx);
-            if let Err(e) = callback.call1(py, (task_id, message, py_ctx)) {
-                eprintln!(
-                    "[cloaca] on_failure callback failed for task '{}': {}",
-                    task_id, e
-                );
-            }
-        });
+        let callback = Python::with_gil(|py| callback.clone_ref(py));
+        let task_id = task_id.to_string();
+        let message = message.to_string();
+        let data: Vec<(String, serde_json::Value)> = context
+            .data()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let _ = tokio::task::spawn_blocking(move || {
+            Python::with_gil(|py| {
+                let mut ctx = cloacina::Context::new();
+                for (k, v) in data {
+                    ctx.insert(k, v).ok();
+                }
+                let py_ctx = super::context::PyContext::from_rust_context(ctx);
+                if let Err(e) = callback.call1(py, (&task_id, &message, py_ctx)) {
+                    eprintln!(
+                        "[cloaca] on_failure callback failed for task '{}': {}",
+                        task_id, e
+                    );
+                }
+            })
+        })
+        .await;
     }
 }
 
@@ -284,27 +299,47 @@ impl cloacina::Task for PythonTaskWrapper {
         //    with the task context, route each terminal back under its node
         //    name, error out on graph failure (after firing on_failure).
         if let Some(invocation) = self.cg_invocation.as_ref() {
-            let executor = crate::computation_graph::get_graph_executor(&invocation.graph_name)
-                .ok_or_else(|| {
-                    let msg = format!(
-                        "task '{}' invokes computation graph '{}' which is not registered",
-                        task_id, invocation.graph_name
-                    );
-                    self.fire_on_failure(&task_id, &msg, &final_context, on_failure.as_ref());
-                    cloacina::TaskError::ExecutionFailed {
-                        message: msg,
-                        task_id: task_id.clone(),
-                        timestamp: chrono::Utc::now(),
+            let executor =
+                match crate::computation_graph::get_graph_executor(&invocation.graph_name) {
+                    Some(e) => e,
+                    None => {
+                        let msg = format!(
+                            "task '{}' invokes computation graph '{}' which is not registered",
+                            task_id, invocation.graph_name
+                        );
+                        self.fire_on_failure(&task_id, &msg, &final_context, on_failure.as_ref())
+                            .await;
+                        return Err(cloacina::TaskError::ExecutionFailed {
+                            message: msg,
+                            task_id: task_id.clone(),
+                            timestamp: chrono::Utc::now(),
+                        });
                     }
-                })?;
+                };
 
-            let py_ctx_obj = Python::with_gil(|py| {
-                let mut ctx = cloacina::Context::new();
-                for (k, v) in final_context.data().iter() {
-                    ctx.insert(k.clone(), v.clone()).ok();
-                }
-                Py::new(py, PyContext::from_rust_context(ctx)).map(|p| p.into_any())
+            // CLOACI-T-0622 follow-up: materialize the PyContext on the blocking
+            // pool, not a direct `Python::with_gil` on the async worker (the
+            // deadlock that hung scenario_32 — a task that invokes a CG).
+            let cg_data: Vec<(String, serde_json::Value)> = final_context
+                .data()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let py_ctx_obj = tokio::task::spawn_blocking(move || {
+                Python::with_gil(|py| {
+                    let mut ctx = cloacina::Context::new();
+                    for (k, v) in cg_data {
+                        ctx.insert(k, v).ok();
+                    }
+                    Py::new(py, PyContext::from_rust_context(ctx)).map(|p| p.into_any())
+                })
             })
+            .await
+            .map_err(|e| cloacina::TaskError::ExecutionFailed {
+                message: format!("CG context materialization panicked: {}", e),
+                task_id: task_id.clone(),
+                timestamp: chrono::Utc::now(),
+            })?
             .map_err(|e| {
                 let msg = format!("failed to materialize PyContext for CG invocation: {}", e);
                 cloacina::TaskError::ExecutionFailed {
@@ -329,7 +364,8 @@ impl cloacina::Task for PythonTaskWrapper {
                         "computation graph '{}' invocation failed: {}",
                         invocation.graph_name, graph_err
                     );
-                    self.fire_on_failure(&task_id, &msg, &final_context, on_failure.as_ref());
+                    self.fire_on_failure(&task_id, &msg, &final_context, on_failure.as_ref())
+                        .await;
                     return Err(cloacina::TaskError::ExecutionFailed {
                         message: msg,
                         task_id: task_id.clone(),
@@ -339,29 +375,53 @@ impl cloacina::Task for PythonTaskWrapper {
             }
 
             // 3. Optional post_invocation hook (mirrors Rust T-0540 M5).
+            //    CLOACI-T-0622 follow-up: run on the blocking pool, not a direct
+            //    `Python::with_gil` on the async worker. Returns the (optionally)
+            //    updated context so the mutation survives the spawn_blocking hop.
             if let Some(post) = invocation.post_invocation.as_ref() {
-                let post_result = Python::with_gil(|py| -> PyResult<()> {
-                    let mut ctx = cloacina::Context::new();
-                    for (k, v) in final_context.data().iter() {
-                        ctx.insert(k.clone(), v.clone()).ok();
+                let post = Python::with_gil(|py| post.clone_ref(py));
+                let post_data: Vec<(String, serde_json::Value)> = final_context
+                    .data()
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                let post_result = tokio::task::spawn_blocking(move || {
+                    Python::with_gil(
+                        |py| -> PyResult<Option<cloacina::Context<serde_json::Value>>> {
+                            let mut ctx = cloacina::Context::new();
+                            for (k, v) in post_data {
+                                ctx.insert(k, v).ok();
+                            }
+                            let py_ctx = PyContext::from_rust_context(ctx);
+                            let returned = post.call1(py, (py_ctx,))?;
+                            if !returned.is_none(py) {
+                                if let Ok(updated) = returned.extract::<PyContext>(py) {
+                                    return Ok(Some(updated.into_inner()));
+                                }
+                            }
+                            Ok(None)
+                        },
+                    )
+                })
+                .await
+                .map_err(|e| cloacina::TaskError::ExecutionFailed {
+                    message: format!("post_invocation callback panicked: {}", e),
+                    task_id: task_id.clone(),
+                    timestamp: chrono::Utc::now(),
+                })?;
+                match post_result {
+                    Ok(Some(updated)) => final_context = updated,
+                    Ok(None) => {}
+                    Err(e) => {
+                        let msg = format!("post_invocation callback failed: {}", e);
+                        self.fire_on_failure(&task_id, &msg, &final_context, on_failure.as_ref())
+                            .await;
+                        return Err(cloacina::TaskError::ExecutionFailed {
+                            message: msg,
+                            task_id: task_id.clone(),
+                            timestamp: chrono::Utc::now(),
+                        });
                     }
-                    let py_ctx = PyContext::from_rust_context(ctx);
-                    let returned = post.call1(py, (py_ctx,))?;
-                    if !returned.is_none(py) {
-                        if let Ok(updated) = returned.extract::<PyContext>(py) {
-                            final_context = updated.into_inner();
-                        }
-                    }
-                    Ok(())
-                });
-                if let Err(e) = post_result {
-                    let msg = format!("post_invocation callback failed: {}", e);
-                    self.fire_on_failure(&task_id, &msg, &final_context, on_failure.as_ref());
-                    return Err(cloacina::TaskError::ExecutionFailed {
-                        message: msg,
-                        task_id: task_id.clone(),
-                        timestamp: chrono::Utc::now(),
-                    });
                 }
             }
         }
