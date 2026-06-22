@@ -83,6 +83,39 @@ function extractFromFile(
     return null;
   }
 
+  if (target.kind === "Accumulator") {
+    // Accumulators have no standalone definition — they're declared inline in the
+    // reactor macro. The meaningful "code" is their boundary type (the typed event
+    // they carry), so resolve the type from a graph-node param `<name>: Option<&T>`
+    // / `<name>: &T` and show that struct/enum/alias. (Rust packages; Python
+    // boundary schemas fall through to the full file.)
+    const typeMatch = contents.match(
+      new RegExp(`\\b${target.name}\\s*:\\s*(?:Option\\s*<\\s*)?&?\\s*([A-Z][A-Za-z0-9_]*)`),
+    );
+    if (!typeMatch) return null;
+    const typeName = typeMatch[1];
+    for (let i = 0; i < lines.length; i++) {
+      if (!new RegExp(`\\b(?:struct|enum|type)\\s+${typeName}\\b`).test(lines[i])) continue;
+      const start = preludeStart(lines, i, false);
+      let depth = 0;
+      let opened = false;
+      let end = i;
+      for (let j = i; j < lines.length; j++) {
+        for (const ch of lines[j]) {
+          if (ch === "{") {
+            depth++;
+            opened = true;
+          } else if (ch === "}") depth--;
+        }
+        end = j + 1;
+        if (opened && depth <= 0) break;
+        if (!opened && lines[j].includes(";")) break; // unit struct / type alias
+      }
+      return { snippet: lines.slice(start, end).join("\n"), start: start + 1 };
+    }
+    return null;
+  }
+
   // Compute node (and accumulator best-effort): the function definition.
   if (py) {
     for (let i = 0; i < lines.length; i++) {
