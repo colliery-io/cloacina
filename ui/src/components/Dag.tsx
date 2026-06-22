@@ -52,7 +52,7 @@ export interface DagNode {
 function statusStyle(status: string): { background: string; border: string } {
   const c = statusColor(status);
   if (status.toLowerCase() === "skipped") {
-    // Cyan + dashed: branch-not-taken reads as neither failed nor completed.
+    // Rose + dashed: branch-not-taken reads as neither failed nor completed.
     return { background: `${c}1f`, border: `1px dashed ${c}` };
   }
   return { background: `${c}1f`, border: `1px solid ${c}7a` };

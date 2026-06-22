@@ -16,7 +16,7 @@ export const TOKEN = {
   gold: "#d8a657",
   ok: "#4bd07f",
   bad: "#f06464",
-  skip: "#3bc9db", // Mantine cyan.4 — skipped; a clean gap in the palette, well clear of failed-red
+  skip: "#cf83a4", // dusty rose — skipped; magenta-side, clearly not the orange-red of failed
   muted: "#8b95a3",
   faint: "#5b6573",
   edge: "#283039",
