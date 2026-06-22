@@ -597,6 +597,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/triggers/{name}/interface": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/triggers/:name/interface — the trigger's declared
+         *     pass-through schema (CLOACI-T-0777 P2): the union of the declared params of
+         *     every workflow subscribed to this trigger. Empty `slots` means an untyped
+         *     trigger (free-form event). Read-only discovery; the same slots back the
+         *     validation in `fire_trigger`, and the UI builds a typed fire form from them.
+         */
+        get: operations["get_trigger_interface"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/triggers/{name}/pause": {
         parameters: {
             query?: never;
@@ -3241,6 +3264,40 @@ export interface operations {
             };
             /** @description No enabled subscribers for this trigger */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_trigger_interface: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Trigger name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trigger pass-through interface */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclaredSurface"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

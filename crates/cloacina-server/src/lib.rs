@@ -1175,6 +1175,10 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/triggers/{name}/fire",
             post(crate::routes::triggers::fire_trigger),
         )
+        .route(
+            "/tenants/{tenant_id}/triggers/{name}/interface",
+            get(crate::routes::triggers::get_trigger_interface),
+        )
         // Executions (tenant-scoped)
         .route(
             "/tenants/{tenant_id}/workflows/{name}/execute",

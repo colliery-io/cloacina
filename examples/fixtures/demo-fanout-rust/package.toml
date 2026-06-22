@@ -1,0 +1,19 @@
+# Demo trigger fan-out — publisher half (CLOACI-T-0777). Declares a manual-only
+# trigger `settlement_close` (its poll always Skips, so it never fires on its
+# own) plus the `settle_ledger` workflow that subscribes to it. The companion
+# `demo-fanout-sub-rust` package adds a SECOND subscriber (`settle_audit`) to the
+# same trigger — so one operator "fire" of `settlement_close` fans out to both
+# workflows. Demonstrates manual trigger fire + multi-DAG fan-out + the typed
+# pass-through event (union of the two subscribers' declared params).
+[package]
+name = "demo-fanout-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "settle_ledger"
+language = "rust"
+description = "demo fan-out publisher — settlement_close trigger + settle_ledger workflow"
+author = "Cloacina Demo Fixtures"

@@ -56,6 +56,59 @@ export function useToggleTrigger() {
   });
 }
 
+/** A trigger's declared pass-through interface — the union of its subscribers'
+ *  declared params (CLOACI-T-0777). Drives the typed fire form. Tenant-scoped
+ *  (unlike the reactor/accumulator interfaces under /health). */
+export function useTriggerInterface(name: string | null | undefined, opts?: { enabled?: boolean }) {
+  const { connection } = useAuth();
+  const tenant = useTenant();
+  return useQuery({
+    queryKey: ["trigger-interface", tenant, name],
+    enabled: (opts?.enabled ?? true) && !!connection && !!name,
+    queryFn: async (): Promise<DeclaredSurface> => {
+      const res = await fetch(
+        `${base(connection!.serverUrl)}/v1/tenants/${encodeURIComponent(tenant)}/triggers/${encodeURIComponent(name!)}/interface`,
+        { headers: { Authorization: `Bearer ${connection!.apiKey}` } },
+      );
+      if (!res.ok) throw new Error(`interface failed (${res.status})`);
+      return res.json();
+    },
+  });
+}
+
+/** Manually fire a trigger — fans out to every subscribed workflow (CLOACI-T-0777).
+ *  Returns `{ trigger, fired, executions }`. Refreshes triggers + executions so
+ *  the fanned-out runs (marked manual) show up immediately. */
+export function useFireTrigger() {
+  const { connection } = useAuth();
+  const tenant = useTenant();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      name,
+      event,
+    }: {
+      name: string;
+      event?: Record<string, unknown> | null;
+    }): Promise<{ trigger: string; fired: number; executions: { workflow_name: string; execution_id: string }[] }> => {
+      const res = await fetch(
+        `${base(connection!.serverUrl)}/v1/tenants/${encodeURIComponent(tenant)}/triggers/${encodeURIComponent(name)}/fire`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${connection!.apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ event: event ?? null }),
+        },
+      );
+      if (!res.ok) throw new Error(`fire failed (${res.status})`);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.triggers(tenant) });
+      qc.invalidateQueries({ queryKey: ["executions", tenant] });
+    },
+  });
+}
+
 /** Fire a reactor: `force_fire` with the current cache, or `fire_with` typed
  *  per-source inputs (CLOACI-T-0751). */
 export function useFireReactor() {

@@ -531,6 +531,16 @@ export class CloacinaClient {
     );
   }
 
+  /** A trigger's declared pass-through interface — the union of its subscribers'
+   *  declared params (CLOACI-T-0777); drives the typed fire form. */
+  async triggerInterface(name: string, tenant?: string): Promise<schemas["DeclaredSurface"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/triggers/{name}/interface", {
+        params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
+    );
+  }
+
   async resumeTrigger(name: string, tenant?: string): Promise<schemas["TriggerPauseResponse"]> {
     return unwrap(
       await this.api.POST("/v1/tenants/{tenant_id}/triggers/{name}/resume", {

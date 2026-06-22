@@ -1,0 +1,22 @@
+# Demo trigger fan-out — subscriber half (CLOACI-T-0777). A SECOND workflow
+# (`settle_audit`) that subscribes to the `settlement_close` trigger declared in
+# `demo-fanout-rust`. It declares no trigger of its own — only the subscription
+# via `#[workflow(triggers = ["settlement_close"])]`. With both packages loaded,
+# one operator fire of `settlement_close` fans out to settle_ledger + settle_audit.
+#
+# Cross-package note: the reconciler loads packages by registration time, so the
+# publisher (demo-fanout-rust) must register first. The seed harness uploads in
+# sorted filename order (CLOACI-T-0777), and "demo-fanout-rust" sorts before
+# "demo-fanout-sub-rust", so the publisher always loads first.
+[package]
+name = "demo-fanout-sub-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "settle_audit"
+language = "rust"
+description = "demo fan-out subscriber — settle_audit workflow subscribed to settlement_close"
+author = "Cloacina Demo Fixtures"

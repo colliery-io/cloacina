@@ -123,7 +123,15 @@ async function ensureTenant(client) {
 async function uploadPackages(client) {
   let entries;
   try {
-    entries = (await readdir(cfg.packageDir)).filter((f) => f.endsWith(".cloacina"));
+    // Sort for a deterministic upload order: the reconciler loads packages by
+    // registration time (created_at), so cross-package trigger subscriptions
+    // (a `#[workflow(triggers=[…])]` referencing a trigger declared in another
+    // package — e.g. the demo fan-out fixtures) require the publisher to upload
+    // before the subscriber. readdir order is filesystem-arbitrary; sorting by
+    // filename makes it stable (CLOACI-T-0777).
+    entries = (await readdir(cfg.packageDir))
+      .filter((f) => f.endsWith(".cloacina"))
+      .sort();
   } catch (err) {
     // No package dir is fine for a driver-only role (loop mode against an
     // already-seeded server): there's nothing to upload, just fire workflows.

@@ -634,6 +634,18 @@ impl Client {
             .await
     }
 
+    /// A trigger's declared pass-through interface — the union of its
+    /// subscribers' declared params (CLOACI-T-0777).
+    pub async fn trigger_interface(
+        &self,
+        name: &str,
+        tenant: Option<&str>,
+    ) -> Result<DeclaredSurface, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/triggers/{name}/interface"))
+            .await
+    }
+
     pub async fn resume_trigger(
         &self,
         name: &str,

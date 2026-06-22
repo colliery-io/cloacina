@@ -75,6 +75,14 @@ pack_rust_ws demo-branch-rust
 # --- Reactor + accumulator + reactor-bound CG + trigger + workflow (Rust) ---
 pack_rust_rel mixed-rust
 
+# --- Manual trigger fan-out (Rust) — CLOACI-T-0777. A manual-only trigger
+#     (`settlement_close`) with TWO subscribed workflows across two packages, so
+#     one operator "fire" fans out to both. Publisher (declares the trigger) must
+#     pack/register before the subscriber; "demo-fanout-rust" sorts before
+#     "demo-fanout-sub-rust" and the harness uploads in sorted order. ---
+pack_rust_ws demo-fanout-rust
+pack_rust_ws demo-fanout-sub-rust
+
 # --- Kafka-sourced stream accumulator → reactor-bound CG (Rust) — CLOACI-T-0676 ---
 pack_rust_ws demo-kafka-stream-rust
 

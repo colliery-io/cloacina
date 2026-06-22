@@ -26,15 +26,18 @@ use tracing::warn;
 use axum::extract::Query;
 
 use cloacina_api_types::{
-    FireTriggerRequest, FireTriggerResponse, FiredExecution, ListTriggersQuery, TenantListResponse,
-    TriggerDetailResponse, TriggerExecution, TriggerPauseResponse, TriggerScheduleInfo,
-    TriggerScheduleSummary,
+    DeclaredSurface, FireTriggerRequest, FireTriggerResponse, FiredExecution, InputSlot,
+    ListTriggersQuery, TenantListResponse, TriggerDetailResponse, TriggerExecution,
+    TriggerPauseResponse, TriggerScheduleInfo, TriggerScheduleSummary,
 };
 
+use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::executor::WorkflowExecutor;
+use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
+use crate::routes::executions::validate_declared_params;
 use crate::AppState;
 
 const DEFAULT_TRIGGERS_LIMIT: i64 = 100;
@@ -447,6 +450,29 @@ pub async fn fire_trigger(
         .into_response();
     }
 
+    // CLOACI-T-0777 P2: validate the pushed event against the trigger's effective
+    // pass-through schema — the union of its subscribers' declared params. An
+    // untyped trigger (no subscriber declares params) accepts a free-form event.
+    if body.event.is_some() {
+        let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+        if let Ok(registry) = WorkflowRegistryImpl::new(storage, tenant_db.clone()) {
+            let workflows: Vec<String> =
+                subscribers.iter().map(|s| s.workflow_name.clone()).collect();
+            let slots = trigger_declared_slots(&registry, &workflows).await;
+            if !slots.is_empty() {
+                let errors =
+                    validate_declared_params(&slots, body.event.as_ref().and_then(|v| v.as_object()));
+                if !errors.is_empty() {
+                    return ApiError::bad_request(
+                        "trigger_event_invalid",
+                        format!("invalid trigger event: {}", errors.join("; ")),
+                    )
+                    .into_response();
+                }
+            }
+        }
+    }
+
     // Resolve the runner (public reuses the global runner; see execute_workflow).
     let tenant_runner = if tenant_id == "public" {
         state.runner.clone()
@@ -513,6 +539,92 @@ pub async fn fire_trigger(
         trigger: name,
         fired: executions.len() as u32,
         executions,
+    })
+    .into_response()
+}
+
+/// Union of the declared params across a trigger's subscribed workflows — the
+/// trigger's effective pass-through schema (CLOACI-T-0777 P2). Deduped by slot
+/// name (first subscriber wins). A workflow whose params can't be resolved
+/// contributes nothing, so the result is best-effort.
+async fn trigger_declared_slots(
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    workflows: &[String],
+) -> Vec<InputSlot> {
+    let mut seen = std::collections::HashSet::new();
+    let mut slots: Vec<InputSlot> = Vec::new();
+    for wf in workflows {
+        if let Ok(params) = registry.get_workflow_declared_params(wf).await {
+            for slot in params {
+                if seen.insert(slot.name.clone()) {
+                    slots.push(slot);
+                }
+            }
+        }
+    }
+    slots
+}
+
+/// GET /tenants/:tenant_id/triggers/:name/interface — the trigger's declared
+/// pass-through schema (CLOACI-T-0777 P2): the union of the declared params of
+/// every workflow subscribed to this trigger. Empty `slots` means an untyped
+/// trigger (free-form event). Read-only discovery; the same slots back the
+/// validation in `fire_trigger`, and the UI builds a typed fire form from them.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/triggers/{name}/interface",
+    tag = "triggers",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("name" = String, Path, description = "Trigger name"),
+    ),
+    responses(
+        (status = 200, description = "Trigger pass-through interface", body = DeclaredSurface),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn get_trigger_interface(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal(format!("tenant database unavailable: {}", e)).into_response()
+        }
+    };
+
+    let schedules = cloacina::dal::DAL::new(tenant_db.clone())
+        .schedule()
+        .list(None, false, 1000, 0)
+        .await
+        .unwrap_or_default();
+    let workflows: Vec<String> = schedules
+        .into_iter()
+        .filter(|s| s.trigger_name.as_deref() == Some(name.as_str()) && s.enabled.0)
+        .map(|s| s.workflow_name)
+        .collect();
+
+    let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let slots = match WorkflowRegistryImpl::new(storage, tenant_db) {
+        Ok(registry) => trigger_declared_slots(&registry, &workflows).await,
+        Err(_) => Vec::new(),
+    };
+
+    Json(DeclaredSurface {
+        kind: "trigger".to_string(),
+        name,
+        slots,
     })
     .into_response()
 }

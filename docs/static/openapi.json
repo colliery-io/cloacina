@@ -1805,6 +1805,62 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/triggers/{name}/interface": {
+      "get": {
+        "tags": [
+          "triggers"
+        ],
+        "summary": "GET /tenants/:tenant_id/triggers/:name/interface — the trigger's declared\npass-through schema (CLOACI-T-0777 P2): the union of the declared params of\nevery workflow subscribed to this trigger. Empty `slots` means an untyped\ntrigger (free-form event). Read-only discovery; the same slots back the\nvalidation in `fire_trigger`, and the UI builds a typed fire form from them.",
+        "operationId": "get_trigger_interface",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Trigger name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trigger pass-through interface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclaredSurface"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/triggers/{name}/pause": {
       "post": {
         "tags": [

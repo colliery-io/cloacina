@@ -54,6 +54,7 @@ from ._generated.api.tenants import create_tenant, list_tenants, remove_tenant
 from ._generated.api.triggers import (
     fire_trigger,
     get_trigger,
+    get_trigger_interface,
     list_triggers,
     pause_trigger,
     resume_trigger,
@@ -412,6 +413,14 @@ class Client(_Base):
         return _unwrap(
             fire_trigger.sync_detailed(
                 self.tenant_segment(tenant), name, client=self._gen, body=body
+            )
+        )
+
+    def get_trigger_interface(self, name: str, tenant: str | None = None):
+        """A trigger's declared pass-through interface (union of subscribers' params)."""
+        return _unwrap(
+            get_trigger_interface.sync_detailed(
+                self.tenant_segment(tenant), name, client=self._gen
             )
         )
 
