@@ -125,9 +125,12 @@ export function MiniDag({ nodes }: { nodes: MiniNode[] }) {
           }),
       )}
 
-      {/* Nodes: filled squares, colored by status (or explicit kind color). */}
+      {/* Nodes: filled squares, colored by status (or explicit kind color).
+          `skipped` renders as a hollow dashed rose square — the thumbnail echo of
+          the FullDag dashed node: branch-not-taken reads as "not filled in". */}
       {nodes.map((n) => {
         const p = lay.pos.get(n.id)!;
+        const skip = isSkipped(n.status);
         const fill = n.color ?? statusColor(n.status ?? "");
         return (
           <rect
@@ -137,7 +140,10 @@ export function MiniDag({ nodes }: { nodes: MiniNode[] }) {
             width={NODE}
             height={NODE}
             rx={2.5}
-            fill={fill}
+            fill={skip ? "none" : fill}
+            stroke={skip ? TOKEN.skip : undefined}
+            strokeWidth={skip ? 1.2 : undefined}
+            strokeDasharray={skip ? "2 1.5" : undefined}
             className={isRunning(n.status) ? "cl-pulse" : undefined}
             opacity={isDim(n.status) ? 0.4 : 1}
           >
