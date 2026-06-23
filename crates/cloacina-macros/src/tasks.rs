@@ -873,7 +873,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                     let __ctx_for_graph = context.clone_data();
                     let __graph_result = __graph_fn(__ctx_for_graph).await;
                     match __graph_result {
-                        ::cloacina::computation_graph::GraphResult::Completed { outputs } => {
+                        ::cloacina::computation_graph::GraphResult::Completed { outputs, .. } => {
                             for (idx, name) in __terminal_names.iter().enumerate() {
                                 if let Some(boxed) = outputs.get(idx) {
                                     if let Some(value) =
