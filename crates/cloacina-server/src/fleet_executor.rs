@@ -72,6 +72,12 @@ const FLEET_CLAIM_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
 
 pub struct FleetExecutor {
     dal: cloacina::dal::DAL,
+    /// CLOACI-T-0781: the ADMIN (public-schema) DAL, used ONLY for the
+    /// delivery_outbox enqueue. Delivery is server-global — one relay + one WS
+    /// sink drain the admin schema's outbox and the admin NOTIFY wakes them — so
+    /// a per-tenant runner's WorkPackets must land in the admin outbox (tenant-
+    /// tagged) to reach the agents. For the global runner this equals `dal`.
+    outbox_dal: cloacina::dal::DAL,
     agent_registry: Arc<AgentRegistry>,
     coordinator: Arc<FleetCoordinator>,
     delivery_wake: cloacina::delivery::WakeHandle,
@@ -99,6 +105,7 @@ pub struct FleetExecutor {
 impl FleetExecutor {
     pub fn new(
         dal: cloacina::dal::DAL,
+        outbox_dal: cloacina::dal::DAL,
         agent_registry: Arc<AgentRegistry>,
         coordinator: Arc<FleetCoordinator>,
         delivery_wake: cloacina::delivery::WakeHandle,
@@ -108,6 +115,7 @@ impl FleetExecutor {
         let context_builder = TaskContextBuilder::new(dal.clone());
         Self {
             dal,
+            outbox_dal,
             agent_registry,
             coordinator,
             delivery_wake,
@@ -424,7 +432,7 @@ impl TaskExecutor for FleetExecutor {
                 tenant_id: tenant_id.clone(),
                 payload: payload_bytes,
             };
-            if let Err(e) = self.dal.delivery_outbox().enqueue(row).await {
+            if let Err(e) = self.outbox_dal.delivery_outbox().enqueue(row).await {
                 self.coordinator.cancel(event.task_execution_id);
                 warn!(
                     task_id = %event.task_execution_id,

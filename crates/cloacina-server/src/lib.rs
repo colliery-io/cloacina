@@ -722,6 +722,10 @@ pub async fn run(
             let reg_registry = agent_registry.clone();
             let reg_coordinator = fleet_coordinator.clone();
             let reg_wake = delivery_wake.clone();
+            // CLOACI-T-0781: the admin (public-schema) DAL for the global delivery
+            // outbox — a tenant runner's WorkPackets enqueue here so the global
+            // relay drains them and they reach the agents.
+            let reg_outbox_dal = unified_dal.clone();
             let registrar: crate::tenant_runner_cache::FleetRegistrar =
                 Arc::new(move |runner: &cloacina::DefaultRunner| {
                     let dal = cloacina::dal::unified::DAL::new(runner.database().clone());
@@ -733,6 +737,7 @@ pub async fn run(
                     );
                     let fleet_executor = crate::fleet_executor::FleetExecutor::new(
                         dal,
+                        reg_outbox_dal.clone(),
                         reg_registry.clone(),
                         reg_coordinator.clone(),
                         reg_wake.clone(),
@@ -817,6 +822,8 @@ pub async fn run(
             None,
         );
         let fleet_executor = crate::fleet_executor::FleetExecutor::new(
+            unified_dal.clone(),
+            // Global runner: outbox == its own (admin) DAL (CLOACI-T-0781).
             unified_dal.clone(),
             agent_registry.clone(),
             fleet_coordinator.clone(),
