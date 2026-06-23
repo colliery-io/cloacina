@@ -17,7 +17,7 @@
 import { Alert, Box, Button, Group, PasswordInput, Stack, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useRef, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { runtimeConfig } from "../config";
@@ -27,6 +27,10 @@ import { BrandMark, MONO } from "../components/aurora";
 export function Connect() {
   const { connection, connect } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // CLOACI-T-0779: `?add=1` lets the tenant switcher reuse this form to add
+  // another connection while one is already active (no auto-redirect).
+  const addMode = searchParams.get("add") === "1";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +52,7 @@ export function Connect() {
     setError(null);
     try {
       await connect({
+        label: values.tenant.trim(),
         serverUrl: values.serverUrl.replace(/\/+$/, ""),
         apiKey: values.apiKey.trim(),
         tenant: values.tenant.trim(),
@@ -74,7 +79,7 @@ export function Connect() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (connection) return <Navigate to="/" replace />;
+  if (connection && !addMode) return <Navigate to="/" replace />;
 
   const monoInput = { input: { fontFamily: MONO } };
 

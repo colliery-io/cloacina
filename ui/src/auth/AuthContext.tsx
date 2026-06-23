@@ -24,36 +24,84 @@ import { classifyError } from "../api/errors";
  * key in `sessionStorage` (NFR-005) — cleared on tab close. Whether the key
  * was typed manually or minted by OIDC (T-0662) is invisible here: it's
  * always a bearer key.
+ *
+ * CLOACI-T-0779: the app now holds a LIST of labeled connections (one per
+ * tenant) with an active one, so an operator can switch tenants in-app to see
+ * isolation. `label` is the display name (defaults to the tenant).
  */
 export interface Connection {
+  label: string;
   serverUrl: string;
   apiKey: string;
   tenant: string;
 }
 
-const STORAGE_KEY = "cloacina.connection";
+const STORE_KEY = "cloacina.connections";
+const ACTIVE_KEY = "cloacina.active";
+const LEGACY_KEY = "cloacina.connection";
 
-function loadConnection(): Connection | null {
+interface LoadedState {
+  connections: Connection[];
+  active: string | null;
+}
+
+function loadState(): LoadedState {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Connection) : null;
+    const raw = sessionStorage.getItem(STORE_KEY);
+    let connections: Connection[] = raw ? (JSON.parse(raw) as Connection[]) : [];
+    // Migrate a pre-T-0779 single connection.
+    if (connections.length === 0) {
+      const legacy = sessionStorage.getItem(LEGACY_KEY);
+      if (legacy) {
+        const c = JSON.parse(legacy) as Omit<Connection, "label"> & { label?: string };
+        connections = [{ label: c.label ?? c.tenant, ...c }];
+        sessionStorage.removeItem(LEGACY_KEY);
+      }
+    }
+    let active = sessionStorage.getItem(ACTIVE_KEY);
+    if ((!active || !connections.some((c) => c.label === active)) && connections.length > 0) {
+      active = connections[0].label;
+    }
+    return { connections, active: connections.length > 0 ? active : null };
   } catch {
-    return null;
+    return { connections: [], active: null };
   }
 }
 
+function persist(connections: Connection[], active: string | null): void {
+  sessionStorage.setItem(STORE_KEY, JSON.stringify(connections));
+  if (active) sessionStorage.setItem(ACTIVE_KEY, active);
+  else sessionStorage.removeItem(ACTIVE_KEY);
+}
+
 interface AuthContextValue {
+  /** The active connection, or `null` when none is selected. */
   connection: Connection | null;
   client: CloacinaClient | null;
-  /** Validate a connection against the server, then persist it. */
+  /** All saved connections (one per tenant the operator has added). */
+  connections: Connection[];
+  /** Validate a connection against the server, then save it and make it active.
+   *  Upserts by `label` (re-adding a label replaces it). */
   connect: (conn: Connection) => Promise<void>;
+  /** Switch the active connection to a previously-saved one (no re-validation). */
+  switchTo: (label: string) => void;
+  /** Remove a saved connection; if it was active, fall back to another. */
+  removeConnection: (label: string) => void;
+  /** Clear ALL connections and return to the connect screen. */
   disconnect: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [connection, setConnection] = useState<Connection | null>(loadConnection);
+  const initial = loadState();
+  const [connections, setConnections] = useState<Connection[]>(initial.connections);
+  const [active, setActive] = useState<string | null>(initial.active);
+
+  const connection = useMemo(
+    () => connections.find((c) => c.label === active) ?? null,
+    [connections, active],
+  );
 
   const client = useMemo(
     () =>
@@ -80,22 +128,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await probe.health();
       await probe.listWorkflows();
     } catch (err) {
-      // Re-throw classified so the connect form can render it (REQ-007).
       const c = classifyError(err);
       throw new Error(c.message);
     }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(conn));
-    setConnection(conn);
+    setConnections((prev) => {
+      const next = [...prev.filter((c) => c.label !== conn.label), conn];
+      persist(next, conn.label);
+      return next;
+    });
+    setActive(conn.label);
+  }
+
+  function switchTo(label: string): void {
+    setConnections((prev) => {
+      if (prev.some((c) => c.label === label)) {
+        setActive(label);
+        sessionStorage.setItem(ACTIVE_KEY, label);
+      }
+      return prev;
+    });
+  }
+
+  function removeConnection(label: string): void {
+    setConnections((prev) => {
+      const next = prev.filter((c) => c.label !== label);
+      const nextActive = active === label ? (next[0]?.label ?? null) : active;
+      persist(next, nextActive);
+      setActive(nextActive);
+      return next;
+    });
   }
 
   function disconnect(): void {
-    sessionStorage.removeItem(STORAGE_KEY);
-    setConnection(null);
+    setConnections([]);
+    setActive(null);
+    sessionStorage.removeItem(STORE_KEY);
+    sessionStorage.removeItem(ACTIVE_KEY);
+    sessionStorage.removeItem(LEGACY_KEY);
   }
 
   const value = useMemo<AuthContextValue>(
-    () => ({ connection, client, connect, disconnect }),
-    [connection, client],
+    () => ({ connection, client, connections, connect, switchTo, removeConnection, disconnect }),
+    [connection, client, connections],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

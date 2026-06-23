@@ -26,6 +26,7 @@ import {
 import { NavLink as RouterNavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { TenantSwitcher } from "./TenantSwitcher";
 import { OpsMetricsProvider, useServerHealth } from "../api/operations";
 import { useWorkflows } from "../api/workflows";
 import { useGraphs } from "../api/health";
@@ -239,10 +240,7 @@ export function Shell() {
           >
             Connection
           </Box>
-          <Box style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--fg-2)" }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: serverDot, flex: "none" }} />
-            {connection?.tenant ?? "—"}
-          </Box>
+          <TenantSwitcher dot={serverDot} />
           <Box
             title={connection?.serverUrl}
             style={{
