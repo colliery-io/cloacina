@@ -141,6 +141,112 @@ The two provisioning flows are **different in kind** — only one is an identity
 
 **"God tier handles it all" = single shared IdP + god-owned mappings.** That is the easy, recommended path: the god tier owns the IdP relationship and the group→tenant/role mappings; thereafter user lifecycle collapses into IdP group membership. SCIM is not required for any of this (see Non-Goals for why the short-TTL model already covers most of SCIM's deprovisioning value).
 
+### Phase 0 design — ABAC route-table authZ middleware (design 2026-06-23)
+
+One server-only, fail-closed authorization layer that (1) reproduces today's tenant+role behavior, (2) closes the cross-tenant key-management leak, (3) ships real per-tenant-admin, (4) classifies + tightens the agent endpoints. No embedded-core changes, no new runtime dependency. Lives in `cloacina-server` (likely `routes/authz.rs`), layered after `require_auth`.
+
+#### Core types
+```rust
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Level { Read, Write, Admin }          // Read < Write < Admin
+
+enum Scope {
+    Platform,        // god-mode (is_admin) only — cross-tenant / global
+    TenantParam,     // tenant resolved from the {tenant_id} path segment at request time
+    Any,             // any authenticated key; the handler scopes returned DATA to the caller's tenant
+}
+struct Access { scope: Scope, level: Level }
+
+struct Principal {                 // built from AuthenticatedKey in the middleware
+    tenant: Option<String>,        // None == global/public
+    role: Level,                   // parsed from `permissions` ("read"|"write"|"admin")
+    platform_admin: bool,          // == is_admin (god-mode)
+}
+enum Decision { Permit, Deny(&'static str) }
+```
+
+#### The matcher (total, default-deny, ~20 lines)
+```rust
+fn evaluate(p: &Principal, scope: &ResolvedScope, level: Level) -> Decision {
+    if p.platform_admin { return Decision::Permit; }       // god short-circuit
+    match scope {
+        ResolvedScope::Platform => Decision::Deny("platform_admin_required"),
+        ResolvedScope::Tenant(t) => {
+            let in_tenant = match &p.tenant { Some(pt) => pt == t, None => t == "public" };
+            if !in_tenant          { Decision::Deny("tenant_access_denied") }
+            else if p.role < level { Decision::Deny("insufficient_role") }
+            else { Decision::Permit }
+        }
+        ResolvedScope::Any => {
+            if p.role < level { Decision::Deny("insufficient_role") } else { Decision::Permit }
+        }
+    }
+}
+```
+`TenantParam` is resolved to `ResolvedScope::Tenant(<value of {tenant_id}>)` by the middleware before calling `evaluate`. Deny reasons map 1:1 to today's `ApiError`s (`platform_admin_required`/`tenant_access_denied`/`insufficient_role` → the existing 403 envelopes), so error contracts are unchanged.
+
+#### Authoritative route → Access table (every `/v1` route)
+
+| Route (method + matched path) | Scope | Level | Note |
+|---|---|---|---|
+| `POST /auth/keys` | Platform | Admin | **was can_admin** → god-only (leak fix); creates global keys |
+| `GET /auth/keys` | Platform | Admin | **was can_admin** → god-only; cross-tenant roster |
+| `DELETE /auth/keys/{key_id}` | Platform | Admin | **was can_admin** → god-only; revoke any key |
+| `POST /tenants` · `GET /tenants` · `DELETE /tenants/{schema_name}` | Platform | Admin | unchanged (was is_admin) |
+| `GET /compiler/status` | Platform | Admin | unchanged (was is_admin) |
+| `POST /tenants/{tenant_id}/keys` | TenantParam | Admin | **was is_admin** → lowered to tenant-admin |
+| `GET /tenants/{tenant_id}/keys` *(NEW)* | TenantParam | Admin | tenant-admin lists own-tenant keys |
+| `DELETE /tenants/{tenant_id}/keys/{key_id}` *(NEW)* | TenantParam | Admin | tenant-admin revoke; handler verifies key ∈ tenant |
+| `POST /tenants/{tenant_id}/workflows` (upload) | TenantParam | Write | unchanged |
+| `DELETE …/workflows/{name}/{version}` | TenantParam | Write | unchanged |
+| `POST …/workflows/{name}/pause`·`/resume` | TenantParam | Write | unchanged |
+| `POST …/workflows/{name}/execute` | TenantParam | Write | unchanged |
+| `POST …/triggers/{name}/pause`·`/resume`·`/fire` | TenantParam | Write | unchanged |
+| `GET …/workflows`·`/{name}`·`/{name}/source` | TenantParam | Read | unchanged |
+| `GET …/triggers`·`/{name}`·`/{name}/interface` | TenantParam | Read | unchanged |
+| `GET …/executions`·`/{exec_id}`·`/events`·`/tasks` | TenantParam | Read | unchanged |
+| `POST /auth/ws-ticket` | Any | Read | ticket for the caller's own key |
+| `POST /agent/register` | Any | Read | agent pinned to caller's tenant (`agent.rs:87`) |
+| `POST /agent/heartbeat` | Any | Read | **+ handler guard**: caller.tenant == agent.tenant |
+| `POST /agent/result` | Any | Read | **+ handler guard**: caller.tenant == agent.tenant |
+| `GET /agent/artifact/{digest}`·`/source/{digest}` | Any | Read | content-addressed; digest-as-secret (unchanged) |
+| `GET /agents` | Any | Admin | **was is_admin** → tenant-admin; handler filters roster to caller's tenant (god sees all) |
+| `GET /health/accumulators`·`/reactors`·`/graphs`·`/graphs/{name}`·`…/fires`·`…/fires/timeseries`·`…/interface` | Any | Read | gate is "authenticated"; tenant/admin **data-scoping stays in handler** |
+| `POST /health/reactors/{name}/fire` · `POST /health/accumulators/{name}/inject` | Any | Write | per-op authZ/audit detail stays in handler |
+| `GET /ws/accumulator/{name}` · `GET /ws/reactor/{name}` | Any | Write | **WS exception** — authZ in handler (pre-upgrade), same `evaluate` |
+| `GET /ws/delivery/{recipient}` | Any | Read | **WS exception** — ws-ticket; recipient must match caller; tenant inferred + enforced vs `delivery_outbox` |
+
+#### Intentional behavior changes (everything else is byte-identical)
+1. **Leak fix** — `/auth/keys` create/list/revoke move to `Platform`: a tenant `role=admin` key can no longer list or revoke *any* tenant's keys.
+2. **Tenant-admin key mgmt** — `POST /tenants/{t}/keys` lowered god→tenant-admin; **new** `GET`/`DELETE /tenants/{t}/keys[/…]` give a tenant-admin self-service over its own keys (the OQ-10 payoff).
+3. **`GET /agents`** lowered god→tenant-admin, roster filtered to the caller's tenant.
+4. **Agent `heartbeat`/`result`** gain an in-memory caller-tenant guard.
+
+#### DAL changes (`dal/unified/api_keys`)
+- `list_keys_for_tenant(tenant)` — backs the new tenant-scoped key list.
+- `get_key(id) -> ApiKeyInfo` (or `key_tenant(id)`) — backs the revoke ownership check.
+- Tenant-scoped revoke = load target key, assert `key.tenant_id == caller.tenant` (or caller god), then `revoke_key`. Platform `DELETE /auth/keys/{id}` keeps the unconditional revoke.
+
+#### No-drift mechanism (the fail-closed guarantee)
+Wrap route registration in an `authed_route(path, method_router, access)` helper that registers the axum route **and** inserts `(method, matched-path) → Access` into a map placed in `AppState`, from the same call — so a route cannot be mounted without an Access. The middleware reads `MatchedPath` + method, looks up the map (**absent ⇒ `Deny` / 403**, never open), resolves `TenantParam` from `RawPathParams["tenant_id"]`, builds `Principal` from the `Extension<AuthenticatedKey>` set by `require_auth`, and calls `evaluate`. Backstop test: assert every route in the built `Router` has a map entry.
+
+#### WS exception (the one in-handler authZ site)
+The three `/ws/*` routes upgrade before the middleware extension is reliable and authenticate via single-use ticket or bearer in-handler. They keep in-handler auth but call the **same** `evaluate` after resolving the principal — documented as the sole intentional in-handler authorization, not a bypass.
+
+#### Test plan
+- **Characterization/parity**: a truth-table test over `{platform_admin × role × scope × level × tenant-match}` asserting `evaluate` matches today's `can_access_tenant`/`can_write`/`can_admin` for every current route *before* any behavior change lands.
+- **Leak regression**: tenant `role=admin` key → 403 on `GET/POST /auth/keys` and `DELETE /auth/keys/{id}`; 200 on its own `/tenants/{own}/keys`; 403 on another tenant's.
+- **Agent guard**: heartbeat/result with a mismatched-tenant key → 403; matching → ok.
+- **No-drift**: every mounted route resolves to an Access; a synthetic unclassified route is denied.
+
+#### Exit criteria
+Existing authZ integration tests green through the middleware; leak-regression + tenant-admin + agent-guard tests green; an unclassified route is denied (builder + backstop test); zero embedded-core changes.
+
+#### Risks
+- Middleware ordering — must run after route match (needs `MatchedPath`) and after `require_auth` (needs the key extension); attach order matters.
+- Heterogeneous handler signatures could complicate the `authed_route` helper — keep it generic over `MethodRouter`.
+- Re-verify `health_graphs` + delivery-WS still scope **data** by tenant once the gate moves to `Scope::Any` — the gate no longer carries the old in-handler `is_admin` branches; those must remain for payload shaping.
+
 ### To settle in design (see Open Questions)
 - The identity→tenant/role **mapping policy** (allowlist vs org/domain vs first-login-approval), and whether it's one policy or pluggable.
 - Refresh-token **storage shape** (extend `api_keys` vs a dedicated `oidc_sessions`/`refresh_tokens` table) and **encryption-key sourcing** (server config secret vs KMS/env).

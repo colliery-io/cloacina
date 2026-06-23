@@ -4,14 +4,14 @@ level: task
 title: "Demo multi-tenancy — seed a second tenant with a scoped key to demonstrate isolation"
 short_code: "CLOACI-T-0779"
 created_at: 2026-06-23T00:46:41.389976+00:00
-updated_at: 2026-06-23T01:05:06.572521+00:00
+updated_at: 2026-06-23T12:53:05.366703+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -82,6 +82,17 @@ keys), distinct curated subset, in-app switcher.
   (uniform-arch assumption — all same image); agents fail-closed refuse on mismatch.
   Per-package triple stamping (from PackageMetadata.architecture) is the follow-up
   for true per-arch tenant compilers. Reseed bmjajwkp5 verifying.
+- 2026-06-23: Per-tenant compiler VERIFIED (acme_billing/payroll/fulfillment compile
+  via compiler-acme; public compiler touched 0 acme packages). Demonstrating the
+  demo surfaced the rest of runtime multi-tenancy, all now fixed: tenant AGENTS
+  (agent-acme, acme key → tenant=acme), EXECUTION isolation (CLOACI-T-0781, 5-layer
+  fix — verified all 3 acme workflows Complete on acme agents), and PER-TENANT OPS
+  (gather() scoped per view; publish loop pushes a snapshot per connected tenant).
+  VERIFIED via UI: acme Operations page shows acme's 2 agents + available=3 packages
+  (not red); admin shows 5 agents + available=15 — each view sees its own state.
+  Multi-tenancy isolation now complete end-to-end: DATA + ACCESS + BUILD + EXECUTION
+  + OPS. P2 switcher built (multi-connection AuthContext + TenantSwitcher); the ops
+  screenshots were taken via the switcher's connection model. DONE.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -116,6 +127,8 @@ keys), distinct curated subset, in-app switcher.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
