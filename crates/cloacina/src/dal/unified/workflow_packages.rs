@@ -838,6 +838,151 @@ impl<'a> WorkflowPackagesDAL<'a> {
         )
     }
 
+    /// CLOACI-T-0780 (producer): active (success, non-superseded) packages in this
+    /// tenant scope that LACK a per-target artifact for `target_triple` — the set a
+    /// `--build-target` compiler scan-and-fills. `name_filter` limits the scan to a
+    /// single package (keeps the emulated demo build cheap). Returns (id, name,
+    /// version) so the caller can `execute_build(id)` then `upsert_artifact`.
+    pub async fn find_packages_missing_target_artifact(
+        &self,
+        target_triple: &str,
+        tenant_id: Option<&str>,
+        name_filter: Option<&str>,
+    ) -> Result<
+        Vec<(
+            crate::database::universal_types::UniversalUuid,
+            String,
+            String,
+        )>,
+        RegistryError,
+    > {
+        use crate::database::schema::unified::{package_artifacts, workflow_packages};
+        use crate::database::universal_types::{UniversalBool, UniversalUuid};
+        // 1. Active success packages (optionally a single name) in tenant scope.
+        let success: Vec<(UniversalUuid, String, String)> = crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let (tid, nf) = (
+                    tenant_id.map(|s| s.to_string()),
+                    name_filter.map(|s| s.to_string()),
+                );
+                conn.interact(move |conn| {
+                    let mut q = workflow_packages::table
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                        .into_boxed();
+                    q = match &tid {
+                        Some(t) => q.filter(workflow_packages::tenant_id.eq(t.clone())),
+                        None => q.filter(workflow_packages::tenant_id.is_null()),
+                    };
+                    if let Some(n) = &nf {
+                        q = q.filter(workflow_packages::package_name.eq(n.clone()));
+                    }
+                    q.select((
+                        workflow_packages::id,
+                        workflow_packages::package_name,
+                        workflow_packages::version,
+                    ))
+                    .load::<(UniversalUuid, String, String)>(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let (tid, nf) = (
+                    tenant_id.map(|s| s.to_string()),
+                    name_filter.map(|s| s.to_string()),
+                );
+                conn.interact(move |conn| {
+                    let mut q = workflow_packages::table
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                        .into_boxed();
+                    q = match &tid {
+                        Some(t) => q.filter(workflow_packages::tenant_id.eq(t.clone())),
+                        None => q.filter(workflow_packages::tenant_id.is_null()),
+                    };
+                    if let Some(n) = &nf {
+                        q = q.filter(workflow_packages::package_name.eq(n.clone()));
+                    }
+                    q.select((
+                        workflow_packages::id,
+                        workflow_packages::package_name,
+                        workflow_packages::version,
+                    ))
+                    .load::<(UniversalUuid, String, String)>(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+        // 2. (package_name, version) that already have an artifact for this triple.
+        let existing: Vec<(String, String)> = crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let tt = target_triple.to_string();
+                conn.interact(move |conn| {
+                    package_artifacts::table
+                        .filter(package_artifacts::target_triple.eq(tt))
+                        .select((
+                            package_artifacts::package_name,
+                            package_artifacts::version,
+                        ))
+                        .load::<(String, String)>(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let tt = target_triple.to_string();
+                conn.interact(move |conn| {
+                    package_artifacts::table
+                        .filter(package_artifacts::target_triple.eq(tt))
+                        .select((
+                            package_artifacts::package_name,
+                            package_artifacts::version,
+                        ))
+                        .load::<(String, String)>(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+        let have: std::collections::HashSet<(String, String)> = existing.into_iter().collect();
+        Ok(success
+            .into_iter()
+            .filter(|(_, n, v)| !have.contains(&(n.clone(), v.clone())))
+            .collect())
+    }
+
     /// Resolve the **active** content-hash (digest) for a package name within a
     /// tenant scope — the `FleetExecutor` (CLOACI-T-0633) uses this to build a
     /// work packet's `ArtifactRef` from the task's package.

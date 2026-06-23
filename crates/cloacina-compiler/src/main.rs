@@ -59,6 +59,19 @@ struct Cli {
     #[arg(long, env = "CLOACINA_TENANT_SCHEMA")]
     tenant_schema: Option<String>,
 
+    /// CLOACI-T-0780: run as a PER-TARGET compiler producing cdylibs for this
+    /// triple (e.g. "x86_64-linux"). Scan-and-fills `package_artifacts` for
+    /// success packages lacking this arch, building natively — run the container
+    /// on that arch (e.g. docker `platform: linux/amd64`). Omit for the primary
+    /// host compiler (which claims pending rows into `workflow_packages`).
+    #[arg(long, env = "CLOACINA_BUILD_TARGET")]
+    build_target: Option<String>,
+
+    /// CLOACI-T-0780: restrict the per-target scan to one package name (keeps an
+    /// emulated build cheap). Only meaningful with --build-target.
+    #[arg(long, env = "CLOACINA_BUILD_TARGET_PACKAGE")]
+    build_target_package: Option<String>,
+
     /// Poll interval for new pending rows (milliseconds).
     #[arg(long, default_value_t = 2000)]
     poll_interval_ms: u64,
@@ -206,6 +219,8 @@ async fn main() -> Result<()> {
         bind: cli.bind,
         database_url: cli.database_url,
         tenant_schema: cli.tenant_schema,
+        build_target: cli.build_target,
+        build_target_package: cli.build_target_package,
         verbose: cli.verbose,
         poll_interval: Duration::from_millis(cli.poll_interval_ms),
         heartbeat_interval: Duration::from_secs(cli.heartbeat_interval_s),

@@ -49,6 +49,15 @@ pub struct CompilerConfig {
     /// CLOACI-T-0779: when set, scope this compiler to a single tenant's Postgres
     /// schema for build isolation (claims/builds only that tenant's packages).
     pub tenant_schema: Option<String>,
+    /// CLOACI-T-0780: when set, this is a PER-TARGET compiler. Instead of claiming
+    /// pending rows (the primary host path), it scan-and-fills `package_artifacts`
+    /// for this triple: success packages lacking its arch are rebuilt from source
+    /// (natively — run this in that arch's container) and stored. Value is the
+    /// target triple it produces, e.g. "x86_64-linux".
+    pub build_target: Option<String>,
+    /// CLOACI-T-0780: optional single-package filter for the per-target scan, so an
+    /// emulated build stays cheap (build just one package for the alt arch).
+    pub build_target_package: Option<String>,
     pub verbose: bool,
 
     /// How often to poll for new pending rows.

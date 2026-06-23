@@ -91,6 +91,9 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
             .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
     }
     let storage = UnifiedRegistryStorage::new(database.clone());
+    // CLOACI-T-0780: a per-target compiler needs a DAL handle for the scan-and-fill
+    // (the registry move below consumes `database`).
+    let db_for_target = database.clone();
     let registry = Arc::new(
         WorkflowRegistryImpl::new(storage, database)
             .map_err(|e| anyhow::anyhow!("failed to construct workflow registry: {e}"))?,
@@ -117,8 +120,13 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
         http_shutdown,
     ));
 
-    // Main queue + sweeper loop.
-    loopp::run(registry, config, shutdown.clone()).await?;
+    // Main loop: per-target scan-and-fill (CLOACI-T-0780) when --build-target is
+    // set, else the primary claim → build → mark queue + sweeper loop.
+    if config.build_target.is_some() {
+        loopp::run_per_target(registry, db_for_target, config, shutdown.clone()).await?;
+    } else {
+        loopp::run(registry, config, shutdown.clone()).await?;
+    }
 
     shutdown.cancel();
     if let Err(e) = http_handle.await {

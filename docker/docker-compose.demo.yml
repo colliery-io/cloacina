@@ -187,6 +187,47 @@ services:
         condition: service_completed_successfully
     restart: on-failure
 
+  # CLOACI-T-0780 — PER-TARGET compiler (multi-arch). Runs in an EMULATED
+  # linux/amd64 container (qemu), so its NATIVE cargo build produces x86_64
+  # cdylibs with no cross-toolchains. --build-target makes it scan-and-fill
+  # package_artifacts[x86_64-linux] for success packages lacking that arch —
+  # limited to demo-slow-rust to keep the emulated build cheap — ADDITIVELY: it
+  # never touches the aarch64 primary in workflow_packages, so it can't race the
+  # host compiler. Opt-in via the `multiarch` profile (emulated builds are slow);
+  # the default demo stays single-arch.
+  compiler-x86:
+    platform: linux/amd64
+    profiles: ["multiarch"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.demo
+      target: workspace
+    command:
+      - "--bind"
+      - "0.0.0.0:9000"
+      - "--database-url"
+      - *db_url
+      - "--build-target"
+      - "x86_64-linux"
+      - "--build-target-package"
+      - "demo-slow-rust"
+      - "--poll-interval-ms"
+      - "2000"
+      # Separate target dir: a native amd64 build must NOT share the aarch64
+      # compiler's /workspace/target (same path, different-arch object files).
+      - "--cargo-target-dir"
+      - "/workspace/target-x86"
+      - "--cargo-flag=build"
+      - "--cargo-flag=--lib"
+    environment:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      harness:
+        condition: service_completed_successfully
+    restart: on-failure
+
   # One-shot: pack the demo fixtures (paths → /workspace) into the shared
   # volume the harness uploads from. Exits when done. Reuses the `workspace`
   # image (same build as the compiler — built once), overriding the entrypoint
@@ -336,6 +377,55 @@ services:
     restart: unless-stopped
     deploy:
       replicas: 3
+
+  # CLOACI-T-0779 — TENANT-scoped execution agents for `acme`. Register with the
+  # acme-scoped key, so the server stamps them tenant_id=acme and the fleet
+  # executor (which filters agents by a.tenant_id == task_tenant) routes ONLY
+  # acme's tasks here — and acme's tasks run ONLY on these. That's execution
+  # isolation: a tenant's work runs on its own agents, never another tenant's.
+  # The admin-keyed `agent` fleet above serves the public (tenant=null) realm.
+  agent-acme:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    command:
+      - "--server"
+      - "http://server:8080"
+      - "--api-key"
+      - *acme_key
+      - "--max-concurrency"
+      - "8"
+    depends_on:
+      server:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+
+  # CLOACI-T-0780 — EMULATED linux/amd64 execution agent. Registers with
+  # target_triple=x86_64-linux (host_target_triple() in the amd64 container), so
+  # the fleet dispatch hands it the x86_64 cdylib from package_artifacts (built by
+  # compiler-x86) instead of the aarch64 primary — triple-matched dispatch proven
+  # end-to-end. High max-concurrency so the greedy most-free-capacity selector
+  # routes demo_slow tasks here. Public realm (bootstrap key). Opt-in via the
+  # `multiarch` profile.
+  agent-x86:
+    platform: linux/amd64
+    profiles: ["multiarch"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    command:
+      - "--server"
+      - "http://server:8080"
+      - "--api-key"
+      - *bootstrap_key
+      - "--max-concurrency"
+      - "32"
+    depends_on:
+      server:
+        condition: service_started
+    restart: unless-stopped
 
   # Continuous workflow driver (CLOACI-I-0124). The seed leaves a deterministic
   # completed/failed/in-flight state; this keeps firing demo_slow_workflow at

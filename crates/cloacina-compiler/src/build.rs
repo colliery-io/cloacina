@@ -795,6 +795,9 @@ mod tests {
             },
             compiler_instance_id: UniversalUuid::new_v4(),
             log_retention_days: 7,
+            tenant_schema: None,
+            build_target: None,
+            build_target_package: None,
         }
     }
 

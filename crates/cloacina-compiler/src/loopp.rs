@@ -200,3 +200,85 @@ pub(crate) async fn run(
         }
     }
 }
+
+/// CLOACI-T-0780: per-target compiler loop. Instead of claiming pending rows, it
+/// scan-and-fills `package_artifacts` for `config.build_target`: success packages
+/// in this schema lacking this arch's artifact are rebuilt from the retained
+/// source (NATIVE build — run the container on that arch, e.g. docker
+/// `platform: linux/amd64`) and stored under `sha256(cdylib)`. Additive and
+/// idempotent — never touches the primary (`workflow_packages`) host build, so a
+/// host compiler and this can run side by side without racing.
+pub(crate) async fn run_per_target(
+    registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>,
+    database: cloacina::database::Database,
+    config: CompilerConfig,
+    shutdown: CancellationToken,
+) -> Result<()> {
+    use sha2::{Digest, Sha256};
+
+    let target = config
+        .build_target
+        .clone()
+        .expect("run_per_target requires build_target");
+    let name_filter = config.build_target_package.clone();
+    // tenant_id is NULL in every schema (the schema IS the isolation); the DB
+    // handle is already schema-scoped, so scope DAL queries by IS NULL (None).
+    let dal = cloacina::dal::DAL::new(database);
+
+    let mut poll_ticker = tokio::time::interval(config.poll_interval);
+    poll_ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    info!(%target, ?name_filter, "per-target compiler: scan-and-fill package_artifacts");
+
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                info!("shutdown requested — exiting per-target loop");
+                return Ok(());
+            }
+            _ = poll_ticker.tick() => {
+                let missing = match dal
+                    .workflow_packages()
+                    .find_packages_missing_target_artifact(&target, None, name_filter.as_deref())
+                    .await
+                {
+                    Ok(m) => m,
+                    Err(e) => {
+                        warn!(%e, "find_packages_missing_target_artifact failed; backing off one tick");
+                        continue;
+                    }
+                };
+                for (package_id, name, version) in missing {
+                    info!(%name, %version, %target, "per-target: building artifact");
+                    match crate::build::execute_build(&registry, package_id.0, &config).await {
+                        crate::build::BuildOutcome::Success { artifact, .. } => {
+                            let mut hasher = Sha256::new();
+                            hasher.update(&artifact);
+                            let digest = format!("{:x}", hasher.finalize());
+                            match dal
+                                .workflow_packages()
+                                .upsert_artifact(&name, &version, None, &target, &digest, artifact)
+                                .await
+                            {
+                                Ok(()) => info!(
+                                    %name, %version, %target, %digest,
+                                    "per-target: stored artifact"
+                                ),
+                                Err(e) => warn!(%e, %name, "per-target: upsert_artifact failed"),
+                            }
+                        }
+                        crate::build::BuildOutcome::Failed(err) => {
+                            warn!(%name, %err, "per-target: build failed");
+                        }
+                        crate::build::BuildOutcome::TimedOut { elapsed } => {
+                            warn!(
+                                %name,
+                                elapsed_s = elapsed.as_secs(),
+                                "per-target: build timed out"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
