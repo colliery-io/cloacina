@@ -693,6 +693,58 @@ impl<'a> WorkflowPackagesDAL<'a> {
         )
     }
 
+    /// CLOACI-T-0780: the set of target triples this package has a per-target
+    /// artifact for. The fleet uses this (∪ the host primary) to only dispatch a
+    /// package to an agent whose arch it actually has a cdylib for — so an agent
+    /// is never handed a WorkPacket it would fail-closed refuse.
+    pub async fn get_artifact_triples_for_package(
+        &self,
+        package_name: &str,
+    ) -> Result<Vec<String>, RegistryError> {
+        use crate::database::schema::unified::package_artifacts;
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let pn = package_name.to_string();
+                conn.interact(move |conn| {
+                    package_artifacts::table
+                        .filter(package_artifacts::package_name.eq(pn))
+                        .select(package_artifacts::target_triple)
+                        .distinct()
+                        .load::<String>(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let pn = package_name.to_string();
+                conn.interact(move |conn| {
+                    package_artifacts::table
+                        .filter(package_artifacts::package_name.eq(pn))
+                        .select(package_artifacts::target_triple)
+                        .distinct()
+                        .load::<String>(conn)
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            }
+        )
+    }
+
     /// CLOACI-T-0780: cdylib bytes of a per-target artifact by content-hash — the
     /// fallback `get_compiled_data_by_content_hash` uses so the agent artifact
     /// endpoint can serve per-arch builds (not just the primary).

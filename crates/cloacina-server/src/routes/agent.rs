@@ -34,10 +34,11 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use cloacina::fleet::{
-    host_target_triple, AgentHeartbeatRequest, AgentHeartbeatResponse, AgentRegisterRequest,
-    AgentRegisterResponse, AgentResultRequest, AgentResultResponse, AGENT_PROTOCOL_VERSION,
+    host_target_triple, AgentHeartbeatRequest, AgentHeartbeatResponse, AgentOutcome,
+    AgentRegisterRequest, AgentRegisterResponse, AgentResultRequest, AgentResultResponse,
+    AGENT_PROTOCOL_VERSION,
 };
-use tracing::info;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::agent_registry::AgentRecord;
@@ -144,14 +145,27 @@ pub async fn report_result(
 ) -> Result<Json<AgentResultResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
 
-    info!(
-        agent_id = %req.agent_id,
-        task_id = %req.task_execution_id,
-        attempt = req.attempt,
-        duration_ms = req.duration_ms,
-        outcome = %serde_json::to_string(&req.outcome).unwrap_or_else(|_| "<unserializable>".into()),
-        "agent reported result"
-    );
+    // CLOACI-T-0780: a refusal is an EXPECTED fail-closed outcome — and now rare,
+    // since the fleet only dispatches to agents with a runnable arch. Log it at
+    // debug so the backstop stays quiet; real results (success/failure) stay at info.
+    if matches!(req.outcome, AgentOutcome::Refused { .. }) {
+        debug!(
+            agent_id = %req.agent_id,
+            task_id = %req.task_execution_id,
+            attempt = req.attempt,
+            outcome = %serde_json::to_string(&req.outcome).unwrap_or_else(|_| "<unserializable>".into()),
+            "agent reported result (refused — fail-closed guard)"
+        );
+    } else {
+        info!(
+            agent_id = %req.agent_id,
+            task_id = %req.task_execution_id,
+            attempt = req.attempt,
+            duration_ms = req.duration_ms,
+            outcome = %serde_json::to_string(&req.outcome).unwrap_or_else(|_| "<unserializable>".into()),
+            "agent reported result"
+        );
+    }
 
     // The task_execution_id arrives from the wire as a string; the
     // coordinator's key is a `UniversalUuid` to match what the FleetExecutor

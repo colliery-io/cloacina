@@ -281,18 +281,39 @@ impl TaskExecutor for FleetExecutor {
             };
 
             // ── 2. Select a live agent: same tenant as the task, with capacity,
-            //       greedy on most-free-capacity (so load spreads). Tenant isolation
-            //       (REQ-008): an agent only ever receives work in its tenant scope.
+            //       AND an arch this package has a cdylib for. Greedy on most-free-
+            //       capacity (so load spreads). Tenant isolation (REQ-008): an agent
+            //       only ever receives work in its tenant scope.
+            //
+            //       CLOACI-T-0780: the runnable arches are the host primary (built
+            //       for host_target_triple()) ∪ this package's per-target builds.
+            //       Filtering selection by this means we never hand an agent a
+            //       package it has no cdylib for — so it can't fail-closed refuse,
+            //       which would otherwise churn retries and log noise. A genuinely
+            //       wrong-arch agent simply isn't eligible; the task waits for one
+            //       that is (the no-eligible-agent path below), exactly as it would
+            //       if no agent had capacity.
+            let mut runnable_triples = self
+                .dal
+                .workflow_packages()
+                .get_artifact_triples_for_package(&namespace.package_name)
+                .await
+                .unwrap_or_default();
+            runnable_triples.push(host_target_triple().to_string());
             let snapshot = self.agent_registry.snapshot();
             let Some(agent) = snapshot
                 .iter()
-                .filter(|a| a.available_capacity > 0 && a.tenant_id == task_tenant)
+                .filter(|a| {
+                    a.available_capacity > 0
+                        && a.tenant_id == task_tenant
+                        && runnable_triples.iter().any(|t| t == &a.target_triple)
+                })
                 .max_by_key(|a| a.available_capacity)
             else {
                 warn!(
                     task_id = %event.task_execution_id,
                     tenant = ?task_tenant,
-                    "fleet: no live agent with capacity in the task's tenant"
+                    "fleet: no live agent with capacity + a runnable arch in the task's tenant"
                 );
                 return Ok(self
                     .reconcile_error(
@@ -546,6 +567,9 @@ impl TaskExecutor for FleetExecutor {
                 };
 
             // ── 8. Map AgentOutcome → Result<Context, ExecutorError>.
+            // CLOACI-T-0780: a refusal is an expected fail-closed reschedule, not a
+            // failure — keep its reconcile log quiet (debug), unlike a real failure.
+            let was_refused = matches!(result_req.outcome, AgentOutcome::Refused { .. });
             let outcome: Result<Context<serde_json::Value>, ExecutorError> =
                 match result_req.outcome {
                     AgentOutcome::Success { context } => match value_to_context(context) {
@@ -580,12 +604,20 @@ impl TaskExecutor for FleetExecutor {
             //       whole point of the fleet design: agent and thread paths
             //       converge here so state writes / retry / context-persist are
             //       identical by construction.
-            info!(
-                task_id = %event.task_execution_id,
-                agent_id = %agent_id,
-                ok = outcome.is_ok(),
-                "fleet: agent reported; reconciling via shared TaskResultHandler"
-            );
+            if was_refused {
+                tracing::debug!(
+                    task_id = %event.task_execution_id,
+                    agent_id = %agent_id,
+                    "fleet: agent refused; rescheduling (fail-closed guard)"
+                );
+            } else {
+                info!(
+                    task_id = %event.task_execution_id,
+                    agent_id = %agent_id,
+                    ok = outcome.is_ok(),
+                    "fleet: agent reported; reconciling via shared TaskResultHandler"
+                );
+            }
             Ok(self
                 .result_handler
                 .handle_outcome(
