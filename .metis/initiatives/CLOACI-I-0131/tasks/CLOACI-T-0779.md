@@ -4,14 +4,14 @@ level: task
 title: "Demo multi-tenancy — seed a second tenant with a scoped key to demonstrate isolation"
 short_code: "CLOACI-T-0779"
 created_at: 2026-06-23T00:46:41.389976+00:00
-updated_at: 2026-06-23T00:46:41.389976+00:00
+updated_at: 2026-06-23T01:05:06.572521+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -28,7 +28,39 @@ initiative_id: CLOACI-I-0131
 
 ## Objective **[REQUIRED]**
 
-{Clear statement of what this task accomplishes}
+Demonstrate tenant isolation in the demo. Isolation = Postgres schema-per-tenant;
+keys carry a tenant_id (or is_admin for cross-tenant). Today the demo seeds only
+`public` with the admin bootstrap key. Add a 2nd tenant with a DISTINCT curated
+data subset + per-tenant SCOPED keys, and a UI tenant switcher — so you can see
+(a) data isolation (each tenant only its own runs/workflows) and (b) access
+isolation (a scoped key 403s the other tenant). User chose: data+access (scoped
+keys), distinct curated subset, in-app switcher.
+
+## Plan (phased)
+
+**P1 — Server + seeder (backend, demonstrable via API):**
+- api_keys live in the admin schema with a tenant_id column; bootstrap already
+  accepts a provided key value → add a demo-gated bootstrap step that seeds
+  DETERMINISTIC tenant-scoped keys from an env (e.g. CLOACINA_DEMO_TENANT_KEYS=
+  "acme:clk_demo_acme_key_0002:operator,public:clk_demo_public_key_0003:operator").
+  Reuses create_key(hash, name, Some(tenant), is_admin=false, role).
+- Compose: define acme + public scoped keys; add a 2nd harness `seed` service with
+  HARNESS_TENANT=acme + a package filter so acme gets a curated subset.
+- Harness: HARNESS_PACKAGES filter env (subset upload); ensureTenant already
+  creates non-public tenants.
+- VERIFY: acme scoped key → acme data OK, public data 403; public scoped key
+  symmetric; admin sees both.
+
+**P2 — UI tenant switcher:**
+- Multi-connection store (named saved connections: serverUrl+key+tenant) + a
+  switcher in the shell header; persist. Pre-populate the demo connections from
+  the known keys. Flip active connection → all data rescopes.
+
+## Status Updates **[REQUIRED]**
+
+- 2026-06-23: Scoped (data+access isolation, distinct curated subset, in-app
+  switcher). Building P1 (server+seeder) then P2 (UI switcher). Note: rides the
+  next reseed, which also restores the T-0778 demo trigger to manual-only.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -63,6 +95,8 @@ initiative_id: CLOACI-I-0131
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

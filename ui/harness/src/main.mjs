@@ -46,6 +46,13 @@ const cfg = {
   apiKey: env.HARNESS_API_KEY ?? "",
   tenant: env.HARNESS_TENANT ?? "public",
   packageDir: env.HARNESS_PACKAGE_DIR ?? "./packages",
+  // CLOACI-T-0779: optional comma-separated package-name prefixes; when set, only
+  // matching `.cloacina` files are uploaded — lets a second tenant seed a curated
+  // subset (distinct from `public`, which uploads everything). Empty = all.
+  packagePrefixes: (env.HARNESS_PACKAGES ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
   mode: (env.HARNESS_MODE ?? "seed").toLowerCase(),
   intervalMs: intEnv("HARNESS_INTERVAL_MS", 8000),
   slowWorkflow: env.HARNESS_SLOW_WORKFLOW ?? "demo_slow_workflow",
@@ -132,6 +139,12 @@ async function uploadPackages(client) {
     entries = (await readdir(cfg.packageDir))
       .filter((f) => f.endsWith(".cloacina"))
       .sort();
+    // CLOACI-T-0779: curated-subset seeding for a second tenant.
+    if (cfg.packagePrefixes.length > 0) {
+      const before = entries.length;
+      entries = entries.filter((f) => cfg.packagePrefixes.some((p) => f.startsWith(p)));
+      log(`package filter [${cfg.packagePrefixes.join(", ")}]: ${entries.length}/${before} packages`);
+    }
   } catch (err) {
     // No package dir is fine for a driver-only role (loop mode against an
     // already-seeded server): there's nothing to upload, just fire workflows.

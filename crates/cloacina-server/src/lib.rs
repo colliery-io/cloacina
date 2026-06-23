@@ -788,6 +788,11 @@ pub async fn run(
     // Bootstrap: create initial admin key if none exist
     bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
 
+    // CLOACI-T-0779: demo-only — seed deterministic tenant-SCOPED keys so the
+    // demo can show tenant isolation (each key 403s the other tenant). Gated by
+    // CLOACINA_DEMO_TENANT_KEYS; a no-op in normal deployments.
+    bootstrap_demo_tenant_keys(&state).await?;
+
     // Operational-metrics publisher (CLOACI-T-0718): pushes server/compiler/
     // fleet/reconciler snapshots to a subscribed Operations UI over the WS
     // substrate (direct sink push, not the durable outbox). No-op when nothing
@@ -1526,6 +1531,49 @@ async fn bootstrap_admin_key(
         "Bootstrap admin key written to {} (mode 0600)",
         key_path.display()
     );
+
+    Ok(())
+}
+
+/// CLOACI-T-0779 — demo-only: seed deterministic tenant-SCOPED API keys from the
+/// `CLOACINA_DEMO_TENANT_KEYS` env so the demo can demonstrate tenant isolation
+/// with known keys (like the bootstrap admin key). Format: comma-separated
+/// `tenant:key[:role]` entries, e.g. `acme:clk_demo_acme_key_0002:admin`. Each
+/// becomes a non-admin key scoped to that tenant (`tenant_id` is a plain column,
+/// no FK, so the tenant's schema need not exist yet — it's created on first
+/// access/seed). Idempotent: a duplicate hash on restart is ignored. No-op when
+/// the env is unset, so production deployments are unaffected.
+async fn bootstrap_demo_tenant_keys(state: &AppState) -> Result<()> {
+    let spec = std::env::var("CLOACINA_DEMO_TENANT_KEYS").unwrap_or_default();
+    if spec.trim().is_empty() {
+        return Ok(());
+    }
+
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    for entry in spec.split(',').filter(|e| !e.trim().is_empty()) {
+        let parts: Vec<&str> = entry.split(':').map(|s| s.trim()).collect();
+        if parts.len() < 2 || parts[0].is_empty() || parts[1].is_empty() {
+            warn!("CLOACINA_DEMO_TENANT_KEYS: skipping malformed entry '{}'", entry);
+            continue;
+        }
+        let (tenant, key) = (parts[0], parts[1]);
+        let role = parts.get(2).copied().filter(|r| !r.is_empty()).unwrap_or("admin");
+        let hash = cloacina::security::api_keys::hash_api_key(key);
+        match dal
+            .api_keys()
+            .create_key(&hash, &format!("demo-{tenant}-scoped"), Some(tenant), false, role)
+            .await
+        {
+            Ok(_) => info!(
+                "CLOACI-T-0779: seeded demo tenant-scoped key for '{}' (role {})",
+                tenant, role
+            ),
+            Err(e) => tracing::debug!(
+                "CLOACI-T-0779: demo tenant key for '{}' not created (likely already exists): {}",
+                tenant, e
+            ),
+        }
+    }
 
     Ok(())
 }
