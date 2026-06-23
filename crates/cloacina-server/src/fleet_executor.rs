@@ -293,20 +293,71 @@ impl TaskExecutor for FleetExecutor {
             //       wrong-arch agent simply isn't eligible; the task waits for one
             //       that is (the no-eligible-agent path below), exactly as it would
             //       if no agent had capacity.
-            let mut runnable_triples = self
+            // Resolve the package's PRIMARY artifact (digest + language) up front —
+            // the language decides arch eligibility. CLOACI-T-0781: `self.dal` is
+            // schema-scoped and tenant-schema packages carry tenant_id = NULL, so
+            // look up by None (IS NULL).
+            let (primary_digest, language) = match self
                 .dal
                 .workflow_packages()
-                .get_artifact_triples_for_package(&namespace.package_name)
+                .get_active_dispatch_for_package(&namespace.package_name, None)
                 .await
-                .unwrap_or_default();
-            runnable_triples.push(host_target_triple().to_string());
+            {
+                Ok(Some(info)) => info,
+                Ok(None) => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!(
+                                "no active (success, non-superseded) artifact for package `{}` \
+                                 in tenant {:?}",
+                                namespace.package_name, task_tenant
+                            ),
+                        )
+                        .await);
+                }
+                Err(e) => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!("artifact digest lookup failed: {}", e),
+                        )
+                        .await);
+                }
+            };
+
+            // CLOACI-T-0780: an INTERPRETED package (e.g. Python) has no arch-specific
+            // cdylib — it runs from its source on ANY agent. A COMPILED package runs
+            // only where a cdylib exists for that arch: the host primary ∪ its
+            // per-target builds. `None` = "any arch is fine" (interpreted).
+            let interpreted = language.eq_ignore_ascii_case("python");
+            let runnable_triples: Option<Vec<String>> = if interpreted {
+                None
+            } else {
+                let mut t = self
+                    .dal
+                    .workflow_packages()
+                    .get_artifact_triples_for_package(&namespace.package_name)
+                    .await
+                    .unwrap_or_default();
+                t.push(host_target_triple().to_string());
+                Some(t)
+            };
             let snapshot = self.agent_registry.snapshot();
             let Some(agent) = snapshot
                 .iter()
                 .filter(|a| {
                     a.available_capacity > 0
                         && a.tenant_id == task_tenant
-                        && runnable_triples.iter().any(|t| t == &a.target_triple)
+                        && runnable_triples
+                            .as_ref()
+                            .map_or(true, |ts| ts.iter().any(|t| t == &a.target_triple))
                 })
                 .max_by_key(|a| a.available_capacity)
             else {
@@ -374,71 +425,33 @@ impl TaskExecutor for FleetExecutor {
             };
             let context_value = context_to_json(&context);
 
-            // ── 3. Resolve the artifact digest from workflow_packages for the
-            //       task's package. CLOACI-T-0781: `self.dal` is already scoped to
-            //       this runner's tenant SCHEMA, and packages there carry
-            //       tenant_id = NULL (the schema is the isolation, not the column).
-            //       So look up by schema (None → tenant_id IS NULL); passing the
-            //       namespace tenant would filter `tenant_id = 'acme'` and miss the
-            //       NULL row. The success + non-superseded filters are load-bearing
-            //       (see DAL doc) — a wrong row would route a stale/unbuilt cdylib.
-            let (digest, language) = match self
-                .dal
-                .workflow_packages()
-                .get_active_dispatch_for_package(&namespace.package_name, None)
-                .await
-            {
-                Ok(Some(info)) => info,
-                Ok(None) => {
-                    return Ok(self
-                        .reconcile_error(
-                            &event,
-                            &claimed_task,
-                            &retry_policy,
-                            start.elapsed(),
-                            format!(
-                                "no active (success, non-superseded) artifact for package `{}` \
-                             in tenant {:?}",
-                                namespace.package_name, tenant_id
-                            ),
-                        )
-                        .await);
+            // ── 3b. CLOACI-T-0780 (multi-arch): resolve the cdylib digest + the
+            //        triple to stamp. An INTERPRETED package runs on the selected
+            //        agent via its interpreter regardless of arch — stamp the agent's
+            //        OWN triple so the fail-closed guard is a no-op. A COMPILED
+            //        package gets the cdylib built for the agent's arch when one
+            //        exists, else the primary/host build (which only a host-arch agent
+            //        matches — and selection already guaranteed the agent is runnable).
+            let (digest, build_target_triple) = if interpreted {
+                (primary_digest, agent_triple.clone())
+            } else {
+                match self
+                    .dal
+                    .workflow_packages()
+                    .get_artifact_digest_for_target(&namespace.package_name, &agent_triple)
+                    .await
+                {
+                    Ok(Some(arch_digest)) => {
+                        tracing::debug!(
+                            package = %namespace.package_name,
+                            triple = %agent_triple,
+                            digest = %arch_digest,
+                            "fleet: dispatching per-target artifact (CLOACI-T-0780)"
+                        );
+                        (arch_digest, agent_triple.clone())
+                    }
+                    _ => (primary_digest, host_target_triple()),
                 }
-                Err(e) => {
-                    return Ok(self
-                        .reconcile_error(
-                            &event,
-                            &claimed_task,
-                            &retry_policy,
-                            start.elapsed(),
-                            format!("artifact digest lookup failed: {}", e),
-                        )
-                        .await);
-                }
-            };
-
-            // ── 3b. CLOACI-T-0780 (multi-arch): if a per-target artifact exists for
-            //        the selected agent's triple, hand it THAT cdylib and stamp its
-            //        actual triple; otherwise use the primary (host) build. The
-            //        agent compares build_target_triple to its own and fail-closed
-            //        refuses a mismatch — so an agent whose arch has no build (and
-            //        differs from the host) correctly bounces rather than crashing.
-            let (digest, build_target_triple) = match self
-                .dal
-                .workflow_packages()
-                .get_artifact_digest_for_target(&namespace.package_name, &agent_triple)
-                .await
-            {
-                Ok(Some(arch_digest)) => {
-                    tracing::debug!(
-                        package = %namespace.package_name,
-                        triple = %agent_triple,
-                        digest = %arch_digest,
-                        "fleet: dispatching per-target artifact (CLOACI-T-0780)"
-                    );
-                    (arch_digest, agent_triple.clone())
-                }
-                _ => (digest, host_target_triple()),
             };
 
             // ── 4. Build the work packet with real context + real artifact ref.
