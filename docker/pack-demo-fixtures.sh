@@ -83,6 +83,14 @@ pack_rust_rel mixed-rust
 pack_rust_ws demo-fanout-rust
 pack_rust_ws demo-fanout-sub-rust
 
+# --- Acme Corp tenant packages (Rust) — CLOACI-T-0779. Distinctly-named
+#     workflows seeded ONLY into the `acme` tenant (the harness-acme service
+#     uploads the acme-* prefix; the public seed excludes it), so switching to
+#     acme shows a different company. Demonstrates tenant data isolation. ---
+pack_rust_ws acme-billing-rust
+pack_rust_ws acme-payroll-rust
+pack_rust_ws acme-fulfillment-rust
+
 # --- Kafka-sourced stream accumulator → reactor-bound CG (Rust) — CLOACI-T-0676 ---
 pack_rust_ws demo-kafka-stream-rust
 

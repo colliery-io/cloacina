@@ -1,0 +1,15 @@
+# Acme Corp demo fixture (CLOACI-T-0779). One of the second tenant's distinctly-
+# named workflows, seeded ONLY into the `acme` tenant — so switching to acme shows
+# a visibly different company than `public`. Demonstrates tenant data isolation.
+[package]
+name = "acme-billing-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "acme_billing"
+language = "rust"
+description = "Acme Corp billing run — generate and dispatch customer invoices."
+author = "Acme Corp (demo tenant)"

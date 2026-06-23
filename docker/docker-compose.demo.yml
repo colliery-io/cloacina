@@ -183,6 +183,8 @@ services:
       # Triggers view live on its own schedule — no continuous harness loop.
       HARNESS_MODE: "seed"
       HARNESS_PACKAGE_DIR: "/packages"
+      # CLOACI-T-0779: public gets everything EXCEPT the acme tenant's packages.
+      HARNESS_PACKAGES_EXCLUDE: "acme-"
     depends_on:
       server:
         condition: service_started
@@ -210,10 +212,13 @@ services:
       HARNESS_TENANT: "acme"
       HARNESS_MODE: "seed"
       HARNESS_PACKAGE_DIR: "/packages"
-      # Curated subset (fixture-name prefixes) — distinct from public's full set.
-      HARNESS_PACKAGES: "demo-slow-rust,demo-branch-rust,demo-fail-rust"
-      HARNESS_SLOW_WORKFLOW: "demo_slow_workflow"
-      HARNESS_FAIL_WORKFLOW: "demo_fail_workflow"
+      # Acme's OWN distinctly-named packages (acme_billing / acme_payroll /
+      # acme_fulfillment) — only these, so acme looks like a different company.
+      HARNESS_PACKAGES: "acme-"
+      # The seed fires a "slow" + a "fail" workflow; point both at acme workflows
+      # (they just complete — the seed doesn't require an actual failure).
+      HARNESS_SLOW_WORKFLOW: "acme_billing"
+      HARNESS_FAIL_WORKFLOW: "acme_payroll"
     depends_on:
       server:
         condition: service_started

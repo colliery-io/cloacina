@@ -53,6 +53,12 @@ const cfg = {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
+  // CLOACI-T-0779: exclude filter — public uploads everything EXCEPT the acme-*
+  // packages (which belong to the acme tenant), so the two tenants stay disjoint.
+  packagePrefixesExclude: (env.HARNESS_PACKAGES_EXCLUDE ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
   mode: (env.HARNESS_MODE ?? "seed").toLowerCase(),
   intervalMs: intEnv("HARNESS_INTERVAL_MS", 8000),
   slowWorkflow: env.HARNESS_SLOW_WORKFLOW ?? "demo_slow_workflow",
@@ -139,11 +145,18 @@ async function uploadPackages(client) {
     entries = (await readdir(cfg.packageDir))
       .filter((f) => f.endsWith(".cloacina"))
       .sort();
-    // CLOACI-T-0779: curated-subset seeding for a second tenant.
+    // CLOACI-T-0779: curated-subset seeding + cross-tenant exclusion. Include
+    // first (acme uploads only acme-*), then exclude (public drops acme-*), so
+    // the tenants' package sets are disjoint.
     if (cfg.packagePrefixes.length > 0) {
       const before = entries.length;
       entries = entries.filter((f) => cfg.packagePrefixes.some((p) => f.startsWith(p)));
-      log(`package filter [${cfg.packagePrefixes.join(", ")}]: ${entries.length}/${before} packages`);
+      log(`package include [${cfg.packagePrefixes.join(", ")}]: ${entries.length}/${before} packages`);
+    }
+    if (cfg.packagePrefixesExclude.length > 0) {
+      const before = entries.length;
+      entries = entries.filter((f) => !cfg.packagePrefixesExclude.some((p) => f.startsWith(p)));
+      log(`package exclude [${cfg.packagePrefixesExclude.join(", ")}]: ${entries.length}/${before} packages`);
     }
   } catch (err) {
     // No package dir is fine for a driver-only role (loop mode against an
