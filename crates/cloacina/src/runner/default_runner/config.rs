@@ -106,6 +106,12 @@ pub struct DefaultRunnerConfig {
     /// (thread) unless the server opts into another registered executor (e.g.
     /// `"fleet"`).
     default_executor: String,
+    /// Tenant this runner serves (CLOACI-T-0781). Flows into the reconciler's
+    /// `default_tenant_id`, so every task this runner registers is namespaced
+    /// `tenant::package::workflow::task` — which is what the fleet executor
+    /// routes on. `"public"` for the admin/global runner; a per-tenant runner
+    /// sets it to its tenant so the tenant's tasks reach the tenant's agents.
+    tenant_id: String,
 }
 
 impl DefaultRunnerConfig {
@@ -225,6 +231,17 @@ impl DefaultRunnerConfig {
         self.require_signatures
     }
 
+    /// The tenant this runner serves (CLOACI-T-0781). Namespaces its tasks.
+    pub fn tenant_id(&self) -> &str {
+        &self.tenant_id
+    }
+
+    /// Override the tenant — used by the per-tenant runner cache when cloning the
+    /// base config for a tenant-scoped runner so its tasks namespace correctly.
+    pub fn set_tenant_id(&mut self, tenant_id: impl Into<String>) {
+        self.tenant_id = tenant_id.into();
+    }
+
     /// Trusted org UUID forwarded to the reconciler for audit logging
     /// when the signature-existence check fails.
     pub fn verification_org_id(&self) -> Option<crate::UniversalUuid> {
@@ -322,6 +339,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 runner_id: None,
                 runner_name: None,
                 default_executor: "default".to_string(),
+                tenant_id: "public".to_string(),
             },
         }
     }

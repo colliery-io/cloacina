@@ -196,10 +196,23 @@ pub async fn report_result(
 /// the same access fence as the rest of the API.
 pub async fn fetch_artifact(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthenticatedKey>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(digest): Path<String>,
 ) -> Result<Response, ApiError> {
-    let dal = cloacina::dal::DAL::new(state.database.clone());
+    // CLOACI-T-0781: a tenant's compiled cdylibs live in ITS schema, so resolve
+    // the requesting agent's tenant database. A tenant-scoped agent (registered
+    // with a tenant key) fetches from its own schema; admin/public agents use the
+    // admin schema. `resolve("public")` returns the admin db, so any Some(tenant)
+    // routes correctly. Falls back to the admin db if resolution fails.
+    let db = match &auth.tenant_id {
+        Some(tenant) => state
+            .tenant_databases
+            .resolve(tenant, &state.database)
+            .await
+            .unwrap_or_else(|_| state.database.clone()),
+        None => state.database.clone(),
+    };
+    let dal = cloacina::dal::DAL::new(db);
     let bytes = dal
         .workflow_packages()
         .get_compiled_data_by_content_hash(&digest)

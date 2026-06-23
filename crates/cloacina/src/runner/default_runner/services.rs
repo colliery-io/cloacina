@@ -197,7 +197,10 @@ impl DefaultRunner {
             enable_startup_reconciliation: self.config.registry_enable_startup_reconciliation(),
             package_operation_timeout: Duration::from_secs(30),
             continue_on_package_error: true,
-            default_tenant_id: "public".to_string(),
+            // CLOACI-T-0781: namespace this runner's tasks under the tenant it
+            // serves (was hardcoded "public"), so a per-tenant runner's tasks are
+            // `tenant::pkg::wf::task` and route to that tenant's agents.
+            default_tenant_id: self.config.tenant_id().to_string(),
             // CLOACI-T-0571: forward signature-existence-check config
             // from the runner so server mode picks up the same gating
             // already plumbed via --require-signatures + --verification-org-id.

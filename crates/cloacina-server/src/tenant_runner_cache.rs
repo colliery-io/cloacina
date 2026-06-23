@@ -175,9 +175,14 @@ impl TenantRunnerCache {
             tenant_id = %tenant_id,
             "constructing per-tenant DefaultRunner (CLOACI-T-0580)"
         );
+        // CLOACI-T-0781: stamp the tenant on this runner's config so its
+        // reconciler namespaces tasks `tenant::pkg::wf::task` — that's what the
+        // fleet executor routes on, so the tenant's tasks reach its agents.
+        let mut config = self.base_config.clone();
+        config.set_tenant_id(tenant_id);
         let runner = DefaultRunner::with_database(
             tenant_database,
-            self.base_config.clone(),
+            config,
             Some(self.shared_runtime.clone()),
         )
         .await?;
