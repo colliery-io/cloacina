@@ -1,24 +1,24 @@
 ---
-id: execution-isolation-per-tenant
+id: multi-arch-artifacts-per-target
 level: task
-title: "Execution isolation — per-tenant runner namespaces tasks + tenant-scoped artifact fetch"
-short_code: "CLOACI-T-0781"
-created_at: 2026-06-23T03:33:43.441695+00:00
-updated_at: 2026-06-23T12:40:39.868771+00:00
+title: "Multi-arch artifacts — per-target cdylibs with triple-matched dispatch"
+short_code: "CLOACI-T-0780"
+created_at: 2026-06-23T02:04:15.730326+00:00
+updated_at: 2026-06-23T02:04:45.054809+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/completed"
+  - "#phase/active"
 
 
 exit_criteria_met: false
 initiative_id: CLOACI-I-0131
 ---
 
-# Execution isolation — per-tenant runner namespaces tasks + tenant-scoped artifact fetch
+# Multi-arch artifacts — per-target cdylibs with triple-matched dispatch
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -28,41 +28,39 @@ initiative_id: CLOACI-I-0131
 
 ## Objective **[REQUIRED]**
 
-Multi-tenancy demo (T-0779) revealed runtime execution isn't tenant-isolated: a
-tenant's tasks were namespaced `public::pkg::wf::task` regardless of tenant
-(reconciler default_tenant_id hardcoded "public" in services.rs:200), so they
-resolved to task_tenant=None, routed to the public/admin agents, and couldn't
-fetch their cdylib (which lives in the tenant's schema) — tenant runs hung in
-Running. Make execution tenant-isolated: a tenant's tasks namespace under it,
-route to its agents, fetch from its schema.
+A package can hold only ONE cdylib today (workflow_packages, unique per
+package+version, single compiled_data), and dispatch stamps build_target_triple
+from the SERVER host. Heterogeneous fleets can't work: a non-matching agent
+fail-closed refuses with no alternate artifact. Add per-target artifacts +
+triple-matched dispatch so a package can carry an x86_64 AND aarch64 cdylib and
+each agent is handed the one matching its target_triple. Extends the per-tenant
+compiler pattern (CLOACI-T-0779) to per-target.
 
-## Plan
+## Plan (additive — host path untouched, zero risk to current execution)
 
-- DefaultRunnerConfig gains `tenant_id` (default "public") + accessor/setter;
-  services.rs ReconcilerConfig.default_tenant_id = self.config.tenant_id();
-  tenant_runner_cache stamps it (config.set_tenant_id(tenant)) per tenant runner.
-- Agent artifact endpoint (fetch_artifact) resolves the requesting agent's tenant
-  schema (auth.tenant_id → tenant_databases.resolve), so a tenant agent fetches
-  its cdylib from its own schema (was state.database / admin only).
-- Fleet executor is already per-tenant (registrar builds tenant-scoped DAL), so
-  dispatch resolution + agent filtering (a.tenant_id == task_tenant) already work.
+- **Storage:** new `package_artifacts(content_hash, package_name, version,
+  tenant_id, target_triple, compiled_data, created_at; unique(name,version,tenant,
+  triple))` — EXTRA per-triple cdylibs. workflow_packages stays the primary
+  (host) build. sqlite + postgres migration.
+- **Dispatch:** select artifact for (package, tenant, AGENT triple) =
+  package_artifacts[triple] ?? workflow_packages primary; stamp build_target_triple
+  from the chosen artifact's actual triple (not server host). Host agents keep
+  hitting the primary (unchanged).
+- **Compiler:** `--build-target <triple>` flag (alongside --tenant-schema); when
+  set + != host, store into package_artifacts tagged with the triple. Actual
+  cross-cargo-build needs cross toolchains in the image — DEFERRED (no demo value
+  single-arch); wire the flag + storage now.
+- **Agent fetch:** unchanged (content-addressed by digest).
+- **VERIFY (single-arch):** insert a synthetic 2nd-triple artifact; assert
+  get_dispatch(package, "aarch64-…") returns it while host triple returns the
+  primary — proves triple-matched selection. Real cross-exec needs a 2nd-arch
+  runner (out of scope).
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-06-23: Found via T-0779 (acme runs stuck Running; task ns = public::…).
-- 2026-06-23: DONE + verified end-to-end. The peel was FIVE layers: (1) task
-  namespacing — DefaultRunnerConfig.tenant_id → reconciler default_tenant_id
-  (per-tenant runner stamps it) → acme tasks namespace acme:: and route to acme
-  agents; (2) dispatch artifact lookup — tenant-schema packages carry tenant_id=NULL
-  (schema is the isolation), so the schema-scoped DAL looks up by None not the
-  namespace tenant; (3) agent artifact fetch — resolve the requesting agent's tenant
-  schema; (4) WorkPacket enqueue → ADMIN delivery outbox (delivery is server-global:
-  one relay drains the admin schema, woken by the admin NOTIFY) via a separate
-  outbox_dal on the fleet executor; rows stay tenant-tagged for WS routing.
-  VERIFIED: all 3 acme workflows (billing/payroll/fulfillment) Complete on acme
-  agents; public still Completes (no regression). First fully tenant-isolated
-  execution. Commits: namespace+fetch b22pgyjcd, dispatch lookup bna56d1e4, outbox
-  b2e18hoaq.
+- 2026-06-23: Scoped off the per-tenant compiler (T-0779). User: wire up multi-arch
+  now. Additive package_artifacts + triple-matched dispatch; cross-toolchain
+  deferred. Building.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -97,8 +95,6 @@ route to its agents, fetch from its schema.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
-
-## Acceptance Criteria
 
 ## Acceptance Criteria
 

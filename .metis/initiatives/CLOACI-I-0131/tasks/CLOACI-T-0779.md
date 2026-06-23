@@ -61,6 +61,27 @@ keys), distinct curated subset, in-app switcher.
 - 2026-06-23: Scoped (data+access isolation, distinct curated subset, in-app
   switcher). Building P1 (server+seeder) then P2 (UI switcher). Note: rides the
   next reseed, which also restores the T-0778 demo trigger to manual-only.
+- 2026-06-23: P1 (server bootstrap_demo_tenant_keys + harness include/exclude
+  filters) + P2 (multi-connection AuthContext + TenantSwitcher) built+committed.
+  Access isolation verified (scoped keys 403 cross-tenant; no acme leak in public).
+  Per feedback, acme gets its OWN distinctly-named packages (acme_billing/payroll/
+  fulfillment), public excludes acme-*.
+- 2026-06-23: BLOCKER found + RESOLVED. Tenant packages never compiled — the
+  shared compiler's claim_next_build only scans its own (public) schema. User
+  flagged that a single compiler scanning all schemas would expose tenants' source/
+  logs to each other (defeats isolation). Investigated the fleet: it isolates via
+  tenant-scoped agent registration (agent.tenant_id filter in fleet_executor) but
+  agents are DB-less task-runners with NO toolchain, so compilation can't ride the
+  fleet directly. FIX = per-tenant compiler (the fleet's tenant-scoped-worker
+  principle applied to compilation): added --tenant-schema to cloacina-compiler
+  (scopes claim/build/logs to one schema via try_new_with_schema; skips migrations;
+  tolerates missing schema). Demo adds compiler-acme scoped to acme, sharing the
+  framework build cache (cloacina crates aren't tenant data) while source/logs/
+  schema/DB-artifacts stay per-tenant; sequenced after the public seed (no lock
+  contention). TRIPLET note: build_target_triple is stamped from the server host
+  (uniform-arch assumption — all same image); agents fail-closed refuse on mismatch.
+  Per-package triple stamping (from PackageMetadata.architecture) is the follow-up
+  for true per-arch tenant compilers. Reseed bmjajwkp5 verifying.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
