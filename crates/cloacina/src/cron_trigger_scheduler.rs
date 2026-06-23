@@ -45,6 +45,8 @@
 //! ```
 
 use crate::context::Context;
+use crate::dal::UnifiedRegistryStorage;
+use crate::registry::workflow_registry::WorkflowRegistryImpl;
 use crate::cron_evaluator::CronEvaluator;
 use crate::dal::DAL;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
@@ -923,6 +925,16 @@ impl Scheduler {
                 message: format!("Context error: {}", e),
             })?;
 
+        // CLOACI-T-0778: snapshot the context before executing so every
+        // fanned-out workflow receives an identical copy (Context isn't Clone).
+        let ctx_json = context
+            .to_json()
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+                message: format!("Context serialize error: {}", e),
+            })?;
+
+        // Primary: the trigger's `on` workflow. Drives the audit record + return
+        // value, and propagates its error (unchanged behavior).
         let result = self
             .executor
             .execute(&schedule.workflow_name, context)
@@ -932,6 +944,47 @@ impl Scheduler {
             "Successfully handed off workflow '{}' to executor (execution_id: {})",
             schedule.workflow_name, result.execution_id
         );
+
+        // CLOACI-T-0778: fan out to every OTHER workflow subscribed to this
+        // trigger via `#[workflow(triggers = […])]` — a trigger is a single point
+        // that multiple workflows link to, and an auto-fire must reach all of them
+        // (matching the manual fire, CLOACI-T-0777). Best-effort: a secondary
+        // failure is logged, never fails the primary. Skipped for cron schedules
+        // (no trigger_name) — they bind exactly one workflow.
+        if schedule.trigger_name.is_some() {
+            let storage = UnifiedRegistryStorage::new(self.dal.database().clone());
+            if let Ok(registry) = WorkflowRegistryImpl::new(storage, self.dal.database().clone()) {
+                match registry.find_trigger_subscribers(trigger_name).await {
+                    Ok(subscribers) => {
+                        for wf in subscribers {
+                            if wf == schedule.workflow_name {
+                                continue;
+                            }
+                            match Context::from_json(ctx_json.clone()) {
+                                Ok(ctx) => match self.executor.execute(&wf, ctx).await {
+                                    Ok(r) => debug!(
+                                        "trigger '{}' fan-out: fired '{}' (execution_id: {})",
+                                        trigger_name, wf, r.execution_id
+                                    ),
+                                    Err(e) => warn!(
+                                        "trigger '{}' fan-out: failed to fire '{}': {}",
+                                        trigger_name, wf, e
+                                    ),
+                                },
+                                Err(e) => warn!(
+                                    "trigger '{}' fan-out: context rebuild failed for '{}': {}",
+                                    trigger_name, wf, e
+                                ),
+                            }
+                        }
+                    }
+                    Err(e) => warn!(
+                        "trigger '{}' fan-out: subscriber lookup failed: {}",
+                        trigger_name, e
+                    ),
+                }
+            }
+        }
 
         Ok(UniversalUuid(result.execution_id))
     }
