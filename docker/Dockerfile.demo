@@ -38,14 +38,18 @@ COPY . /workspace
 # extracted binaries land in the layer; runtime package builds start with a
 # cold CARGO_TARGET_DIR (cheap: the binaries' dep set ≠ the `packaged`-feature
 # set uploaded workflows compile against).
+# Which workspace binaries to build. Default = all three: the shared builder feeds
+# BOTH the `server` target (cloacina-server) and the `workspace` target
+# (compiler + cloacinactl). CLOACI-T-0780: a per-target compiler image overrides
+# this to just the binaries the `workspace` target needs, skipping the heavy
+# cloacina-server (axum/tower/tungstenite server stack) it never runs — which is
+# the long pole under arch emulation.
+ARG CARGO_BINS="cloacina-server cloacina-compiler cloacinactl"
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/workspace/target \
-    cargo build --release --locked \
-        --bin cloacina-server --bin cloacina-compiler --bin cloacinactl \
- && cp target/release/cloacina-server \
-       target/release/cloacina-compiler \
-       target/release/cloacinactl /usr/local/bin/
+    cargo build --release --locked $(for b in $CARGO_BINS; do echo --bin "$b"; done) \
+ && for b in $CARGO_BINS; do cp "target/release/$b" /usr/local/bin/; done
 
 # ---------------------------------------------------------------------------
 # server runtime — slim image, server binary only.

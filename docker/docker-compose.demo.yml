@@ -202,6 +202,11 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.demo
       target: workspace
+      args:
+        # CLOACI-T-0780: build ONLY the binaries this image runs — skip the heavy
+        # cloacina-server stack the per-target compiler never executes (cuts most
+        # of the emulated amd64 compile).
+        CARGO_BINS: "cloacina-compiler cloacinactl"
     command:
       - "--bind"
       - "0.0.0.0:9000"
