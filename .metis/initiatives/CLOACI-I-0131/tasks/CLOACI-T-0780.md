@@ -124,6 +124,23 @@ cdylib (dispatch hands it package_artifacts[x86_64-linux], not the aarch64 prima
   triple guard, but noisy. Cleanest watch = scale down the aarch64 `agent` replicas.
   Building all public packages for x86 (or scoping the agent) removes it — optional.
 
+## COMPILE-EVERYTHING + INTERPRETED-PACKAGES (heterogeneous fleet complete)
+
+- compiler-x86 default = compile WHOLE catalog (dropped --build-target-package). Bug
+  found+fixed: execute_build returns EMPTY for interpreted (Python) packages (no arch
+  cdylib) → run_per_target stored sha256("")=e3b0c44 empty rows; now skips empty
+  artifacts. Rust packages backfill per-arch; Python skipped.
+- INTERPRETED-PACKAGES-ARE-ARCH-INDEPENDENT (fleet_executor): resolve (digest,
+  language) BEFORE agent selection; for language=python skip the arch filter (any
+  agent eligible) and stamp the SELECTED agent's own triple so the fail-closed guard
+  is a no-op. Compiled (Rust) path unchanged. DEMONSTRATED: with aarch64 public
+  agents stopped, demo_py_workflow (4 Python tasks) ran to Completion on agent-x86
+  (x86 running Python via its interpreter). "Any agent runs any package" now literal:
+  Rust → any agent whose arch has a cdylib; Python → any agent.
+- INFRA: emulated amd64 IMAGE builds (heavy) crash Docker Desktop alongside the live
+  stack — build with the stack down, or recreate (not rebuild) once the image exists.
+  Native server rebuilds are stable. package_artifacts survives crashes (pg volume).
+
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
 {Delete this section when task is assigned to an initiative}
