@@ -201,6 +201,24 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .unwrap_or_default())
     }
 
+    /// Workflow names subscribed to `trigger_name` via `#[workflow(triggers = […])]`
+    /// (CLOACI-T-0777) — the fan-out set for a manual trigger fire. The schedules
+    /// table only carries the trigger's primary `on` workflow, so subscriptions
+    /// (which may live in other packages) are resolved here from package metadata.
+    pub async fn find_trigger_subscribers(
+        &self,
+        trigger_name: &str,
+    ) -> Result<Vec<String>, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        let mut seen = std::collections::HashSet::new();
+        Ok(workflows
+            .into_iter()
+            .filter(|w| w.workflow_triggers.iter().any(|t| t == trigger_name))
+            .map(|w| w.workflow_name)
+            .filter(|name| seen.insert(name.clone()))
+            .collect())
+    }
+
     /// Declared input slots for a non-workflow injectable surface
     /// (`kind` = `"graph"` / `"reactor"` / `"accumulator"`) addressed by `name`,
     /// scanned across all registered packages. Empty when the surface is unknown
@@ -552,6 +570,7 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             paused: false,
             declared_params: package_metadata.declared_params.clone(),
             declared_surfaces: package_metadata.declared_surfaces.clone(),
+            workflow_triggers: package_metadata.workflow_triggers.clone(),
         };
 
         Ok(Some(LoadedWorkflow {

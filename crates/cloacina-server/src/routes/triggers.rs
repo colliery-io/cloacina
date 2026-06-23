@@ -423,29 +423,22 @@ pub async fn fire_trigger(
         }
     };
 
-    // Fan-out set: every enabled, non-paused `trigger` schedule naming this trigger.
-    let schedules = match cloacina::dal::DAL::new(tenant_db.clone())
-        .schedule()
-        .list(None, false, 1000, 0)
-        .await
-    {
-        Ok(s) => s,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+    // Fan-out set (CLOACI-T-0777): every workflow subscribed to this trigger via
+    // `#[workflow(triggers = […])]`. The schedules table carries only the
+    // trigger's primary `on` workflow, so subscriptions — which may live in other
+    // packages — are resolved from the registry's workflow metadata.
+    let registry = {
+        let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+        WorkflowRegistryImpl::new(storage, tenant_db.clone()).ok()
     };
-    // Every enabled, non-paused schedule naming this trigger — the fan-out set.
-    // Both event (`trigger`) and `cron` schedules carry a trigger_name, so a
-    // manual fire works for either; the value is the fan-out when several
-    // workflows share one trigger name.
-    let subscribers: Vec<_> = schedules
-        .into_iter()
-        .filter(|s| {
-            s.trigger_name.as_deref() == Some(name.as_str()) && s.enabled.0 && !s.paused.0
-        })
-        .collect();
+    let subscribers: Vec<String> = match &registry {
+        Some(r) => r.find_trigger_subscribers(&name).await.unwrap_or_default(),
+        None => Vec::new(),
+    };
     if subscribers.is_empty() {
         return ApiError::not_found(
             "trigger_not_found",
-            format!("trigger '{}' has no enabled subscribers", name),
+            format!("trigger '{}' has no subscribed workflows", name),
         )
         .into_response();
     }
@@ -454,11 +447,8 @@ pub async fn fire_trigger(
     // pass-through schema — the union of its subscribers' declared params. An
     // untyped trigger (no subscriber declares params) accepts a free-form event.
     if body.event.is_some() {
-        let storage = UnifiedRegistryStorage::new(tenant_db.clone());
-        if let Ok(registry) = WorkflowRegistryImpl::new(storage, tenant_db.clone()) {
-            let workflows: Vec<String> =
-                subscribers.iter().map(|s| s.workflow_name.clone()).collect();
-            let slots = trigger_declared_slots(&registry, &workflows).await;
+        if let Some(r) = &registry {
+            let slots = trigger_declared_slots(r, &subscribers).await;
             if !slots.is_empty() {
                 let errors =
                     validate_declared_params(&slots, body.event.as_ref().and_then(|v| v.as_object()));
@@ -492,7 +482,7 @@ pub async fn fire_trigger(
 
     let triggered_at = chrono::Utc::now().to_rfc3339();
     let mut executions: Vec<FiredExecution> = Vec::with_capacity(subscribers.len());
-    for s in &subscribers {
+    for workflow_name in &subscribers {
         let mut context = cloacina::Context::new();
         let _ = context.insert("trigger_name".to_string(), serde_json::json!(name));
         let _ = context.insert("triggered_at".to_string(), serde_json::json!(triggered_at));
@@ -502,7 +492,7 @@ pub async fn fire_trigger(
                 let _ = context.insert(k.clone(), v.clone());
             }
         }
-        match tenant_runner.execute_async(&s.workflow_name, context).await {
+        match tenant_runner.execute_async(workflow_name, context).await {
             Ok(execution) => {
                 // Mark the run as a manual operator intervention (CLOACI-T-0776).
                 if let Ok(db) = state
@@ -521,14 +511,14 @@ pub async fn fire_trigger(
                         .await;
                 }
                 executions.push(FiredExecution {
-                    workflow_name: s.workflow_name.clone(),
+                    workflow_name: workflow_name.clone(),
                     execution_id: execution.execution_id.to_string(),
                 });
             }
             Err(e) => {
                 warn!(
                     "trigger '{}' fan-out: failed to fire '{}': {}",
-                    name, s.workflow_name, e
+                    name, workflow_name, e
                 );
             }
         }
@@ -604,20 +594,17 @@ pub async fn get_trigger_interface(
         }
     };
 
-    let schedules = cloacina::dal::DAL::new(tenant_db.clone())
-        .schedule()
-        .list(None, false, 1000, 0)
-        .await
-        .unwrap_or_default();
-    let workflows: Vec<String> = schedules
-        .into_iter()
-        .filter(|s| s.trigger_name.as_deref() == Some(name.as_str()) && s.enabled.0)
-        .map(|s| s.workflow_name)
-        .collect();
-
+    // Subscribers = workflows that list this trigger in `#[workflow(triggers=[…])]`
+    // (CLOACI-T-0777), the same fan-out set `fire_trigger` uses.
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
     let slots = match WorkflowRegistryImpl::new(storage, tenant_db) {
-        Ok(registry) => trigger_declared_slots(&registry, &workflows).await,
+        Ok(registry) => {
+            let workflows = registry
+                .find_trigger_subscribers(&name)
+                .await
+                .unwrap_or_default();
+            trigger_declared_slots(&registry, &workflows).await
+        }
         Err(_) => Vec::new(),
     };
 

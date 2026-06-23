@@ -120,6 +120,14 @@ pub struct WorkflowMetadata {
     /// validate operator injections. Empty when none are declared.
     #[serde(default)]
     pub declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
+
+    /// CLOACI-T-0777: trigger names this workflow subscribes to, from
+    /// `#[workflow(triggers = […])]`. A manual trigger fire fans out to every
+    /// workflow whose list includes the fired trigger — this is the runtime
+    /// source of truth for that fan-out (schedules carry only the trigger's
+    /// primary `on` workflow). Empty when the workflow subscribes to none.
+    #[serde(default)]
+    pub workflow_triggers: Vec<String>,
 }
 
 /// A single source file extracted from a package's retained `.cloacina`

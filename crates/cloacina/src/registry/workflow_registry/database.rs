@@ -411,6 +411,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
                 declared_surfaces: package_metadata.declared_surfaces.clone(),
+                workflow_triggers: package_metadata.workflow_triggers.clone(),
             });
         }
 
@@ -471,6 +472,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
                 declared_surfaces: package_metadata.declared_surfaces.clone(),
+                workflow_triggers: package_metadata.workflow_triggers.clone(),
             });
         }
 
@@ -633,6 +635,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
                 declared_surfaces: package_metadata.declared_surfaces.clone(),
+                workflow_triggers: package_metadata.workflow_triggers.clone(),
             };
 
             Ok(Some((
@@ -707,6 +710,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
                 declared_surfaces: package_metadata.declared_surfaces.clone(),
+                workflow_triggers: package_metadata.workflow_triggers.clone(),
             };
 
             Ok(Some((
@@ -1022,6 +1026,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 paused: record.paused.is_true(),
                 declared_params: package_metadata.declared_params.clone(),
                 declared_surfaces: package_metadata.declared_surfaces.clone(),
+                workflow_triggers: package_metadata.workflow_triggers.clone(),
             },
             build_status: record.build_status,
             build_error: record.build_error,
