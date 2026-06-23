@@ -251,19 +251,31 @@ pub(crate) async fn run_per_target(
                     info!(%name, %version, %target, "per-target: building artifact");
                     match crate::build::execute_build(&registry, package_id.0, &config).await {
                         crate::build::BuildOutcome::Success { artifact, .. } => {
-                            let mut hasher = Sha256::new();
-                            hasher.update(&artifact);
-                            let digest = format!("{:x}", hasher.finalize());
-                            match dal
-                                .workflow_packages()
-                                .upsert_artifact(&name, &version, None, &target, &digest, artifact)
-                                .await
-                            {
-                                Ok(()) => info!(
-                                    %name, %version, %target, %digest,
-                                    "per-target: stored artifact"
-                                ),
-                                Err(e) => warn!(%e, %name, "per-target: upsert_artifact failed"),
+                            // CLOACI-T-0780: an empty artifact means there is no
+                            // arch-specific cdylib — an interpreted (e.g. Python)
+                            // package that runs from its source on ANY agent. There's
+                            // nothing to build per-arch, so skip it; storing an empty
+                            // row would hand an agent an empty `.so` to load.
+                            if artifact.is_empty() {
+                                info!(
+                                    %name, %version, %target,
+                                    "per-target: no cdylib (arch-independent package) — skipping"
+                                );
+                            } else {
+                                let mut hasher = Sha256::new();
+                                hasher.update(&artifact);
+                                let digest = format!("{:x}", hasher.finalize());
+                                match dal
+                                    .workflow_packages()
+                                    .upsert_artifact(&name, &version, None, &target, &digest, artifact)
+                                    .await
+                                {
+                                    Ok(()) => info!(
+                                        %name, %version, %target, %digest,
+                                        "per-target: stored artifact"
+                                    ),
+                                    Err(e) => warn!(%e, %name, "per-target: upsert_artifact failed"),
+                                }
                             }
                         }
                         crate::build::BuildOutcome::Failed(err) => {
