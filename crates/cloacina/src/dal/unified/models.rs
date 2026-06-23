@@ -23,7 +23,8 @@ use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
     key_trust_acls, package_signatures, reactor_state, recovery_events, schedule_executions,
     schedules, signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions,
-    task_outbox, trusted_keys, workflow_executions, workflow_packages, workflow_registry,
+    package_artifacts, task_outbox, trusted_keys, workflow_executions, workflow_packages,
+    workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -452,6 +453,36 @@ pub struct NewUnifiedWorkflowPackage {
     pub build_error: Option<String>,
     pub build_claimed_at: Option<UniversalTimestamp>,
     pub compiled_at: Option<UniversalTimestamp>,
+}
+
+// ============================================================================
+// Per-target artifacts (CLOACI-T-0780, multi-arch)
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = package_artifacts)]
+pub struct PackageArtifact {
+    pub id: UniversalUuid,
+    pub package_name: String,
+    pub version: String,
+    pub tenant_id: Option<String>,
+    pub target_triple: String,
+    pub content_hash: String,
+    pub compiled_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = package_artifacts)]
+pub struct NewPackageArtifact {
+    pub id: UniversalUuid,
+    pub package_name: String,
+    pub version: String,
+    pub tenant_id: Option<String>,
+    pub target_triple: String,
+    pub content_hash: String,
+    pub compiled_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
 }
 
 // ============================================================================

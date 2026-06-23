@@ -306,6 +306,9 @@ impl TaskExecutor for FleetExecutor {
             };
             let agent_id = agent.agent_id.clone();
             let tenant_id = agent.tenant_id.clone();
+            // CLOACI-T-0780: the selected agent's target triple — dispatch hands it
+            // the cdylib built for THIS arch when one exists (else the primary).
+            let agent_triple = agent.target_triple.clone();
 
             // ── 3. Resolve the task's dependencies from the server Runtime, then
             //       build the merged dependency context via the SHARED
@@ -393,6 +396,22 @@ impl TaskExecutor for FleetExecutor {
                 }
             };
 
+            // ── 3b. CLOACI-T-0780 (multi-arch): if a per-target artifact exists for
+            //        the selected agent's triple, hand it THAT cdylib and stamp its
+            //        actual triple; otherwise use the primary (host) build. The
+            //        agent compares build_target_triple to its own and fail-closed
+            //        refuses a mismatch — so an agent whose arch has no build (and
+            //        differs from the host) correctly bounces rather than crashing.
+            let (digest, build_target_triple) = match self
+                .dal
+                .workflow_packages()
+                .get_artifact_digest_for_target(&namespace.package_name, &agent_triple)
+                .await
+            {
+                Ok(Some(arch_digest)) => (arch_digest, agent_triple.clone()),
+                _ => (digest, host_target_triple()),
+            };
+
             // ── 4. Build the work packet with real context + real artifact ref.
             let packet = WorkPacket {
                 protocol_version: AGENT_PROTOCOL_VERSION,
@@ -404,7 +423,7 @@ impl TaskExecutor for FleetExecutor {
                 artifact: ArtifactRef {
                     fetch_url: format!("/v1/agent/artifact/{}", digest),
                     digest,
-                    build_target_triple: host_target_triple(),
+                    build_target_triple,
                 },
                 timeout_seconds: 300,
                 tenant_id: tenant_id.clone(),

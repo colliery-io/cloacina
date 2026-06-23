@@ -572,13 +572,19 @@ impl<'a> WorkflowPackagesDAL<'a> {
         &self,
         content_hash: &str,
     ) -> Result<Option<Vec<u8>>, RegistryError> {
-        crate::dispatch_backend!(
+        let primary = crate::dispatch_backend!(
             self.dal.backend(),
             self.get_compiled_data_by_content_hash_postgres(content_hash)
                 .await,
             self.get_compiled_data_by_content_hash_sqlite(content_hash)
                 .await
-        )
+        )?;
+        if primary.is_some() {
+            return Ok(primary);
+        }
+        // CLOACI-T-0780: the digest may name a per-target artifact (multi-arch),
+        // not the primary build — fall back to package_artifacts.
+        self.get_artifact_data_by_content_hash(content_hash).await
     }
 
     #[cfg(feature = "postgres")]
@@ -631,6 +637,205 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
         Ok(result.and_then(|r| r.compiled_data.map(|b| b.into_inner())))
+    }
+
+    /// CLOACI-T-0780 (multi-arch): the content-hash of the per-target artifact for
+    /// `(package, target_triple)`, or `None` if there's no build for that target.
+    /// Dispatch prefers this over the primary build so each agent gets its arch.
+    pub async fn get_artifact_digest_for_target(
+        &self,
+        package_name: &str,
+        target_triple: &str,
+    ) -> Result<Option<String>, RegistryError> {
+        use crate::database::schema::unified::package_artifacts;
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let (pn, tt) = (package_name.to_string(), target_triple.to_string());
+                conn.interact(move |conn| {
+                    package_artifacts::table
+                        .filter(package_artifacts::package_name.eq(pn))
+                        .filter(package_artifacts::target_triple.eq(tt))
+                        .select(package_artifacts::content_hash)
+                        .first::<String>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let (pn, tt) = (package_name.to_string(), target_triple.to_string());
+                conn.interact(move |conn| {
+                    package_artifacts::table
+                        .filter(package_artifacts::package_name.eq(pn))
+                        .filter(package_artifacts::target_triple.eq(tt))
+                        .select(package_artifacts::content_hash)
+                        .first::<String>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            }
+        )
+    }
+
+    /// CLOACI-T-0780: cdylib bytes of a per-target artifact by content-hash — the
+    /// fallback `get_compiled_data_by_content_hash` uses so the agent artifact
+    /// endpoint can serve per-arch builds (not just the primary).
+    pub async fn get_artifact_data_by_content_hash(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        use crate::database::schema::unified::package_artifacts;
+        let bytes: Option<crate::database::universal_types::UniversalBinary> = crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let ch = content_hash.to_string();
+                conn.interact(move |conn| {
+                    package_artifacts::table
+                        .filter(package_artifacts::content_hash.eq(ch))
+                        .select(package_artifacts::compiled_data)
+                        .first::<crate::database::universal_types::UniversalBinary>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                let ch = content_hash.to_string();
+                conn.interact(move |conn| {
+                    package_artifacts::table
+                        .filter(package_artifacts::content_hash.eq(ch))
+                        .select(package_artifacts::compiled_data)
+                        .first::<crate::database::universal_types::UniversalBinary>(conn)
+                        .optional()
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?
+            }
+        );
+        Ok(bytes.map(|b| b.into_inner()))
+    }
+
+    /// CLOACI-T-0780: store (replace) the per-target artifact for
+    /// `(package, version, tenant, target_triple)`. Called by a target-scoped
+    /// compiler. Delete-then-insert keeps it idempotent across rebuilds.
+    pub async fn upsert_artifact(
+        &self,
+        package_name: &str,
+        version: &str,
+        tenant_id: Option<&str>,
+        target_triple: &str,
+        content_hash: &str,
+        compiled_data: Vec<u8>,
+    ) -> Result<(), RegistryError> {
+        use crate::database::schema::unified::package_artifacts;
+        use crate::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
+        let new = crate::dal::unified::models::NewPackageArtifact {
+            id: UniversalUuid::new_v4(),
+            package_name: package_name.to_string(),
+            version: version.to_string(),
+            tenant_id: tenant_id.map(|s| s.to_string()),
+            target_triple: target_triple.to_string(),
+            content_hash: content_hash.to_string(),
+            compiled_data: UniversalBinary::new(compiled_data),
+            created_at: UniversalTimestamp::now(),
+        };
+        let (pn, ver, tt) = (
+            package_name.to_string(),
+            version.to_string(),
+            target_triple.to_string(),
+        );
+        let tid = tenant_id.map(|s| s.to_string());
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                        let mut del = diesel::delete(package_artifacts::table)
+                            .filter(package_artifacts::package_name.eq(&pn))
+                            .filter(package_artifacts::version.eq(&ver))
+                            .filter(package_artifacts::target_triple.eq(&tt))
+                            .into_boxed();
+                        del = match &tid {
+                            Some(t) => del.filter(package_artifacts::tenant_id.eq(t.clone())),
+                            None => del.filter(package_artifacts::tenant_id.is_null()),
+                        };
+                        del.execute(conn)?;
+                        diesel::insert_into(package_artifacts::table)
+                            .values(&new)
+                            .execute(conn)?;
+                        Ok(())
+                    })
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            },
+            {
+                let conn = self
+                    .dal
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                        let mut del = diesel::delete(package_artifacts::table)
+                            .filter(package_artifacts::package_name.eq(&pn))
+                            .filter(package_artifacts::version.eq(&ver))
+                            .filter(package_artifacts::target_triple.eq(&tt))
+                            .into_boxed();
+                        del = match &tid {
+                            Some(t) => del.filter(package_artifacts::tenant_id.eq(t.clone())),
+                            None => del.filter(package_artifacts::tenant_id.is_null()),
+                        };
+                        del.execute(conn)?;
+                        diesel::insert_into(package_artifacts::table)
+                            .values(&new)
+                            .execute(conn)?;
+                        Ok(())
+                    })
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+                .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+            }
+        )
     }
 
     /// Resolve the **active** content-hash (digest) for a package name within a

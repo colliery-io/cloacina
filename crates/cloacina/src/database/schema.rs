@@ -214,6 +214,25 @@ mod unified_schema {
         }
     }
 
+    // CLOACI-T-0780: per-target compiled artifacts (multi-arch). workflow_packages
+    // holds the primary (host-arch) build; this holds extra cdylibs, one per
+    // target_triple, so dispatch can hand each agent the matching arch.
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBinary};
+
+        package_artifacts (id) {
+            id -> DbUuid,
+            package_name -> Text,
+            version -> Text,
+            tenant_id -> Nullable<Text>,
+            target_triple -> Text,
+            content_hash -> Text,
+            compiled_data -> DbBinary,
+            created_at -> DbTimestamp,
+        }
+    }
+
     // =========================================================================
     // Unified Schedule Tables
     // =========================================================================
