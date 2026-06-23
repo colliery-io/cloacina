@@ -1,24 +1,24 @@
 ---
-id: unify-trigger-fan-out-scheduler
+id: demo-multi-tenancy-seed-a-second
 level: task
-title: "Unify trigger fan-out — scheduler auto-poll fires all subscribed workflows, not just the primary"
-short_code: "CLOACI-T-0778"
-created_at: 2026-06-23T00:30:29.054879+00:00
-updated_at: 2026-06-23T00:48:51.239909+00:00
+title: "Demo multi-tenancy — seed a second tenant with a scoped key to demonstrate isolation"
+short_code: "CLOACI-T-0779"
+created_at: 2026-06-23T00:46:41.389976+00:00
+updated_at: 2026-06-23T00:46:41.389976+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/completed"
+  - "#phase/todo"
 
 
 exit_criteria_met: false
 initiative_id: CLOACI-I-0131
 ---
 
-# Unify trigger fan-out — scheduler auto-poll fires all subscribed workflows, not just the primary
+# Demo multi-tenancy — seed a second tenant with a scoped key to demonstrate isolation
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -28,37 +28,7 @@ initiative_id: CLOACI-I-0131
 
 ## Objective **[REQUIRED]**
 
-A trigger is a single point that multiple workflows link to (via
-`#[workflow(triggers=[…])]`) and that fans out to all of them on EVERY fire.
-CLOACI-T-0777 wired the manual fire to fan out by subscription, but the
-scheduler's auto-poll path (`execute_trigger_workflow`) still fires only
-`schedule.workflow_name` (the trigger's primary `on`). Unify: auto-poll fans out
-to the union of {primary `on`} ∪ {subscribers}, matching the manual fire.
-
-## Plan
-
-- `Scheduler.dal: Arc<DAL>` exposes `database()` → build a `WorkflowRegistryImpl`
-  and call `find_trigger_subscribers(trigger_name)` (T-0777).
-- `execute_trigger_workflow`: targets = unique({schedule.workflow_name} ∪
-  subscribers); execute each with the trigger context (clone per workflow); return
-  the primary's execution id for the audit. Skip the lookup when `trigger_name` is
-  None (cron schedules) — unchanged. Secondary failures logged, not fatal.
-
-## Status Updates **[REQUIRED]**
-
-- 2026-06-22: Scoped off T-0777. User: "unify it — it's supposed to fan out to
-  allow multiple workflows to link to 1 trigger." Implementing.
-- 2026-06-22: DONE + verified. execute_trigger_workflow snapshots the context
-  (to_json), fires the primary `on` (unchanged audit/return/error-prop), then fans
-  out to every other subscriber via find_trigger_subscribers + executor.execute
-  (context rebuilt per workflow via from_json). Best-effort on secondaries; skipped
-  for cron schedules (no trigger_name). VERIFIED LIVE: temporarily flipped demo
-  settlement_close to auto-fire (Fire/10s), reseeded, and with NO manual fire BOTH
-  settle_ledger (primary) AND settle_audit (subscriber) auto-fired with
-  trigger_origin=null. settle_audit auto-firing is the definitive proof — pre-T-0778
-  the scheduler could only fire the `on`. Fixture reverted to manual-only
-  (Skip/3600s). Manual-fire regression re-checked green (fired:2). Committed in
-  cron_trigger_scheduler.rs.
+{Clear statement of what this task accomplishes}
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -93,10 +63,6 @@ to the union of {primary `on`} ∪ {subscribers}, matching the manual fire.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
-
-## Acceptance Criteria
-
-## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
