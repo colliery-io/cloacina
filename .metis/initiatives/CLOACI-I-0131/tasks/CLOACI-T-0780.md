@@ -4,14 +4,14 @@ level: task
 title: "Multi-arch artifacts — per-target cdylibs with triple-matched dispatch"
 short_code: "CLOACI-T-0780"
 created_at: 2026-06-23T02:04:15.730326+00:00
-updated_at: 2026-06-23T02:04:45.054809+00:00
+updated_at: 2026-06-23T17:32:23.061630+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -61,6 +61,68 @@ compiler pattern (CLOACI-T-0779) to per-target.
 - 2026-06-23: Scoped off the per-tenant compiler (T-0779). User: wire up multi-arch
   now. Additive package_artifacts + triple-matched dispatch; cross-toolchain
   deferred. Building.
+- 2026-06-23: MATCHING HALF DONE + verified. Shipped: package_artifacts table
+  (sqlite 027 / postgres 031); DAL get_artifact_digest_for_target /
+  get_artifact_data_by_content_hash / upsert_artifact, with
+  get_compiled_data_by_content_hash falling back to package_artifacts; fleet
+  dispatch prefers the artifact for the SELECTED AGENT's triple and stamps
+  build_target_triple from it (was always the server host), else the primary.
+  Commits b5l0qjtj9 (core) + the trace-downgrade. VERIFIED synthetically: a
+  package_artifacts row for demo-slow-rust@aarch64-linux made the dispatch resolve
+  Ok(Some("synthetic-multiarch-001")), the agent fetched THAT digest via the
+  fallback (7×), and the run Completed — while cron packages with no per-target row
+  returned Ok(None) → primary. The agent fail-closed triple guard is unchanged.
+  REMAINING (producer half, deferred — no single-arch demo value): a compiler
+  `--build-target` that fills package_artifacts needs (a) a per-(package,target)
+  build queue [the pending queue is per-package today, so host+target compilers
+  would race one row], and (b) real target-arch runners to native-build (or cross
+  toolchains in the image). That's a separate follow-on; the matching/runtime half
+  this task targeted is complete.
+
+## Producer-half plan (phase 2 — user chose to build it; emulate targets via docker linux/amd64)
+
+Model = SCAN-AND-FILL (avoids the per-package pending-queue race): a per-target
+compiler doesn't claim pending rows; it finds SUCCESS packages lacking ITS arch's
+artifact and builds them from the retained source (get_source_for_build), then
+upserts package_artifacts[triple]. Native build in an emulated arch container ⇒
+no cross-toolchains. Key scheme facts (verified in code):
+- execute_build returns the cdylib as Vec<u8>; workflow_packages.content_hash is
+  the SOURCE hash (same across arches) → per-target rows MUST use a distinct hash
+  = sha256(cdylib bytes), so each arch has its own digest (no collision).
+- get_source_for_build is gated build_status='success' — perfect for scan-and-fill.
+- agent + compiler both derive the triple from host_target_triple() in their own
+  container, so they align (x86 container ⇒ "x86_64-linux" on both sides).
+
+Steps: (1) DAL find_packages_missing_target_artifact(triple, tenant[, name filter])
+→ success rows with no package_artifacts[triple]; (2) compiler --build-target
+<triple> runs the scan-and-fill loop (reuse execute_build; sha256(cdylib) →
+upsert_artifact) instead of claim-pending; optional package-name filter so the
+emulated build stays cheap (just demo-slow-rust); (3) demo compiler-x86
+(platform linux/amd64, --build-target x86_64-linux, filter demo-slow-rust) +
+agent-x86 (platform linux/amd64); (4) VERIFY: x86 agent runs demo_slow on the x86
+cdylib (dispatch hands it package_artifacts[x86_64-linux], not the aarch64 primary).
+
+## PRODUCER HALF — DONE + VERIFIED (true cross-arch execution)
+
+- Built: DAL find_packages_missing_target_artifact; compiler --build-target/
+  --build-target-package + run_per_target scan-and-fill (reuse execute_build,
+  sha256(cdylib) -> upsert_artifact); demo compiler-x86 + agent-x86 (platform
+  linux/amd64, profile 'multiarch'). Trim: build-arg CARGO_BINS builds compiler-x86
+  with compiler+cloacinactl only (skips the cloacina-server crate). Commits on main.
+- ENV LEARNINGS: qemu segfaults compiling Rust under emulation (rustc stack) — FIX
+  = Rosetta (UseVirtualizationFrameworkRosetta=true), compiles cleanly. `docker
+  compose build` delegated to the Desktop dashboard and silently produced no image
+  in non-TTY; direct `docker build` streams+loads (use that). Enabling Rosetta needs
+  a Docker restart, which disrupts the stack — bring postgres/server back after.
+- VERIFIED end-to-end: compiler-x86 (amd64/Rosetta) built demo-slow-rust ->
+  package_artifacts[x86_64-linux]=da17103b; agent-x86 registered x86_64-linux,
+  dispatch handed it the x86 digest, it loaded the x86 cdylib (only an x86 process
+  can) and a demo_slow run Completed on it (ingest completed while agent-x86 was the
+  only public agent). aarch64 fleet unaffected.
+- DEMO NOTE: agent-x86 is public-realm but only demo-slow-rust is built for x86, so
+  it fail-closed REFUSES other public packages (demo-cron/demo-py-cron) — correct
+  triple guard, but noisy. Cleanest watch = scale down the aarch64 `agent` replicas.
+  Building all public packages for x86 (or scoping the agent) removes it — optional.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -95,6 +157,8 @@ compiler pattern (CLOACI-T-0779) to per-target.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
