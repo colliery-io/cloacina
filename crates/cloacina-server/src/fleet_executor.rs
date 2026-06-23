@@ -408,7 +408,15 @@ impl TaskExecutor for FleetExecutor {
                 .get_artifact_digest_for_target(&namespace.package_name, &agent_triple)
                 .await
             {
-                Ok(Some(arch_digest)) => (arch_digest, agent_triple.clone()),
+                Ok(Some(arch_digest)) => {
+                    tracing::debug!(
+                        package = %namespace.package_name,
+                        triple = %agent_triple,
+                        digest = %arch_digest,
+                        "fleet: dispatching per-target artifact (CLOACI-T-0780)"
+                    );
+                    (arch_digest, agent_triple.clone())
+                }
                 _ => (digest, host_target_triple()),
             };
 
