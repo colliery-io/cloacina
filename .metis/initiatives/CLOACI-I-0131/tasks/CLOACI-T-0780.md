@@ -140,6 +140,18 @@ cdylib (dispatch hands it package_artifacts[x86_64-linux], not the aarch64 prima
 - INFRA: emulated amd64 IMAGE builds (heavy) crash Docker Desktop alongside the live
   stack — build with the stack down, or recreate (not rebuild) once the image exists.
   Native server rebuilds are stable. package_artifacts survives crashes (pg volume).
+- DISK + OOM (compile-everything under emulation): the Docker trip was DISK — the
+  amd64 build cache (~17GB) + images filled Docker's VM disk (host had space; the VM
+  disk is separately capped). Reclaim with `docker builder prune -f` + `image prune`
+  (NOT --volumes — that's the data). Separately, complex-dag-example depends on the
+  FULL cloacina lib (diesel/rdkafka/postgres/runtime); compiling it for x86 under
+  Rosetta hits rustc-LLVM OOM — it can't cross-build under emulation (native x86 HW
+  with RAM would). The scan-and-fill was retry-looping it forever → FIX: per-target
+  compiler tracks failed (name,version) and skips them this run (commit 1710a487).
+  RESULT: 10 slim Rust packages built for x86; complex-dag-example stays aarch64-only;
+  Python runs anywhere. "compile everything" = everything that CAN compile for the
+  arch on the available HW. For a clean multiarch run: bump Docker VM disk, build
+  images with the core stack stopped, then up --no-build.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
