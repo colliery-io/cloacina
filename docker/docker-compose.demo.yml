@@ -188,13 +188,14 @@ services:
     restart: on-failure
 
   # CLOACI-T-0780 — PER-TARGET compiler (multi-arch). Runs in an EMULATED
-  # linux/amd64 container (qemu), so its NATIVE cargo build produces x86_64
-  # cdylibs with no cross-toolchains. --build-target makes it scan-and-fill
-  # package_artifacts[x86_64-linux] for success packages lacking that arch —
-  # limited to demo-slow-rust to keep the emulated build cheap — ADDITIVELY: it
-  # never touches the aarch64 primary in workflow_packages, so it can't race the
-  # host compiler. Opt-in via the `multiarch` profile (emulated builds are slow);
-  # the default demo stays single-arch.
+  # linux/amd64 container (Rosetta — qemu segfaults compiling Rust), so its NATIVE
+  # cargo build produces x86_64 cdylibs with no cross-toolchains. --build-target
+  # makes it scan-and-fill package_artifacts[x86_64-linux] for EVERY success package
+  # lacking that arch (the intended "compile everything available" topology — one
+  # per-target compiler per arch the fleet runs, so any agent can run any package),
+  # ADDITIVELY: it never touches the aarch64 primary in workflow_packages, so it
+  # can't race the host compiler. Opt-in via the `multiarch` profile; the first run
+  # backfills the whole catalog under emulation, so it's slow to converge.
   compiler-x86:
     platform: linux/amd64
     profiles: ["multiarch"]
@@ -214,8 +215,8 @@ services:
       - *db_url
       - "--build-target"
       - "x86_64-linux"
-      - "--build-target-package"
-      - "demo-slow-rust"
+      # No --build-target-package: scan-and-fill the WHOLE catalog for x86 (the real
+      # heterogeneous topology). Add the flag back to scope it to one package.
       - "--poll-interval-ms"
       - "2000"
       # Separate target dir: a native amd64 build must NOT share the aarch64
