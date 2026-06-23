@@ -70,11 +70,26 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
     );
 
     // Registry is shared between the build loop and the /v1/status endpoint.
-    let database = Database::new(&config.database_url, "", 5);
-    database
-        .run_migrations()
-        .await
-        .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
+    // CLOACI-T-0779: a tenant-scoped compiler binds to that tenant's Postgres
+    // schema (build isolation — it claims/builds ONLY that tenant's packages).
+    let database = match &config.tenant_schema {
+        Some(schema) => {
+            info!(tenant_schema = %schema, "compiler scoped to tenant schema (build isolation)");
+            Database::try_new_with_schema(&config.database_url, "", 5, Some(schema)).map_err(
+                |e| anyhow::anyhow!("failed to open schema for tenant '{schema}': {e}"),
+            )?
+        }
+        None => Database::new(&config.database_url, "", 5),
+    };
+    // The public/admin schema owns its migrations; tenant schemas are migrated by
+    // the server at tenant creation, so a tenant-scoped compiler must NOT migrate
+    // (avoids racing the server and confining each compiler to its own schema).
+    if config.tenant_schema.is_none() {
+        database
+            .run_migrations()
+            .await
+            .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
+    }
     let storage = UnifiedRegistryStorage::new(database.clone());
     let registry = Arc::new(
         WorkflowRegistryImpl::new(storage, database)

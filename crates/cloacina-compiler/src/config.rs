@@ -46,6 +46,9 @@ pub struct CompilerConfig {
     pub home: PathBuf,
     pub bind: SocketAddr,
     pub database_url: String,
+    /// CLOACI-T-0779: when set, scope this compiler to a single tenant's Postgres
+    /// schema for build isolation (claims/builds only that tenant's packages).
+    pub tenant_schema: Option<String>,
     pub verbose: bool,
 
     /// How often to poll for new pending rows.

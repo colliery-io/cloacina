@@ -146,6 +146,47 @@ services:
         condition: service_healthy
     restart: on-failure
 
+  # CLOACI-T-0779 — PER-TENANT compiler for build ISOLATION. Scoped to the `acme`
+  # schema via --tenant-schema: it claims and builds ONLY acme's pending packages,
+  # writes build logs into acme's schema, and uses its OWN target dir — so a
+  # tenant's source, build logs, and artifacts never mix with another's. This
+  # mirrors the tenant-scoped agent fleet (one worker per tenant); in production
+  # you'd provision a compiler per tenant. It tolerates the acme schema not
+  # existing yet (the loop retries until harness-acme creates it), and is
+  # sequenced after the public seed so its one-time dep build doesn't compete.
+  compiler-acme:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.demo
+      target: workspace
+    command:
+      - "--bind"
+      - "0.0.0.0:9000"
+      - "--database-url"
+      - *db_url
+      - "--tenant-schema"
+      - "acme"
+      - "--poll-interval-ms"
+      - "1000"
+      # Shares the framework build cache (the cloacina crates are identical for
+      # every tenant — not tenant data — so rebuilding them per-tenant would be
+      # pure waste). Isolation that MATTERS is already enforced: this process
+      # claims only acme's packages, extracts each build's source to its own temp
+      # dir, and writes build logs into acme's schema. Sequenced after the public
+      # seed, so the public compiler is idle → no target-dir lock contention.
+      - "--cargo-target-dir"
+      - "/workspace/target"
+      - "--cargo-flag=build"
+      - "--cargo-flag=--lib"
+    environment:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      harness:
+        condition: service_completed_successfully
+    restart: on-failure
+
   # One-shot: pack the demo fixtures (paths → /workspace) into the shared
   # volume the harness uploads from. Exits when done. Reuses the `workspace`
   # image (same build as the compiler — built once), overriding the entrypoint

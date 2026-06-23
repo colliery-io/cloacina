@@ -51,6 +51,14 @@ struct Cli {
     #[arg(long, env = "DATABASE_URL")]
     database_url: String,
 
+    /// CLOACI-T-0779: scope this compiler to a single tenant's Postgres schema
+    /// for build ISOLATION. When set, the compiler claims and builds ONLY that
+    /// tenant's pending packages (separate source, logs, and target dir per
+    /// tenant — no cross-tenant leakage). Omit for the default (public) schema.
+    /// Run one compiler per tenant, mirroring the tenant-scoped agent fleet.
+    #[arg(long, env = "CLOACINA_TENANT_SCHEMA")]
+    tenant_schema: Option<String>,
+
     /// Poll interval for new pending rows (milliseconds).
     #[arg(long, default_value_t = 2000)]
     poll_interval_ms: u64,
@@ -197,6 +205,7 @@ async fn main() -> Result<()> {
         home: cli.home,
         bind: cli.bind,
         database_url: cli.database_url,
+        tenant_schema: cli.tenant_schema,
         verbose: cli.verbose,
         poll_interval: Duration::from_millis(cli.poll_interval_ms),
         heartbeat_interval: Duration::from_secs(cli.heartbeat_interval_s),
