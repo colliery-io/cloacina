@@ -229,6 +229,13 @@ pub(crate) async fn run_per_target(
     poll_ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     info!(%target, ?name_filter, "per-target compiler: scan-and-fill package_artifacts");
 
+    // CLOACI-T-0780: packages that FAILED to build for this target — skip them on
+    // later scans so a package that can't build for this arch (e.g. too heavy to
+    // compile under emulation, rustc-LLVM OOM) doesn't get retried every tick
+    // forever, burning CPU/disk. It simply has no artifact for this arch and runs
+    // where it does. Cleared only on process restart (a transient cause may resolve).
+    let mut failed: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => {
@@ -248,6 +255,9 @@ pub(crate) async fn run_per_target(
                     }
                 };
                 for (package_id, name, version) in missing {
+                    if failed.contains(&(name.clone(), version.clone())) {
+                        continue; // already failed this run — don't retry-loop on it
+                    }
                     info!(%name, %version, %target, "per-target: building artifact");
                     match crate::build::execute_build(&registry, package_id.0, &config).await {
                         crate::build::BuildOutcome::Success { artifact, .. } => {
@@ -279,14 +289,16 @@ pub(crate) async fn run_per_target(
                             }
                         }
                         crate::build::BuildOutcome::Failed(err) => {
-                            warn!(%name, %err, "per-target: build failed");
+                            warn!(%name, %err, "per-target: build failed — won't retry this run");
+                            failed.insert((name, version));
                         }
                         crate::build::BuildOutcome::TimedOut { elapsed } => {
                             warn!(
                                 %name,
                                 elapsed_s = elapsed.as_secs(),
-                                "per-target: build timed out"
+                                "per-target: build timed out — won't retry this run"
                             );
+                            failed.insert((name, version));
                         }
                     }
                 }
