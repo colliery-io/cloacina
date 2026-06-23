@@ -25,6 +25,7 @@
 //! no Operations page is open.
 
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use cloacina_api_types::operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
@@ -34,9 +35,10 @@ use tracing::warn;
 
 use crate::AppState;
 
-/// Recipient the Operations UI subscribes to. Tenant scope is `None` (admin):
-/// admin keys are `tenant_id = None`, and the delivery sink matches
-/// `(recipient, tenant)` exactly, so only admin connections receive these.
+/// Recipient the Operations UI subscribes to. The delivery sink matches
+/// `(recipient, tenant)` exactly; CLOACI-T-0779 publishes a SEPARATE snapshot per
+/// tenant under this recipient, so each connection (admin = `None`, a scoped key
+/// = its tenant) receives its OWN tenant-scoped operational state.
 const OPS_RECIPIENT: &str = "ops_metrics:global";
 
 /// Publish cadence.
@@ -57,7 +59,12 @@ pub fn spawn(state: AppState, mut shutdown: watch::Receiver<bool>) {
         const CHECK: Duration = Duration::from_secs(1);
         let mut ticker = tokio::time::interval(CHECK);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut was_listening = false;
+        // CLOACI-T-0779: per-tenant ops. Each connection subscribes to OPS under
+        // its own tenant (admin = None; a scoped key = its tenant), and the
+        // delivery sink matches (recipient, tenant) exactly — so we publish a
+        // SEPARATE, tenant-scoped snapshot to each connected view. A tenant sees
+        // its own build queue / reconciler / fleet / graph health, never another's.
+        let mut last_listening: HashSet<Option<String>> = HashSet::new();
         let mut since_publish = PUBLISH_INTERVAL; // force a publish on first connect
         loop {
             tokio::select! {
@@ -67,31 +74,57 @@ pub fn spawn(state: AppState, mut shutdown: watch::Receiver<bool>) {
                     }
                 }
                 _ = ticker.tick() => {
-                    // Nobody listening → don't even gather; reset so the next
-                    // subscriber gets an immediate snapshot.
-                    let listening = state.delivery_sink.has_recipient(OPS_RECIPIENT, None);
-                    if !listening {
-                        was_listening = false;
+                    // Candidate views: admin (None), the public realm, and every
+                    // tenant schema. We only gather for views with a live
+                    // subscriber, so the cost is a single list query + one
+                    // has_recipient check per candidate when nobody's watching.
+                    let mut views: Vec<Option<String>> = vec![None, Some("public".to_string())];
+                    if let Ok(schemas) =
+                        cloacina::database::DatabaseAdmin::new(state.database.clone())
+                            .list_tenant_schemas()
+                            .await
+                    {
+                        views.extend(schemas.into_iter().map(Some));
+                    }
+                    let listening: HashSet<Option<String>> = views
+                        .into_iter()
+                        .filter(|v| state.delivery_sink.has_recipient(OPS_RECIPIENT, v.as_deref()))
+                        .collect();
+                    if listening.is_empty() {
+                        last_listening.clear();
                         since_publish = PUBLISH_INTERVAL;
                         continue;
                     }
-                    let just_connected = !was_listening;
-                    was_listening = true;
                     since_publish += CHECK;
-                    if !just_connected && since_publish < PUBLISH_INTERVAL {
-                        continue;
-                    }
-                    since_publish = Duration::ZERO;
-                    let event = gather(&state).await;
-                    match serde_json::to_vec(&event) {
-                        Ok(bytes) => {
-                            let id = id_counter.fetch_add(1, Ordering::Relaxed);
-                            let msg =
-                                ServerMessage::push(id, "ops_metrics", OPS_RECIPIENT, None, &bytes);
-                            state.delivery_sink.push_direct(OPS_RECIPIENT, None, msg);
+                    let due = since_publish >= PUBLISH_INTERVAL;
+                    for view in &listening {
+                        // Publish on the interval, plus immediately when a view
+                        // first connects (so its page populates within ~1s).
+                        if !due && last_listening.contains(view) {
+                            continue;
                         }
-                        Err(e) => warn!(error = %e, "ops_metrics: serialize failed"),
+                        let event = gather(&state, view.as_deref()).await;
+                        match serde_json::to_vec(&event) {
+                            Ok(bytes) => {
+                                let id = id_counter.fetch_add(1, Ordering::Relaxed);
+                                let msg = ServerMessage::push(
+                                    id,
+                                    "ops_metrics",
+                                    OPS_RECIPIENT,
+                                    view.clone(),
+                                    &bytes,
+                                );
+                                state
+                                    .delivery_sink
+                                    .push_direct(OPS_RECIPIENT, view.as_deref(), msg);
+                            }
+                            Err(e) => warn!(error = %e, "ops_metrics: serialize failed"),
+                        }
                     }
+                    if due {
+                        since_publish = Duration::ZERO;
+                    }
+                    last_listening = listening;
                 }
             }
         }
@@ -101,13 +134,41 @@ pub fn spawn(state: AppState, mut shutdown: watch::Receiver<bool>) {
 /// Gather one operational-metrics snapshot. Mirrors the four former REST
 /// pollers: `/health`+`/ready`, `GET /v1/compiler/status`, `GET /v1/agents`,
 /// and the reconciler/package-availability counts.
-async fn gather(state: &AppState) -> OpsMetricsEvent {
-    // ── Server health (the /ready rollup). ──
-    let db_ready = state.database.get_postgres_connection().await.is_ok();
+/// Does an item owned by `item_tenant` belong to the ops view scoped to
+/// `view`? CLOACI-T-0779: `None` view = admin (sees everything); `"public"` view
+/// = the null-tenant realm (public tasks/agents/graphs carry tenant_id = None);
+/// any other view = exact tenant match. So a tenant sees only its own
+/// operational state.
+fn in_view(item_tenant: Option<&str>, view: Option<&str>) -> bool {
+    match view {
+        None => true,
+        Some("public") => item_tenant.is_none(),
+        Some(t) => item_tenant == Some(t),
+    }
+}
+
+/// Gather one operational-metrics snapshot SCOPED to a view tenant
+/// (CLOACI-T-0779). `view` = `None` for the admin/global view, or a tenant for a
+/// tenant-scoped Operations page — so each tenant sees its own build queue,
+/// reconciler, fleet, and graph health, never another tenant's.
+async fn gather(state: &AppState, view: Option<&str>) -> OpsMetricsEvent {
+    // The database for this view: the tenant's schema, or admin for the global
+    // view. `resolve("public")` returns the admin (public-schema) db.
+    let db = match view {
+        Some(t) => state
+            .tenant_databases
+            .resolve(t, &state.database)
+            .await
+            .unwrap_or_else(|_| state.database.clone()),
+        None => state.database.clone(),
+    };
+
+    // ── Server health (the /ready rollup), scoped to this view. ──
+    let db_ready = db.get_postgres_connection().await.is_ok();
     let graphs = state.graph_scheduler.list_graphs().await;
     let crashed: Vec<String> = graphs
         .iter()
-        .filter(|g| !g.running)
+        .filter(|g| in_view(g.tenant_id.as_deref(), view) && !g.running)
         .map(|g| g.name.clone())
         .collect();
     let ready = db_ready && crashed.is_empty();
@@ -127,9 +188,10 @@ async fn gather(state: &AppState) -> OpsMetricsEvent {
         reason,
     };
 
-    // ── Compiler / build pipeline (same mapping as GET /v1/compiler/status). ──
+    // ── Compiler / build pipeline (same mapping as GET /v1/compiler/status),
+    //    scoped to this view's schema (its own pending/building/heartbeat). ──
     let compiler =
-        match cloacina::registry::workflow_registry::build_queue_stats(&state.database).await {
+        match cloacina::registry::workflow_registry::build_queue_stats(&db).await {
             Ok(s) => {
                 let status = if s.building > 0 {
                     "building"
@@ -168,6 +230,7 @@ async fn gather(state: &AppState) -> OpsMetricsEvent {
         .agent_registry
         .snapshot()
         .into_iter()
+        .filter(|r| in_view(r.tenant_id.as_deref(), view))
         .map(|r| AgentInfo {
             agent_id: r.agent_id,
             target_triple: r.target_triple,
@@ -180,9 +243,9 @@ async fn gather(state: &AppState) -> OpsMetricsEvent {
         })
         .collect();
 
-    // ── Reconciler / package availability. ──
+    // ── Reconciler / package availability, scoped to this view's schema. ──
     let reconciler =
-        match cloacina::registry::workflow_registry::reconciler_stats(&state.database).await {
+        match cloacina::registry::workflow_registry::reconciler_stats(&db).await {
             Ok(s) => ReconcilerStatus {
                 status: if s.failed > 0 { "errors" } else { "ok" }.to_string(),
                 built: s.built,
