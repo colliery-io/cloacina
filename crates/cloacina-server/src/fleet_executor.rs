@@ -343,13 +343,17 @@ impl TaskExecutor for FleetExecutor {
             let context_value = context_to_json(&context);
 
             // ── 3. Resolve the artifact digest from workflow_packages for the
-            //       task's package within the agent's tenant scope. The success +
-            //       non-superseded filters are load-bearing (see DAL doc) — a
-            //       wrong row would route a stale/unbuilt cdylib to the agent.
+            //       task's package. CLOACI-T-0781: `self.dal` is already scoped to
+            //       this runner's tenant SCHEMA, and packages there carry
+            //       tenant_id = NULL (the schema is the isolation, not the column).
+            //       So look up by schema (None → tenant_id IS NULL); passing the
+            //       namespace tenant would filter `tenant_id = 'acme'` and miss the
+            //       NULL row. The success + non-superseded filters are load-bearing
+            //       (see DAL doc) — a wrong row would route a stale/unbuilt cdylib.
             let (digest, language) = match self
                 .dal
                 .workflow_packages()
-                .get_active_dispatch_for_package(&namespace.package_name, tenant_id.as_deref())
+                .get_active_dispatch_for_package(&namespace.package_name, None)
                 .await
             {
                 Ok(Some(info)) => info,
