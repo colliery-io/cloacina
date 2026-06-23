@@ -4,14 +4,14 @@ level: task
 title: "Manual trigger fire — push a typed event to a trigger, fan out to all subscribed workflows"
 short_code: "CLOACI-T-0777"
 created_at: 2026-06-22T22:42:45.829027+00:00
-updated_at: 2026-06-22T22:44:31.923844+00:00
+updated_at: 2026-06-23T00:19:30.476424+00:00
 parent: CLOACI-I-0131
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -60,6 +60,38 @@ bound to 2 existing workflows (demo_slow + demo_branch). Fixture + rebuild.
 
 - 2026-06-22: Scoped. Typed event via params schema; demo = manual-only trigger →
   2 workflows. Building P1→P4.
+- 2026-06-22: P1 done+verified (commit, earlier). P2/P3/P4 built + committed
+  (bjzd0vmcy rebuild verifying). DESIGN CHANGE on P2: instead of adding params to
+  the #[trigger] macro (would force a fixture recompile), the trigger's
+  pass-through schema = the UNION of its subscribers' declared workflow params —
+  reuses get_workflow_declared_params + validate_declared_params, NO macro change.
+  GET /tenants/{t}/triggers/{name}/interface returns it; fire validates against it.
+  Wrapped get_trigger_interface in 3 SDKs (gate 40/40). P3: bolt 'fire' action on
+  trigger rows (when trigger_name set) → TriggerFireModal (typed form from the
+  interface, shows fan-out result). P4: TWO fixtures (1-workflow-per-package is a
+  hard limit) — demo-fanout-rust (trigger settlement_close + settle_ledger) +
+  demo-fanout-sub-rust (settle_audit), both subscribe → fan-out. Cross-package
+  load order is created_at-based; added a .sort() to the harness upload so the
+  publisher (sorts first) registers before the subscriber. Both fixtures
+  pre-compiled clean. Verifying live next.
+- 2026-06-22: ARCHITECTURAL FIX during verification. The demo fired only
+  settle_ledger, not the fan-out. Root cause: the schedules table holds ONE row
+  per trigger (upsert keyed on trigger_name) bound to the trigger's primary `on`
+  workflow; `#[workflow(triggers=[…])]` subscribers are validated at load but
+  never create schedules and weren't surfaced at runtime — so a schedule-based
+  fan-out only ever hit the `on` workflow. Fix: added workflow_triggers to the
+  registry WorkflowMetadata (populated from package metadata in all list paths) +
+  find_trigger_subscribers(); fire_trigger + get_trigger_interface now resolve the
+  fan-out set by SUBSCRIPTION, across packages. VERIFIED LIVE: GET
+  .../triggers/settlement_close/interface → union {region, as_of_date, deep_scan};
+  POST .../fire {region,deep_scan} → fired:2 (settle_ledger + settle_audit), both
+  Completed + trigger_origin=manual; UI typed modal + "Fired 2 workflows" result
+  screenshotted. ALL PHASES DONE.
+- FOLLOW-UP (not blocking): the scheduler's AUTO-poll still fires only the `on`
+  workflow (it iterates schedules, one per trigger), so an auto-firing trigger
+  would NOT fan out to subscribers — only the manual fire does. The demo trigger
+  is manual-only (poll→Skip) so this is invisible there, but auto-poll fan-out
+  should be unified (make the scheduler also resolve subscribers) in a follow-up.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -94,6 +126,8 @@ bound to 2 existing workflows (demo_slow + demo_branch). Fixture + rebuild.
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
