@@ -224,7 +224,7 @@ async fn main() {
             fc.fetch_add(1, Ordering::SeqCst);
             let result = market_pipeline_compiled(&cache).await;
             // Print the terminal output
-            if let GraphResult::Completed { outputs } = &result {
+            if let GraphResult::Completed { outputs, .. } = &result {
                 for output in outputs {
                     if let Some(signal) = output.downcast_ref::<TradingSignal>() {
                         println!(
