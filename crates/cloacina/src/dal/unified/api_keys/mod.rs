@@ -89,6 +89,21 @@ impl<'a> ApiKeyDAL<'a> {
         crud::revoke_key(self.dal, id).await
     }
 
+    /// CLOACI-T-0784: list keys scoped to a single tenant (tenant-admin view).
+    #[cfg(feature = "postgres")]
+    pub async fn list_keys_for_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<ApiKeyInfo>, ValidationError> {
+        crud::list_keys_for_tenant(self.dal, tenant_id).await
+    }
+
+    /// CLOACI-T-0784: fetch one key's info by id (for revoke ownership checks).
+    #[cfg(feature = "postgres")]
+    pub async fn get_key(&self, id: uuid::Uuid) -> Result<Option<ApiKeyInfo>, ValidationError> {
+        crud::get_key(self.dal, id).await
+    }
+
     /// CLOACI-T-0581: bulk-revoke every still-active key bound to the
     /// tenant. Returns the number of rows updated.
     #[cfg(feature = "postgres")]

@@ -247,13 +247,25 @@ pub fn build_authz_table() -> AuthzTable {
     add(Method::DELETE, "/tenants/{schema_name}", Access::platform(Level::Admin));
     add(Method::GET, "/compiler/status", Access::platform(Level::Admin));
     add(Method::GET, "/agents", Access::platform(Level::Admin));
-    add(Method::POST, "/tenants/{tenant_id}/keys", Access::platform(Level::Admin));
 
-    // ----- Any + Admin (today: can_admin, no tenant check — the leak,
-    //       preserved until T-0784) -----
-    add(Method::POST, "/auth/keys", Access::any(Level::Admin));
-    add(Method::GET, "/auth/keys", Access::any(Level::Admin));
-    add(Method::DELETE, "/auth/keys/{key_id}", Access::any(Level::Admin));
+    // ----- Tenant + Admin: tenant-admin key self-service (CLOACI-T-0784).
+    //       POST lowered from Platform; GET/DELETE are new. The DELETE handler
+    //       additionally verifies the target key belongs to {tenant_id}. -----
+    add(Method::POST, "/tenants/{tenant_id}/keys", Access::tenant(Level::Admin));
+    add(Method::GET, "/tenants/{tenant_id}/keys", Access::tenant(Level::Admin));
+    add(
+        Method::DELETE,
+        "/tenants/{tenant_id}/keys/{key_id}",
+        Access::tenant(Level::Admin),
+    );
+
+    // ----- Platform + Admin: the global key surface (CLOACI-T-0784 leak fix).
+    //       Was Any+Admin (today's unscoped can_admin), which let a tenant
+    //       role=admin key list/revoke ANY tenant's keys. God-only now;
+    //       tenant-admins manage their own keys under /tenants/{t}/keys. -----
+    add(Method::POST, "/auth/keys", Access::platform(Level::Admin));
+    add(Method::GET, "/auth/keys", Access::platform(Level::Admin));
+    add(Method::DELETE, "/auth/keys/{key_id}", Access::platform(Level::Admin));
 
     // ----- Tenant + Read -----
     add(Method::GET, "/tenants/{tenant_id}/workflows", Access::tenant(Level::Read));
@@ -604,24 +616,33 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            43,
+            45,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
         let get = |m: Method, p: &str| t.get(&(m, p.to_string())).copied();
 
-        // Today's gates, reproduced exactly (leak fix / lowering land in T-0784/0785).
-        assert_eq!(get(Method::POST, "/auth/keys"), Some(Access::any(Level::Admin)));
-        assert_eq!(get(Method::GET, "/auth/keys"), Some(Access::any(Level::Admin)));
+        // CLOACI-T-0784: the global key surface is god-only (leak fix)...
+        assert_eq!(get(Method::POST, "/auth/keys"), Some(Access::platform(Level::Admin)));
+        assert_eq!(get(Method::GET, "/auth/keys"), Some(Access::platform(Level::Admin)));
         assert_eq!(
             get(Method::DELETE, "/auth/keys/{key_id}"),
-            Some(Access::any(Level::Admin))
-        );
-        assert_eq!(get(Method::POST, "/tenants"), Some(Access::platform(Level::Admin)));
-        assert_eq!(
-            get(Method::POST, "/tenants/{tenant_id}/keys"),
             Some(Access::platform(Level::Admin))
         );
+        // ...and tenant-admins manage their own keys.
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/keys"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/keys"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::DELETE, "/tenants/{tenant_id}/keys/{key_id}"),
+            Some(Access::tenant(Level::Admin))
+        );
+        assert_eq!(get(Method::POST, "/tenants"), Some(Access::platform(Level::Admin)));
         assert_eq!(get(Method::GET, "/agents"), Some(Access::platform(Level::Admin)));
         assert_eq!(get(Method::GET, "/compiler/status"), Some(Access::platform(Level::Admin)));
         assert_eq!(

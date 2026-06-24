@@ -1140,6 +1140,15 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/keys",
             post(crate::routes::keys::create_tenant_key),
         )
+        // CLOACI-T-0784: tenant-admin key self-service (list + revoke own-tenant).
+        .route(
+            "/tenants/{tenant_id}/keys",
+            get(crate::routes::keys::list_tenant_keys),
+        )
+        .route(
+            "/tenants/{tenant_id}/keys/{key_id}",
+            delete(crate::routes::keys::revoke_tenant_key),
+        )
         // Workflow packages (tenant-scoped)
         .route(
             "/tenants/{tenant_id}/workflows",

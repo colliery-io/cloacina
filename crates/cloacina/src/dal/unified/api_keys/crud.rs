@@ -164,6 +164,51 @@ pub async fn list_keys(dal: &DAL) -> Result<Vec<ApiKeyInfo>, ValidationError> {
     Ok(results.into_iter().map(to_info).collect())
 }
 
+/// CLOACI-T-0784: list keys scoped to a single tenant (tenant-admin view).
+/// Includes revoked rows (like `list_keys`); the caller renders the `revoked`
+/// flag.
+pub async fn list_keys_for_tenant(
+    dal: &DAL,
+    tenant_id: &str,
+) -> Result<Vec<ApiKeyInfo>, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let tenant_owned = tenant_id.to_string();
+    let results: Vec<ApiKeyRow> = conn
+        .interact(move |conn| {
+            api_keys::table
+                .filter(api_keys::tenant_id.eq(Some(tenant_owned)))
+                .order(api_keys::created_at.desc())
+                .load(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(results.into_iter().map(to_info).collect())
+}
+
+/// CLOACI-T-0784: fetch a single key's info by id (used by the tenant-scoped
+/// revoke path to verify the target key belongs to the caller's tenant before
+/// revoking). Returns `None` if no such key exists.
+pub async fn get_key(dal: &DAL, id: Uuid) -> Result<Option<ApiKeyInfo>, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let result: Option<ApiKeyRow> = conn
+        .interact(move |conn| api_keys::table.find(id).first(conn).optional())
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(result.map(to_info))
+}
+
 /// CLOACI-T-0581: bulk-revoke every still-active key bound to `tenant_id`.
 /// Returns the number of rows updated. Used by tenant teardown to close
 /// out the auth surface before the schema is dropped.
