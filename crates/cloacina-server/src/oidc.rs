@@ -158,6 +158,43 @@ impl MappingPolicy {
             provenance: format!("oidc:{issuer}:{}", claims.subject),
         })
     }
+
+    /// Build the allowlist from `CLOACINA_OIDC_MAP` (god-owned config, OQ-11).
+    pub fn from_env() -> MappingPolicy {
+        MappingPolicy::parse(&std::env::var("CLOACINA_OIDC_MAP").unwrap_or_default())
+    }
+
+    /// Parse a `;`-separated allowlist: each rule `<match>=<tenant>:<role>`,
+    /// where `<match>` is `group:NAME` / `domain:NAME` / `sub:NAME` and
+    /// `<tenant>` may be `_` for a global principal. Malformed clauses are
+    /// skipped. Example: `group:acme-admins=acme:admin;domain:acme.com=acme:write`.
+    pub fn parse(raw: &str) -> MappingPolicy {
+        let mut rules = Vec::new();
+        for clause in raw.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            let Some((matcher, grant)) = clause.split_once('=') else {
+                continue;
+            };
+            let claim = match matcher.trim().split_once(':') {
+                Some(("group", v)) => ClaimMatch::Group(v.trim().to_string()),
+                Some(("domain", v)) => ClaimMatch::EmailDomain(v.trim().to_string()),
+                Some(("sub", v)) => ClaimMatch::Subject(v.trim().to_string()),
+                _ => continue,
+            };
+            let Some((tenant, role)) = grant.trim().split_once(':') else {
+                continue;
+            };
+            let tenant = match tenant.trim() {
+                "_" | "" => None,
+                t => Some(t.to_string()),
+            };
+            rules.push(MappingRule {
+                claim,
+                tenant,
+                role: role.trim().to_string(),
+            });
+        }
+        MappingPolicy::new(rules)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -165,10 +202,15 @@ impl MappingPolicy {
 // 0790), built on the `openidconnect` crate against the configured issuer.
 // ---------------------------------------------------------------------------
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use openidconnect::core::CoreProviderMetadata;
-use openidconnect::IssuerUrl;
+use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
+use openidconnect::{
+    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,
+    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+};
 
 /// A discovered OIDC relying party. Holds the cached provider metadata (which
 /// carries the JWKS + endpoints) + config + an HTTP client. The `openidconnect`
@@ -199,6 +241,174 @@ impl OidcProvider {
             http,
         }))
     }
+
+    /// Begin a login: build the authorization-code + PKCE URL with fresh state
+    /// + nonce. The caller stashes `(state, nonce, pkce_verifier)` in the
+    /// [`LoginFlowStore`] and redirects the browser to `auth_url`.
+    pub fn begin_login(&self) -> Result<LoginStart, String> {
+        let client = self.client()?;
+        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+        let mut req = client.authorize_url(
+            CoreAuthenticationFlow::AuthorizationCode,
+            CsrfToken::new_random,
+            Nonce::new_random,
+        );
+        for s in &self.config.scopes {
+            if s != "openid" {
+                req = req.add_scope(Scope::new(s.clone()));
+            }
+        }
+        let (auth_url, csrf, nonce) = req.set_pkce_challenge(pkce_challenge).url();
+        Ok(LoginStart {
+            auth_url: auth_url.to_string(),
+            state: csrf.secret().clone(),
+            nonce: nonce.secret().clone(),
+            pkce_verifier: pkce_verifier.into_secret(),
+        })
+    }
+
+    /// Complete a login: exchange the code (with the stashed PKCE verifier),
+    /// validate the ID token (signature via JWKS, `iss`/`aud`/`exp`, nonce),
+    /// and extract the identity claims. The caller maps those to a principal.
+    pub async fn complete_login(
+        &self,
+        code: String,
+        nonce: String,
+        pkce_verifier: String,
+    ) -> Result<IdentityClaims, String> {
+        let client = self.client()?;
+        let token_response = client
+            .exchange_code(AuthorizationCode::new(code))
+            .map_err(|e| format!("exchange_code: {e}"))?
+            .set_pkce_verifier(PkceCodeVerifier::new(pkce_verifier))
+            .request_async(&self.http)
+            .await
+            .map_err(|e| format!("token exchange failed: {e}"))?;
+
+        let id_token = token_response
+            .id_token()
+            .ok_or_else(|| "no id_token in token response".to_string())?;
+        let verifier = client.id_token_verifier();
+        let nonce = Nonce::new(nonce);
+        let claims = id_token
+            .claims(&verifier, &nonce)
+            .map_err(|e| format!("id_token validation failed: {e}"))?;
+
+        let subject = claims.subject().as_str().to_string();
+        let email = claims.email().map(|e| e.as_str().to_string());
+        // `groups` is a non-standard claim Dex/Keycloak include; read it from
+        // the *already-validated* JWT payload (signature/iss/aud/exp/nonce all
+        // checked above) rather than fighting the typed additional-claims path.
+        let groups = extract_groups(&id_token.to_string());
+
+        Ok(IdentityClaims {
+            subject,
+            email,
+            groups,
+        })
+    }
+
+    /// Build the `openidconnect` client from cached metadata. Inlined here
+    /// because the v4 `CoreClient` is type-state generic and can't be named in
+    /// a stored field or returned without leaking the full type — both callers
+    /// use it locally, so the type stays inferred.
+    fn client(
+        &self,
+    ) -> Result<
+        openidconnect::core::CoreClient<
+            openidconnect::EndpointSet,
+            openidconnect::EndpointNotSet,
+            openidconnect::EndpointNotSet,
+            openidconnect::EndpointNotSet,
+            openidconnect::EndpointMaybeSet,
+            openidconnect::EndpointMaybeSet,
+        >,
+        String,
+    > {
+        Ok(CoreClient::from_provider_metadata(
+            self.metadata.clone(),
+            ClientId::new(self.config.client_id.clone()),
+            Some(ClientSecret::new(self.config.client_secret.clone())),
+        )
+        .set_redirect_uri(
+            RedirectUrl::new(self.config.redirect_uri.clone()).map_err(|e| e.to_string())?,
+        ))
+    }
+}
+
+/// The output of [`OidcProvider::begin_login`].
+pub struct LoginStart {
+    pub auth_url: String,
+    pub state: String,
+    pub nonce: String,
+    pub pkce_verifier: String,
+}
+
+struct LoginFlowEntry {
+    nonce: String,
+    pkce_verifier: String,
+    expires_at: Instant,
+}
+
+/// Short-lived store for in-flight login state (`state -> nonce + PKCE
+/// verifier`), single-use. In-memory for the single-replica demo; NFR-003
+/// (multi-replica) wants this Postgres-backed like the ws-ticket/oidc_sessions
+/// infra — a documented follow-up.
+pub struct LoginFlowStore {
+    inner: tokio::sync::Mutex<HashMap<String, LoginFlowEntry>>,
+    ttl: Duration,
+}
+
+impl LoginFlowStore {
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            inner: tokio::sync::Mutex::new(HashMap::new()),
+            ttl,
+        }
+    }
+
+    /// Stash a flow keyed by `state`, evicting anything expired.
+    pub async fn put(&self, state: String, nonce: String, pkce_verifier: String) {
+        let mut g = self.inner.lock().await;
+        let now = Instant::now();
+        g.retain(|_, e| e.expires_at > now);
+        g.insert(
+            state,
+            LoginFlowEntry {
+                nonce,
+                pkce_verifier,
+                expires_at: now + self.ttl,
+            },
+        );
+    }
+
+    /// Consume the flow for `state` (single-use). `None` if unknown/expired.
+    pub async fn take(&self, state: &str) -> Option<(String, String)> {
+        let mut g = self.inner.lock().await;
+        g.remove(state)
+            .filter(|e| e.expires_at > Instant::now())
+            .map(|e| (e.nonce, e.pkce_verifier))
+    }
+}
+
+/// Extract the `groups` claim from a (already-validated) JWT's payload.
+fn extract_groups(jwt: &str) -> Vec<String> {
+    use base64::Engine;
+    let parts: Vec<&str> = jwt.split('.').collect();
+    if parts.len() < 2 {
+        return Vec::new();
+    }
+    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]) else {
+        return Vec::new();
+    };
+    #[derive(serde::Deserialize)]
+    struct Payload {
+        #[serde(default)]
+        groups: Vec<String>,
+    }
+    serde_json::from_slice::<Payload>(&bytes)
+        .map(|p| p.groups)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -282,6 +492,24 @@ mod tests {
         assert!(parse_scopes(None).contains(&"openid".to_string()));
         assert!(parse_scopes(Some("  ")).contains(&"groups".to_string()));
         assert_eq!(parse_scopes(Some("openid, email")), vec!["openid", "email"]);
+    }
+
+    #[test]
+    fn parse_allowlist_from_string() {
+        let p = MappingPolicy::parse(
+            "group:acme-admins=acme:admin; domain:acme.com=acme:write; sub:root=_:admin; garbage",
+        );
+        let admin = p
+            .resolve(&claims("x", None, &["acme-admins"]), "i")
+            .unwrap();
+        assert_eq!(admin.tenant.as_deref(), Some("acme"));
+        assert_eq!(admin.role, "admin");
+        assert_eq!(
+            p.resolve(&claims("y", Some("y@acme.com"), &[]), "i").unwrap().role,
+            "write"
+        );
+        assert!(p.resolve(&claims("root", None, &[]), "i").unwrap().tenant.is_none());
+        assert!(p.resolve(&claims("z", None, &[]), "i").is_none());
     }
 
     /// Live discovery against the Dex sidecar. Ignored by default — run with

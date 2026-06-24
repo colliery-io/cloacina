@@ -26,6 +26,7 @@ pub mod executions;
 pub mod health_graphs;
 pub mod keys;
 pub mod local_auth;
+pub mod oidc_auth;
 pub mod session;
 pub mod tenants;
 pub mod triggers;
