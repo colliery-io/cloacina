@@ -157,6 +157,28 @@ The macro generates:
 3. A `{fn_name}_task()` constructor function
 4. Static methods: `dependency_task_ids()`, `code_fingerprint()`, `create_retry_policy()`, `trigger_rules()`
 
+### Task documentation (`what:` / `why:`)
+
+The task's doc-comment is a documentation surface. Line-leading, case-insensitive
+`what:` / `why:` markers route the following doc text into the task's `what` and
+`why` fields; with no markers the whole comment becomes `what` and `why` is empty.
+
+```rust
+#[task(id = "validate")]
+/// what: validates the incoming order
+/// why: downstream pricing assumes a clean order
+pub async fn validate(context: &mut Context<Value>) -> Result<(), TaskError> {
+    Ok(())
+}
+```
+
+The compiler parses these from source at build time (see
+`crates/cloacina-compiler/src/doc_parse.rs`), folds them into the package
+manifest, and they surface per-task on `WorkflowTaskNode` (`doc_what` /
+`doc_why`). Parsing is best-effort and degrades gracefully — it never fails the
+build, and an undocumented task simply contributes nothing. The same convention
+applies to Python `@task` docstrings.
+
 ## #[workflow]
 
 Applied to a `pub mod` containing `#[task]` functions. Auto-discovers tasks, validates dependencies, and generates registration code.

@@ -89,6 +89,30 @@ def file_watcher():
     return cloaca.TriggerResult.skip()
 ```
 
+## Typed event surface (manual fire)
+
+A trigger can be fired manually, pushing a **typed event** that fans out to
+every workflow subscribed to the trigger's name. The Python `@cloaca.trigger`
+decorator does **not** take a `params(...)` argument — there is no per-decorator
+typed-event declaration on the Python side. Instead, the trigger's event surface
+is derived: it is the **union of the declared params of every subscribed
+workflow** (each declared via `@cloaca.workflow_params(...)` /
+`#[workflow(params(...))]`).
+
+This surface is exposed and enforced by the server, not by the decorator:
+
+- `GET /v1/tenants/{tenant}/triggers/{name}/interface` returns the typed slots
+  (the union of subscribers' declared params). The web UI builds a typed
+  "fire" form from it.
+- `POST /v1/tenants/{tenant}/triggers/{name}/fire` validates the event body
+  against that surface, then executes **every** subscribed workflow with the
+  event merged into context (fan-out). See
+  [Packaged Triggers]({{< ref "/embed/tutorials/14-packaged-triggers" >}}) for
+  the trigger authoring flow.
+
+In other words: to type a trigger's manual-fire event, declare params on the
+workflows it fires — the trigger inherits their union. (CLOACI-T-0777.)
+
 ## Deduplication
 
 When `allow_concurrent=False` (the default), the trigger scheduler prevents duplicate executions:

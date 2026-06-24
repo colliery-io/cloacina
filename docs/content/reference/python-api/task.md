@@ -71,6 +71,34 @@ def audit(context):
 See [Trigger rules](/engine/explanation/trigger-rules/) for evaluation semantics
 and skip propagation.
 
+## Documenting a task: `what:` / `why:`
+
+A task's docstring is a documentation surface. Line-leading, case-insensitive
+`what:` / `why:` markers route the following text into the task's `what` and
+`why` fields; with no markers the whole docstring becomes `what` and `why` is
+empty.
+
+```python
+@cloaca.task(id="extract")
+def extract(context):
+    """
+    what: pulls rows from the source
+    why: the rest of the graph needs them staged
+    """
+    return context
+```
+
+The compiler parses this from source at build time (see
+`crates/cloacina-compiler/src/doc_parse.rs`); parsing is best-effort and never
+fails the build.
+
+{{< hint type="note" title="Pure-Python persistence is a deferred follow-up" >}}
+The docstring is **parsed** with the same convention as Rust, but for
+pure-Python packages the parsed `what` / `why` may not yet round-trip into the
+persisted per-task metadata — that persistence path is tracked separately
+(CLOACI-T-0754). Treat the markers as forward-compatible authoring today.
+{{< /hint >}}
+
 ## Example with Dependencies
 
 ```python

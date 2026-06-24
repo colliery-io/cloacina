@@ -1,6 +1,6 @@
 ---
 title: "FFI Vtable Reference"
-description: "Method-by-method specification of the CloacinaPlugin FFI vtable: indices 0-8, optional-since-v2 semantics, and wire types."
+description: "Method-by-method specification of the CloacinaPlugin FFI vtable: indices 0-9, optional-since-v2/v3 semantics, and wire types."
 weight: 31
 aliases:
   - "/platform/reference/ffi-vtable/"
@@ -30,6 +30,7 @@ pub const METHOD_GET_TRIGGER_METADATA: usize = 5;
 pub const METHOD_INVOKE_TRIGGER_POLL: usize = 6;
 pub const METHOD_GET_TRIGGERLESS_GRAPH_METADATA: usize = 7;
 pub const METHOD_INVOKE_TRIGGERLESS_GRAPH: usize = 8;
+pub const METHOD_GET_INPUT_INTERFACE: usize = 9;
 ```
 
 Both the trait declaration and the constants live in the same file, so
@@ -171,6 +172,40 @@ Invokes a named trigger-less CG with a workflow context. Same blocking
 + cross-runtime pattern as method 6: the cdylib's tokio runtime drives
 the graph execution, the host receives the terminal outputs.
 
+## Method Index 9 — `get_input_interface`
+
+| | |
+|---|---|
+| Wire input | `()` |
+| Wire output | `Result<InputInterfaceDescriptor, PluginError>` (with `entries: Vec<InputInterfaceEntry>`) |
+| Optional since | **v3** — pre-v3 plugins return `CallError::NotImplemented` |
+
+Returns the package's declared **input interface** — the typed,
+injectable surfaces a package exposes (CLOACI-I-0128 / T-0756). The
+workflow-surface entry carries the workflow's declared params; later
+surface kinds (`accumulator`, `reactor`) carry their boundary slots.
+Each `InputInterfaceEntry` is `{ surface_kind, surface_name, slots_json }`,
+where `slots_json` is a JSON array of `cloacina_api_types::InputSlot`
+kept as a string so the fidius wire stays simple — the host parses it.
+
+This is a **dedicated FFI descriptor entrypoint**, deliberately kept
+separate from `get_task_metadata`'s `TaskMetadataEntry` wire struct:
+piggy-backing the interface on the per-task metadata ABI is drift-prone
+(every field add reshapes a struct every package serializes), so the
+interface rides its own optional method instead. The per-task metadata
+ABI is left untouched.
+
+The host (`package_loader`) calls this at load time and treats
+`CallError::NotImplemented` — or any other call error — as **"no
+declared interface"** (an empty descriptor): `surface_kind == "workflow"`
+entries flow into the package's declared params, and other kinds become
+declared surfaces. Consequently a **v2 package still loads against a
+0.9.0 host** — it simply declares no params and exposes no typed
+interfaces. To declare params or expose typed interfaces, a package must
+be **recompiled against 0.9.0** (interface version 3), so the unified
+`cloacina::package!()` shell emits this method and walks
+`inventory::iter::<WorkflowDescriptorEntry>` to populate it.
+
 ## Python Plugins and Host-Build Requirements
 
 Python `.cloacina` packages are loaded via PyO3 rather than the FFI
@@ -192,10 +227,16 @@ language-neutral.
 
 ## ABI Stability and Versioning
 
-- The trait is annotated `#[fidius::plugin_interface(version = 2,
+- The trait is annotated `#[fidius::plugin_interface(version = 3,
   buffer = PluginAllocated)]`. fidius-host computes an
   `INTERFACE_HASH` from the trait shape; mismatched hashes are
   rejected at load time, preventing silent ABI drift.
+- **0.9.0 bumped the interface version 2 → 3** (CLOACI-I-0128 / T-0756)
+  to add `get_input_interface` at method index 9. The bump is
+  backward-compatible: the method is `#[optional(since = 3)]`, so v2
+  packages still load — the host reads their `NotImplemented` as an
+  empty interface — but a package must be recompiled against 0.9.0 to
+  declare params or expose typed interfaces.
 - Adding a method requires bumping the version, marking the new
   method `#[optional(since = N)]`, and adding the canonical method-index
   constant in the same edit. The unified [`cloacina::package!()`]({{< ref "/reference/package-shell-macro" >}})

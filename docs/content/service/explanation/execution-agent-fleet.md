@@ -90,6 +90,54 @@ executor invocation resumes and finalizes the task.
 > with the *same* profile it runs. Production images are release builds; build
 > your workflow packages release too.
 
+## Multi-architecture dispatch
+
+A compiled `.cloacina` cdylib is native code — it only runs on the architecture
+it was built for. A fleet of mixed hardware (say aarch64 nodes alongside x86)
+therefore needs more than one build of the same package. 0.9.0 (CLOACI-T-0780)
+carries **per-target artifacts** so a single logical package can fan out across a
+heterogeneous fleet.
+
+Two tables hold the builds:
+
+| Table | Holds |
+|---|---|
+| `workflow_packages` | The **primary** cdylib, built for the server's own host arch. |
+| `package_artifacts` | **Extra** per-target cdylibs, one row per `(package_name, version, tenant_id, target_triple)`. (Migrations: Postgres `031_create_package_artifacts`, SQLite `027_create_package_artifacts`.) |
+
+Each `package_artifacts` row carries its `target_triple`, a `content_hash`, and
+the `compiled_data` blob; a unique index on
+`(package_name, version, tenant_id, target_triple)` keeps it to one cdylib per
+target. The primary build in `workflow_packages` is the host-arch fallback —
+compiled packages with no per-target row for a given triple can only run on a
+host-arch agent.
+
+Dispatch (in `FleetExecutor`) then becomes arch-aware, between claiming the task
+and pushing the work packet:
+
+1. **Compute the runnable arches.** For a **compiled** package, that's the host
+   primary triple ∪ the set of `target_triple`s with a `package_artifacts` row
+   for the package. Agent selection filters the roster to agents whose
+   `target_triple` is in that set (on top of the existing live-and-in-tenant,
+   most-free-capacity selection), so a task is only ever handed to an agent that
+   can actually load it.
+2. **Resolve the cdylib for the chosen agent.** Dispatch looks up the
+   `package_artifacts` digest matching the selected agent's `target_triple`; if a
+   per-target build exists it ships that one, otherwise it falls back to the
+   primary host-arch digest. The work packet stamps the triple the artifact was
+   built for, and the agent's fail-closed triple check (step 7 above) enforces it
+   independently.
+
+**Interpreted (Python) packages are architecture-independent** — they run from
+source through the agent's interpreter, so there is no native cdylib to match.
+For these, dispatch **skips the arch filter entirely** (any live, in-tenant,
+spare-capacity agent is eligible) and stamps the **selected agent's own**
+`target_triple` on the work packet, so the fail-closed guard is a no-op rather
+than a rejection.
+
+This composes cleanly with tenant scoping: artifacts are keyed per tenant, and
+agent selection still requires the agent's tenant to match the task's.
+
 ## Liveness and dead-agent reclaim
 
 Agents send a heartbeat on an interval the server advertises at registration
