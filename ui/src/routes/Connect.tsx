@@ -14,35 +14,53 @@
  *  limitations under the License.
  */
 
-import { Alert, Box, Button, Group, PasswordInput, Stack, TextInput } from "@mantine/core";
+import {
+  Alert,
+  Box,
+  Button,
+  Group,
+  PasswordInput,
+  SegmentedControl,
+  Stack,
+  TextInput,
+} from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { CloacinaClient } from "@cloacina/client";
 
 import { useAuth } from "../auth/AuthContext";
+import { classifyError } from "../api/errors";
 import { runtimeConfig } from "../config";
 import { BrandMark, MONO } from "../components/aurora";
 
-/** Connection gate (Aurora Dark, spec 14). */
+/** How the operator authenticates at the connect gate (CLOACI-T-0796/0798). */
+type Mode = "key" | "password";
+
+/** Connection gate (Aurora Dark, spec 14). Supports a pasted API key OR
+ *  self-managed username/password login (mints a short-TTL key server-side). */
 export function Connect() {
   const { connection, connect } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  // CLOACI-T-0779: `?add=1` lets the tenant switcher reuse this form to add
-  // another connection while one is already active (no auto-redirect).
   const addMode = searchParams.get("add") === "1";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("key");
 
   const form = useForm({
     initialValues: {
       serverUrl: runtimeConfig.defaultServerUrl,
       apiKey: runtimeConfig.demoApiKey,
+      username: "",
+      password: "",
       tenant: runtimeConfig.demoTenant || "public",
     },
+    // Credential fields are validated per-mode inside the submit handlers
+    // (mantine's static validate can't see the current `mode`).
     validate: {
-      serverUrl: (v) => (/^https?:\/\//.test(v) ? null : "Must start with http:// or https://"),
-      apiKey: (v) => (v.trim() ? null : "Required"),
+      serverUrl: (v) =>
+        /^https?:\/\//.test(v) ? null : "Must start with http:// or https://",
       tenant: (v) => (v.trim() ? null : "Required"),
     },
   });
@@ -51,12 +69,32 @@ export function Connect() {
     setSubmitting(true);
     setError(null);
     try {
-      await connect({
-        label: values.tenant.trim(),
-        serverUrl: values.serverUrl.replace(/\/+$/, ""),
-        apiKey: values.apiKey.trim(),
-        tenant: values.tenant.trim(),
-      });
+      const serverUrl = values.serverUrl.replace(/\/+$/, "");
+      const tenant = values.tenant.trim();
+
+      let apiKey: string;
+      if (mode === "password") {
+        if (!values.username.trim() || !values.password) {
+          throw new Error("Username and password are required");
+        }
+        // Public login — mint a short-TTL key, then connect with it.
+        const loginClient = new CloacinaClient({ baseUrl: serverUrl, apiKey: "", tenant });
+        try {
+          const res = await loginClient.localLogin({
+            username: values.username.trim(),
+            password: values.password,
+            tenant,
+          });
+          apiKey = res.key;
+        } catch (err) {
+          throw new Error(classifyError(err).message);
+        }
+      } else {
+        if (!values.apiKey.trim()) throw new Error("API key is required");
+        apiKey = values.apiKey.trim();
+      }
+
+      await connect({ label: tenant, serverUrl, apiKey, tenant });
       navigate("/", { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -110,9 +148,26 @@ export function Connect() {
           }}
         >
           <Box style={{ fontSize: 16, fontWeight: 600, color: "var(--fg)" }}>Connect to a server</Box>
-          <Box style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3, marginBottom: 16 }}>
-            Enter a server URL and a tenant API key.
+          <Box style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3, marginBottom: 14 }}>
+            {mode === "password"
+              ? "Sign in with your username and password."
+              : "Enter a server URL and a tenant API key."}
           </Box>
+
+          <SegmentedControl
+            fullWidth
+            size="xs"
+            mb={14}
+            value={mode}
+            onChange={(v) => {
+              setMode(v as Mode);
+              setError(null);
+            }}
+            data={[
+              { label: "Username & password", value: "password" },
+              { label: "API key", value: "key" },
+            ]}
+          />
 
           <form onSubmit={form.onSubmit(onSubmit)}>
             <Stack gap={12}>
@@ -122,13 +177,33 @@ export function Connect() {
                 styles={monoInput}
                 {...form.getInputProps("serverUrl")}
               />
-              <PasswordInput
-                label="API key"
-                placeholder="clk_…"
-                autoComplete="off"
-                styles={monoInput}
-                {...form.getInputProps("apiKey")}
-              />
+
+              {mode === "password" ? (
+                <>
+                  <TextInput
+                    label="Username"
+                    placeholder="alice"
+                    autoComplete="username"
+                    styles={monoInput}
+                    {...form.getInputProps("username")}
+                  />
+                  <PasswordInput
+                    label="Password"
+                    autoComplete="current-password"
+                    styles={monoInput}
+                    {...form.getInputProps("password")}
+                  />
+                </>
+              ) : (
+                <PasswordInput
+                  label="API key"
+                  placeholder="clk_…"
+                  autoComplete="off"
+                  styles={monoInput}
+                  {...form.getInputProps("apiKey")}
+                />
+              )}
+
               <TextInput
                 label="Tenant"
                 placeholder="public"
@@ -150,7 +225,7 @@ export function Connect() {
                 radius={9}
                 styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
               >
-                Connect
+                {mode === "password" ? "Sign in" : "Connect"}
               </Button>
             </Stack>
           </form>

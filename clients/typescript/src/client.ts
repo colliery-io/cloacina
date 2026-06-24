@@ -197,6 +197,80 @@ export class CloacinaClient {
     return unwrap(await this.api.POST("/v1/auth/ws-ticket"));
   }
 
+  // ---- session / local auth (CLOACI-T-0796/0794) ----
+
+  /** Self-managed username/password login — returns a minted bearer key. */
+  async localLogin(
+    body: schemas["LocalLoginRequest"],
+  ): Promise<schemas["LocalLoginResponse"]> {
+    return unwrap(await this.api.POST("/v1/auth/local/login", { body }));
+  }
+
+  /** Silently re-mint the current short-TTL key before it expires. */
+  async refresh(): Promise<schemas["LocalLoginResponse"]> {
+    return unwrap(await this.api.POST("/v1/auth/refresh"));
+  }
+
+  /** Revoke the current key + forget any refresh session. */
+  async logout(): Promise<schemas["LogoutResponse"]> {
+    return unwrap(await this.api.POST("/v1/auth/logout"));
+  }
+
+  // ---- local accounts: tenant-admin management (CLOACI-T-0797) ----
+
+  async listAccounts(
+    tenant?: string,
+  ): Promise<schemas["ListResponse_AccountInfo"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/accounts", {
+        params: { path: { tenant_id: this.#tenant(tenant) } },
+      }),
+    );
+  }
+
+  async createAccount(
+    body: schemas["CreateAccountRequest"],
+    tenant?: string,
+  ): Promise<schemas["AccountInfo"]> {
+    return unwrap(
+      await this.api.POST("/v1/tenants/{tenant_id}/accounts", {
+        params: { path: { tenant_id: this.#tenant(tenant) } },
+        body,
+      }),
+    );
+  }
+
+  async disableAccount(
+    accountId: string,
+    tenant?: string,
+  ): Promise<schemas["AccountActionResponse"]> {
+    return unwrap(
+      await this.api.DELETE("/v1/tenants/{tenant_id}/accounts/{account_id}", {
+        params: {
+          path: { tenant_id: this.#tenant(tenant), account_id: accountId },
+        },
+      }),
+    );
+  }
+
+  async resetAccountPassword(
+    accountId: string,
+    body: schemas["ResetPasswordRequest"],
+    tenant?: string,
+  ): Promise<schemas["AccountActionResponse"]> {
+    return unwrap(
+      await this.api.POST(
+        "/v1/tenants/{tenant_id}/accounts/{account_id}/password",
+        {
+          params: {
+            path: { tenant_id: this.#tenant(tenant), account_id: accountId },
+          },
+          body,
+        },
+      ),
+    );
+  }
+
   // ---- tenants ----
 
   async createTenant(

@@ -21,6 +21,7 @@ import {
   IconHeartbeat,
   IconKey,
   IconSettings,
+  IconUsers,
   type Icon as TablerIcon,
 } from "@tabler/icons-react";
 import { NavLink as RouterNavLink, Outlet, useNavigate } from "react-router-dom";
@@ -223,6 +224,7 @@ export function Shell() {
           <GroupLabel>System</GroupLabel>
           <NavItem def={{ to: "/operations", label: "Operations", icon: IconHeartbeat }} />
           <NavItem def={{ to: "/keys", label: "API Keys", icon: IconKey }} />
+          <NavItem def={{ to: "/accounts", label: "Accounts", icon: IconUsers }} />
           <NavItem def={{ to: "/settings", label: "Settings", icon: IconSettings }} />
         </Box>
 
