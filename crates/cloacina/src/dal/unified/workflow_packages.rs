@@ -810,7 +810,9 @@ impl<'a> WorkflowPackagesDAL<'a> {
         compiled_data: Vec<u8>,
     ) -> Result<(), RegistryError> {
         use crate::database::schema::unified::package_artifacts;
-        use crate::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
+        use crate::database::universal_types::{
+            UniversalBinary, UniversalTimestamp, UniversalUuid,
+        };
         let new = crate::dal::unified::models::NewPackageArtifact {
             id: UniversalUuid::new_v4(),
             package_name: package_name.to_string(),
@@ -996,10 +998,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
                 conn.interact(move |conn| {
                     package_artifacts::table
                         .filter(package_artifacts::target_triple.eq(tt))
-                        .select((
-                            package_artifacts::package_name,
-                            package_artifacts::version,
-                        ))
+                        .select((package_artifacts::package_name, package_artifacts::version))
                         .load::<(String, String)>(conn)
                 })
                 .await
@@ -1017,10 +1016,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
                 conn.interact(move |conn| {
                     package_artifacts::table
                         .filter(package_artifacts::target_triple.eq(tt))
-                        .select((
-                            package_artifacts::package_name,
-                            package_artifacts::version,
-                        ))
+                        .select((package_artifacts::package_name, package_artifacts::version))
                         .load::<(String, String)>(conn)
                 })
                 .await

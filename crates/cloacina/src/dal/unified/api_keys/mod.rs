@@ -79,7 +79,10 @@ impl<'a> ApiKeyDAL<'a> {
         expires_at: chrono::DateTime<chrono::Utc>,
         issued_via: &str,
     ) -> Result<ApiKeyInfo, ValidationError> {
-        crud::mint_key(self.dal, key_hash, name, tenant_id, role, expires_at, issued_via).await
+        crud::mint_key(
+            self.dal, key_hash, name, tenant_id, role, expires_at, issued_via,
+        )
+        .await
     }
 
     /// Validate a key hash — returns key info if found and not revoked.

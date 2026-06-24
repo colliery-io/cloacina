@@ -71,7 +71,6 @@ pub async fn list_triggers(
     Path(tenant_id): Path<String>,
     Query(q): Query<ListTriggersQuery>,
 ) -> impl IntoResponse {
-
     // CLOACI-T-0596 / API-10: client-bounded pagination. Defaults match
     // the historical hardcoded `LIMIT 100`; explicit caps prevent a
     // pathological `?limit=1000000` from pulling the entire table.
@@ -165,7 +164,6 @@ pub async fn get_trigger(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-
     let tenant_db = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -301,7 +299,6 @@ async fn set_trigger_paused(
     name: String,
     pause: bool,
 ) -> axum::response::Response {
-
     let tenant_db = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -393,7 +390,6 @@ pub async fn fire_trigger(
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<FireTriggerRequest>,
 ) -> impl IntoResponse {
-
     let tenant_db = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -401,7 +397,8 @@ pub async fn fire_trigger(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database unavailable: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database unavailable: {}", e))
+                .into_response()
         }
     };
 
@@ -432,8 +429,10 @@ pub async fn fire_trigger(
         if let Some(r) = &registry {
             let slots = trigger_declared_slots(r, &subscribers).await;
             if !slots.is_empty() {
-                let errors =
-                    validate_declared_params(&slots, body.event.as_ref().and_then(|v| v.as_object()));
+                let errors = validate_declared_params(
+                    &slots,
+                    body.event.as_ref().and_then(|v| v.as_object()),
+                );
                 if !errors.is_empty() {
                     return ApiError::bad_request(
                         "trigger_event_invalid",
@@ -561,7 +560,6 @@ pub async fn get_trigger_interface(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-
     let tenant_db = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -569,7 +567,8 @@ pub async fn get_trigger_interface(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database unavailable: {}", e)).into_response()
+            return ApiError::internal(format!("tenant database unavailable: {}", e))
+                .into_response()
         }
     };
 

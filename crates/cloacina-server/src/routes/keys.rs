@@ -59,7 +59,6 @@ pub async fn create_key(
     Extension(_auth): Extension<AuthenticatedKey>,
     Json(body): Json<CreateKeyRequest>,
 ) -> impl IntoResponse {
-
     // Privilege-escalation guard. `body.role` populates the per-key
     // `permissions` string (read/write/admin scoped to a tenant);
     // `is_admin` is the orthogonal god-mode flag that grants
@@ -222,7 +221,6 @@ pub async fn create_tenant_key(
     Path(tenant_id): Path<String>,
     Json(body): Json<CreateKeyRequest>,
 ) -> impl IntoResponse {
-
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());

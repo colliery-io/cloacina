@@ -97,12 +97,10 @@ impl<'a> OidcLoginFlowDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let row: Option<(String, String)> = conn
             .interact(move |conn| {
-                diesel::delete(
-                    t::table.filter(t::state.eq(state).and(t::expires_at.gt(now))),
-                )
-                .returning((t::nonce, t::pkce_verifier))
-                .get_result(conn)
-                .optional()
+                diesel::delete(t::table.filter(t::state.eq(state).and(t::expires_at.gt(now))))
+                    .returning((t::nonce, t::pkce_verifier))
+                    .get_result(conn)
+                    .optional()
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -122,7 +120,9 @@ impl<'a> OidcLoginFlowDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let n: usize = conn
-            .interact(move |conn| diesel::delete(t::table.filter(t::expires_at.lt(now))).execute(conn))
+            .interact(move |conn| {
+                diesel::delete(t::table.filter(t::expires_at.lt(now))).execute(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
         Ok(n)

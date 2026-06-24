@@ -48,7 +48,6 @@ pub async fn compiler_status(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
-
     match cloacina::registry::workflow_registry::build_queue_stats(&state.database).await {
         Ok(s) => {
             let seconds_since_heartbeat = s

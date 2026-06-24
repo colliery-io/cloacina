@@ -152,11 +152,14 @@ impl MappingPolicy {
     /// Resolve an identity to a principal, or `None` if no rule matches.
     /// `issuer` is recorded in the provenance (`oidc:<issuer>:<sub>`).
     pub fn resolve(&self, claims: &IdentityClaims, issuer: &str) -> Option<ResolvedPrincipal> {
-        self.rules.iter().find(|r| r.matches(claims)).map(|r| ResolvedPrincipal {
-            tenant: r.tenant.clone(),
-            role: r.role.clone(),
-            provenance: format!("oidc:{issuer}:{}", claims.subject),
-        })
+        self.rules
+            .iter()
+            .find(|r| r.matches(claims))
+            .map(|r| ResolvedPrincipal {
+                tenant: r.tenant.clone(),
+                role: r.role.clone(),
+                provenance: format!("oidc:{issuer}:{}", claims.subject),
+            })
     }
 
     /// Resolve an identity to **all** the tenant memberships it matches — one
@@ -250,8 +253,8 @@ impl OidcProvider {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| format!("oidc http client: {e}"))?;
-        let issuer =
-            IssuerUrl::new(config.issuer_url.clone()).map_err(|e| format!("oidc issuer url: {e}"))?;
+        let issuer = IssuerUrl::new(config.issuer_url.clone())
+            .map_err(|e| format!("oidc issuer url: {e}"))?;
         let metadata = CoreProviderMetadata::discover_async(issuer, &http)
             .await
             .map_err(|e| format!("oidc discovery failed: {e}"))?;
@@ -503,7 +506,10 @@ mod tests {
     #[test]
     fn group_match_resolves_tenant_and_role() {
         let p = policy()
-            .resolve(&claims("u1", Some("u1@x.com"), &["acme-admins"]), "https://idp")
+            .resolve(
+                &claims("u1", Some("u1@x.com"), &["acme-admins"]),
+                "https://idp",
+            )
             .expect("mapped");
         assert_eq!(p.tenant.as_deref(), Some("acme"));
         assert_eq!(p.role, "admin");
@@ -562,10 +568,16 @@ mod tests {
         assert_eq!(admin.tenant.as_deref(), Some("acme"));
         assert_eq!(admin.role, "admin");
         assert_eq!(
-            p.resolve(&claims("y", Some("y@acme.com"), &[]), "i").unwrap().role,
+            p.resolve(&claims("y", Some("y@acme.com"), &[]), "i")
+                .unwrap()
+                .role,
             "write"
         );
-        assert!(p.resolve(&claims("root", None, &[]), "i").unwrap().tenant.is_none());
+        assert!(p
+            .resolve(&claims("root", None, &[]), "i")
+            .unwrap()
+            .tenant
+            .is_none());
         assert!(p.resolve(&claims("z", None, &[]), "i").is_none());
     }
 
@@ -577,7 +589,10 @@ mod tests {
         let ms = p.resolve_all(&claims("u", Some("u@acme.com"), &["x"]), "i");
         // acme (first rule wins → admin; the later acme rule is deduped) + public.
         assert_eq!(ms.len(), 2);
-        let acme = ms.iter().find(|m| m.tenant.as_deref() == Some("acme")).unwrap();
+        let acme = ms
+            .iter()
+            .find(|m| m.tenant.as_deref() == Some("acme"))
+            .unwrap();
         assert_eq!(acme.role, "admin");
         assert!(ms
             .iter()

@@ -45,17 +45,17 @@ use crate::database::{AnyPool, BackendType, Database};
 // Sub-modules for each entity type
 #[cfg(feature = "postgres")]
 pub mod api_keys;
-#[cfg(feature = "postgres")]
-pub mod oidc_sessions;
-#[cfg(feature = "postgres")]
-pub mod local_accounts;
-#[cfg(feature = "postgres")]
-pub mod oidc_login_flows;
 pub mod checkpoint;
 pub mod context;
 pub mod delivery_outbox;
 pub mod execution_event;
+#[cfg(feature = "postgres")]
+pub mod local_accounts;
 pub mod models;
+#[cfg(feature = "postgres")]
+pub mod oidc_login_flows;
+#[cfg(feature = "postgres")]
+pub mod oidc_sessions;
 pub mod reactor_subscriptions;
 pub mod recovery_event;
 pub mod schedule;
@@ -70,16 +70,16 @@ pub mod workflow_registry_storage;
 // Re-export DAL components
 #[cfg(feature = "postgres")]
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
-#[cfg(feature = "postgres")]
-pub use oidc_sessions::{OidcSessionDAL, RefreshSession};
-#[cfg(feature = "postgres")]
-pub use local_accounts::{LocalAccount, LocalAccountDAL, LoginOutcome};
-#[cfg(feature = "postgres")]
-pub use oidc_login_flows::OidcLoginFlowDAL;
 pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
 pub use delivery_outbox::DeliveryOutboxDAL;
 pub use execution_event::ExecutionEventDAL;
+#[cfg(feature = "postgres")]
+pub use local_accounts::{LocalAccount, LocalAccountDAL, LoginOutcome};
+#[cfg(feature = "postgres")]
+pub use oidc_login_flows::OidcLoginFlowDAL;
+#[cfg(feature = "postgres")]
+pub use oidc_sessions::{OidcSessionDAL, RefreshSession};
 pub use reactor_subscriptions::{ReactorFiring, ReactorSubscription, ReactorSubscriptionsDAL};
 pub use recovery_event::RecoveryEventDAL;
 pub use schedule::ScheduleDAL;

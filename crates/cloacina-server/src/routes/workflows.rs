@@ -64,7 +64,6 @@ pub async fn upload_workflow(
     Path(tenant_id): Path<String>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
-
     // Extract file from multipart
     let package_data = match extract_file_field(&mut multipart).await {
         Ok(data) => data,
@@ -225,7 +224,6 @@ pub async fn list_workflows(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -290,7 +288,6 @@ pub async fn get_workflow(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -438,7 +435,6 @@ pub async fn get_workflow_source(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -551,7 +547,6 @@ pub async fn delete_workflow(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name, version)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)
@@ -659,7 +654,6 @@ async fn set_workflow_paused(
     name: String,
     pause: bool,
 ) -> axum::response::Response {
-
     let tenant_db: cloacina::database::Database = match state
         .tenant_databases
         .resolve(&tenant_id, &state.database)

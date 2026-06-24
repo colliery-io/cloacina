@@ -244,8 +244,16 @@ pub fn build_authz_table() -> AuthzTable {
     // ----- Platform + Admin (today: is_admin) -----
     add(Method::POST, "/tenants", Access::platform(Level::Admin));
     add(Method::GET, "/tenants", Access::platform(Level::Admin));
-    add(Method::DELETE, "/tenants/{schema_name}", Access::platform(Level::Admin));
-    add(Method::GET, "/compiler/status", Access::platform(Level::Admin));
+    add(
+        Method::DELETE,
+        "/tenants/{schema_name}",
+        Access::platform(Level::Admin),
+    );
+    add(
+        Method::GET,
+        "/compiler/status",
+        Access::platform(Level::Admin),
+    );
     // CLOACI-T-0785: tenant-admin (was Platform); the handler filters the
     // roster to the caller's tenant (god sees all).
     add(Method::GET, "/agents", Access::any(Level::Admin));
@@ -253,8 +261,16 @@ pub fn build_authz_table() -> AuthzTable {
     // ----- Tenant + Admin: tenant-admin key self-service (CLOACI-T-0784).
     //       POST lowered from Platform; GET/DELETE are new. The DELETE handler
     //       additionally verifies the target key belongs to {tenant_id}. -----
-    add(Method::POST, "/tenants/{tenant_id}/keys", Access::tenant(Level::Admin));
-    add(Method::GET, "/tenants/{tenant_id}/keys", Access::tenant(Level::Admin));
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/keys",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/keys",
+        Access::tenant(Level::Admin),
+    );
     add(
         Method::DELETE,
         "/tenants/{tenant_id}/keys/{key_id}",
@@ -262,8 +278,16 @@ pub fn build_authz_table() -> AuthzTable {
     );
 
     // CLOACI-T-0797: tenant-admin local-account management.
-    add(Method::POST, "/tenants/{tenant_id}/accounts", Access::tenant(Level::Admin));
-    add(Method::GET, "/tenants/{tenant_id}/accounts", Access::tenant(Level::Admin));
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/accounts",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/accounts",
+        Access::tenant(Level::Admin),
+    );
     add(
         Method::DELETE,
         "/tenants/{tenant_id}/accounts/{account_id}",
@@ -281,29 +305,105 @@ pub fn build_authz_table() -> AuthzTable {
     //       tenant-admins manage their own keys under /tenants/{t}/keys. -----
     add(Method::POST, "/auth/keys", Access::platform(Level::Admin));
     add(Method::GET, "/auth/keys", Access::platform(Level::Admin));
-    add(Method::DELETE, "/auth/keys/{key_id}", Access::platform(Level::Admin));
+    add(
+        Method::DELETE,
+        "/auth/keys/{key_id}",
+        Access::platform(Level::Admin),
+    );
 
     // ----- Tenant + Read -----
-    add(Method::GET, "/tenants/{tenant_id}/workflows", Access::tenant(Level::Read));
-    add(Method::GET, "/tenants/{tenant_id}/workflows/{name}", Access::tenant(Level::Read));
-    add(Method::GET, "/tenants/{tenant_id}/workflows/{name}/source", Access::tenant(Level::Read));
-    add(Method::GET, "/tenants/{tenant_id}/triggers", Access::tenant(Level::Read));
-    add(Method::GET, "/tenants/{tenant_id}/triggers/{name}", Access::tenant(Level::Read));
-    add(Method::GET, "/tenants/{tenant_id}/triggers/{name}/interface", Access::tenant(Level::Read));
-    add(Method::GET, "/tenants/{tenant_id}/executions", Access::tenant(Level::Read));
-    add(Method::GET, "/tenants/{tenant_id}/executions/{exec_id}", Access::tenant(Level::Read));
-    add(Method::GET, "/tenants/{tenant_id}/executions/{exec_id}/events", Access::tenant(Level::Read));
-    add(Method::GET, "/tenants/{tenant_id}/executions/{exec_id}/tasks", Access::tenant(Level::Read));
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/workflows",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/workflows/{name}",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/workflows/{name}/source",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/triggers",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/triggers/{name}",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/triggers/{name}/interface",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/executions",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/executions/{exec_id}",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/executions/{exec_id}/events",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/executions/{exec_id}/tasks",
+        Access::tenant(Level::Read),
+    );
 
     // ----- Tenant + Write -----
-    add(Method::POST, "/tenants/{tenant_id}/workflows", Access::tenant(Level::Write));
-    add(Method::POST, "/tenants/{tenant_id}/workflows/{name}/pause", Access::tenant(Level::Write));
-    add(Method::POST, "/tenants/{tenant_id}/workflows/{name}/resume", Access::tenant(Level::Write));
-    add(Method::DELETE, "/tenants/{tenant_id}/workflows/{name}/{version}", Access::tenant(Level::Write));
-    add(Method::POST, "/tenants/{tenant_id}/workflows/{name}/execute", Access::tenant(Level::Write));
-    add(Method::POST, "/tenants/{tenant_id}/triggers/{name}/pause", Access::tenant(Level::Write));
-    add(Method::POST, "/tenants/{tenant_id}/triggers/{name}/resume", Access::tenant(Level::Write));
-    add(Method::POST, "/tenants/{tenant_id}/triggers/{name}/fire", Access::tenant(Level::Write));
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/workflows",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/workflows/{name}/pause",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/workflows/{name}/resume",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::DELETE,
+        "/tenants/{tenant_id}/workflows/{name}/{version}",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/workflows/{name}/execute",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/triggers/{name}/pause",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/triggers/{name}/resume",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/triggers/{name}/fire",
+        Access::tenant(Level::Write),
+    );
 
     // ----- Any + Read (today: authenticated; data-scoping stays in handler) -----
     add(Method::POST, "/auth/ws-ticket", Access::any(Level::Read));
@@ -314,18 +414,58 @@ pub fn build_authz_table() -> AuthzTable {
     add(Method::POST, "/agent/register", Access::any(Level::Read));
     add(Method::POST, "/agent/heartbeat", Access::any(Level::Read));
     add(Method::POST, "/agent/result", Access::any(Level::Read));
-    add(Method::GET, "/agent/artifact/{digest}", Access::any(Level::Read));
-    add(Method::GET, "/agent/source/{digest}", Access::any(Level::Read));
-    add(Method::GET, "/health/accumulators", Access::any(Level::Read));
+    add(
+        Method::GET,
+        "/agent/artifact/{digest}",
+        Access::any(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/agent/source/{digest}",
+        Access::any(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/health/accumulators",
+        Access::any(Level::Read),
+    );
     add(Method::GET, "/health/reactors", Access::any(Level::Read));
-    add(Method::POST, "/health/reactors/{name}/fire", Access::any(Level::Read));
-    add(Method::GET, "/health/reactors/{name}/fires", Access::any(Level::Read));
-    add(Method::GET, "/health/reactors/{name}/fires/timeseries", Access::any(Level::Read));
-    add(Method::POST, "/health/accumulators/{name}/inject", Access::any(Level::Read));
-    add(Method::GET, "/health/reactors/{name}/interface", Access::any(Level::Read));
-    add(Method::GET, "/health/accumulators/{name}/interface", Access::any(Level::Read));
+    add(
+        Method::POST,
+        "/health/reactors/{name}/fire",
+        Access::any(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/health/reactors/{name}/fires",
+        Access::any(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/health/reactors/{name}/fires/timeseries",
+        Access::any(Level::Read),
+    );
+    add(
+        Method::POST,
+        "/health/accumulators/{name}/inject",
+        Access::any(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/health/reactors/{name}/interface",
+        Access::any(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/health/accumulators/{name}/interface",
+        Access::any(Level::Read),
+    );
     add(Method::GET, "/health/graphs", Access::any(Level::Read));
-    add(Method::GET, "/health/graphs/{name}", Access::any(Level::Read));
+    add(
+        Method::GET,
+        "/health/graphs/{name}",
+        Access::any(Level::Read),
+    );
 
     t
 }
@@ -335,9 +475,7 @@ pub fn build_authz_table() -> AuthzTable {
 fn deny_response(reason: &str) -> Response {
     let err = match reason {
         DENY_PLATFORM => ApiError::forbidden("admin_required", "admin access required"),
-        DENY_TENANT => {
-            ApiError::forbidden("tenant_access_denied", "access denied for this tenant")
-        }
+        DENY_TENANT => ApiError::forbidden("tenant_access_denied", "access denied for this tenant"),
         _ => ApiError::forbidden("insufficient_permissions", "insufficient permissions"),
     };
     err.into_response()
@@ -369,7 +507,10 @@ pub async fn authz_mw(State(state): State<AppState>, request: Request, next: Nex
         }
     };
 
-    let access = match state.authz_table.get(&(method.clone(), matched_path.clone())) {
+    let access = match state
+        .authz_table
+        .get(&(method.clone(), matched_path.clone()))
+    {
         Some(a) => *a,
         None => {
             warn!(%method, path = %matched_path, "authz: unclassified route — denying (fail-closed)");
@@ -643,8 +784,14 @@ mod tests {
         let get = |m: Method, p: &str| t.get(&(m, p.to_string())).copied();
 
         // CLOACI-T-0784: the global key surface is god-only (leak fix)...
-        assert_eq!(get(Method::POST, "/auth/keys"), Some(Access::platform(Level::Admin)));
-        assert_eq!(get(Method::GET, "/auth/keys"), Some(Access::platform(Level::Admin)));
+        assert_eq!(
+            get(Method::POST, "/auth/keys"),
+            Some(Access::platform(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::GET, "/auth/keys"),
+            Some(Access::platform(Level::Admin))
+        );
         assert_eq!(
             get(Method::DELETE, "/auth/keys/{key_id}"),
             Some(Access::platform(Level::Admin))
@@ -662,9 +809,15 @@ mod tests {
             get(Method::DELETE, "/tenants/{tenant_id}/keys/{key_id}"),
             Some(Access::tenant(Level::Admin))
         );
-        assert_eq!(get(Method::POST, "/tenants"), Some(Access::platform(Level::Admin)));
+        assert_eq!(
+            get(Method::POST, "/tenants"),
+            Some(Access::platform(Level::Admin))
+        );
         assert_eq!(get(Method::GET, "/agents"), Some(Access::any(Level::Admin))); // T-0785
-        assert_eq!(get(Method::GET, "/compiler/status"), Some(Access::platform(Level::Admin)));
+        assert_eq!(
+            get(Method::GET, "/compiler/status"),
+            Some(Access::platform(Level::Admin))
+        );
         assert_eq!(
             get(Method::POST, "/tenants/{tenant_id}/workflows"),
             Some(Access::tenant(Level::Write))
@@ -674,11 +827,20 @@ mod tests {
             Some(Access::tenant(Level::Read))
         );
         assert_eq!(
-            get(Method::POST, "/tenants/{tenant_id}/workflows/{name}/execute"),
+            get(
+                Method::POST,
+                "/tenants/{tenant_id}/workflows/{name}/execute"
+            ),
             Some(Access::tenant(Level::Write))
         );
-        assert_eq!(get(Method::POST, "/agent/register"), Some(Access::any(Level::Read)));
-        assert_eq!(get(Method::GET, "/health/graphs"), Some(Access::any(Level::Read)));
+        assert_eq!(
+            get(Method::POST, "/agent/register"),
+            Some(Access::any(Level::Read))
+        );
+        assert_eq!(
+            get(Method::GET, "/health/graphs"),
+            Some(Access::any(Level::Read))
+        );
 
         // WS routes are NOT behind authz_mw (in-handler auth); unknown routes
         // are absent -> the middleware fail-closes them.

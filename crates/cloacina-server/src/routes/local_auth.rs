@@ -272,16 +272,18 @@ pub async fn disable_account(
         }
     };
     let dal = cloacina::dal::DAL::new(state.database.clone());
-    match dal.local_accounts().set_status(id, &tenant_id, "disabled").await {
+    match dal
+        .local_accounts()
+        .set_status(id, &tenant_id, "disabled")
+        .await
+    {
         Ok(true) => Json(AccountActionResponse {
             status: "disabled".to_string(),
             id: account_id,
         })
         .into_response(),
-        Ok(false) => {
-            ApiError::not_found("account_not_found", "account not found in this tenant")
-                .into_response()
-        }
+        Ok(false) => ApiError::not_found("account_not_found", "account not found in this tenant")
+            .into_response(),
         Err(e) => {
             warn!("disable local account failed: {}", e);
             ApiError::internal("failed to disable account").into_response()
@@ -330,10 +332,8 @@ pub async fn reset_password(
             id: account_id,
         })
         .into_response(),
-        Ok(false) => {
-            ApiError::not_found("account_not_found", "account not found in this tenant")
-                .into_response()
-        }
+        Ok(false) => ApiError::not_found("account_not_found", "account not found in this tenant")
+            .into_response(),
         Err(e) => {
             warn!("reset local account password failed: {}", e);
             ApiError::internal("failed to reset password").into_response()

@@ -197,10 +197,8 @@ impl<'a> OidcSessionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let n: usize = conn
             .interact(move |conn| {
-                diesel::delete(
-                    oidc_sessions::table.filter(oidc_sessions::expires_at.lt(now)),
-                )
-                .execute(conn)
+                diesel::delete(oidc_sessions::table.filter(oidc_sessions::expires_at.lt(now)))
+                    .execute(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;

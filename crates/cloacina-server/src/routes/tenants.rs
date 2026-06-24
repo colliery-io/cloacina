@@ -58,7 +58,6 @@ pub async fn create_tenant(
     Extension(_auth): Extension<AuthenticatedKey>,
     Json(body): Json<CreateTenantRequest>,
 ) -> impl IntoResponse {
-
     let admin = DatabaseAdmin::new(state.database.clone());
     let config = TenantConfig {
         // Per CLOACI-T-0594: schema_name == username == public name.
@@ -134,7 +133,6 @@ pub async fn remove_tenant(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path(schema_name): Path<String>,
 ) -> impl IntoResponse {
-
     let teardown_started = Instant::now();
 
     // Step 1: revoke keys.

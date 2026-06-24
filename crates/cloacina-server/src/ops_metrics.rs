@@ -24,8 +24,8 @@
 //! Publishing is gated on a connected subscriber, so nothing is gathered when
 //! no Operations page is open.
 
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
 use cloacina_api_types::operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
@@ -190,39 +190,38 @@ async fn gather(state: &AppState, view: Option<&str>) -> OpsMetricsEvent {
 
     // ── Compiler / build pipeline (same mapping as GET /v1/compiler/status),
     //    scoped to this view's schema (its own pending/building/heartbeat). ──
-    let compiler =
-        match cloacina::registry::workflow_registry::build_queue_stats(&db).await {
-            Ok(s) => {
-                let status = if s.building > 0 {
-                    "building"
-                } else if s.pending > 0 {
-                    "backlogged"
-                } else {
-                    "idle"
-                };
-                CompilerStatus {
-                    status: status.to_string(),
-                    pending: s.pending,
-                    building: s.building,
-                    seconds_since_heartbeat: s
-                        .heartbeat_at
-                        .map(|h| (chrono::Utc::now() - h).num_seconds().max(0) as u64),
-                    last_success_at: s.last_success_at.map(|t| t.to_rfc3339()),
-                    last_failure_at: s.last_failure_at.map(|t| t.to_rfc3339()),
-                }
+    let compiler = match cloacina::registry::workflow_registry::build_queue_stats(&db).await {
+        Ok(s) => {
+            let status = if s.building > 0 {
+                "building"
+            } else if s.pending > 0 {
+                "backlogged"
+            } else {
+                "idle"
+            };
+            CompilerStatus {
+                status: status.to_string(),
+                pending: s.pending,
+                building: s.building,
+                seconds_since_heartbeat: s
+                    .heartbeat_at
+                    .map(|h| (chrono::Utc::now() - h).num_seconds().max(0) as u64),
+                last_success_at: s.last_success_at.map(|t| t.to_rfc3339()),
+                last_failure_at: s.last_failure_at.map(|t| t.to_rfc3339()),
             }
-            Err(e) => {
-                warn!(error = %e, "ops_metrics: build_queue_stats failed");
-                CompilerStatus {
-                    status: "idle".to_string(),
-                    pending: 0,
-                    building: 0,
-                    seconds_since_heartbeat: None,
-                    last_success_at: None,
-                    last_failure_at: None,
-                }
+        }
+        Err(e) => {
+            warn!(error = %e, "ops_metrics: build_queue_stats failed");
+            CompilerStatus {
+                status: "idle".to_string(),
+                pending: 0,
+                building: 0,
+                seconds_since_heartbeat: None,
+                last_success_at: None,
+                last_failure_at: None,
             }
-        };
+        }
+    };
 
     // ── Fleet roster (same mapping as GET /v1/agents). ──
     let now = Instant::now();
@@ -244,24 +243,23 @@ async fn gather(state: &AppState, view: Option<&str>) -> OpsMetricsEvent {
         .collect();
 
     // ── Reconciler / package availability, scoped to this view's schema. ──
-    let reconciler =
-        match cloacina::registry::workflow_registry::reconciler_stats(&db).await {
-            Ok(s) => ReconcilerStatus {
-                status: if s.failed > 0 { "errors" } else { "ok" }.to_string(),
-                built: s.built,
-                failed: s.failed,
-                last_built_at: s.last_built_at.map(|t| t.to_rfc3339()),
-            },
-            Err(e) => {
-                warn!(error = %e, "ops_metrics: reconciler_stats failed");
-                ReconcilerStatus {
-                    status: "ok".to_string(),
-                    built: 0,
-                    failed: 0,
-                    last_built_at: None,
-                }
+    let reconciler = match cloacina::registry::workflow_registry::reconciler_stats(&db).await {
+        Ok(s) => ReconcilerStatus {
+            status: if s.failed > 0 { "errors" } else { "ok" }.to_string(),
+            built: s.built,
+            failed: s.failed,
+            last_built_at: s.last_built_at.map(|t| t.to_rfc3339()),
+        },
+        Err(e) => {
+            warn!(error = %e, "ops_metrics: reconciler_stats failed");
+            ReconcilerStatus {
+                status: "ok".to_string(),
+                built: 0,
+                failed: 0,
+                last_built_at: None,
             }
-        };
+        }
+    };
 
     OpsMetricsEvent {
         server,

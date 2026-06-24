@@ -68,7 +68,6 @@ pub async fn execute_workflow(
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<ExecuteRequest>,
 ) -> impl IntoResponse {
-
     let mut context = Context::new();
 
     // CLOACI-T-0757: capture the provided context object for declared-param
@@ -253,7 +252,6 @@ pub async fn list_executions(
     Path(tenant_id): Path<String>,
     Query(q): Query<ListExecutionsQuery>,
 ) -> impl IntoResponse {
-
     let limit = q.limit.unwrap_or(DEFAULT_EXECUTIONS_LIMIT);
     if !(1..=MAX_EXECUTIONS_LIMIT).contains(&limit) {
         return ApiError::bad_request(
@@ -338,7 +336,6 @@ pub async fn get_execution(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
@@ -398,7 +395,6 @@ pub async fn get_execution_events(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
@@ -480,7 +476,6 @@ pub async fn get_execution_tasks(
     Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {

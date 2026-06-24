@@ -23,9 +23,9 @@
 pub mod agent_registry;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
+pub mod fleet_executor;
 pub mod identity;
 pub mod oidc;
-pub mod fleet_executor;
 pub mod openapi;
 pub mod ops_metrics;
 pub mod routes;
@@ -1660,15 +1660,28 @@ async fn bootstrap_demo_tenant_keys(state: &AppState) -> Result<()> {
     for entry in spec.split(',').filter(|e| !e.trim().is_empty()) {
         let parts: Vec<&str> = entry.split(':').map(|s| s.trim()).collect();
         if parts.len() < 2 || parts[0].is_empty() || parts[1].is_empty() {
-            warn!("CLOACINA_DEMO_TENANT_KEYS: skipping malformed entry '{}'", entry);
+            warn!(
+                "CLOACINA_DEMO_TENANT_KEYS: skipping malformed entry '{}'",
+                entry
+            );
             continue;
         }
         let (tenant, key) = (parts[0], parts[1]);
-        let role = parts.get(2).copied().filter(|r| !r.is_empty()).unwrap_or("admin");
+        let role = parts
+            .get(2)
+            .copied()
+            .filter(|r| !r.is_empty())
+            .unwrap_or("admin");
         let hash = cloacina::security::api_keys::hash_api_key(key);
         match dal
             .api_keys()
-            .create_key(&hash, &format!("demo-{tenant}-scoped"), Some(tenant), false, role)
+            .create_key(
+                &hash,
+                &format!("demo-{tenant}-scoped"),
+                Some(tenant),
+                false,
+                role,
+            )
             .await
         {
             Ok(_) => info!(
@@ -1677,7 +1690,8 @@ async fn bootstrap_demo_tenant_keys(state: &AppState) -> Result<()> {
             ),
             Err(e) => tracing::debug!(
                 "CLOACI-T-0779: demo tenant key for '{}' not created (likely already exists): {}",
-                tenant, e
+                tenant,
+                e
             ),
         }
     }
