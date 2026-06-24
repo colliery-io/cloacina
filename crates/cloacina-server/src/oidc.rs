@@ -535,4 +535,32 @@ mod tests {
             "discovered metadata must carry a token endpoint"
         );
     }
+
+    /// Live: discover against Dex then build the real authorization URL, and
+    /// assert it carries PKCE + state + nonce + the requested scopes. Ignored
+    /// by default (needs Dex). Run: `... oidc -- --ignored`.
+    #[tokio::test]
+    #[ignore = "requires a live issuer (Dex)"]
+    async fn begins_login_against_live_issuer() {
+        let cfg = OidcConfig {
+            issuer_url: "http://localhost:5556/dex".to_string(),
+            client_id: "cloacina".to_string(),
+            client_secret: "cloacina-dex-secret".to_string(),
+            redirect_uri: "http://localhost:8080/v1/auth/callback".to_string(),
+            scopes: parse_scopes(None),
+        };
+        let provider = OidcProvider::discover(cfg).await.expect("discover");
+        let start = provider.begin_login().expect("begin_login");
+        assert!(
+            start.auth_url.starts_with("http://localhost:5556/dex/auth"),
+            "auth_url should point at Dex's authorize endpoint: {}",
+            start.auth_url
+        );
+        assert!(start.auth_url.contains("code_challenge="));
+        assert!(start.auth_url.contains("code_challenge_method=S256"));
+        assert!(start.auth_url.contains("state="));
+        assert!(start.auth_url.contains("nonce="));
+        assert!(start.auth_url.contains("groups"));
+        assert!(!start.state.is_empty() && !start.pkce_verifier.is_empty());
+    }
 }
