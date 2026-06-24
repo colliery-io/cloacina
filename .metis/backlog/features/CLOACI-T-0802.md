@@ -4,7 +4,7 @@ level: task
 title: "Release 0.9.0 — docs pass + release staging"
 short_code: "CLOACI-T-0802"
 created_at: 2026-06-24T10:50:05.024564+00:00
-updated_at: 2026-06-24T11:02:02.680868+00:00
+updated_at: 2026-06-24T11:16:00.307217+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -64,6 +64,8 @@ Stage the **0.9.0** release: a docs pass over the unreleased work (90 commits si
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -149,3 +151,5 @@ Stage the **0.9.0** release: a docs pass over the unreleased work (90 commits si
 **Remaining doc gaps (reference/prose long tail, NOT release-blocking — CHANGELOG + current OpenAPI spec cover the surface):** `engine/workflows/workflow.md` (params), `engine/workflows/task.md` + `python-api/task.md` (what/why; pure-Python persistence deferred T-0754), `reference/macros.md`, `python-api/trigger.md` (params), `reference/http-api.md` (source/pause/fire/interface + new fields), `reference/errors.md` + `api-error-envelope.md` (4 new codes), `reference/cli.md` (reactor fire / accumulator inject), `reference/package-manifest.md` (declared_params + what/why), `reference/ffi-vtable.md` (CloacinaPlugin v3, method idx 9), `execution-agent-fleet.md` (multi-arch), `multi-tenancy.md` (per-tenant build/exec/metrics isolation), `engine/explanation/subscription-fan-out.md` (cross-ref trigger-name vs reactor fan-out), `engine/computation-graphs/` (operator-injection how-to).
 
 **Next:** clear the long tail (a focused reference-sync pass) or land the staged release first; tag/publish remains the user's call.
+
+**2026-06-24 — COMPLETE (long tail cleared via 4 parallel agents, all source-verified + reviewed).** Spun up 4 agents over disjoint doc clusters; each verified claims against `crates/` and **caught real errors that had propagated from the investigation reports / my prompts** — corrected before commit: (1) there is **no `#[trigger] params(...)`** (abandoned in T-0777) — the trigger's typed surface is the *union of subscribed workflows' declared params* via `/interface` (fixed `python-api/trigger.md` **and the CHANGELOG**); (2) reactor `force_fire`/`fire_with` are values of a `mode` field, not separate fields, and the inject body key is `event`; (3) the CLI `fire` verb takes `--input` (not `force-fire`), and no workflow/trigger pause/resume CLI exists (HTTP-only). Files: authoring (task/macros/python-api task+trigger/package-manifest), ffi-vtable (ABI v3 + method 9), execution-agent-fleet (multi-arch), multi-tenancy (per-tenant build/exec/metrics), subscription-fan-out (trigger-name vs reactor + bidirectional cross-link), new how-to `drive-graph-surfaces-manually.md`, http-api (source/pause/fire/interface/health-reactors + WorkflowDetail fields + execute error codes), cli (reactor/accumulator nouns). **`angreal docs build` = clean Hugo build, no broken refs.** All committed. **Staged for review on `cloaci-i0118-abac-authz`; NOT tagged/published** (user's call).
