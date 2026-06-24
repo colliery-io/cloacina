@@ -1,10 +1,10 @@
 ---
-id: ui-authz-gating-hide-write-admin
+id: ci-hardening-for-0-9-0-auth-aurora
 level: task
-title: "UI authz gating — hide write/admin controls for read users (whoami + role)"
-short_code: "CLOACI-T-0803"
-created_at: 2026-06-24T12:34:17.869704+00:00
-updated_at: 2026-06-24T13:10:57.418215+00:00
+title: "CI hardening for 0.9.0 auth — aurora-dark https, auth integration lane, OIDC/Dex"
+short_code: "CLOACI-T-0804"
+created_at: 2026-06-24T15:11:36.400011+00:00
+updated_at: 2026-06-24T15:30:10.460980+00:00
 parent: CLOACI-I-0118
 blocked_by: []
 archived: false
@@ -18,7 +18,7 @@ exit_criteria_met: false
 initiative_id: CLOACI-I-0118
 ---
 
-# UI authz gating — hide write/admin controls for read users (whoami + role)
+# CI hardening for 0.9.0 auth — aurora-dark https, auth integration lane, OIDC/Dex
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -28,7 +28,7 @@ initiative_id: CLOACI-I-0118
 
 ## Objective **[REQUIRED]**
 
-The server correctly 403s write/admin ops for a `read` key, but the **UI still shows** Upload Package / Run / Fire / Inject / Poll buttons (and admin key/account controls) to read users — "don't display what isn't functional." Add a `whoami` endpoint so the UI learns the active key's role, carry role on the connection, and gate write controls (`canWrite`) + admin controls (`canAdmin`) so non-permitted actions aren't offered.
+Close the CI gaps the 0.9.0 auth/design-sync work opened: (1) the `aurora-dark` design-sync dep was pinned git+ssh → CI's `npm install` would fail with no deploy key; (2) the new auth surface (local accounts, whoami, the cross-tenant key-management leak fix) had no end-to-end CI gate; (3) OIDC had zero automated coverage.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -137,6 +137,9 @@ The server correctly 403s write/admin ops for a `read` key, but the **UI still s
 
 ## Status Updates **[REQUIRED]**
 
-**2026-06-24 — foundation DONE + committed; component gating in flight (3 agents).** Server: `GET /v1/auth/whoami` → `{tenant_id, role, is_admin, name}` from the request `AuthenticatedKey` (any auth key, read level); authz table 51→52 + no-drift test; openapi registered + regenerated; `angreal check` + authz test clean. SDK: `whoami()` + regen. UI AuthContext: `Connection` carries `role`/`isAdmin` (resolved via whoami on connect/enterMemberships + a fallback for restored sessions); derives `canWrite` (write|admin|god) / `canAdmin` (admin|god) via a new `useCan()` hook; unknown role **fails closed**. UI tsc clean. **Gating (3 parallel agents, disjoint clusters):** (A) Workflows/WorkflowDetail/Upload/Triggers/TriggerDetail/ExecutionDetail/RunWorkflowModal — write; (B) GraphDetail/Graphs/GraphMiniCard/GraphInjectModal/TriggerFireModal — write; (C) Keys/Accounts — admin. Each typechecks before reporting; I review + commit + rebuild. **Live-verified earlier:** a read key gets 403 on POST workflows (upload), execute, accounts — server enforcement already correct; this task is the UI surface.
+**2026-06-24 — COMPLETE, all three verified locally.**
+1. **aurora-dark https** — repinned `ui/package.json` to `git+https://…#commit` + rewrote the lockfile `resolved` from git+ssh→https (repo is public). Proved a clean re-fetch with `GIT_SSH_COMMAND=false` installs → CI needs no SSH secret.
+2. **auth integration lane** — added group 8 to `.angreal/test/auth.py` (whoami roles, the **leak-fix regression** = tenant key→global /auth/keys GET+POST→403, local accounts create→login→whoami→refresh→logout) + wired `angreal test auth` into `cloacina.yml` (postgres matrix). Fixed the harness (`api_request` crashed on an empty 2xx body — was masking the whole suite) + 3 pre-existing failures (items envelope; a check that asserted the now-god-only /auth/keys; metrics counter needing a pipeline). **49/49 pass, exit 0.**
+3. **OIDC/Dex** — added a `dex` service to `.angreal/docker-compose.yaml` + `.angreal/dex-config.yaml` (localhost issuer for the host-run test) + a CI step running the `#[ignore]`'d OIDC tests (discovery + begin_login) against it. **2/2 pass** locally (had to stop the demo dex — one owner of :5556).
 
-**2026-06-24 — gating COMPLETE + committed (with the design-sync refactor).** All 3 agent clusters landed; I fixed 2 gates the background linter had reverted (TriggerDetail Run, GraphInjectModal submit). **Entanglement resolved:** the gating was intertwined with a large in-progress **design-sync refactor** (migrate UI to `@colliery-io/aurora-dark`) which the user confirmed is **part of 0.9.0**. Reconciled: applied the refactor's 13 orphaned-file deletions (verified a closed import cluster — nothing outside imported them; typecheck still clean after removal), then committed design-sync + gating together (`feat(ui): aurora-dark … + role gating`). `tsc -b` + `vite build` clean; 57 files (42 mod, 13 del). Stale `stash@{0}` (Agent C's backup) now redundant — left for the user. **Rebuilding server (whoami) + ui (gating+design) images → redeploy → live-verify a read user sees no write/admin controls.**
+**Coverage map for reviewers:** spec-drift + SDK-drift + UI typecheck/build already on PR; auth unit tests (52-route no-drift, mapping, argon2, mint) ride `angreal test integration`; now + auth e2e + OIDC. The full OIDC browser callback (token validation through Dex's login) is still only manual/nightly-e2e territory. All committed; not tagged.
