@@ -1362,7 +1362,13 @@ fn build_router(state: AppState) -> Router {
     let v1 = auth_routes
         .merge(graph_health_routes)
         .merge(ws_routes)
-        .merge(agent_routes);
+        .merge(agent_routes)
+        // CLOACI-T-0796: public local login (caller has no bearer key yet — NOT
+        // behind require_auth / authz_mw; it mints the key).
+        .merge(Router::new().route(
+            "/auth/local/login",
+            post(crate::routes::local_auth::local_login),
+        ));
 
     // Public routes — no auth
     Router::new()

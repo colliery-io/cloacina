@@ -289,6 +289,57 @@
         ]
       }
     },
+    "/v1/auth/local/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "`POST /v1/auth/local/login` — verify a password, mint a short-TTL key.",
+        "operationId": "local_login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Logged in — minted key returned once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalLoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid username or password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/auth/ws-ticket": {
       "post": {
         "tags": [
@@ -4245,6 +4296,56 @@
           "total": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "LocalLoginRequest": {
+        "type": "object",
+        "description": "A local-login attempt. `tenant` selects which tenant's account namespace to\nauthenticate against (`None` = a global account).",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "LocalLoginResponse": {
+        "type": "object",
+        "description": "A successful local login. `key` is the minted bearer key — shown exactly\nonce; the SPA stores it (sessionStorage) and presents it as `Bearer`.",
+        "required": [
+          "key",
+          "role"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

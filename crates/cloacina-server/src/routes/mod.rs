@@ -25,6 +25,7 @@ pub mod error;
 pub mod executions;
 pub mod health_graphs;
 pub mod keys;
+pub mod local_auth;
 pub mod tenants;
 pub mod triggers;
 pub mod workflows;
