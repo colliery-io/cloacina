@@ -636,13 +636,14 @@ fn generate_compiled_function(
     }
 
     let graph_result_completed = if is_cloacina_crate {
-        quote! { crate::computation_graph::GraphResult::completed(__terminal_results) }
+        quote! { crate::computation_graph::GraphResult::completed_with_json(__terminal_results, __terminal_results_json) }
     } else {
-        quote! { cloacina_computation_graph::GraphResult::completed(__terminal_results) }
+        quote! { cloacina_computation_graph::GraphResult::completed_with_json(__terminal_results, __terminal_results_json) }
     };
 
     Ok(quote! {
         let mut __terminal_results: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
+        let mut __terminal_results_json: Vec<::serde_json::Value> = Vec::new();
         #cache_reads
         #(#exec_stmts)*
         #graph_result_completed
@@ -735,16 +736,19 @@ fn generate_node_execution(
                     .push(Box::new(__serialized) as Box<dyn std::any::Any + Send>);
             }
         } else {
-            // CLOACI-T-0775: reactor-driven graphs also serialize their terminal
-            // to `serde_json::Value` so the reactor can record per-fire outputs
-            // (the FFI bridge captures them via downcast-to-Value). Unlike the
-            // trigger-less path this is observability, not a routed result — fall
-            // back to Null rather than panicking if the terminal isn't Serialize.
+            // CLOACI-T-0775: reactor-driven graphs keep the concrete terminal
+            // value in `outputs` (so in-process consumers can downcast to the
+            // real type) AND record a JSON copy in `outputs_json` for per-fire
+            // observability. Serialize by reference first, then move the typed
+            // value into the `Any` vec. Fall back to Null rather than panicking
+            // if the terminal isn't Serialize — JSON capture is observability,
+            // not a routed result.
             quote! {
                 let __serialized: ::serde_json::Value =
                     ::serde_json::to_value(&#result_var).unwrap_or(::serde_json::Value::Null);
+                __terminal_results_json.push(__serialized);
                 __terminal_results
-                    .push(Box::new(__serialized) as Box<dyn std::any::Any + Send>);
+                    .push(Box::new(#result_var) as Box<dyn std::any::Any + Send>);
             }
         };
         Ok(quote! {
