@@ -1,13 +1,15 @@
 ---
 title: "Trigger"
-description: "Fires a workflow when a condition is met — a poll function or a cron expression."
+description: "A named fan-out point that fires one or more workflows when a condition is met — a poll function or a cron expression."
 weight: 31
 ---
 
 # Trigger
 
-A **Trigger** starts a [Workflow]({{< ref "/engine/workflows/workflow" >}}) without
-a manual call. It names a target workflow and a firing rule. Two kinds:
+A **Trigger** starts one or more [Workflows]({{< ref "/engine/workflows/workflow" >}})
+without a manual call. It is a *named fan-out point*: it has a firing rule and a
+primary workflow (`on`), and any number of workflows — across packages — can
+subscribe to its name. Two kinds of firing rule:
 
 - **Poll** — a function the scheduler runs on an interval; it decides whether to
   fire (and with what context).
@@ -17,8 +19,18 @@ a manual call. It names a target workflow and a firing rule. Two kinds:
 ## Mental model
 
 - A trigger is registered with the runner's scheduler, which polls it on its
-  interval and fires the workflow when the rule says so.
+  interval and fires when the rule says so.
 - Firing is deduplicated (a context hash) so the same fire doesn't double-run.
+- **Fan-out** (CLOACI-T-0777 / T-0778). When a trigger fires, *every* workflow
+  subscribed to it runs, not just the primary `on` workflow. A workflow
+  subscribes by naming the trigger in `#[workflow(triggers = ["my_trigger"])]`,
+  and subscribers may live in other packages; they're resolved from registry
+  workflow metadata. The **primary** workflow drives the audit record, return
+  value, and error propagation; **secondary** subscribers are best-effort (a
+  secondary failure is logged, never fails the primary). A plain cron schedule
+  (no trigger name) still binds exactly one workflow. The scheduler's auto-poll
+  and a manual fire (`POST /v1/tenants/{t}/triggers/{name}/fire`, server mode)
+  fan out the same way.
 
 ## Interfaces
 

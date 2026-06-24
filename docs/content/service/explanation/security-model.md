@@ -1,6 +1,6 @@
 ---
 title: "Security Model"
-description: "Trust by deployment mode, auth roles, signature verification rationale, the compiler threat model, and the limits of multi-tenant isolation."
+description: "Trust by deployment mode, the server's ABAC authorization layer and identity providers (API keys, local accounts, OIDC SSO), signature verification, the compiler threat model, and the limits of multi-tenant isolation."
 weight: 35
 aliases:
   - "/platform/explanation/security-model/"
@@ -42,7 +42,7 @@ The daemon does not require `/metrics`, does not require auth, and does not enfo
 The server is the **only** Cloacina mode with a low-trust posture. It assumes:
 
 - Multiple independent tenants share the same Postgres instance.
-- Multiple operators authenticate via API keys with different privilege levels.
+- Multiple operators authenticate via API keys, self-managed local accounts, or OIDC single sign-on, at different privilege levels.
 - Package authors may not be the same people as server operators.
 - Package code is *not* trusted to be benign — the compiler-build pipeline is hardened (per CLOACI-I-0104) and signatures can be required at upload (CLOACI-I-0103).
 
@@ -73,9 +73,45 @@ Cloacina keys carry two pieces of authority: a **tenant-scoped role** (`admin` /
 
 The `is_admin = false` + `role = admin` combination — i.e., "I'm admin within my own tenant" — is the expected production posture for tenant operators. Reserve `is_admin = true` for the operations team running the platform.
 
-### Tenant-access enforcement
+### Authorization: the ABAC route table
 
-Every `/v1/tenants/{tenant_id}/...` route checks `auth.can_access_tenant(&tenant_id)` before doing any work, returning `403 tenant_access_denied` if the caller's key isn't authorized for the named tenant. Tenant-scoped keys' single permitted tenant is set at key creation and cannot be changed; cross-tenant access requires a new key.
+As of CLOACI-I-0118, authorization is a single, fail-closed middleware layer that lives in **`cloacina-server` only** — the embedded library and the daemon have no such layer because they have no multi-tenant surface to gate. Every `/v1/*` route is classified once, at startup, into a declarative table keyed by `(method, path)` and mapping to a required **scope** (platform / tenant / any) and **level** (read / write / admin). A small, total matcher — `evaluate(principal, scope, level) -> Permit | Deny` — runs on every request after authentication:
+
+- A request whose matched route is **not in the table is denied**, never allowed by default. Adding a route without classifying it fails closed.
+- **Platform-scoped** routes (create / list / delete tenants, the global key surface) require an `is_admin` key.
+- **Tenant-scoped** routes resolve the `{tenant_id}` path parameter and require the caller's key to be scoped to that tenant with a sufficient role.
+
+This replaced the older per-handler `can_access_tenant` / `can_write` / `can_admin` checks that were scattered across every handler. The matcher reproduces the previous decisions for the common cases but closes a class of gaps the scattered checks left — most notably the **cross-tenant key-management leak**: the global `GET/POST/DELETE /v1/auth/keys` surface is now platform-scoped (god-only), so a tenant-admin key can no longer enumerate or mint keys outside its tenant. Tenant operators manage their own keys through `/v1/tenants/{tenant_id}/keys`; a tenant-scoped key calling the global surface gets `403`.
+
+Tenant-scoped keys' single permitted tenant is set at key creation and cannot be changed; cross-tenant access requires a separate key.
+
+### Authenticating: identity providers
+
+A bearer key is always the *subject* the matcher evaluates, but there are three ways to obtain one:
+
+1. **API keys** — created directly by an admin (`POST /v1/tenants/{t}/keys`, or the global surface for `is_admin`). Long-lived, no expiry, shown once at creation.
+2. **Local accounts (self-managed, no IdP)** — username/password accounts a tenant-admin provisions under `/v1/tenants/{t}/accounts`. Passwords are hashed with **argon2id**; accounts are unique per `(tenant, username)`. `POST /v1/auth/local/login` validates the credentials and **mints a short-TTL bearer key**. This is the path for deployments that don't want to run an IdP.
+3. **OIDC single sign-on** — when the server is configured with an issuer (`CLOACINA_OIDC_*`), `/v1/auth/oidc/login` runs the authorization-code + PKCE flow. The callback validates the ID token (JWKS signature, `iss` / `aud` / `exp`, nonce), maps the validated identity to one or more `{tenant, role}` memberships through a **god-owned allowlist** (group / email-domain / subject → tenant + role), and mints a scoped key per membership. An identity that matches no rule is denied.
+
+In every case the result is an ordinary bearer key; authorization does not care how it was minted. Whether a key came from a paste, a password, or an IdP is invisible to the matcher.
+
+### Session lifecycle: mint, refresh, logout
+
+Minted keys (local + OIDC) carry an `expires_at` and an `issued_via` provenance (`local:<account_id>` or `oidc:<issuer>:<sub>`); directly-created API keys have neither and never expire.
+
+- **Refresh** — `POST /v1/auth/refresh` re-checks that the underlying account / identity is still valid, mints a fresh key, and revokes the old one. The UI calls this silently before a key's TTL lapses, so a session survives without storing a long-lived credential in the browser. OIDC refresh-token material, when present, is stored server-side encrypted with AES-256-GCM and never returned to the browser.
+- **Logout** — `POST /v1/auth/logout` revokes the caller's key, deletes any server-side refresh session, and clears the auth-cache entry.
+
+OIDC in-flight login state (the `state` / nonce / PKCE verifier between the redirect and the callback) is persisted in Postgres, so the callback can land on any replica — no sticky sessions.
+
+### Multi-tenant individuals
+
+The tenant is the isolation boundary, and a bearer key is always scoped to exactly one tenant — there is **no multi-tenant subject**. An individual who belongs to several tenants holds **one scoped key per tenant** and switches between them in the UI's tenant switcher. Both identity paths populate this:
+
+- **Local:** the person has a separate account per tenant (`alice` in `acme` and `alice` in `public` are independent rows with their own passwords and roles).
+- **OIDC:** a single sign-on resolves to the *set* of memberships the allowlist grants; the server mints a key per tenant and the UI shows a picker.
+
+Object- or workflow-level authorization *within* a tenant is a deliberate non-goal — to isolate a sensitive set of work, spin up a separate tenant. That choice is what lets authorization stay a single, coarse, URL-derivable route table rather than a per-row policy engine.
 
 ### Bootstrap key invariants
 
@@ -164,6 +200,9 @@ Deployments where this is unacceptable should terminate `/metrics` at the revers
 
 ## See also
 
+- [Manage API Keys]({{< ref "/service/how-to/manage-api-keys" >}}) — create / list / revoke tenant + global keys.
+- [Configure Local Accounts]({{< ref "/service/how-to/configure-local-accounts" >}}) — self-managed username/password login with no IdP.
+- [Configure OIDC Single Sign-On]({{< ref "/service/how-to/configure-oidc-sso" >}}) — wire an issuer, the identity→tenant allowlist, and multi-tenant memberships.
 - [Multi-tenancy]({{< ref "multi-tenancy" >}}) — operational mechanics of tenant isolation.
 - [Package Format]({{< ref "package-format" >}}) — how `.cloacina` archives are structured.
 - [Packaged Workflow Architecture]({{< ref "packaged-workflow-architecture" >}}) — the FFI / cdylib trust boundary.

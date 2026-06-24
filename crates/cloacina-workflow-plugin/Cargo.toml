@@ -16,8 +16,8 @@ fidius-core = "0.2.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { workspace = true }
 inventory = "0.3"
-cloacina-computation-graph = { version = "0.8.0", path = "../cloacina-computation-graph" }
-cloacina-workflow = { version = "0.8.0", path = "../cloacina-workflow", default-features = false }
+cloacina-computation-graph = { version = "0.9.0", path = "../cloacina-computation-graph" }
+cloacina-workflow = { version = "0.9.0", path = "../cloacina-workflow", default-features = false }
 
 [dev-dependencies]
 toml = "0.8"

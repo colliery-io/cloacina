@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-24
+
+### Added
+
+- **Server authentication & authorization model** (CLOACI-I-0118) — a complete identity + authorization layer for `cloacina-server`, **server-only** (the embedded library and daemon are untouched). It comprises:
+  - **ABAC route-table authorization** — every `/v1/*` route is classified once at startup into a declarative `(method, path) → {scope, level}` table, and a small total matcher evaluates each authenticated request. The layer is **fail-closed**: a route absent from the table is denied, never allowed by default. This replaces the per-handler `can_access_tenant` / `can_write` / `can_admin` checks.
+  - **Local accounts (self-managed, no IdP)** — username/password accounts a tenant-admin provisions under `/v1/tenants/{t}/accounts` (passwords hashed with argon2id, unique per `(tenant, username)`). `POST /v1/auth/local/login` mints a short-TTL, tenant-scoped bearer key.
+  - **OIDC single sign-on** — configure an issuer with `CLOACINA_OIDC_*` and `/v1/auth/oidc/login` runs the authorization-code + PKCE flow (spec-compliant discovery, JWKS, ID-token validation via the `openidconnect` crate). A **god-owned allowlist** (`CLOACINA_OIDC_MAP`: group / email-domain / subject → tenant+role) maps the validated identity to tenant memberships; an unmapped identity is denied.
+  - **Multi-tenant single sign-on** — one OIDC login resolves to the *set* of `{tenant, role}` memberships the allowlist grants, minting a scoped key per tenant; the web UI shows a tenant picker. The bearer key always stays scoped to one tenant — multi-tenancy is "hold N scoped keys + switch", never a multi-tenant subject.
+  - **Session lifecycle** — minted keys carry a TTL and `issued_via` provenance. `POST /v1/auth/refresh` re-validates and re-mints (the UI refreshes silently before expiry); `POST /v1/auth/logout` revokes the key and forgets the server-side session.
+  - **Web UI** — username/password and SSO sign-in on the connect screen, a tenant-admin account-management view, and the tenant switcher for multi-tenant operators.
+  - See [Security Model]({{< ref "/service/explanation/security-model" >}}), [Configure Local Accounts]({{< ref "/service/how-to/configure-local-accounts" >}}), and [Configure OIDC Single Sign-On]({{< ref "/service/how-to/configure-oidc-sso" >}}).
+- **Declared, typed workflow inputs** (CLOACI-I-0128) — a `#[workflow(params(name: Type [= default], …))]` clause (and `@cloaca.workflow_params(...)` in Python) declares typed inputs; their JSON-Schema `InputSlot`s surface on `WorkflowDetail.declared_params` and are validated at execute time. See [Declare Workflow Inputs]({{< ref "/embed/how-to/declare-workflow-inputs" >}}).
+- **Opinionated task documentation** (CLOACI-I-0126) — a `what:` / `why:` convention in `#[task]` doc-comments (and Python docstrings) is parsed by the compiler into the package manifest and surfaced on `WorkflowTaskNode`.
+- **Workflow source retrieval** — `GET /v1/tenants/{t}/workflows/{name}/source` returns the retained package's source files (read-only, language-tagged, tenant-scoped). (CLOACI-T-0750)
+- **Operator inject / fire surfaces** (CLOACI-I-0128) — manually drive graph surfaces with typed JSON: reactor `force_fire` / `fire_with` (`POST /v1/health/reactors/{name}/fire`), accumulator inject (`POST /v1/health/accumulators/{name}/inject`), and typed-slot discovery (`GET /v1/health/{reactors,accumulators}/{name}/interface`), plus `cloacinactl reactor fire/force-fire` and `accumulator inject`. Every manual fire/inject is audit-logged.
+- **Manual trigger fire + typed trigger params** — `POST /v1/tenants/{t}/triggers/{name}/fire` pushes a typed event and fans out to every subscribed workflow; `#[trigger]` gains `params(...)`, and `GET /v1/tenants/{t}/triggers/{name}/interface` returns the declared input slots. (CLOACI-T-0777)
+- **Universal pause / resume** — pause and resume triggers and workflows; paused state is surfaced on summary/detail responses and excluded from all fire paths. (CLOACI-T-0749)
+- **Multi-architecture execution-agent fleet** (CLOACI-T-0780) — a package can carry per-target cdylibs (`package_artifacts`), and dispatch hands each agent the artifact matching its `target_triple`, so heterogeneous fleets (e.g. aarch64 + x86) are supported. Interpreted (Python) packages run on any agent architecture.
+- **Per-tenant operational metrics & build isolation** (CLOACI-T-0779) — the ops-metrics stream is tenant-scoped (each connected view sees its own tenant's build queue / reconciler / fleet / graph health), and per-tenant compilers isolate builds.
+- **Aurora Dark web-UI redesign** (CLOACI-I-0129 / I-0131) — operational graph instrumentation, manual-intervention indicators on manual runs, and a graph-node code inspector.
+- **SDK coverage gate** (CLOACI-T-0772) — all OpenAPI operations (fire / inject / pause / resume / interface / source, …) are reachable from the TypeScript, Rust, and Python clients.
+
+### Changed (breaking)
+
+- **Plugin ABI `CloacinaPlugin` v2 → v3** (CLOACI-I-0128) — adds the optional FFI method `get_input_interface`. Packages built against the old ABI still load (the host treats it as an empty interface), but **a package must be recompiled against 0.9.0 to declare params or expose typed interfaces**.
+- **Authorization moved to the fail-closed ABAC route table** (CLOACI-I-0118), which **fixes a cross-tenant key-management leak**: the global `GET/POST/DELETE /v1/auth/keys` surface is now platform-scoped (god-only). A tenant-admin key can no longer enumerate or mint keys outside its tenant — it manages its own keys via `/v1/tenants/{t}/keys`. A tenant-scoped key calling the global surface now returns `403`. **Operator action:** if any tooling used a tenant key against the global `/auth/keys` surface, repoint it at the tenant-scoped surface.
+- **Trigger fan-out is now a single named fan-out point** (CLOACI-T-0777 / T-0778) — a trigger fires *all* workflows subscribed via `#[workflow(triggers=[…])]`, across packages, on both manual and auto-poll firing (previously only the trigger's primary `on` workflow ran). Fan-out is resolved from registry workflow metadata, not the schedules table, so cross-package subscribers that were silently dropped now run. Secondary fan-out is best-effort (a secondary failure is logged, never fails the primary); cron schedules still bind exactly one workflow.
+- **Workflows with declared params are validated at execute time** — a missing required param or a top-level type mismatch is rejected with `400 workflow_input_invalid` before the run starts. Workflows that declare no params keep free-form, unvalidated context (non-breaking for them).
+- **Executing a paused workflow is refused** with `409 workflow_paused`.
+
+### Security
+
+- **Cross-tenant key-management leak fixed** (CLOACI-I-0118) — see *Changed (breaking)*.
+- Local-account passwords are hashed with **argon2id**; OIDC refresh-token material (when present) is stored **server-side encrypted (AES-256-GCM)** and never returned to the browser; OIDC in-flight login state is **Postgres-backed** (multi-replica safe, no sticky sessions).
+
+### Fixed
+
+- **Tenant execution isolation** (CLOACI-T-0781 / T-0779) — tenant tasks are namespaced `tenant::pkg::wf::task` (previously hardcoded `public::…`), so they route to the tenant's own agents and fetch their cdylib from the tenant schema. Tenant runs previously hung.
+- **PyO3 ↔ tokio GIL deadlock** (CLOACI-T-0622) — computation-graph invocation, `post_invocation`, `on_failure`, and `on_success` now run off the async worker via `spawn_blocking`, fixing the deadlock that hung scenario_30 / scenario_32.
+- **Macros: typed terminal outputs restored** in the reactor computation-graph path (a T-0775 regression had pushed only the JSON copy, breaking in-process accumulator/reactor consumers that downcast to the concrete type); the task-embedded computation-graph match arm tolerates the new `GraphResult::Completed { outputs_json, .. }` field.
+- **Web UI** — skipped DAG nodes render distinctly; trigger-gated task source displays correctly; the ops-metrics stream is an app-level warm connection (no cold-start "connecting…" flash on navigation).
+
+### Migrations
+
+- New Postgres-only auth tables (`api_keys` TTL/provenance columns, `oidc_sessions`, `local_accounts`, `oidc_login_flows`; migrations 032–035) and `package_artifacts` (Postgres 031 / SQLite 027) for multi-arch fleets, plus `schedules.paused` / `workflow_packages.paused` (Postgres 029 / SQLite 025). All applied automatically on server boot.
+
+## [0.8.0] - 2026-06-18
+
+> Backfilled — 0.8.0 shipped without a CHANGELOG entry. Headline items below; see the git history (`v0.7.0..v0.8.0`) for the full set.
+
+### Added
+
+- **Server SDKs** (CLOACI-I-0113) — a published OpenAPI contract plus generated Rust, Python, and TypeScript clients for the `cloacina-server` HTTP API.
+- **Web UI control plane** (CLOACI-I-0117) — the operator web interface for the server (workflows, executions, triggers, graphs, keys), with subsequent UI-polish passes (task Gantt + runtime distributions, agent-fleet views, demo overhaul).
+- **Packaged-workflow authoring DX** (CLOACI-I-0119) — ergonomics improvements for authoring and packaging workflows.
+- **Timer-driven cron scheduling** (CLOACI-T-0743) — sleep-until-next-due scheduling with change-notify, replacing tight polling.
+- **Python authoring parity** (CLOACI-T-0688) — state-accumulator and cron-trigger authoring in `cloaca`.
+
+### Changed
+
+- **Documentation overhaul** (CLOACI-I-0120) — audience-first restructure into two co-equal entry points (embedded library and server), a `/engine` primitives section, and dual-language tutorials.
+
+### Fixed
+
+- Closed SDK endpoint-coverage gaps blocking the release; migrated remaining `cloacinactl` list commands to the items-envelope response shape (CLOACI-T-0681).
+
 ## [0.7.0] - 2026-06-09
 
 ### Added
