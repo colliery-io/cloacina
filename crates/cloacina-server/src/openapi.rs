@@ -97,6 +97,8 @@ impl Modify for SecurityAddon {
         crate::routes::keys::revoke_key,
         crate::routes::keys::create_ws_ticket,
         crate::routes::keys::create_tenant_key,
+        crate::routes::keys::list_tenant_keys,
+        crate::routes::keys::revoke_tenant_key,
         crate::routes::tenants::create_tenant,
         crate::routes::tenants::list_tenants,
         crate::routes::tenants::remove_tenant,

@@ -171,6 +171,27 @@ export class CloacinaClient {
     );
   }
 
+  /** CLOACI-T-0784: list the connected tenant's own keys (tenant-admin). */
+  async listTenantKeys(tenant?: string): Promise<schemas["ListResponse_KeyInfo"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/keys", {
+        params: { path: { tenant_id: this.#tenant(tenant) } },
+      }),
+    );
+  }
+
+  /** CLOACI-T-0784: revoke one of the connected tenant's own keys (tenant-admin). */
+  async revokeTenantKey(
+    keyId: string,
+    tenant?: string,
+  ): Promise<schemas["KeyRevokedResponse"]> {
+    return unwrap(
+      await this.api.DELETE("/v1/tenants/{tenant_id}/keys/{key_id}", {
+        params: { path: { tenant_id: this.#tenant(tenant), key_id: keyId } },
+      }),
+    );
+  }
+
   /** Mint a single-use, short-lived WebSocket ticket. */
   async createWsTicket(): Promise<schemas["WsTicketResponse"]> {
     return unwrap(await this.api.POST("/v1/auth/ws-ticket"));

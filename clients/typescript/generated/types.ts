@@ -516,7 +516,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).
+         *     Tenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the
+         *     route-table middleware, so the caller is already confined to `tenant_id`.
+         */
+        get: operations["list_tenant_keys"];
         put?: never;
         /**
          * POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
@@ -524,6 +529,29 @@ export interface paths {
          */
         post: operations["create_tenant_key"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/keys/{key_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /tenants/:tenant_id/keys/:key_id — revoke a key owned by one tenant
+         *     (CLOACI-T-0784). The middleware confines the caller to `tenant_id`; this
+         *     handler additionally verifies the target key belongs to that tenant before
+         *     revoking. A cross-tenant or unknown id is reported as not-found (never
+         *     revoked) so a tenant-admin can't probe or touch another tenant's keys.
+         */
+        delete: operations["revoke_tenant_key"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3058,6 +3086,56 @@ export interface operations {
             };
         };
     };
+    list_tenant_keys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tenant keys (no hashes or plaintext) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_KeyInfo"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     create_tenant_key: {
         parameters: {
             query?: never;
@@ -3103,6 +3181,67 @@ export interface operations {
             };
             /** @description Internal error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    revoke_tenant_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Key UUID */
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Key revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeyRevokedResponse"];
+                };
+            };
+            /** @description Invalid key ID format */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Key not found in this tenant */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
