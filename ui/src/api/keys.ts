@@ -30,7 +30,10 @@ export function useKeys() {
   const tenant = useTenant();
   return useQuery({
     queryKey: queryKeys.keys(tenant),
-    queryFn: () => client.listKeys(),
+    // CLOACI-T-0784/0786: tenant-scoped key surface. The global /auth/keys is
+    // now god-only; the UI always operates within its connected tenant, so it
+    // uses the tenant endpoints (a god key can still reach any tenant this way).
+    queryFn: () => client.listTenantKeys(),
   });
 }
 
@@ -56,7 +59,7 @@ export function useRevokeKey() {
   const tenant = useTenant();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (keyId: string) => client.revokeKey(keyId),
+    mutationFn: (keyId: string) => client.revokeTenantKey(keyId),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.keys(tenant) }),
   });
 }
