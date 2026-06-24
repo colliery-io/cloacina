@@ -24,6 +24,7 @@ pub mod agent_registry;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod identity;
+pub mod oidc;
 pub mod fleet_executor;
 pub mod openapi;
 pub mod ops_metrics;
