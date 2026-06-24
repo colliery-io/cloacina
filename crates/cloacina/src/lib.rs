@@ -530,6 +530,10 @@ pub mod runtime;
 // Re-export the `inventory` crate so macros can emit `cloacina::inventory::submit!`
 // without requiring users to add `inventory` as a direct dependency.
 pub use inventory;
+// Re-export `serde_json` for the same reason (CLOACI-T-0805): the CG / reactor /
+// accumulator macros emit JSON-handling code, and routing it through
+// `cloacina::serde_json` means user crates don't need a direct serde_json dep.
+pub use serde_json;
 pub mod security;
 pub mod task;
 pub mod trigger;
