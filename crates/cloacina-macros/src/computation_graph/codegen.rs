@@ -29,6 +29,19 @@ use syn::{Ident, ItemFn, ItemMod};
 use super::graph_ir::{GraphEdge, GraphIR, GraphNode};
 use super::parser::TriggerSpec;
 
+/// Path to `serde_json` for the generated code (CLOACI-T-0805), so a CG
+/// consumer never needs a direct `serde_json` dependency. Routes through
+/// `cloacina-computation-graph` — the crate every CG consumer (lean/packaged
+/// and umbrella alike) already depends on for the runtime types — mirroring
+/// `cg_runtime_root`. Internally it resolves via `cloacina`'s own re-export.
+fn sj_path(is_cloacina: bool) -> TokenStream {
+    if is_cloacina {
+        quote! { crate::serde_json }
+    } else {
+        quote! { cloacina_computation_graph::serde_json }
+    }
+}
+
 /// Validate the graph against the module's functions and generate the compiled output.
 pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // Extract functions from the module
@@ -204,6 +217,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     } else {
         quote! { cloacina_computation_graph }
     };
+    let sj = sj_path(is_cloacina_crate_early);
     let terminal_node_names: Vec<String> = ir
         .nodes
         .values()
@@ -237,7 +251,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         // and the runtime registration goes into `TriggerlessGraphEntry`.
         let fn_body = quote! {
             #vis async fn #compiled_fn_name(
-                context: &#cloacina_root::Context<::serde_json::Value>,
+                context: &#cloacina_root::Context<#sj::Value>,
             ) -> #cg_runtime_root::GraphResult {
                 #[allow(unused_imports)]
                 use #mod_name::*;
@@ -257,7 +271,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                     name: #mod_name_str,
                     constructor: || ::cloacina::cloacina_workflow_plugin::TriggerlessGraphRegistration {
                         name: #mod_name_str.to_string(),
-                        graph_fn: ::std::sync::Arc::new(|context: ::cloacina::cloacina_workflow::Context<::serde_json::Value>| {
+                        graph_fn: ::std::sync::Arc::new(|context: ::cloacina::cloacina_workflow::Context<#sj::Value>| {
                             Box::pin(async move {
                                 #compiled_fn_name(&context).await
                             })
@@ -272,7 +286,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                     name: #mod_name_str,
                     constructor: || ::cloacina_workflow_plugin::TriggerlessGraphRegistration {
                         name: #mod_name_str.to_string(),
-                        graph_fn: ::std::sync::Arc::new(|context: ::cloacina_workflow::Context<::serde_json::Value>| {
+                        graph_fn: ::std::sync::Arc::new(|context: ::cloacina_workflow::Context<#sj::Value>| {
                             Box::pin(async move {
                                 #compiled_fn_name(&context).await
                             })
@@ -393,7 +407,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             #[cfg(not(feature = "packaged"))]
             impl ::cloacina::cloacina_workflow_plugin::TriggerlessGraph for #handle_ident {
                 fn compiled_fn() -> ::cloacina::cloacina_workflow_plugin::TriggerlessGraphFn {
-                    ::std::sync::Arc::new(|context: ::cloacina::cloacina_workflow::Context<::serde_json::Value>| {
+                    ::std::sync::Arc::new(|context: ::cloacina::cloacina_workflow::Context<#sj::Value>| {
                         Box::pin(async move { #compiled_fn_name(&context).await })
                     })
                 }
@@ -404,7 +418,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             #[cfg(feature = "packaged")]
             impl ::cloacina_workflow_plugin::TriggerlessGraph for #handle_ident {
                 fn compiled_fn() -> ::cloacina_workflow_plugin::TriggerlessGraphFn {
-                    ::std::sync::Arc::new(|context: ::cloacina_workflow::Context<::serde_json::Value>| {
+                    ::std::sync::Arc::new(|context: ::cloacina_workflow::Context<#sj::Value>| {
                         Box::pin(async move { #compiled_fn_name(&context).await })
                     })
                 }
@@ -595,6 +609,7 @@ fn generate_compiled_function(
     is_cloacina_crate: bool,
     is_triggerless: bool,
 ) -> syn::Result<TokenStream> {
+    let sj = sj_path(is_cloacina_crate);
     let entry_nodes = ir.entry_nodes();
 
     if entry_nodes.is_empty() {
@@ -643,7 +658,7 @@ fn generate_compiled_function(
 
     Ok(quote! {
         let mut __terminal_results: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
-        let mut __terminal_results_json: Vec<::serde_json::Value> = Vec::new();
+        let mut __terminal_results_json: Vec<#sj::Value> = Vec::new();
         #cache_reads
         #(#exec_stmts)*
         #graph_result_completed
@@ -685,6 +700,7 @@ fn generate_node_execution(
     }
     generated.insert(node.name.clone());
 
+    let sj = sj_path(is_cloacina_crate);
     let fn_ident = format_ident!("{}", node.name);
     let result_var = format_ident!("__result_{}", node.name);
     let is_blocking = blocking_nodes.contains(&node.name);
@@ -724,8 +740,8 @@ fn generate_node_execution(
         let terminal_push = if is_triggerless {
             let node_name_str = node.name.to_string();
             quote! {
-                let __serialized: ::serde_json::Value =
-                    ::serde_json::to_value(&#result_var).unwrap_or_else(|e| {
+                let __serialized: #sj::Value =
+                    #sj::to_value(&#result_var).unwrap_or_else(|e| {
                         panic!(
                             "trigger-less graph terminal '{}' must produce a value \
                              that implements Serialize: {}",
@@ -744,8 +760,8 @@ fn generate_node_execution(
             // if the terminal isn't Serialize — JSON capture is observability,
             // not a routed result.
             quote! {
-                let __serialized: ::serde_json::Value =
-                    ::serde_json::to_value(&#result_var).unwrap_or(::serde_json::Value::Null);
+                let __serialized: #sj::Value =
+                    #sj::to_value(&#result_var).unwrap_or(#sj::Value::Null);
                 __terminal_results_json.push(__serialized);
                 __terminal_results
                     .push(Box::new(#result_var) as Box<dyn std::any::Any + Send>);

@@ -117,7 +117,7 @@ pub fn passthrough_accumulator_impl(
             type Output = #output_type;
 
             fn process(&mut self, event: Vec<u8>) -> Option<Self::Output> {
-                let parsed: #event_type = serde_json::from_slice(&event).ok()?;
+                let parsed: #event_type = cloacina::serde_json::from_slice(&event).ok()?;
                 Some(#fn_name(parsed))
             }
 
@@ -179,7 +179,7 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
                 type Output = #output_type;
 
                 fn process(&mut self, event: Vec<u8>) -> Option<Self::Output> {
-                    let parsed: #event_type = serde_json::from_slice(&event).ok()?;
+                    let parsed: #event_type = cloacina::serde_json::from_slice(&event).ok()?;
                     Some(#fn_name(parsed, &mut self.state))
                 }
             }
@@ -215,7 +215,7 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
                 type Output = #output_type;
 
                 fn process(&mut self, event: Vec<u8>) -> Option<Self::Output> {
-                    let parsed: #event_type = serde_json::from_slice(&event).ok()?;
+                    let parsed: #event_type = cloacina::serde_json::from_slice(&event).ok()?;
                     Some(#fn_name(parsed))
                 }
             }
@@ -410,7 +410,7 @@ pub fn batch_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Res
             fn process_batch(&mut self, events: Vec<Vec<u8>>) -> Option<Self::Output> {
                 let parsed: Vec<#inner_event_type> = events
                     .iter()
-                    .filter_map(|raw| serde_json::from_slice(raw).ok())
+                    .filter_map(|raw| cloacina::serde_json::from_slice(raw).ok())
                     .collect();
                 #fn_name(parsed)
             }
