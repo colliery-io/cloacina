@@ -246,7 +246,9 @@ pub fn build_authz_table() -> AuthzTable {
     add(Method::GET, "/tenants", Access::platform(Level::Admin));
     add(Method::DELETE, "/tenants/{schema_name}", Access::platform(Level::Admin));
     add(Method::GET, "/compiler/status", Access::platform(Level::Admin));
-    add(Method::GET, "/agents", Access::platform(Level::Admin));
+    // CLOACI-T-0785: tenant-admin (was Platform); the handler filters the
+    // roster to the caller's tenant (god sees all).
+    add(Method::GET, "/agents", Access::any(Level::Admin));
 
     // ----- Tenant + Admin: tenant-admin key self-service (CLOACI-T-0784).
     //       POST lowered from Platform; GET/DELETE are new. The DELETE handler
@@ -643,7 +645,7 @@ mod tests {
             Some(Access::tenant(Level::Admin))
         );
         assert_eq!(get(Method::POST, "/tenants"), Some(Access::platform(Level::Admin)));
-        assert_eq!(get(Method::GET, "/agents"), Some(Access::platform(Level::Admin)));
+        assert_eq!(get(Method::GET, "/agents"), Some(Access::any(Level::Admin))); // T-0785
         assert_eq!(get(Method::GET, "/compiler/status"), Some(Access::platform(Level::Admin)));
         assert_eq!(
             get(Method::POST, "/tenants/{tenant_id}/workflows"),

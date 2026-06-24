@@ -77,6 +77,15 @@ impl AgentRegistry {
         }
     }
 
+    /// CLOACI-T-0785: the tenant an agent registered under, if it's in the
+    /// roster. `Some(tenant)` when registered (the tenant may itself be `None`
+    /// for a global agent); `None` when the agent is unknown. Backs the
+    /// caller-tenant guard on `heartbeat` / `result`.
+    pub fn agent_tenant(&self, agent_id: &str) -> Option<Option<String>> {
+        let g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        g.get(agent_id).map(|r| r.tenant_id.clone())
+    }
+
     /// Remove an entry. Idempotent.
     pub fn deregister(&self, agent_id: &str) {
         let mut g = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
