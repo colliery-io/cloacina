@@ -888,7 +888,7 @@ async fn test_sequential_input_strategy() {
         let ov = ov.clone();
         Box::pin(async move {
             let result = linear_chain_compiled(&cache).await;
-            let captured = if let GraphResult::Completed { ref outputs } = result {
+            let captured = if let GraphResult::Completed { ref outputs, .. } = result {
                 outputs
                     .iter()
                     .find_map(|o| o.downcast_ref::<OutputConfirmation>().map(|c| c.value))
