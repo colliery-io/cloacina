@@ -160,6 +160,47 @@ impl MappingPolicy {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Relying party — discovery + the authorization-code/PKCE flow (CLOACI-T-0789/
+// 0790), built on the `openidconnect` crate against the configured issuer.
+// ---------------------------------------------------------------------------
+
+use std::sync::Arc;
+
+use openidconnect::core::CoreProviderMetadata;
+use openidconnect::IssuerUrl;
+
+/// A discovered OIDC relying party. Holds the cached provider metadata (which
+/// carries the JWKS + endpoints) + config + an HTTP client. The `openidconnect`
+/// `CoreClient` is type-state generic, so it is built **inline** per request
+/// from `metadata` rather than stored here.
+pub struct OidcProvider {
+    pub metadata: CoreProviderMetadata,
+    pub config: OidcConfig,
+    pub http: reqwest::Client,
+}
+
+impl OidcProvider {
+    /// Discover the issuer's metadata + JWKS and build a relying party. Called
+    /// once at startup when `OidcConfig::from_env()` is `Some`.
+    pub async fn discover(config: OidcConfig) -> Result<Arc<OidcProvider>, String> {
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| format!("oidc http client: {e}"))?;
+        let issuer =
+            IssuerUrl::new(config.issuer_url.clone()).map_err(|e| format!("oidc issuer url: {e}"))?;
+        let metadata = CoreProviderMetadata::discover_async(issuer, &http)
+            .await
+            .map_err(|e| format!("oidc discovery failed: {e}"))?;
+        Ok(Arc::new(OidcProvider {
+            metadata,
+            config,
+            http,
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,5 +282,29 @@ mod tests {
         assert!(parse_scopes(None).contains(&"openid".to_string()));
         assert!(parse_scopes(Some("  ")).contains(&"groups".to_string()));
         assert_eq!(parse_scopes(Some("openid, email")), vec!["openid", "email"]);
+    }
+
+    /// Live discovery against the Dex sidecar. Ignored by default — run with
+    /// `docker compose -f docker/docker-compose.demo.yml up -d dex` then
+    /// `cargo test -p cloacina-server --lib oidc -- --ignored`.
+    #[tokio::test]
+    #[ignore = "requires a live issuer (Dex)"]
+    async fn discovers_against_live_issuer() {
+        let issuer = std::env::var("CLOACINA_OIDC_ISSUER")
+            .unwrap_or_else(|_| "http://localhost:5556/dex".to_string());
+        let cfg = OidcConfig {
+            issuer_url: issuer,
+            client_id: "cloacina".to_string(),
+            client_secret: "cloacina-dex-secret".to_string(),
+            redirect_uri: "http://localhost:8080/v1/auth/callback".to_string(),
+            scopes: parse_scopes(None),
+        };
+        let provider = OidcProvider::discover(cfg)
+            .await
+            .expect("discovery should succeed against Dex");
+        assert!(
+            provider.metadata.token_endpoint().is_some(),
+            "discovered metadata must carry a token endpoint"
+        );
     }
 }
