@@ -58,9 +58,13 @@ Then:
 2. Log in at Dex as `alice@acme.com` / `password`.
 3. Dex → server `/v1/auth/callback`: the server validates the ID token
    (JWKS signature, `iss`/`aud`/`exp`, nonce), maps the `acme.com` email domain
-   → tenant `acme` / role `admin` (the `CLOACINA_OIDC_MAP` allowlist), mints a
-   short-TTL key, and redirects back to the SPA with the key in the URL
-   fragment. You land on the overview as an `acme` admin.
+   to its tenants (the `CLOACINA_OIDC_MAP` allowlist), mints a short-TTL key
+   **per tenant**, and redirects back to the SPA with the membership set in the
+   URL fragment.
+4. The demo map grants `acme.com` identities **two** tenants (`acme` admin +
+   `public` read), so the SPA shows a **tenant picker** — pick one to enter; the
+   other is one click away in the tenant switcher. (A single-tenant identity
+   skips the picker and lands straight on the overview.)
 
 The mapping is god-owned config; an unmapped identity is denied (403). (Dex
 static-password users carry no groups, so the demo maps on email domain; the
@@ -81,9 +85,32 @@ If you'd rather not touch `/etc/hosts`, run the server binary on the host with
 for both the browser and the server). See the commit history for the exact
 invocation used during verification.
 
+## 4. Multi-tenant individual
+
+The same person can belong to several tenants; the subject (the bearer key)
+stays single-tenant, and multi-tenancy lives in **holding one scoped key per
+tenant + switching** in the UI (the tenant switcher, top-left).
+
+**Via OIDC (one sign-in → many tenants):** the SSO flow above already does this
+— `alice@acme.com` maps to `acme` (admin) + `public` (read), so a single login
+mints a key for each and the picker lets her choose where to start; the switcher
+holds both.
+
+**Via local accounts (no IdP):** create the same person in two tenants and use
+the switcher's **"Add tenant…"**:
+
+1. As the `acme` admin, **Accounts** → create `alice` / a password / role
+   `admin`. Then connect as the `public` admin (`clk_demo_public_key_0003`) and
+   create `alice` / a different password / role `read` in `public`.
+2. Sign in as `alice` in `acme` → tenant switcher → **"Add tenant…"** → sign in
+   as `alice` in `public`.
+3. Flip between them in the switcher. Same human, **admin in acme, read in
+   public**, each key hard-isolated to its tenant (the other tenant's data is a
+   403, never visible).
+
 ## Notes
 
 - Minted keys (local + OIDC) carry a ~15 min TTL and refresh silently; pasted
   API keys don't expire and aren't refreshed.
-- OIDC in-flight login state is in-memory (fine for this single-replica demo);
-  NFR-003 multi-replica wants it Postgres-backed — tracked as a follow-up.
+- OIDC in-flight login state is **Postgres-backed** (multi-replica safe); the
+  callback can land on any replica.
