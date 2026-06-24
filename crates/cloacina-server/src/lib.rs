@@ -233,6 +233,10 @@ pub struct AppState {
     /// same value as its tick + dead-after basis. Operator-configurable via
     /// `--agent-heartbeat-interval-s`.
     pub agent_heartbeat_interval_seconds: u32,
+    /// CLOACI-T-0783: declarative `(method, path) -> Access` authorization
+    /// table, consulted by `authz_mw`. Built once at startup; fail-closed —
+    /// a matched route absent from this map is denied.
+    pub authz_table: Arc<crate::routes::authz::AuthzTable>,
 }
 
 /// CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
@@ -788,6 +792,7 @@ pub async fn run(
         // Clamp to >=1 so the advertised interval matches the sweeper's
         // clamped cadence (the agent also clamps, but keep server-side parity).
         agent_heartbeat_interval_seconds: agent_heartbeat_interval_s.max(1),
+        authz_table: Arc::new(crate::routes::authz::build_authz_table()),
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -1214,6 +1219,10 @@ fn build_router(state: AppState) -> Router {
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
+            crate::routes::authz::authz_mw,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
             crate::routes::auth::require_auth,
         ));
 
@@ -1272,6 +1281,10 @@ fn build_router(state: AppState) -> Router {
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
+            crate::routes::authz::authz_mw,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
             crate::routes::auth::require_auth,
         ));
 
@@ -1325,6 +1338,10 @@ fn build_router(state: AppState) -> Router {
         // on the missing extension → 500 → the agent exits on register. The
         // delivery WS (ws_routes) is deliberately NOT key-authed — it uses a
         // single-use ws-ticket — so auth stays per-sub-router, not nest-wide.
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::routes::authz::authz_mw,
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::routes::auth::require_auth,
@@ -1691,6 +1708,7 @@ mod tests {
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+            authz_table: Arc::new(crate::routes::authz::build_authz_table()),
         }
     }
 

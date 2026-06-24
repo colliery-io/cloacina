@@ -302,11 +302,8 @@ pub async fn fetch_source(
 )]
 pub async fn list_agents(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
-    if !auth.is_admin {
-        return AuthenticatedKey::admin_required_response().into_response();
-    }
     let now = Instant::now();
     let agents: Vec<cloacina_api_types::AgentInfo> = state
         .agent_registry

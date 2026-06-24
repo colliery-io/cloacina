@@ -46,11 +46,8 @@ use crate::AppState;
 )]
 pub async fn compiler_status(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
-    if !auth.is_admin {
-        return AuthenticatedKey::admin_required_response().into_response();
-    }
 
     match cloacina::registry::workflow_registry::build_queue_stats(&state.database).await {
         Ok(s) => {

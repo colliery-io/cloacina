@@ -35,7 +35,17 @@
 //! `can_admin` decisions (see the parity truth-table tests below), so the
 //! later wire-in is behavior-preserving by construction.
 
+use std::collections::HashMap;
+
+use axum::extract::{FromRequestParts, MatchedPath, RawPathParams, Request, State};
+use axum::http::Method;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
+use tracing::warn;
+
 use crate::routes::auth::AuthenticatedKey;
+use crate::routes::error::ApiError;
+use crate::AppState;
 
 /// Permission level required by — or held by — a principal.
 ///
@@ -200,6 +210,182 @@ pub fn evaluate(principal: &Principal, scope: &ResolvedScope, level: Level) -> D
                 Decision::Deny(DENY_ROLE)
             } else {
                 Decision::Permit
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Route → Access table + the authorization middleware (CLOACI-T-0783).
+// ---------------------------------------------------------------------------
+
+/// The declarative authorization table: `(method, registration-path) -> Access`
+/// for every route behind the `authz_mw` layer. Keys use the **relative** paths
+/// the routes are registered with (no `/v1` prefix); the middleware strips the
+/// nest prefix from `MatchedPath` before lookup.
+pub type AuthzTable = HashMap<(Method, String), Access>;
+
+/// Build the authorization table for every `/v1` route behind `authz_mw`.
+///
+/// **Behavior-preserving (T-0783):** each entry reproduces the route's gate as
+/// it exists *today*. In particular `/auth/keys*` is `Any + Admin` (today's
+/// unscoped `can_admin`) and `/tenants/{tenant_id}/keys` + `/agents` are
+/// `Platform` (today's `is_admin`) — the leak fix and the tenant-admin lowering
+/// land in T-0784 / T-0785, which edit these entries.
+///
+/// The `/ws/*` routes are intentionally absent: they authenticate + authorize
+/// in-handler (pre-upgrade) and are not behind `authz_mw`.
+pub fn build_authz_table() -> AuthzTable {
+    let mut t: AuthzTable = HashMap::new();
+    let mut add = |m: Method, p: &str, a: Access| {
+        t.insert((m, p.to_string()), a);
+    };
+
+    // ----- Platform + Admin (today: is_admin) -----
+    add(Method::POST, "/tenants", Access::platform(Level::Admin));
+    add(Method::GET, "/tenants", Access::platform(Level::Admin));
+    add(Method::DELETE, "/tenants/{schema_name}", Access::platform(Level::Admin));
+    add(Method::GET, "/compiler/status", Access::platform(Level::Admin));
+    add(Method::GET, "/agents", Access::platform(Level::Admin));
+    add(Method::POST, "/tenants/{tenant_id}/keys", Access::platform(Level::Admin));
+
+    // ----- Any + Admin (today: can_admin, no tenant check — the leak,
+    //       preserved until T-0784) -----
+    add(Method::POST, "/auth/keys", Access::any(Level::Admin));
+    add(Method::GET, "/auth/keys", Access::any(Level::Admin));
+    add(Method::DELETE, "/auth/keys/{key_id}", Access::any(Level::Admin));
+
+    // ----- Tenant + Read -----
+    add(Method::GET, "/tenants/{tenant_id}/workflows", Access::tenant(Level::Read));
+    add(Method::GET, "/tenants/{tenant_id}/workflows/{name}", Access::tenant(Level::Read));
+    add(Method::GET, "/tenants/{tenant_id}/workflows/{name}/source", Access::tenant(Level::Read));
+    add(Method::GET, "/tenants/{tenant_id}/triggers", Access::tenant(Level::Read));
+    add(Method::GET, "/tenants/{tenant_id}/triggers/{name}", Access::tenant(Level::Read));
+    add(Method::GET, "/tenants/{tenant_id}/triggers/{name}/interface", Access::tenant(Level::Read));
+    add(Method::GET, "/tenants/{tenant_id}/executions", Access::tenant(Level::Read));
+    add(Method::GET, "/tenants/{tenant_id}/executions/{exec_id}", Access::tenant(Level::Read));
+    add(Method::GET, "/tenants/{tenant_id}/executions/{exec_id}/events", Access::tenant(Level::Read));
+    add(Method::GET, "/tenants/{tenant_id}/executions/{exec_id}/tasks", Access::tenant(Level::Read));
+
+    // ----- Tenant + Write -----
+    add(Method::POST, "/tenants/{tenant_id}/workflows", Access::tenant(Level::Write));
+    add(Method::POST, "/tenants/{tenant_id}/workflows/{name}/pause", Access::tenant(Level::Write));
+    add(Method::POST, "/tenants/{tenant_id}/workflows/{name}/resume", Access::tenant(Level::Write));
+    add(Method::DELETE, "/tenants/{tenant_id}/workflows/{name}/{version}", Access::tenant(Level::Write));
+    add(Method::POST, "/tenants/{tenant_id}/workflows/{name}/execute", Access::tenant(Level::Write));
+    add(Method::POST, "/tenants/{tenant_id}/triggers/{name}/pause", Access::tenant(Level::Write));
+    add(Method::POST, "/tenants/{tenant_id}/triggers/{name}/resume", Access::tenant(Level::Write));
+    add(Method::POST, "/tenants/{tenant_id}/triggers/{name}/fire", Access::tenant(Level::Write));
+
+    // ----- Any + Read (today: authenticated; data-scoping stays in handler) -----
+    add(Method::POST, "/auth/ws-ticket", Access::any(Level::Read));
+    add(Method::POST, "/agent/register", Access::any(Level::Read));
+    add(Method::POST, "/agent/heartbeat", Access::any(Level::Read));
+    add(Method::POST, "/agent/result", Access::any(Level::Read));
+    add(Method::GET, "/agent/artifact/{digest}", Access::any(Level::Read));
+    add(Method::GET, "/agent/source/{digest}", Access::any(Level::Read));
+    add(Method::GET, "/health/accumulators", Access::any(Level::Read));
+    add(Method::GET, "/health/reactors", Access::any(Level::Read));
+    add(Method::POST, "/health/reactors/{name}/fire", Access::any(Level::Read));
+    add(Method::GET, "/health/reactors/{name}/fires", Access::any(Level::Read));
+    add(Method::GET, "/health/reactors/{name}/fires/timeseries", Access::any(Level::Read));
+    add(Method::POST, "/health/accumulators/{name}/inject", Access::any(Level::Read));
+    add(Method::GET, "/health/reactors/{name}/interface", Access::any(Level::Read));
+    add(Method::GET, "/health/accumulators/{name}/interface", Access::any(Level::Read));
+    add(Method::GET, "/health/graphs", Access::any(Level::Read));
+    add(Method::GET, "/health/graphs/{name}", Access::any(Level::Read));
+
+    t
+}
+
+/// Map a matcher [`Decision`] deny reason onto the canonical 403 envelopes
+/// (identical to the responses the handlers returned before T-0783).
+fn deny_response(reason: &str) -> Response {
+    let err = match reason {
+        DENY_PLATFORM => ApiError::forbidden("admin_required", "admin access required"),
+        DENY_TENANT => {
+            ApiError::forbidden("tenant_access_denied", "access denied for this tenant")
+        }
+        _ => ApiError::forbidden("insufficient_permissions", "insufficient permissions"),
+    };
+    err.into_response()
+}
+
+/// Authorization middleware (CLOACI-T-0783).
+///
+/// Mounted **after** `require_auth` on the authed sub-routers, so the
+/// `AuthenticatedKey` extension is already present. Looks the matched route up
+/// in the [`AuthzTable`], resolves `TenantParam` from the `{tenant_id}` path
+/// segment, projects the key into a [`Principal`], and runs [`evaluate`].
+///
+/// **Fail-closed:** a matched route with no table entry (or a missing key /
+/// missing tenant param) is denied, never allowed.
+pub async fn authz_mw(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let method = request.method().clone();
+
+    // Strip the `/v1` nest prefix so the key matches the relative registration
+    // path stored in the table (and tolerate either form).
+    let matched_path = match request.extensions().get::<MatchedPath>() {
+        Some(mp) => {
+            let p = mp.as_str();
+            p.strip_prefix("/v1").unwrap_or(p).to_string()
+        }
+        None => {
+            warn!(%method, "authz: no MatchedPath — denying (fail-closed)");
+            return ApiError::forbidden("authz_unclassified", "route not authorized")
+                .into_response();
+        }
+    };
+
+    let access = match state.authz_table.get(&(method.clone(), matched_path.clone())) {
+        Some(a) => *a,
+        None => {
+            warn!(%method, path = %matched_path, "authz: unclassified route — denying (fail-closed)");
+            return ApiError::forbidden("authz_unclassified", "route not authorized")
+                .into_response();
+        }
+    };
+
+    let principal = match request.extensions().get::<AuthenticatedKey>() {
+        Some(key) => Principal::from_key(key),
+        None => {
+            // require_auth must run first; if the key is absent, fail closed.
+            return ApiError::unauthorized("missing authentication").into_response();
+        }
+    };
+
+    // Resolve the scope (only TenantParam needs the path param).
+    match access.scope {
+        Scope::Platform => match evaluate(&principal, &ResolvedScope::Platform, access.level) {
+            Decision::Permit => next.run(request).await,
+            Decision::Deny(reason) => deny_response(reason),
+        },
+        Scope::Any => match evaluate(&principal, &ResolvedScope::Any, access.level) {
+            Decision::Permit => next.run(request).await,
+            Decision::Deny(reason) => deny_response(reason),
+        },
+        Scope::TenantParam => {
+            let (mut parts, body) = request.into_parts();
+            let tenant = RawPathParams::from_request_parts(&mut parts, &state)
+                .await
+                .ok()
+                .and_then(|params| {
+                    params
+                        .iter()
+                        .find(|(k, _)| *k == "tenant_id")
+                        .map(|(_, v)| v.to_string())
+                });
+            let request = Request::from_parts(parts, body);
+            let tenant = match tenant {
+                Some(t) => t,
+                None => {
+                    warn!(path = %matched_path, "authz: TenantParam route missing tenant_id — denying");
+                    return deny_response(DENY_TENANT);
+                }
+            };
+            match evaluate(&principal, &ResolvedScope::Tenant(tenant), access.level) {
+                Decision::Permit => next.run(request).await,
+                Decision::Deny(reason) => deny_response(reason),
             }
         }
     }
@@ -408,5 +594,54 @@ mod tests {
         assert_eq!(p.tenant.as_deref(), Some("acme"));
         assert_eq!(p.role, Level::Write);
         assert!(!p.platform_admin);
+    }
+
+    /// No-drift / behavior-preservation guard for the route table. The runtime
+    /// guarantee is the fail-closed middleware (an unclassified route 403s); this
+    /// pins the full set + spot-checks the behavior-preserving classifications.
+    #[test]
+    fn authz_table_classifies_known_routes() {
+        let t = build_authz_table();
+        assert_eq!(
+            t.len(),
+            43,
+            "authz table size changed — a route was added/removed without updating the table"
+        );
+
+        let get = |m: Method, p: &str| t.get(&(m, p.to_string())).copied();
+
+        // Today's gates, reproduced exactly (leak fix / lowering land in T-0784/0785).
+        assert_eq!(get(Method::POST, "/auth/keys"), Some(Access::any(Level::Admin)));
+        assert_eq!(get(Method::GET, "/auth/keys"), Some(Access::any(Level::Admin)));
+        assert_eq!(
+            get(Method::DELETE, "/auth/keys/{key_id}"),
+            Some(Access::any(Level::Admin))
+        );
+        assert_eq!(get(Method::POST, "/tenants"), Some(Access::platform(Level::Admin)));
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/keys"),
+            Some(Access::platform(Level::Admin))
+        );
+        assert_eq!(get(Method::GET, "/agents"), Some(Access::platform(Level::Admin)));
+        assert_eq!(get(Method::GET, "/compiler/status"), Some(Access::platform(Level::Admin)));
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/workflows"),
+            Some(Access::tenant(Level::Write))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/workflows"),
+            Some(Access::tenant(Level::Read))
+        );
+        assert_eq!(
+            get(Method::POST, "/tenants/{tenant_id}/workflows/{name}/execute"),
+            Some(Access::tenant(Level::Write))
+        );
+        assert_eq!(get(Method::POST, "/agent/register"), Some(Access::any(Level::Read)));
+        assert_eq!(get(Method::GET, "/health/graphs"), Some(Access::any(Level::Read)));
+
+        // WS routes are NOT behind authz_mw (in-handler auth); unknown routes
+        // are absent -> the middleware fail-closes them.
+        assert_eq!(get(Method::GET, "/ws/delivery/{recipient}"), None);
+        assert_eq!(get(Method::GET, "/totally/unknown"), None);
     }
 }
