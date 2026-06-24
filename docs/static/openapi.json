@@ -340,6 +340,98 @@
         }
       }
     },
+    "/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "`POST /v1/auth/logout` — revoke the caller's key + forget refresh state.",
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "Logged out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "`POST /v1/auth/refresh` — silently re-mint the caller's short-TTL key.",
+        "operationId": "refresh",
+        "responses": {
+          "200": {
+            "description": "Re-minted key returned once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalLoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Key is not a refreshable login key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid key, or the login is no longer valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refresh for this provider not yet supported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/auth/ws-ticket": {
       "post": {
         "tags": [
@@ -4751,6 +4843,17 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "LogoutResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
           }
         }
       },

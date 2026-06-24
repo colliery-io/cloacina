@@ -307,6 +307,9 @@ pub fn build_authz_table() -> AuthzTable {
 
     // ----- Any + Read (today: authenticated; data-scoping stays in handler) -----
     add(Method::POST, "/auth/ws-ticket", Access::any(Level::Read));
+    // CLOACI-T-0794: login-session lifecycle (caller's own key).
+    add(Method::POST, "/auth/refresh", Access::any(Level::Read));
+    add(Method::POST, "/auth/logout", Access::any(Level::Read));
     add(Method::POST, "/agent/register", Access::any(Level::Read));
     add(Method::POST, "/agent/heartbeat", Access::any(Level::Read));
     add(Method::POST, "/agent/result", Access::any(Level::Read));
@@ -632,7 +635,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            49,
+            51,
             "authz table size changed — a route was added/removed without updating the table"
         );
 

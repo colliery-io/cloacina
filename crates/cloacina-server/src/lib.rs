@@ -1122,6 +1122,9 @@ fn build_router(state: AppState) -> Router {
             "/auth/ws-ticket",
             post(crate::routes::keys::create_ws_ticket),
         )
+        // CLOACI-T-0794: login-session lifecycle (authenticated — caller's own key).
+        .route("/auth/refresh", post(crate::routes::session::refresh))
+        .route("/auth/logout", post(crate::routes::session::logout))
         // Execution-agent fleet roster (admin, operator-facing) — CLOACI-I-0124
         .route("/agents", get(crate::routes::agent::list_agents))
         // Compiler / build-pipeline status (admin) — CLOACI-I-0124

@@ -206,6 +206,24 @@ impl<'a> LocalAccountDAL<'a> {
         }
     }
 
+    /// Fetch an account by id (any status). Used by `/auth/refresh` (T-0794) to
+    /// re-check the account is still `active` before re-minting a key.
+    #[cfg(feature = "postgres")]
+    pub async fn get_by_id(&self, id: Uuid) -> Result<Option<LocalAccount>, ValidationError> {
+        use crate::database::schema::postgres::local_accounts;
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let row: Option<LocalAccountRow> = conn
+            .interact(move |conn| local_accounts::table.find(id).first(conn).optional())
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(row.as_ref().map(to_account))
+    }
+
     /// List accounts in a tenant (no hashes). Tenant-admin view (T-0797).
     #[cfg(feature = "postgres")]
     pub async fn list_for_tenant(
