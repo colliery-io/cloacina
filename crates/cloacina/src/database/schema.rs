@@ -832,6 +832,18 @@ mod postgres_schema {
         }
     }
 
+    // CLOACI-T-0793: encrypted refresh-token store (server mode only — Postgres).
+    diesel::table! {
+        oidc_sessions (id) {
+            id -> Uuid,
+            key_id -> Uuid,
+            provider -> Text,
+            refresh_enc -> Bytea,
+            created_at -> Timestamptz,
+            expires_at -> Nullable<Timestamptz>,
+        }
+    }
+
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
     // of joinable! to avoid conflicts with multiple foreign keys to same table.
     // Manual join syntax should be used in queries when joining auth tables.

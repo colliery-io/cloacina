@@ -45,6 +45,8 @@ use crate::database::{AnyPool, BackendType, Database};
 // Sub-modules for each entity type
 #[cfg(feature = "postgres")]
 pub mod api_keys;
+#[cfg(feature = "postgres")]
+pub mod oidc_sessions;
 pub mod checkpoint;
 pub mod context;
 pub mod delivery_outbox;
@@ -64,6 +66,8 @@ pub mod workflow_registry_storage;
 // Re-export DAL components
 #[cfg(feature = "postgres")]
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
+#[cfg(feature = "postgres")]
+pub use oidc_sessions::{OidcSessionDAL, RefreshSession};
 pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
 pub use delivery_outbox::DeliveryOutboxDAL;
@@ -132,6 +136,12 @@ impl DAL {
     #[cfg(feature = "postgres")]
     pub fn api_keys(&self) -> ApiKeyDAL<'_> {
         ApiKeyDAL::new(self)
+    }
+
+    /// Returns an OIDC refresh-session DAL (Postgres only). CLOACI-T-0793.
+    #[cfg(feature = "postgres")]
+    pub fn oidc_sessions(&self) -> OidcSessionDAL<'_> {
+        OidcSessionDAL::new(self)
     }
 
     /// Returns a checkpoint DAL for computation graph state persistence.
