@@ -39,14 +39,25 @@ type Mode = "key" | "password" | "sso";
 
 /** Connection gate (Aurora Dark, spec 14). Supports a pasted API key OR
  *  self-managed username/password login (mints a short-TTL key server-side). */
+/** A minted tenant membership returned by an OIDC login (CLOACI-T-0800). */
+interface Membership {
+  key: string;
+  tenant: string;
+  role: string;
+}
+
 export function Connect() {
-  const { connection, connect } = useAuth();
+  const { connection, connect, enterMemberships } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const addMode = searchParams.get("add") === "1";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("key");
+  // When an SSO login grants >1 tenant, the user picks which to enter.
+  const [ssoPicker, setSsoPicker] = useState<{ serverUrl: string; memberships: Membership[] } | null>(
+    null,
+  );
 
   const form = useForm({
     initialValues: {
@@ -117,37 +128,70 @@ export function Connect() {
     window.location.href = `${serverUrl}/v1/auth/oidc/login`;
   }
 
-  // The OIDC callback returns the browser to `/connect#key=…&tenant=…&role=…`
-  // (a fragment is never sent to a server or logged). Pick it up and connect.
+  // The OIDC callback returns the browser to `/connect#memberships=<b64url json>`
+  // — the minted tenant memberships (a fragment is never sent to a server or
+  // logged). One → connect straight in; several → show the tenant picker.
   const ssoTried = useRef(false);
   useEffect(() => {
     if (ssoTried.current) return;
     const hash = window.location.hash;
-    if (!hash.includes("key=")) return;
+    if (!hash.includes("memberships=")) return;
     ssoTried.current = true;
     const params = new URLSearchParams(hash.slice(1));
-    const key = params.get("key");
-    const tenant = params.get("tenant") || "public";
-    // Strip the key out of the URL bar / history immediately.
+    const raw = params.get("memberships");
+    // Strip the keys out of the URL bar / history immediately.
     window.history.replaceState(null, "", window.location.pathname);
-    if (!key) return;
+    if (!raw) return;
     const serverUrl =
       sessionStorage.getItem("cloacina.sso.server") ??
       form.values.serverUrl.replace(/\/+$/, "");
     sessionStorage.removeItem("cloacina.sso.server");
-    void (async () => {
-      setSubmitting(true);
-      try {
-        await connect({ label: tenant, serverUrl, apiKey: key, tenant });
-        navigate("/", { replace: true });
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setSubmitting(false);
-      }
-    })();
+    let memberships: Membership[];
+    try {
+      memberships = JSON.parse(atob(raw.replace(/-/g, "+").replace(/_/g, "/")));
+    } catch {
+      setError("Could not read the single sign-on response");
+      return;
+    }
+    if (!Array.isArray(memberships) || memberships.length === 0) return;
+    if (memberships.length === 1) {
+      const m = memberships[0];
+      void (async () => {
+        setSubmitting(true);
+        try {
+          await connect({ label: m.tenant, serverUrl, apiKey: m.key, tenant: m.tenant });
+          navigate("/", { replace: true });
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        } finally {
+          setSubmitting(false);
+        }
+      })();
+    } else {
+      setSsoPicker({ serverUrl, memberships });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function pickMembership(tenant: string) {
+    if (!ssoPicker) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const conns = ssoPicker.memberships.map((m) => ({
+        label: m.tenant,
+        serverUrl: ssoPicker.serverUrl,
+        apiKey: m.key,
+        tenant: m.tenant,
+      }));
+      await enterMemberships(conns, tenant);
+      navigate("/", { replace: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   const autoTried = useRef(false);
   useEffect(() => {
@@ -193,6 +237,36 @@ export function Connect() {
             boxShadow: "0 24px 60px rgba(0,0,0,.5)",
           }}
         >
+          {ssoPicker ? (
+            <Stack gap={10}>
+              <Box style={{ fontSize: 16, fontWeight: 600, color: "var(--fg)" }}>Choose a tenant</Box>
+              <Box style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 4 }}>
+                Your sign-in grants access to multiple tenants. Pick one to enter — the
+                rest stay one click away in the tenant switcher.
+              </Box>
+              {ssoPicker.memberships.map((m) => (
+                <Button
+                  key={m.tenant}
+                  variant="default"
+                  fullWidth
+                  justify="space-between"
+                  rightSection={
+                    <span style={{ fontFamily: MONO, fontSize: 11, color: "var(--muted)" }}>{m.role}</span>
+                  }
+                  loading={submitting}
+                  onClick={() => void pickMembership(m.tenant)}
+                >
+                  {m.tenant}
+                </Button>
+              ))}
+              {error && (
+                <Alert color="bad" role="alert" variant="light">
+                  {error}
+                </Alert>
+              )}
+            </Stack>
+          ) : (
+            <>
           <Box style={{ fontSize: 16, fontWeight: 600, color: "var(--fg)" }}>Connect to a server</Box>
           <Box style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3, marginBottom: 14 }}>
             {mode === "password"
@@ -301,6 +375,8 @@ export function Connect() {
               )}
             </Stack>
           </form>
+            </>
+          )}
         </Box>
 
         <Box style={{ textAlign: "center", marginTop: 14, fontFamily: MONO, fontSize: 10.5, color: "var(--faint)" }}>

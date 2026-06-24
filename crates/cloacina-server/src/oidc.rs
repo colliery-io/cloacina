@@ -159,6 +159,26 @@ impl MappingPolicy {
         })
     }
 
+    /// Resolve an identity to **all** the tenant memberships it matches — one
+    /// principal per tenant (first rule per tenant wins; `_`/global counts as a
+    /// tenant). Empty = denied. This is what an OIDC login uses: a single
+    /// sign-in can grant access to several tenants, each minted its own scoped
+    /// key, and the UI lets the user pick which to enter.
+    pub fn resolve_all(&self, claims: &IdentityClaims, issuer: &str) -> Vec<ResolvedPrincipal> {
+        let mut seen: std::collections::HashSet<Option<String>> = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for r in self.rules.iter().filter(|r| r.matches(claims)) {
+            if seen.insert(r.tenant.clone()) {
+                out.push(ResolvedPrincipal {
+                    tenant: r.tenant.clone(),
+                    role: r.role.clone(),
+                    provenance: format!("oidc:{issuer}:{}", claims.subject),
+                });
+            }
+        }
+        out
+    }
+
     /// Build the allowlist from `CLOACINA_OIDC_MAP` (god-owned config, OQ-11).
     pub fn from_env() -> MappingPolicy {
         MappingPolicy::parse(&std::env::var("CLOACINA_OIDC_MAP").unwrap_or_default())
@@ -510,6 +530,24 @@ mod tests {
         );
         assert!(p.resolve(&claims("root", None, &[]), "i").unwrap().tenant.is_none());
         assert!(p.resolve(&claims("z", None, &[]), "i").is_none());
+    }
+
+    #[test]
+    fn resolve_all_one_membership_per_tenant() {
+        let p = MappingPolicy::parse(
+            "domain:acme.com=acme:admin; domain:acme.com=public:read; group:x=acme:read",
+        );
+        let ms = p.resolve_all(&claims("u", Some("u@acme.com"), &["x"]), "i");
+        // acme (first rule wins → admin; the later acme rule is deduped) + public.
+        assert_eq!(ms.len(), 2);
+        let acme = ms.iter().find(|m| m.tenant.as_deref() == Some("acme")).unwrap();
+        assert_eq!(acme.role, "admin");
+        assert!(ms
+            .iter()
+            .any(|m| m.tenant.as_deref() == Some("public") && m.role == "read"));
+        assert!(p
+            .resolve_all(&claims("z", Some("z@nope.org"), &[]), "i")
+            .is_empty());
     }
 
     /// Live discovery against the Dex sidecar. Ignored by default — run with

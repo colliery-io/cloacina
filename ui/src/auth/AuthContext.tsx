@@ -83,6 +83,10 @@ interface AuthContextValue {
   /** Validate a connection against the server, then save it and make it active.
    *  Upserts by `label` (re-adding a label replaces it). */
   connect: (conn: Connection) => Promise<void>;
+  /** Save several connections at once (an OIDC login granting multiple tenant
+   *  memberships) and enter one. Validates the one being entered; the rest are
+   *  freshly-minted keys, available via the tenant switcher. */
+  enterMemberships: (conns: Connection[], activeLabel: string) => Promise<void>;
   /** Switch the active connection to a previously-saved one (no re-validation). */
   switchTo: (label: string) => void;
   /** Remove a saved connection; if it was active, fall back to another. */
@@ -172,6 +176,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setActive(conn.label);
   }
 
+  async function enterMemberships(conns: Connection[], activeLabel: string): Promise<void> {
+    const chosen = conns.find((c) => c.label === activeLabel) ?? conns[0];
+    if (!chosen) throw new Error("no memberships to enter");
+    // Validate the one we're entering; trust the rest (just minted by us).
+    const probe = new CloacinaClient({
+      baseUrl: chosen.serverUrl,
+      apiKey: chosen.apiKey,
+      tenant: chosen.tenant,
+    });
+    try {
+      await probe.health();
+      await probe.listWorkflows();
+    } catch (err) {
+      throw new Error(classifyError(err).message);
+    }
+    setConnections((prev) => {
+      const byLabel = new Map(prev.map((c) => [c.label, c]));
+      for (const c of conns) byLabel.set(c.label, c);
+      const next = Array.from(byLabel.values());
+      persist(next, chosen.label);
+      return next;
+    });
+    setActive(chosen.label);
+  }
+
   function switchTo(label: string): void {
     setConnections((prev) => {
       if (prev.some((c) => c.label === label)) {
@@ -201,7 +230,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const value = useMemo<AuthContextValue>(
-    () => ({ connection, client, connections, connect, switchTo, removeConnection, disconnect }),
+    () => ({
+      connection,
+      client,
+      connections,
+      connect,
+      enterMemberships,
+      switchTo,
+      removeConnection,
+      disconnect,
+    }),
     [connection, client, connections],
   );
 

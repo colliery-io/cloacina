@@ -122,9 +122,11 @@ services:
       CLOACINA_OIDC_CLIENT_SECRET: "cloacina-dex-secret"
       CLOACINA_OIDC_REDIRECT_URI: "http://localhost:8080/v1/auth/callback"
       # Allowlist: Dex static-password users carry no groups, so map on the
-      # email domain (released via the `email` scope). The group rule is kept
-      # for real IdPs (Keycloak/Okta) that do emit groups.
-      CLOACINA_OIDC_MAP: "group:acme-admins=acme:admin;domain:acme.com=acme:admin"
+      # email domain (released via the `email` scope). acme.com identities get
+      # BOTH tenants (acme admin + public read) to demo multi-tenant SSO — one
+      # sign-in, a key per tenant, the UI picks. The group rule is kept for real
+      # IdPs (Keycloak/Okta) that emit groups.
+      CLOACINA_OIDC_MAP: "group:acme-admins=acme:admin;domain:acme.com=acme:admin;domain:acme.com=public:read"
       # On success the server hands the minted key to the SPA via the URL
       # fragment at this address (the demo UI origin).
       CLOACINA_OIDC_SUCCESS_REDIRECT: "http://localhost:8082/connect"

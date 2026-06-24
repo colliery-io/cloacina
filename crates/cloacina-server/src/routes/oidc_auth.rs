@@ -31,10 +31,19 @@ use axum::{
 use serde::Deserialize;
 use tracing::{info, warn};
 
+use base64::Engine as _;
+
 use crate::identity::{mint_for_principal, DEFAULT_MINTED_KEY_TTL};
 use crate::routes::error::ApiError;
-use crate::routes::local_auth::LocalLoginResponse;
 use crate::AppState;
+
+/// One minted tenant membership handed back to the SPA after an OIDC login.
+#[derive(serde::Serialize)]
+struct Membership {
+    key: String,
+    tenant: String,
+    role: String,
+}
 
 fn oidc_disabled() -> axum::response::Response {
     ApiError::new(
@@ -101,43 +110,42 @@ pub async fn oidc_callback(
         }
     };
 
-    let principal = match state.oidc_policy.resolve(&claims, &provider.config.issuer_url) {
-        Some(p) => p,
-        None => {
-            return ApiError::forbidden(
-                "identity_not_mapped",
-                "your identity is not mapped to any tenant",
-            )
-            .into_response()
-        }
-    };
+    // A single sign-in may grant several tenant memberships (one IdP identity →
+    // {tenant, role} set). Mint a scoped key for each; the SPA lets the user
+    // pick which to enter. Unmapped → denied.
+    let principals = state
+        .oidc_policy
+        .resolve_all(&claims, &provider.config.issuer_url);
+    if principals.is_empty() {
+        return ApiError::forbidden(
+            "identity_not_mapped",
+            "your identity is not mapped to any tenant",
+        )
+        .into_response();
+    }
 
-    match mint_for_principal(&state, &principal, DEFAULT_MINTED_KEY_TTL).await {
-        Ok((plaintext, key_info)) => {
-            info!(subject = %claims.subject, "OIDC login succeeded — minted key");
-            // When a UI success-redirect is configured (the demo/browser flow),
-            // hand the key to the SPA via the URL fragment — a fragment is never
-            // sent to a server or logged. Otherwise return JSON (API callers).
-            // key/tenant/role are URL-safe by construction (clk_ token, tenant
-            // slug, role word).
-            match std::env::var("CLOACINA_OIDC_SUCCESS_REDIRECT") {
-                Ok(redirect) if !redirect.is_empty() => {
-                    let tenant = key_info.tenant_id.clone().unwrap_or_default();
-                    let location = format!(
-                        "{redirect}#key={}&tenant={}&role={}",
-                        plaintext, tenant, key_info.permissions
-                    );
-                    axum::response::Redirect::to(&location).into_response()
-                }
-                _ => Json(LocalLoginResponse {
-                    key: plaintext,
-                    tenant_id: key_info.tenant_id,
-                    role: key_info.permissions,
-                    expires_at: key_info.expires_at.map(|t| t.to_rfc3339()),
-                })
-                .into_response(),
-            }
+    let mut memberships = Vec::with_capacity(principals.len());
+    for p in &principals {
+        match mint_for_principal(&state, p, DEFAULT_MINTED_KEY_TTL).await {
+            Ok((plaintext, info)) => memberships.push(Membership {
+                key: plaintext,
+                tenant: info.tenant_id.unwrap_or_default(),
+                role: info.permissions,
+            }),
+            Err(e) => return e.into_response(),
         }
-        Err(e) => e.into_response(),
+    }
+    info!(subject = %claims.subject, memberships = memberships.len(), "OIDC login succeeded — minted key(s)");
+
+    // When a UI success-redirect is configured (the browser flow), hand the
+    // membership set to the SPA via the URL fragment (base64url of the JSON — a
+    // fragment is never sent to a server or logged). Otherwise return JSON.
+    let payload = serde_json::to_string(&memberships).unwrap_or_else(|_| "[]".to_string());
+    match std::env::var("CLOACINA_OIDC_SUCCESS_REDIRECT") {
+        Ok(redirect) if !redirect.is_empty() => {
+            let frag = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload.as_bytes());
+            axum::response::Redirect::to(&format!("{redirect}#memberships={frag}")).into_response()
+        }
+        _ => Json(memberships).into_response(),
     }
 }
