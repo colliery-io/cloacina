@@ -57,12 +57,22 @@ Then:
    **Continue with SSO**. The browser is sent to Dex.
 2. Log in at Dex as `alice@acme.com` / `password`.
 3. Dex → server `/v1/auth/callback`: the server validates the ID token
-   (JWKS signature, `iss`/`aud`/`exp`, nonce), maps the `acme-admins` group →
-   tenant `acme` / role `admin` (the `CLOACINA_OIDC_MAP` allowlist), mints a
+   (JWKS signature, `iss`/`aud`/`exp`, nonce), maps the `acme.com` email domain
+   → tenant `acme` / role `admin` (the `CLOACINA_OIDC_MAP` allowlist), mints a
    short-TTL key, and redirects back to the SPA with the key in the URL
    fragment. You land on the overview as an `acme` admin.
 
-The mapping is god-owned config; an unmapped identity is denied (403).
+The mapping is god-owned config; an unmapped identity is denied (403). (Dex
+static-password users carry no groups, so the demo maps on email domain; the
+`group:acme-admins` rule is kept for real IdPs that emit groups.)
+
+> **If OIDC 401s with "Signature verification failed"** after you recreate the
+> dex container: dex (in-memory) regenerates signing keys on each recreate, and
+> the server caches JWKS at discovery. Restart the server so it re-discovers:
+> `docker compose -f docker/docker-compose.demo.yml restart server`.
+
+This full flow is verified end-to-end (login → Dex → callback → minted
+`tenant=acme role=admin` key → SPA).
 
 ### Pure host-run alternative (no /etc/hosts edit)
 

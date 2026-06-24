@@ -30,9 +30,9 @@ staticClients:
 # group `acme-admins` -> tenant acme / role admin.
 enablePasswordDB: true
 staticPasswords:
-  # password: "password" (canonical Dex example bcrypt hash)
+  # password: "password" (bcrypt, htpasswd -bnBC 10 "" password)
   - email: "alice@acme.com"
-    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4u"
+    hash: "$2a$10$zEaz7.DwEsJjPejavjSdx.1C0ypz6X8FO9ujZmliC0iIMvL.pEE02"
     username: "alice"
     userID: "alice-uid"
 
