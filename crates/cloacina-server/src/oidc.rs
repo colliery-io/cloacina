@@ -370,44 +370,81 @@ struct LoginFlowEntry {
     expires_at: Instant,
 }
 
-/// Short-lived store for in-flight login state (`state -> nonce + PKCE
-/// verifier`), single-use. In-memory for the single-replica demo; NFR-003
-/// (multi-replica) wants this Postgres-backed like the ws-ticket/oidc_sessions
-/// infra — a documented follow-up.
+/// Short-lived, single-use store for in-flight login state (`state -> nonce +
+/// PKCE verifier`). **Postgres-backed when a `Database` is supplied** (CLOACI-
+/// T-0801, NFR-003: the callback may land on a different replica than the one
+/// that began the login). Falls back to in-memory when constructed without a DB
+/// (tests / single-process).
 pub struct LoginFlowStore {
-    inner: tokio::sync::Mutex<HashMap<String, LoginFlowEntry>>,
+    db: Option<cloacina::database::Database>,
+    memory: tokio::sync::Mutex<HashMap<String, LoginFlowEntry>>,
     ttl: Duration,
 }
 
 impl LoginFlowStore {
+    /// In-memory store (single process / tests).
     pub fn new(ttl: Duration) -> Self {
         Self {
-            inner: tokio::sync::Mutex::new(HashMap::new()),
+            db: None,
+            memory: tokio::sync::Mutex::new(HashMap::new()),
             ttl,
         }
     }
 
-    /// Stash a flow keyed by `state`, evicting anything expired.
+    /// Postgres-backed store (multi-replica safe, NFR-003).
+    pub fn with_db(db: cloacina::database::Database, ttl: Duration) -> Self {
+        Self {
+            db: Some(db),
+            memory: tokio::sync::Mutex::new(HashMap::new()),
+            ttl,
+        }
+    }
+
+    /// Stash a flow keyed by `state`, valid for the TTL.
     pub async fn put(&self, state: String, nonce: String, pkce_verifier: String) {
-        let mut g = self.inner.lock().await;
-        let now = Instant::now();
-        g.retain(|_, e| e.expires_at > now);
-        g.insert(
-            state,
-            LoginFlowEntry {
-                nonce,
-                pkce_verifier,
-                expires_at: now + self.ttl,
-            },
-        );
+        if let Some(db) = &self.db {
+            let secs = self.ttl.as_secs().min(i64::MAX as u64) as i64;
+            let expires_at = chrono::Utc::now() + chrono::Duration::seconds(secs);
+            let dal = cloacina::dal::DAL::new(db.clone());
+            if let Err(e) = dal
+                .oidc_login_flows()
+                .put(state, nonce, pkce_verifier, expires_at)
+                .await
+            {
+                tracing::warn!("oidc login-flow persist failed: {e}");
+            }
+        } else {
+            let mut g = self.memory.lock().await;
+            let now = Instant::now();
+            g.retain(|_, e| e.expires_at > now);
+            g.insert(
+                state,
+                LoginFlowEntry {
+                    nonce,
+                    pkce_verifier,
+                    expires_at: now + self.ttl,
+                },
+            );
+        }
     }
 
     /// Consume the flow for `state` (single-use). `None` if unknown/expired.
     pub async fn take(&self, state: &str) -> Option<(String, String)> {
-        let mut g = self.inner.lock().await;
-        g.remove(state)
-            .filter(|e| e.expires_at > Instant::now())
-            .map(|e| (e.nonce, e.pkce_verifier))
+        if let Some(db) = &self.db {
+            let dal = cloacina::dal::DAL::new(db.clone());
+            match dal.oidc_login_flows().take(state).await {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("oidc login-flow lookup failed: {e}");
+                    None
+                }
+            }
+        } else {
+            let mut g = self.memory.lock().await;
+            g.remove(state)
+                .filter(|e| e.expires_at > Instant::now())
+                .map(|e| (e.nonce, e.pkce_verifier))
+        }
     }
 }
 

@@ -857,6 +857,17 @@ mod postgres_schema {
         }
     }
 
+    // CLOACI-T-0801: OIDC in-flight login state (server mode only — Postgres).
+    diesel::table! {
+        oidc_login_flows (state) {
+            state -> Text,
+            nonce -> Text,
+            pkce_verifier -> Text,
+            created_at -> Timestamptz,
+            expires_at -> Timestamptz,
+        }
+    }
+
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
     // of joinable! to avoid conflicts with multiple foreign keys to same table.
     // Manual join syntax should be used in queries when joining auth tables.

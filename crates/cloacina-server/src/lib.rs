@@ -789,7 +789,11 @@ pub async fn run(
         None => None,
     };
     let oidc_policy = Arc::new(crate::oidc::MappingPolicy::from_env());
-    let oidc_login = Arc::new(crate::oidc::LoginFlowStore::new(std::time::Duration::from_secs(600)));
+    // CLOACI-T-0801: Postgres-backed login-flow state (multi-replica safe).
+    let oidc_login = Arc::new(crate::oidc::LoginFlowStore::with_db(
+        runner.database().clone(),
+        std::time::Duration::from_secs(600),
+    ));
 
     let state = AppState {
         database: runner.database().clone(),

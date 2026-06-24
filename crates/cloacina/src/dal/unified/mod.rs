@@ -49,6 +49,8 @@ pub mod api_keys;
 pub mod oidc_sessions;
 #[cfg(feature = "postgres")]
 pub mod local_accounts;
+#[cfg(feature = "postgres")]
+pub mod oidc_login_flows;
 pub mod checkpoint;
 pub mod context;
 pub mod delivery_outbox;
@@ -72,6 +74,8 @@ pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
 pub use oidc_sessions::{OidcSessionDAL, RefreshSession};
 #[cfg(feature = "postgres")]
 pub use local_accounts::{LocalAccount, LocalAccountDAL, LoginOutcome};
+#[cfg(feature = "postgres")]
+pub use oidc_login_flows::OidcLoginFlowDAL;
 pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
 pub use delivery_outbox::DeliveryOutboxDAL;
@@ -152,6 +156,12 @@ impl DAL {
     #[cfg(feature = "postgres")]
     pub fn local_accounts(&self) -> LocalAccountDAL<'_> {
         LocalAccountDAL::new(self)
+    }
+
+    /// Returns an OIDC login-flow-state DAL (Postgres only). CLOACI-T-0801.
+    #[cfg(feature = "postgres")]
+    pub fn oidc_login_flows(&self) -> OidcLoginFlowDAL<'_> {
+        OidcLoginFlowDAL::new(self)
     }
 
     /// Returns a checkpoint DAL for computation graph state persistence.
