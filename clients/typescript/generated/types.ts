@@ -156,6 +156,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/whoami": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/auth/whoami` — return the caller's tenant, role, and admin flag.
+         *     Any authenticated key (read level); reads only the request's `AuthenticatedKey`.
+         */
+        get: operations["whoami"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/ws-ticket": {
         parameters: {
             query?: never;
@@ -1976,6 +1996,21 @@ export interface components {
             trigger_name?: string | null;
             workflow_name: string;
         };
+        /**
+         * @description The caller's own identity + role (CLOACI-T-0803) — lets the UI gate
+         *     write/admin controls to the key's role instead of offering actions that
+         *     would 403.
+         */
+        WhoamiResponse: {
+            /** @description God-mode flag (cross-tenant platform admin). */
+            is_admin: boolean;
+            /** @description The key's display name. */
+            name: string;
+            /** @description Role within the tenant: `read` | `write` | `admin`. */
+            role: string;
+            /** @description Tenant the key is scoped to (`None` = global/public). */
+            tenant_id?: string | null;
+        };
         /** @description `DELETE /tenants/{tenant_id}/workflows/{name}/{version}` response. */
         WorkflowDeletedResponse: {
             package_name: string;
@@ -2498,6 +2533,35 @@ export interface operations {
             };
             /** @description Refresh for this provider not yet supported */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    whoami: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's identity + role */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhoamiResponse"];
+                };
+            };
+            /** @description Invalid or revoked key */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

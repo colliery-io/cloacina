@@ -216,6 +216,11 @@ export class CloacinaClient {
     return unwrap(await this.api.POST("/v1/auth/logout"));
   }
 
+  /** The current key's tenant + role + admin flag — used to gate UI controls. */
+  async whoami(): Promise<schemas["WhoamiResponse"]> {
+    return unwrap(await this.api.GET("/v1/auth/whoami"));
+  }
+
   // ---- local accounts: tenant-admin management (CLOACI-T-0797) ----
 
   async listAccounts(

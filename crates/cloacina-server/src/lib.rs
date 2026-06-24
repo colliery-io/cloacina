@@ -1159,6 +1159,8 @@ fn build_router(state: AppState) -> Router {
         // CLOACI-T-0794: login-session lifecycle (authenticated — caller's own key).
         .route("/auth/refresh", post(crate::routes::session::refresh))
         .route("/auth/logout", post(crate::routes::session::logout))
+        // CLOACI-T-0803: the caller's own role, so the UI can gate write/admin controls.
+        .route("/auth/whoami", get(crate::routes::session::whoami))
         // Execution-agent fleet roster (admin, operator-facing) — CLOACI-I-0124
         .route("/agents", get(crate::routes::agent::list_agents))
         // Compiler / build-pipeline status (admin) — CLOACI-I-0124

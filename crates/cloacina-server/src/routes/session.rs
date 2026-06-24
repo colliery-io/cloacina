@@ -42,6 +42,42 @@ pub struct LogoutResponse {
     pub status: String,
 }
 
+/// The caller's own identity + role (CLOACI-T-0803) — lets the UI gate
+/// write/admin controls to the key's role instead of offering actions that
+/// would 403.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WhoamiResponse {
+    /// Tenant the key is scoped to (`None` = global/public).
+    pub tenant_id: Option<String>,
+    /// Role within the tenant: `read` | `write` | `admin`.
+    pub role: String,
+    /// God-mode flag (cross-tenant platform admin).
+    pub is_admin: bool,
+    /// The key's display name.
+    pub name: String,
+}
+
+/// `GET /v1/auth/whoami` — return the caller's tenant, role, and admin flag.
+/// Any authenticated key (read level); reads only the request's `AuthenticatedKey`.
+#[utoipa::path(
+    get,
+    path = "/v1/auth/whoami",
+    tag = "auth",
+    responses(
+        (status = 200, description = "The caller's identity + role", body = WhoamiResponse),
+        (status = 401, description = "Invalid or revoked key", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn whoami(Extension(auth): Extension<AuthenticatedKey>) -> impl IntoResponse {
+    Json(WhoamiResponse {
+        tenant_id: auth.tenant_id.clone(),
+        role: auth.permissions.clone(),
+        is_admin: auth.is_admin,
+        name: auth.name.clone(),
+    })
+}
+
 /// `POST /v1/auth/refresh` — silently re-mint the caller's short-TTL key.
 #[utoipa::path(
     post,
