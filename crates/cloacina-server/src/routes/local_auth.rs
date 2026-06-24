@@ -26,12 +26,18 @@
 //! provenance + the account's `status` column ARE the refresh validity, which
 //! `/auth/refresh` (T-0794) re-checks.
 
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
-use cloacina::dal::unified::LoginOutcome;
+use cloacina::dal::unified::{LocalAccount, LoginOutcome};
+use cloacina_api_types::common::ListResponse;
 
 use crate::identity::{mint_for_principal, ResolvedPrincipal, DEFAULT_MINTED_KEY_TTL};
 use crate::routes::error::ApiError;
@@ -122,5 +128,215 @@ pub async fn local_login(
                 .into_response()
         }
         Err(e) => e.into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tenant-admin local-account management (CLOACI-T-0797). All routes are
+// `TenantParam + Admin` in the authz table, so the caller is already confined
+// to `{tenant_id}`; the DAL list/update calls are additionally tenant-scoped.
+// ---------------------------------------------------------------------------
+
+/// Create a local account in a tenant.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateAccountRequest {
+    pub username: String,
+    pub password: String,
+    pub role: String,
+}
+
+/// Reset a local account's password (admin-reset-only, OQ-12).
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ResetPasswordRequest {
+    pub password: String,
+}
+
+/// Public view of a local account (never the password hash).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AccountInfo {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub status: String,
+}
+
+/// Outcome of a disable/reset action.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AccountActionResponse {
+    pub status: String,
+    pub id: String,
+}
+
+fn to_account_info(a: LocalAccount) -> AccountInfo {
+    AccountInfo {
+        id: a.id.to_string(),
+        username: a.username,
+        role: a.role,
+        status: a.status,
+    }
+}
+
+/// `POST /v1/tenants/{tenant_id}/accounts` — create a tenant local account.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/accounts",
+    tag = "auth",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    request_body = CreateAccountRequest,
+    responses(
+        (status = 201, description = "Account created", body = AccountInfo),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn create_account(
+    State(state): State<AppState>,
+    Path(tenant_id): Path<String>,
+    Json(body): Json<CreateAccountRequest>,
+) -> impl IntoResponse {
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    match dal
+        .local_accounts()
+        .create(&body.username, &body.password, Some(&tenant_id), &body.role)
+        .await
+    {
+        Ok(a) => (StatusCode::CREATED, Json(to_account_info(a))).into_response(),
+        Err(e) => {
+            warn!("create local account failed: {}", e);
+            ApiError::internal("failed to create account").into_response()
+        }
+    }
+}
+
+/// `GET /v1/tenants/{tenant_id}/accounts` — list a tenant's local accounts.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/accounts",
+    tag = "auth",
+    params(("tenant_id" = String, Path, description = "Tenant identifier")),
+    responses(
+        (status = 200, description = "Tenant local accounts (no hashes)", body = ListResponse<AccountInfo>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn list_accounts(
+    State(state): State<AppState>,
+    Path(tenant_id): Path<String>,
+) -> impl IntoResponse {
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    match dal.local_accounts().list_for_tenant(Some(&tenant_id)).await {
+        Ok(accounts) => {
+            let items: Vec<AccountInfo> = accounts.into_iter().map(to_account_info).collect();
+            Json(ListResponse::new(items)).into_response()
+        }
+        Err(e) => {
+            warn!("list local accounts failed: {}", e);
+            ApiError::internal("failed to list accounts").into_response()
+        }
+    }
+}
+
+/// `DELETE /v1/tenants/{tenant_id}/accounts/{account_id}` — disable an account.
+/// Disable (not hard-delete) preserves history; already-minted keys lapse at
+/// their TTL (deprovisioning latency bounded by the short TTL).
+#[utoipa::path(
+    delete,
+    path = "/v1/tenants/{tenant_id}/accounts/{account_id}",
+    tag = "auth",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("account_id" = String, Path, description = "Account UUID"),
+    ),
+    responses(
+        (status = 200, description = "Account disabled", body = AccountActionResponse),
+        (status = 400, description = "Invalid account ID", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Account not found in this tenant", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn disable_account(
+    State(state): State<AppState>,
+    Path((tenant_id, account_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let id = match uuid::Uuid::parse_str(&account_id) {
+        Ok(i) => i,
+        Err(_) => {
+            return ApiError::bad_request("invalid_account_id", "invalid account ID format")
+                .into_response()
+        }
+    };
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    match dal.local_accounts().set_status(id, &tenant_id, "disabled").await {
+        Ok(true) => Json(AccountActionResponse {
+            status: "disabled".to_string(),
+            id: account_id,
+        })
+        .into_response(),
+        Ok(false) => {
+            ApiError::not_found("account_not_found", "account not found in this tenant")
+                .into_response()
+        }
+        Err(e) => {
+            warn!("disable local account failed: {}", e);
+            ApiError::internal("failed to disable account").into_response()
+        }
+    }
+}
+
+/// `POST /v1/tenants/{tenant_id}/accounts/{account_id}/password` — admin reset.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/accounts/{account_id}/password",
+    tag = "auth",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("account_id" = String, Path, description = "Account UUID"),
+    ),
+    request_body = ResetPasswordRequest,
+    responses(
+        (status = 200, description = "Password reset", body = AccountActionResponse),
+        (status = 400, description = "Invalid account ID", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "Account not found in this tenant", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn reset_password(
+    State(state): State<AppState>,
+    Path((tenant_id, account_id)): Path<(String, String)>,
+    Json(body): Json<ResetPasswordRequest>,
+) -> impl IntoResponse {
+    let id = match uuid::Uuid::parse_str(&account_id) {
+        Ok(i) => i,
+        Err(_) => {
+            return ApiError::bad_request("invalid_account_id", "invalid account ID format")
+                .into_response()
+        }
+    };
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    match dal
+        .local_accounts()
+        .set_password(id, &tenant_id, &body.password)
+        .await
+    {
+        Ok(true) => Json(AccountActionResponse {
+            status: "password_reset".to_string(),
+            id: account_id,
+        })
+        .into_response(),
+        Ok(false) => {
+            ApiError::not_found("account_not_found", "account not found in this tenant")
+                .into_response()
+        }
+        Err(e) => {
+            warn!("reset local account password failed: {}", e);
+            ApiError::internal("failed to reset password").into_response()
+        }
     }
 }

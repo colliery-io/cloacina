@@ -236,7 +236,12 @@ impl<'a> LocalAccountDAL<'a> {
     /// Disable an account (it can no longer log in / refresh). Returns true if
     /// a row changed.
     #[cfg(feature = "postgres")]
-    pub async fn set_status(&self, id: Uuid, status: &str) -> Result<bool, ValidationError> {
+    pub async fn set_status(
+        &self,
+        id: Uuid,
+        tenant: &str,
+        status: &str,
+    ) -> Result<bool, ValidationError> {
         use crate::database::schema::postgres::local_accounts;
         let conn = self
             .dal
@@ -245,11 +250,18 @@ impl<'a> LocalAccountDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let status = status.to_string();
+        let tenant = tenant.to_string();
+        // Scoped to (id AND tenant) so a tenant-admin can only touch its own
+        // tenant's accounts; a cross-tenant id matches no row (-> false / 404).
         let n: usize = conn
             .interact(move |conn| {
-                diesel::update(local_accounts::table.find(id))
-                    .set(local_accounts::status.eq(status))
-                    .execute(conn)
+                diesel::update(
+                    local_accounts::table
+                        .filter(local_accounts::id.eq(id))
+                        .filter(local_accounts::tenant_id.eq(Some(tenant))),
+                )
+                .set(local_accounts::status.eq(status))
+                .execute(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -259,7 +271,12 @@ impl<'a> LocalAccountDAL<'a> {
     /// Reset an account's password (admin-reset-only, OQ-12). Hashes the new
     /// password with argon2id.
     #[cfg(feature = "postgres")]
-    pub async fn set_password(&self, id: Uuid, new_password: &str) -> Result<bool, ValidationError> {
+    pub async fn set_password(
+        &self,
+        id: Uuid,
+        tenant: &str,
+        new_password: &str,
+    ) -> Result<bool, ValidationError> {
         use crate::database::schema::postgres::local_accounts;
         let hash = hash_password(new_password)?;
         let conn = self
@@ -268,11 +285,16 @@ impl<'a> LocalAccountDAL<'a> {
             .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let tenant = tenant.to_string();
         let n: usize = conn
             .interact(move |conn| {
-                diesel::update(local_accounts::table.find(id))
-                    .set(local_accounts::password_hash.eq(hash))
-                    .execute(conn)
+                diesel::update(
+                    local_accounts::table
+                        .filter(local_accounts::id.eq(id))
+                        .filter(local_accounts::tenant_id.eq(Some(tenant))),
+                )
+                .set(local_accounts::password_hash.eq(hash))
+                .execute(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;

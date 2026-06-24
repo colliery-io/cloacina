@@ -1150,6 +1150,23 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/keys/{key_id}",
             delete(crate::routes::keys::revoke_tenant_key),
         )
+        // CLOACI-T-0797: tenant-admin local-account management.
+        .route(
+            "/tenants/{tenant_id}/accounts",
+            post(crate::routes::local_auth::create_account),
+        )
+        .route(
+            "/tenants/{tenant_id}/accounts",
+            get(crate::routes::local_auth::list_accounts),
+        )
+        .route(
+            "/tenants/{tenant_id}/accounts/{account_id}",
+            delete(crate::routes::local_auth::disable_account),
+        )
+        .route(
+            "/tenants/{tenant_id}/accounts/{account_id}/password",
+            post(crate::routes::local_auth::reset_password),
+        )
         // Workflow packages (tenant-scoped)
         .route(
             "/tenants/{tenant_id}/workflows",

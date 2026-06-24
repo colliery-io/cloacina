@@ -261,6 +261,20 @@ pub fn build_authz_table() -> AuthzTable {
         Access::tenant(Level::Admin),
     );
 
+    // CLOACI-T-0797: tenant-admin local-account management.
+    add(Method::POST, "/tenants/{tenant_id}/accounts", Access::tenant(Level::Admin));
+    add(Method::GET, "/tenants/{tenant_id}/accounts", Access::tenant(Level::Admin));
+    add(
+        Method::DELETE,
+        "/tenants/{tenant_id}/accounts/{account_id}",
+        Access::tenant(Level::Admin),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/accounts/{account_id}/password",
+        Access::tenant(Level::Admin),
+    );
+
     // ----- Platform + Admin: the global key surface (CLOACI-T-0784 leak fix).
     //       Was Any+Admin (today's unscoped can_admin), which let a tenant
     //       role=admin key list/revoke ANY tenant's keys. God-only now;
@@ -618,7 +632,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            45,
+            49,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
