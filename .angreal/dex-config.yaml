@@ -1,0 +1,30 @@
+# CLOACI-T-0804: Dex config for the CI/host-run OIDC tests. Unlike the demo
+# compose (docker/dex-config.yaml, which uses host.docker.internal because the
+# server runs in a container), the test/CI server runs on the HOST, so a plain
+# `localhost` issuer works for both the test process and Dex — no split-horizon,
+# no /etc/hosts entry. In-memory + static creds; NOT for production.
+issuer: http://localhost:5556/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+staticClients:
+  - id: cloacina
+    name: Cloacina
+    secret: cloacina-dex-secret
+    redirectURIs:
+      - http://localhost:18082/v1/auth/callback
+
+enablePasswordDB: true
+staticPasswords:
+  # password: "password" (bcrypt, htpasswd -bnBC 10 "" password)
+  - email: "alice@acme.com"
+    hash: "$2a$10$zEaz7.DwEsJjPejavjSdx.1C0ypz6X8FO9ujZmliC0iIMvL.pEE02"
+    username: "alice"
+    userID: "alice-uid"
+
+oauth2:
+  skipApprovalScreen: true

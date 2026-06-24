@@ -85,6 +85,21 @@ jobs:
         if: matrix.features.backend == 'postgres'
         run: angreal test auth
 
+      # CLOACI-T-0804: OIDC relying-party tests against a real Dex issuer
+      # (discovery, JWKS, authorization-URL with PKCE/state/nonce). The OIDC
+      # tests are #[ignore]'d by default since they need a live issuer; this
+      # brings up the dex sidecar (localhost issuer — the runner is the host)
+      # and runs them.
+      - name: Run OIDC relying-party tests (postgres)
+        if: matrix.features.backend == 'postgres'
+        run: |
+          docker compose -f .angreal/docker-compose.yaml up -d dex
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:5556/dex/.well-known/openid-configuration >/dev/null 2>&1 && break
+            sleep 2
+          done
+          cargo test -p cloacina-server --lib oidc -- --ignored
+
   # Unit tests - fast, fail-fast enabled, cross-platform
   unit-tests:
     name: Unit Tests (${{ matrix.os }})
