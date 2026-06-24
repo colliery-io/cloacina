@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { Dot, Empty, ErrorState, Loading, MONO, PageHeader, pillBg, TOKEN } from "@colliery-io/aurora-dark";
 import { ActionIcon, Button, Group, Table, Tooltip } from "@mantine/core";
 import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
 import cronstrue from "cronstrue";
@@ -22,12 +23,10 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useTriggers } from "../api/triggers";
 import { useExecuteWorkflow } from "../api/workflows";
-import { Dot, MONO, PageHeader } from "../components/aurora";
-import { Empty, ErrorState, Loading } from "../components/states/States";
+import { useCan } from "../auth/AuthContext";
 import { TriggerFireModal } from "../components/TriggerFireModal";
 import { formatTimestamp } from "../util/format";
 import { formatPollInterval } from "../util/triggers";
-import { TOKEN, pillBg } from "../util/tokens";
 
 const PAGE_SIZE = 50;
 
@@ -54,6 +53,7 @@ export function Triggers() {
   const [params, setParams] = useSearchParams();
   const offset = Math.max(0, Number(params.get("offset") ?? "0") || 0);
   const execute = useExecuteWorkflow();
+  const { canWrite } = useCan();
   const [fireTrigger, setFireTrigger] = useState<string | null>(null);
 
   const { data, isPending, isError, error, refetch } = useTriggers({ limit: PAGE_SIZE, offset });
@@ -145,7 +145,7 @@ export function Triggers() {
                   </Table.Td>
                   <Table.Td>
                     <Group gap={4} wrap="nowrap" justify="flex-end">
-                      {t.trigger_name && (
+                      {canWrite && t.trigger_name && (
                         <Tooltip label={`Fire ${t.trigger_name} → all subscribers`} withArrow>
                           <ActionIcon
                             variant="subtle"
@@ -159,22 +159,24 @@ export function Triggers() {
                           </ActionIcon>
                         </Tooltip>
                       )}
-                      <Tooltip label={`Run ${t.workflow_name} now`} withArrow>
-                        <ActionIcon
-                          variant="subtle"
-                          color="ice"
-                          loading={execute.isPending && execute.variables?.name === t.workflow_name}
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            execute.mutate(
-                              { name: t.workflow_name },
-                              { onSuccess: (res) => navigate(`/executions/${res.execution_id}`) },
-                            );
-                          }}
-                        >
-                          <IconPlayerPlay size={16} />
-                        </ActionIcon>
-                      </Tooltip>
+                      {canWrite && (
+                        <Tooltip label={`Run ${t.workflow_name} now`} withArrow>
+                          <ActionIcon
+                            variant="subtle"
+                            color="ice"
+                            loading={execute.isPending && execute.variables?.name === t.workflow_name}
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              execute.mutate(
+                                { name: t.workflow_name },
+                                { onSuccess: (res) => navigate(`/executions/${res.execution_id}`) },
+                              );
+                            }}
+                          >
+                            <IconPlayerPlay size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
                     </Group>
                   </Table.Td>
                 </Table.Tr>

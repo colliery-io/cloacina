@@ -14,13 +14,12 @@
  *  limitations under the License.
  */
 
+import { MONO, Pill, TOKEN } from "@colliery-io/aurora-dark";
 import { Box, Code, Group, Stack, Table, Text } from "@mantine/core";
 import type { schemas } from "@cloacina/client";
 
 import { formatTimestamp } from "../util/format";
 import { describeEvent, meaningfulData } from "../util/eventLabels";
-import { MONO, Pill } from "./aurora";
-import { TOKEN } from "../util/tokens";
 
 export type ExecutionEvent = schemas["ExecutionEvent"];
 

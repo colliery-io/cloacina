@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { statusColor, TOKEN, useGraphThroughput } from "@colliery-io/aurora-dark";
 import { Box, Grid, Group, SimpleGrid } from "@mantine/core";
 import { type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -26,8 +27,6 @@ import { useAuth } from "../auth/AuthContext";
 import { ActiveRunCard } from "../components/ActiveRunCard";
 import { GraphMiniCard } from "../components/GraphMiniCard";
 import { formatDuration } from "../util/format";
-import { statusColor, TOKEN } from "../util/tokens";
-import { useGraphThroughput } from "../util/activity";
 
 const MONO = "'IBM Plex Mono', monospace";
 

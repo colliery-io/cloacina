@@ -5,9 +5,8 @@
  *  Inputs card (CLOACI-T-0764 §4): the workflow's declared params (typed) shown
  *  read-only. Execution itself is the header action — no second Execute button.
  */
+import { MONO, Panel, Pill, TOKEN } from "@colliery-io/aurora-dark";
 import { useWorkflow } from "../api/workflows";
-import { MONO, Panel, Pill } from "./aurora";
-import { TOKEN } from "../util/tokens";
 
 interface Slot {
   name: string;

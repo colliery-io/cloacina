@@ -14,9 +14,9 @@
  *  limitations under the License.
  */
 
+import { classifyError } from "@colliery-io/aurora-dark";
 import { QueryClient } from "@tanstack/react-query";
 
-import { classifyError } from "./errors";
 
 /**
  * Shared TanStack Query client (T-0651). Don't retry auth/validation/

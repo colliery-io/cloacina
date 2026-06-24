@@ -14,10 +14,10 @@
  *  limitations under the License.
  */
 
-import "@mantine/core/styles.css";
-// Aurora Dark tokens + body reset (CLOACI-I-0129). After Mantine's styles so
-// the token overrides win.
-import "./theme.css";
+import { theme } from "@colliery-io/aurora-dark";
+// Aurora Dark stylesheet — IBM Plex @font-face + Mantine component styles +
+// Aurora tokens, in one bundled file from the design system (CLOACI-I-0129).
+import "@colliery-io/aurora-dark/aurora.css";
 
 import { MantineProvider } from "@mantine/core";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -28,7 +28,6 @@ import { BrowserRouter } from "react-router-dom";
 import { queryClient } from "./api/queryClient";
 import { AuthProvider } from "./auth/AuthContext";
 import { App } from "./App";
-import { theme } from "./theme";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

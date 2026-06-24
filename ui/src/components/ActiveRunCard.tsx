@@ -7,6 +7,7 @@
  *  `N/M tasks · {elapsed} · on {currentTask}`. Pause/Resume on a running
  *  execution is a spec-declared mock (#3) — local toggle, no endpoint yet.
  */
+import { StatusBadge, statusColor } from "@colliery-io/aurora-dark";
 import { Box, Button, Group } from "@mantine/core";
 import { type CSSProperties, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -14,8 +15,6 @@ import { useNavigate } from "react-router-dom";
 import { useExecutionTasks } from "../api/executions";
 import { useWorkflow } from "../api/workflows";
 import { MiniDag, type MiniNode } from "./MiniDag";
-import { StatusBadge } from "./StatusBadge";
-import { statusColor } from "../util/tokens";
 import { formatDuration } from "../util/format";
 
 const MONO = "'IBM Plex Mono', monospace";

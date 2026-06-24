@@ -8,16 +8,15 @@
  *  buildCgGraph in GraphDetail. Pause/Resume on a graph is a spec mock (#3);
  *  Fire force-fires the graph's reactor (T-0751).
  */
+import { Dot, explainToken, healthColor, nodeKindColor } from "@colliery-io/aurora-dark";
 import { Box, Button, Group } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useGraph } from "../api/health";
 import { useFireReactor } from "../api/controls";
+import { useCan } from "../auth/AuthContext";
 import { MiniDag, type MiniNode } from "./MiniDag";
-import { Dot } from "./aurora";
-import { healthColor, nodeKindColor } from "../util/tokens";
-import { explainToken } from "../util/vocab";
 
 const MONO = "'IBM Plex Mono', monospace";
 
@@ -68,6 +67,7 @@ export function GraphMiniCard({ graph, rate }: { graph: GraphListItem; rate?: nu
   const navigate = useNavigate();
   const detail = useGraph(graph.name);
   const fire = useFireReactor();
+  const { canWrite } = useCan();
   const [paused, setPaused] = useState(!!graph.paused);
 
   const nodes = useMemo(() => buildMiniNodes(detail.data as GraphData | undefined), [detail.data]);
@@ -100,7 +100,7 @@ export function GraphMiniCard({ graph, rate }: { graph: GraphListItem; rate?: nu
           >
             {paused ? "Resume" : "Pause"}
           </Button>
-          {reactor && (
+          {canWrite && reactor && (
             <Button
               size="compact-xs"
               variant="default"

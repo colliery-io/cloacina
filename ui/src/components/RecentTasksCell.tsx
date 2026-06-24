@@ -14,10 +14,10 @@
  *  limitations under the License.
  */
 
+import { RunCircles } from "@colliery-io/aurora-dark";
 import { Text } from "@mantine/core";
 
 import { useExecutionTasks } from "../api/executions";
-import { RunCircles } from "./RunCircles";
 
 /**
  * Airflow-style "Recent Tasks" cell (CLOACI-I-0124 / WS-10). Shows one colored

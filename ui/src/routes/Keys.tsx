@@ -14,17 +14,15 @@
  *  limitations under the License.
  */
 
+import { classifyError, Empty, ErrorState, Loading, MONO, PageHeader, pillBg, TOKEN } from "@colliery-io/aurora-dark";
 import { Alert, Box, Button, Code, CopyButton, Group, Modal, Select, Stack, Text, TextInput } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconKey } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { classifyError } from "../api/errors";
 import { useCreateKey, useKeys, useRevokeKey, type KeyInfo, type KeyRole } from "../api/keys";
-import { MONO, PageHeader } from "../components/aurora";
-import { Empty, ErrorState, Loading } from "../components/states/States";
+import { useCan } from "../auth/AuthContext";
 import { formatTimestamp } from "../util/format";
-import { TOKEN, pillBg } from "../util/tokens";
 
 /**
  * API key management (Aurora Dark spec 12). List as card rows (key glyph + name
@@ -32,6 +30,7 @@ import { TOKEN, pillBg } from "../util/tokens";
  * revoke-confirm preserved from the original.
  */
 export function Keys() {
+  const { canAdmin } = useCan();
   const { data, isPending, isError, error, refetch } = useKeys();
 
   const [createOpen, createModal] = useDisclosure(false);
@@ -69,9 +68,11 @@ export function Keys() {
         title="API Keys"
         sub="Tenant-scoped keys for the SDK, CLI, and agents. Shown once at creation."
         right={
-          <Button color="ice" radius={9} size="sm" styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} onClick={createModal.open}>
-            + Create key
-          </Button>
+          canAdmin && (
+            <Button color="ice" radius={9} size="sm" styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} onClick={createModal.open}>
+              + Create key
+            </Button>
+          )
         }
       />
 
@@ -106,7 +107,7 @@ export function Keys() {
                   <Box style={{ fontFamily: MONO, fontSize: 10.5, color: "var(--faint)", textAlign: "right" }}>
                     created {formatTimestamp(k.created_at)}
                   </Box>
-                  {!k.revoked && (
+                  {canAdmin && !k.revoked && (
                     <Button size="compact-sm" variant="subtle" color="bad" onClick={() => setRevokeTarget(k)}>
                       Revoke
                     </Button>

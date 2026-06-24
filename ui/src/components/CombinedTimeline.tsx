@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { MONO } from "@colliery-io/aurora-dark";
 import { Box, Group, Text, Tooltip } from "@mantine/core";
 import { type CSSProperties } from "react";
 
@@ -21,7 +22,6 @@ import type { RunTimeline } from "../api/executions";
 import type { TaskGraphNode } from "../util/topo";
 import { topoRank } from "../util/topo";
 import { formatMs } from "../util/format";
-import { MONO } from "./aurora";
 
 /** Five-number summary of a sample (linear-interpolated quantiles). */
 function summary(xs: number[]) {

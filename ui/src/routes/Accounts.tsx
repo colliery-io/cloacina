@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { classifyError } from "@colliery-io/aurora-dark";
 import {
   Alert,
   Badge,
@@ -36,8 +37,7 @@ import {
   useResetPassword,
   type AccountInfo,
 } from "../api/accounts";
-import { classifyError } from "../api/errors";
-import { useTenant } from "../auth/AuthContext";
+import { useCan, useTenant } from "../auth/AuthContext";
 
 /**
  * Tenant-admin local-account management (CLOACI-T-0798). Create / list /
@@ -45,6 +45,7 @@ import { useTenant } from "../auth/AuthContext";
  * A non-admin key gets 403 → a clear "insufficient permissions" state.
  */
 export function Accounts() {
+  const { canAdmin } = useCan();
   const tenant = useTenant();
   const list = useAccounts();
   const create = useCreateAccount();
@@ -81,56 +82,62 @@ export function Accounts() {
         connect screen with these credentials.
       </Box>
 
-      {/* Create */}
-      <Box
-        style={{
-          background: "var(--sidebar)",
-          border: "1px solid var(--border)",
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 18,
-        }}
-      >
-        <Box style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)", marginBottom: 10 }}>
-          Create account
+      {/* Create — admin only; non-admins see an explanatory Alert. */}
+      {canAdmin ? (
+        <Box
+          style={{
+            background: "var(--sidebar)",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 18,
+          }}
+        >
+          <Box style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)", marginBottom: 10 }}>
+            Create account
+          </Box>
+          <Group align="flex-end" gap={10}>
+            <TextInput
+              label="Username"
+              value={username}
+              onChange={(e) => setUsername(e.currentTarget.value)}
+              style={{ flex: 1 }}
+            />
+            <PasswordInput
+              label="Initial password"
+              value={password}
+              onChange={(e) => setPassword(e.currentTarget.value)}
+              style={{ flex: 1 }}
+            />
+            <Select
+              label="Role"
+              data={["read", "write", "admin"]}
+              value={role}
+              onChange={(v) => setRole(v ?? "read")}
+              allowDeselect={false}
+              w={120}
+            />
+            <Button
+              color="ice"
+              onClick={submitCreate}
+              loading={create.isPending}
+              disabled={!username.trim() || !password}
+              styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
+            >
+              Create
+            </Button>
+          </Group>
+          {create.isError && (
+            <Alert color="bad" variant="light" mt={10}>
+              {classifyError(create.error).message}
+            </Alert>
+          )}
         </Box>
-        <Group align="flex-end" gap={10}>
-          <TextInput
-            label="Username"
-            value={username}
-            onChange={(e) => setUsername(e.currentTarget.value)}
-            style={{ flex: 1 }}
-          />
-          <PasswordInput
-            label="Initial password"
-            value={password}
-            onChange={(e) => setPassword(e.currentTarget.value)}
-            style={{ flex: 1 }}
-          />
-          <Select
-            label="Role"
-            data={["read", "write", "admin"]}
-            value={role}
-            onChange={(v) => setRole(v ?? "read")}
-            allowDeselect={false}
-            w={120}
-          />
-          <Button
-            color="ice"
-            onClick={submitCreate}
-            loading={create.isPending}
-            disabled={!username.trim() || !password}
-            styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
-          >
-            Create
-          </Button>
-        </Group>
-        {create.isError && (
-          <Alert color="bad" variant="light" mt={10}>
-            {classifyError(create.error).message}
-          </Alert>
-        )}
-      </Box>
+      ) : (
+        <Alert color="neutral" variant="light" mb={18}>
+          You need admin access to manage accounts.
+        </Alert>
+      )}
 
       {/* List */}
       {list.isError ? (
@@ -162,20 +169,22 @@ export function Accounts() {
                   </Badge>
                 </Table.Td>
                 <Table.Td>
-                  <Group gap={6} justify="flex-end">
-                    <Button size="xs" variant="subtle" onClick={() => setResetFor(a)}>
-                      Reset password
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      color="bad"
-                      disabled={a.status !== "active"}
-                      onClick={() => disable.mutate(a.id)}
-                    >
-                      Disable
-                    </Button>
-                  </Group>
+                  {canAdmin && (
+                    <Group gap={6} justify="flex-end">
+                      <Button size="xs" variant="subtle" onClick={() => setResetFor(a)}>
+                        Reset password
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="subtle"
+                        color="bad"
+                        disabled={a.status !== "active"}
+                        onClick={() => disable.mutate(a.id)}
+                      >
+                        Disable
+                      </Button>
+                    </Group>
+                  )}
                 </Table.Td>
               </Table.Tr>
             ))}

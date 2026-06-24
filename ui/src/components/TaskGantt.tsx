@@ -14,11 +14,11 @@
  *  limitations under the License.
  */
 
+import { executionStatusColor, isTerminalStatus } from "@colliery-io/aurora-dark";
 import { Box, Group, Text, Tooltip } from "@mantine/core";
 
 import type { TaskExecutionDetail } from "../api/executions";
 import { formatMs } from "../util/format";
-import { executionStatusColor, isTerminalStatus } from "../util/status";
 
 /** Local task id (last `::` segment) for the DAG-rank lookup. */
 const localId = (name: string) => name.split("::").pop() || name;

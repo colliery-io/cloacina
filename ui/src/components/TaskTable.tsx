@@ -14,10 +14,10 @@
  *  limitations under the License.
  */
 
+import { StatusBadge } from "@colliery-io/aurora-dark";
 import { Code, Table, Text, Tooltip } from "@mantine/core";
 
 import type { TaskExecutionDetail } from "../api/executions";
-import { StatusBadge } from "./StatusBadge";
 
 /** Human duration between two RFC-3339 timestamps (or start→now while running). */
 function duration(started: string | null, completed: string | null): string {

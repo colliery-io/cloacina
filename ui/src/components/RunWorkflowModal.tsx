@@ -8,12 +8,12 @@
  *  context. Params-less workflows just get a confirm-and-run. The server still
  *  validates (`400 workflow_input_invalid`); this is the friendly front door.
  */
+import { MONO } from "@colliery-io/aurora-dark";
 import { Box, Button, Group, Modal, NumberInput, Stack, Switch, TextInput } from "@mantine/core";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useExecuteWorkflow, useWorkflow } from "../api/workflows";
-import { MONO } from "./aurora";
 
 interface Slot {
   name: string;

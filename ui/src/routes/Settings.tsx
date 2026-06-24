@@ -14,12 +14,11 @@
  *  limitations under the License.
  */
 
+import { Dot, MONO, TOKEN } from "@colliery-io/aurora-dark";
 import { Box, Group, SimpleGrid } from "@mantine/core";
 import { type ReactNode } from "react";
 
 import { useAuth } from "../auth/AuthContext";
-import { Dot, MONO } from "../components/aurora";
-import { TOKEN } from "../util/tokens";
 
 /** Hairline section header (label + bottom rule). */
 function Section({ title, children }: { title: string; children: ReactNode }) {

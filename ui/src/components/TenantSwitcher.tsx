@@ -7,12 +7,12 @@
  *  rescopes every query (data is schema-isolated per tenant). "Add tenant…"
  *  reuses the connect form (`/connect?add=1`).
  */
+import { MONO } from "@colliery-io/aurora-dark";
 import { Box, Menu } from "@mantine/core";
 import { IconCheck, IconChevronDown, IconPlus, IconX } from "@tabler/icons-react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
-import { MONO } from "./aurora";
 
 export function TenantSwitcher({ dot }: { dot: string }) {
   const { connection, connections, switchTo, removeConnection } = useAuth();

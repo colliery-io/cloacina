@@ -14,31 +14,19 @@
  *  limitations under the License.
  */
 
+import { type Acc, accStale, AccumulatorTable, DegradedBanner, Empty, ErrorState, explainToken, GraphHealth, Loading, MONO, nodeKindColor, Panel, Pill, ReactorReadiness, TOKEN } from "@colliery-io/aurora-dark";
 import { Anchor, Box, Button, Group, Menu, Text, Tooltip } from "@mantine/core";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { useAccumulators, useGraph } from "../api/health";
 import { useFireReactor } from "../api/controls";
+import { useCan } from "../auth/AuthContext";
 import { GraphInjectModal, type InjectTarget } from "../components/GraphInjectModal";
 import { GraphNodeModal } from "../components/GraphNodeModal";
 import { type DagEdge, type DagNode } from "../components/Dag";
 import { FullDag } from "../components/FullDag";
-import { GraphHealth } from "../components/GraphHealth";
-import {
-  AccumulatorTable,
-  DegradedBanner,
-  FireActivity,
-  GraphStatusStrip,
-  ReactorReadiness,
-  RecentFires,
-  accStale,
-  type Acc,
-} from "../components/graph-ops";
-import { Empty, ErrorState, Loading } from "../components/states/States";
-import { explainToken } from "../util/vocab";
-import { MONO, Panel, Pill } from "../components/aurora";
-import { nodeKindColor, TOKEN } from "../util/tokens";
+import { FireActivity, GraphStatusStrip, RecentFires } from "../components/graph-ops";
 
 type TopoNode = { id: string; inputs?: string[] };
 type TopoEdge = { from: string; to: string; label?: string | null };
@@ -133,6 +121,7 @@ export function GraphDetail() {
   const { data, isPending, isError, error, refetch } = useGraph(name);
   const accumulators = useAccumulators();
   const fire = useFireReactor();
+  const { canWrite } = useCan();
   const [selected, setSelected] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [injectTarget, setInjectTarget] = useState<InjectTarget | null>(null);
@@ -188,25 +177,27 @@ export function GraphDetail() {
         </Box>
         {data && (
           <Group gap={8}>
-            <Menu position="bottom-end" disabled={!reactor}>
-              <Menu.Target>
-                <Button
-                  color="ice"
-                  radius={8}
-                  styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
-                  loading={fire.isPending}
-                  disabled={!reactor}
-                >
-                  ▸ Fire ▾
-                </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item onClick={() => reactor && fire.mutate(reactor)}>Force fire (current cache)</Menu.Item>
-                <Menu.Item onClick={() => reactor && setInjectTarget({ kind: "reactor", name: reactor })}>
-                  Fire with inputs…
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
+            {canWrite && (
+              <Menu position="bottom-end" disabled={!reactor}>
+                <Menu.Target>
+                  <Button
+                    color="ice"
+                    radius={8}
+                    styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
+                    loading={fire.isPending}
+                    disabled={!reactor}
+                  >
+                    ▸ Fire ▾
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item onClick={() => reactor && fire.mutate(reactor)}>Force fire (current cache)</Menu.Item>
+                  <Menu.Item onClick={() => reactor && setInjectTarget({ kind: "reactor", name: reactor })}>
+                    Fire with inputs…
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            )}
             <Button variant="default" radius={8} onClick={() => setPaused((p) => !p)}>
               {paused ? "▸ Resume" : "⏸ Pause"}
             </Button>
@@ -246,7 +237,7 @@ export function GraphDetail() {
           />
 
           <Panel title="Accumulators" caption={`${accs.length} bound source${accs.length === 1 ? "" : "s"}`}>
-            <AccumulatorTable accumulators={accs} onInject={(name) => setInjectTarget({ kind: "accumulator", name })} />
+            <AccumulatorTable accumulators={accs} onInject={canWrite ? (name) => setInjectTarget({ kind: "accumulator", name }) : undefined} />
           </Panel>
 
           {graph ? (

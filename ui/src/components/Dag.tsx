@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { nodeKindColor, statusColor, TOKEN } from "@colliery-io/aurora-dark";
 import { useMemo } from "react";
 import dagre from "@dagrejs/dagre";
 import {
@@ -27,7 +28,6 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { statusColor, nodeKindColor, TOKEN } from "../util/tokens";
 
 /** Node role — drives styling so triggers/reactors/accumulators read as
  *  distinct from the compute nodes (CLOACI-I-0124 / WS-4). */

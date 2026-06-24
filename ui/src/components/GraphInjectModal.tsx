@@ -9,6 +9,7 @@
  *   - reactor     → POST .../fire    { mode: fire_with, inputs: { source: obj } }
  *  Falls back to a raw-JSON textarea for untyped ({}) slots.
  */
+import { MONO, Pill, TOKEN } from "@colliery-io/aurora-dark";
 import { Box, Button, Group, Modal, NumberInput, Stack, Switch, Text, TextInput, Textarea } from "@mantine/core";
 import { useMemo, useState } from "react";
 
@@ -19,8 +20,7 @@ import {
   useReactorInterface,
   type InterfaceSlot,
 } from "../api/controls";
-import { MONO, Pill } from "./aurora";
-import { TOKEN } from "../util/tokens";
+import { useCan } from "../auth/AuthContext";
 
 export type InjectTarget = { kind: "accumulator" | "reactor"; name: string };
 
@@ -67,6 +67,7 @@ export function GraphInjectModal({
   const iface = isAcc ? accIface : rxIface;
   const inject = useInjectAccumulator();
   const fire = useFireReactor();
+  const { canWrite } = useCan();
 
   const slots = useMemo(() => iface.data?.slots ?? [], [iface.data]);
   const fields = useMemo(() => fieldsFor(slots), [slots]);
@@ -177,9 +178,11 @@ export function GraphInjectModal({
             <Button variant="default" radius={8} onClick={onClose}>
               Cancel
             </Button>
-            <Button color="ice" radius={8} styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} loading={pending} onClick={submit}>
-              {isAcc ? "Inject" : "Fire"}
-            </Button>
+            {canWrite && (
+              <Button color="ice" radius={8} styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} loading={pending} onClick={submit}>
+                {isAcc ? "Inject" : "Fire"}
+              </Button>
+            )}
           </Group>
         </Stack>
       )}

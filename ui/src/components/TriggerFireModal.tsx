@@ -9,12 +9,11 @@
  *  it shows the fan-out result (which workflows were fired). An untyped trigger
  *  (no declared params) fires with no event.
  */
+import { MONO, Pill, TOKEN } from "@colliery-io/aurora-dark";
 import { Box, Button, Group, Modal, NumberInput, Stack, Switch, Text, TextInput } from "@mantine/core";
 import { useMemo, useState } from "react";
 
 import { useFireTrigger, useTriggerInterface, type InterfaceSlot } from "../api/controls";
-import { MONO, Pill } from "./aurora";
-import { TOKEN } from "../util/tokens";
 
 type Field = { name: string; type: string };
 

@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { BrandMark, classifyError, MONO } from "@colliery-io/aurora-dark";
 import {
   Alert,
   Box,
@@ -30,9 +31,7 @@ import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { CloacinaClient } from "@cloacina/client";
 
 import { useAuth } from "../auth/AuthContext";
-import { classifyError } from "../api/errors";
 import { runtimeConfig } from "../config";
-import { BrandMark, MONO } from "../components/aurora";
 
 /** How the operator authenticates at the connect gate (CLOACI-T-0796/0798/0800). */
 type Mode = "key" | "password" | "sso";

@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { BuildStatusBadge, classifyError, Empty, ErrorState, Loading, MONO, Panel, Pill, TOKEN } from "@colliery-io/aurora-dark";
 import { Alert, Anchor, Box, Button, Group, List, Modal, Stack, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { useMemo, useState } from "react";
@@ -21,8 +22,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useDeleteWorkflow, useWorkflow } from "../api/workflows";
 import { usePauseWorkflow } from "../api/controls";
+import { useCan } from "../auth/AuthContext";
 import { useWorkflowTaskRuntimes } from "../api/executions";
-import { BuildStatusBadge } from "../components/BuildStatusBadge";
 import { CombinedTimeline } from "../components/CombinedTimeline";
 import { InputsCard } from "../components/InputsCard";
 import { RunHeatmap } from "../components/RunHeatmap";
@@ -32,12 +33,8 @@ import { StatusStrip } from "../components/StatusStrip";
 import { TaskCodeModal } from "../components/TaskCodeModal";
 import { TaskHealthTable } from "../components/TaskHealthTable";
 import { WorkflowGraph } from "../components/WorkflowGraph";
-import { MONO, Panel, Pill } from "../components/aurora";
-import { Empty, ErrorState, Loading } from "../components/states/States";
-import { classifyError } from "../api/errors";
 import { formatTimestamp } from "../util/format";
 import { topoRank } from "../util/topo";
-import { TOKEN } from "../util/tokens";
 
 /**
  * Workflow detail — operational DAG view (CLOACI-T-0764). Restores the operator
@@ -58,6 +55,7 @@ export function WorkflowDetail() {
 
   const del = useDeleteWorkflow();
   const pause = usePauseWorkflow();
+  const { canWrite } = useCan();
 
   const RUNS = 40;
   const runtimes = useWorkflowTaskRuntimes(data?.workflow_name ?? "", { runs: RUNS });
@@ -115,17 +113,21 @@ export function WorkflowDetail() {
           </Group>
         </Box>
         <Group gap={8}>
-          <Button color="ice" radius={8} styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} onClick={execModal.open}>
-            ▸ Execute
-          </Button>
-          <Button
-            variant="default"
-            radius={8}
-            loading={pause.isPending}
-            onClick={() => pause.mutate({ name, paused: !data.paused })}
-          >
-            {data.paused ? "▸ Resume" : "⏸ Pause"}
-          </Button>
+          {canWrite && (
+            <Button color="ice" radius={8} styles={{ root: { color: "#0b0d10", fontWeight: 600 } }} onClick={execModal.open}>
+              ▸ Execute
+            </Button>
+          )}
+          {canWrite && (
+            <Button
+              variant="default"
+              radius={8}
+              loading={pause.isPending}
+              onClick={() => pause.mutate({ name, paused: !data.paused })}
+            >
+              {data.paused ? "▸ Resume" : "⏸ Pause"}
+            </Button>
+          )}
           <Button color="bad" variant="subtle" radius={8} onClick={delModal.open}>
             Delete
           </Button>

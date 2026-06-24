@@ -14,16 +14,12 @@
  *  limitations under the License.
  */
 
+import { cardSurface, Chip, Dot, Empty, ErrorState, formatAgo, Loading, MONO, PageHeader, Pill, StatusBadge, statusColor, TOKEN } from "@colliery-io/aurora-dark";
 import { Box, Button, Group, TextInput } from "@mantine/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useExecutions } from "../api/executions";
-import { StatusBadge } from "../components/StatusBadge";
-import { Chip, Dot, MONO, PageHeader, Pill, cardSurface } from "../components/aurora";
-import { Empty, ErrorState, Loading } from "../components/states/States";
 import { formatDuration } from "../util/format";
-import { formatAgo } from "../util/activity";
-import { statusColor, TOKEN } from "../util/tokens";
 
 const PAGE_SIZE = 50;
 

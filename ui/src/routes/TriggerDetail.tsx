@@ -14,18 +14,16 @@
  *  limitations under the License.
  */
 
+import { cardSurface, classifyError, Dot, Empty, ErrorState, Loading, MONO, Pill, TOKEN } from "@colliery-io/aurora-dark";
 import { Anchor, Box, Button, Group, Stack, Table, Text, Tooltip } from "@mantine/core";
 import { type CSSProperties, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useTrigger } from "../api/triggers";
 import { useExecuteWorkflow } from "../api/workflows";
-import { classifyError } from "../api/errors";
-import { Dot, MONO, Pill, cardSurface } from "../components/aurora";
-import { Empty, ErrorState, Loading } from "../components/states/States";
+import { useCan } from "../auth/AuthContext";
 import { formatTimestamp } from "../util/format";
 import { describeTriggerKind, formatPollInterval } from "../util/triggers";
-import { TOKEN } from "../util/tokens";
 
 /**
  * Trigger detail (T-0654 / REQ-005; CLOACI-I-0124 / WS-6): schedule fields +
@@ -49,6 +47,7 @@ export function TriggerDetail() {
   const navigate = useNavigate();
   const { data, isPending, isError, error, refetch } = useTrigger(name);
   const execute = useExecuteWorkflow();
+  const { canWrite } = useCan();
 
   function onRunNow() {
     const workflow = data?.schedule.workflow_name;
@@ -80,7 +79,7 @@ export function TriggerDetail() {
           </Anchor>
           <Box style={{ fontSize: 22, fontWeight: 600, color: "var(--fg-bright)", marginTop: 2 }}>{name}</Box>
         </Box>
-        {data && (
+        {data && canWrite && (
           <Button
             size="sm"
             color="ice"

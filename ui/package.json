@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@cloacina/client": "file:../clients/typescript",
+    "@colliery-io/aurora-dark": "github:colliery-io/aurora-dark",
     "@dagrejs/dagre": "^3.0.0",
     "@mantine/core": "7.15.2",
     "@mantine/form": "7.15.2",

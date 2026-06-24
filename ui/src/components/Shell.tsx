@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { TOKEN } from "@colliery-io/aurora-dark";
 import { AppShell, Box, Button } from "@mantine/core";
 import {
   IconActivity,
@@ -33,7 +34,6 @@ import { useWorkflows } from "../api/workflows";
 import { useGraphs } from "../api/health";
 import { useExecutions } from "../api/executions";
 import { useTriggers } from "../api/triggers";
-import { TOKEN } from "../util/tokens";
 
 /**
  * Authenticated shell — the Aurora Dark sidebar (CLOACI-I-0129): a fixed 232px

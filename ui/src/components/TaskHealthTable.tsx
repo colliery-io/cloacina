@@ -6,10 +6,9 @@
  *  FAILS and RETRIES over the sampled window. Replaces the bare runtime chart.
  *  Rows are pre-ordered by DAG topological rank by the caller.
  */
+import { Dot, MONO, statusColor, TOKEN } from "@colliery-io/aurora-dark";
 import { type TaskRuntimeStat } from "../api/executions";
-import { Dot, MONO } from "./aurora";
 import { fmtMs } from "./RunHeatmap";
-import { TOKEN, statusColor } from "../util/tokens";
 
 const ICE = "#7fb2ff";
 const COLS = "200px 1fr 56px 56px 56px 60px";
