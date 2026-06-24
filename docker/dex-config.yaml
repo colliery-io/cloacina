@@ -1,0 +1,37 @@
+# CLOACI-I-0118 / T-0788: Dex — a self-contained OIDC test issuer so the
+# cloacina-server relying party (T-0789/0790) can be exercised end-to-end with
+# no external IdP. NOT for production (in-memory storage, static creds).
+#
+# Issuer note: the browser (authorize redirect) and the server (discovery /
+# token exchange) must both reach this issuer URL. For the demo we use
+# http://localhost:5556/dex and expose port 5556; T-0790 finalizes the
+# in-cluster-vs-browser networking (extra_hosts / issuer override).
+issuer: http://localhost:5556/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+# The cloacina-server relying party. `redirectURIs` must match the server's
+# /v1/auth/callback (host-mapped server port).
+staticClients:
+  - id: cloacina
+    name: Cloacina
+    secret: cloacina-dex-secret
+    redirectURIs:
+      - http://localhost:8080/v1/auth/callback
+
+# A test password user. `groups` drives the allowlist mapping policy (T-0791):
+# group `acme-admins` -> tenant acme / role admin.
+enablePasswordDB: true
+staticPasswords:
+  # password: "password" (canonical Dex example bcrypt hash)
+  - email: "alice@acme.com"
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4u"
+    username: "alice"
+    userID: "alice-uid"
+
+oauth2:
+  skipApprovalScreen: true

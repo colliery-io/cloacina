@@ -32,6 +32,56 @@
 
 use crate::identity::ResolvedPrincipal;
 
+/// Relying-party configuration for a single OIDC issuer (OQ-4: one issuer for
+/// now). Read from the environment; absent → OIDC login is simply not mounted.
+/// The discovery + JWKS + login/callback that consume this land in T-0789/0790
+/// (built on the `openidconnect` crate, OQ-6) against the Dex sidecar.
+#[derive(Debug, Clone)]
+pub struct OidcConfig {
+    pub issuer_url: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: String,
+    pub scopes: Vec<String>,
+}
+
+impl OidcConfig {
+    /// Build from env (`CLOACINA_OIDC_*`); `None` when not configured.
+    pub fn from_env() -> Option<OidcConfig> {
+        let issuer_url = std::env::var("CLOACINA_OIDC_ISSUER").ok()?;
+        let client_id = std::env::var("CLOACINA_OIDC_CLIENT_ID").ok()?;
+        let redirect_uri = std::env::var("CLOACINA_OIDC_REDIRECT_URI").ok()?;
+        Some(OidcConfig {
+            issuer_url,
+            client_id,
+            client_secret: std::env::var("CLOACINA_OIDC_CLIENT_SECRET").unwrap_or_default(),
+            redirect_uri,
+            scopes: parse_scopes(std::env::var("CLOACINA_OIDC_SCOPES").ok().as_deref()),
+        })
+    }
+}
+
+/// Parse a comma-separated scope list, defaulting to the standard OIDC set
+/// (+ `groups` for the mapping policy) when unset/empty.
+fn parse_scopes(raw: Option<&str>) -> Vec<String> {
+    let parsed: Vec<String> = raw
+        .unwrap_or("")
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if parsed.is_empty() {
+        vec![
+            "openid".into(),
+            "email".into(),
+            "profile".into(),
+            "groups".into(),
+        ]
+    } else {
+        parsed
+    }
+}
+
 /// A validated set of identity claims extracted from an OIDC ID token by the
 /// relying party (T-0790). Provider-neutral within OIDC.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -184,5 +234,12 @@ mod tests {
         assert!(policy()
             .resolve(&claims("nobody", Some("x@other.org"), &["randos"]), "iss")
             .is_none());
+    }
+
+    #[test]
+    fn scopes_default_and_parse() {
+        assert!(parse_scopes(None).contains(&"openid".to_string()));
+        assert!(parse_scopes(Some("  ")).contains(&"groups".to_string()));
+        assert_eq!(parse_scopes(Some("openid, email")), vec!["openid", "email"]);
     }
 }

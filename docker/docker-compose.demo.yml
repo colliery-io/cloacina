@@ -73,6 +73,22 @@ services:
       retries: 10
       start_period: 30s
 
+  # Dex — OIDC test issuer for the relying party (CLOACI-I-0118 / T-0788).
+  # A self-contained issuer (static client `cloacina` + a password user) so the
+  # OIDC login flow runs with no external IdP. Demo-only (in-memory, static).
+  dex:
+    image: dexidp/dex:v2.41.1
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    volumes:
+      - ./dex-config.yaml:/etc/dex/config.yaml:ro
+    ports:
+      - "5556:5556"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:5556/dex/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   server:
     build:
       context: ..
