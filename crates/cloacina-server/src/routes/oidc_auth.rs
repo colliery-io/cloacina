@@ -115,13 +115,28 @@ pub async fn oidc_callback(
     match mint_for_principal(&state, &principal, DEFAULT_MINTED_KEY_TTL).await {
         Ok((plaintext, key_info)) => {
             info!(subject = %claims.subject, "OIDC login succeeded — minted key");
-            Json(LocalLoginResponse {
-                key: plaintext,
-                tenant_id: key_info.tenant_id,
-                role: key_info.permissions,
-                expires_at: key_info.expires_at.map(|t| t.to_rfc3339()),
-            })
-            .into_response()
+            // When a UI success-redirect is configured (the demo/browser flow),
+            // hand the key to the SPA via the URL fragment — a fragment is never
+            // sent to a server or logged. Otherwise return JSON (API callers).
+            // key/tenant/role are URL-safe by construction (clk_ token, tenant
+            // slug, role word).
+            match std::env::var("CLOACINA_OIDC_SUCCESS_REDIRECT") {
+                Ok(redirect) if !redirect.is_empty() => {
+                    let tenant = key_info.tenant_id.clone().unwrap_or_default();
+                    let location = format!(
+                        "{redirect}#key={}&tenant={}&role={}",
+                        plaintext, tenant, key_info.permissions
+                    );
+                    axum::response::Redirect::to(&location).into_response()
+                }
+                _ => Json(LocalLoginResponse {
+                    key: plaintext,
+                    tenant_id: key_info.tenant_id,
+                    role: key_info.permissions,
+                    expires_at: key_info.expires_at.map(|t| t.to_rfc3339()),
+                })
+                .into_response(),
+            }
         }
         Err(e) => e.into_response(),
     }

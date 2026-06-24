@@ -15,7 +15,7 @@
  */
 
 import { CloacinaClient } from "@cloacina/client";
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { classifyError } from "../api/errors";
 
@@ -114,6 +114,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : null,
     [connection],
   );
+
+  // CLOACI-T-0800: silent refresh. A minted (local/OIDC) key has a short TTL;
+  // re-mint it before it lapses so a demo/session survives. A non-refreshable
+  // pasted key returns an error from /auth/refresh — we just stop the loop for
+  // that connection (the key doesn't expire anyway).
+  useEffect(() => {
+    if (!connection || !client) return;
+    let stopped = false;
+    const REFRESH_MS = 10 * 60 * 1000; // minted TTL is ~15m
+    const id = setInterval(() => {
+      void (async () => {
+        if (stopped) return;
+        try {
+          const res = await client.refresh();
+          setConnections((prev) => {
+            const next = prev.map((c) =>
+              c.label === connection.label ? { ...c, apiKey: res.key } : c,
+            );
+            persist(next, connection.label);
+            return next;
+          });
+        } catch {
+          stopped = true;
+          clearInterval(id);
+        }
+      })();
+    }, REFRESH_MS);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection?.label, connection?.apiKey, client]);
 
   async function connect(conn: Connection): Promise<void> {
     const probe = new CloacinaClient({

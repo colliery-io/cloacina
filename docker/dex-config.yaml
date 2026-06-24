@@ -2,11 +2,14 @@
 # cloacina-server relying party (T-0789/0790) can be exercised end-to-end with
 # no external IdP. NOT for production (in-memory storage, static creds).
 #
-# Issuer note: the browser (authorize redirect) and the server (discovery /
-# token exchange) must both reach this issuer URL. For the demo we use
-# http://localhost:5556/dex and expose port 5556; T-0790 finalizes the
-# in-cluster-vs-browser networking (extra_hosts / issuer override).
-issuer: http://localhost:5556/dex
+# Issuer note (CLOACI-T-0800): the browser (authorize redirect) AND the
+# in-container cloacina-server (discovery / token exchange) must both reach this
+# issuer at the SAME URL. `host.docker.internal` is the one host that resolves
+# from both on Docker Desktop — the server gets it for free; the browser needs a
+# single /etc/hosts line:  127.0.0.1 host.docker.internal
+# (For a pure host-run demo — server binary on the host — use
+#  CLOACINA_OIDC_ISSUER=http://localhost:5556/dex instead; no hosts edit needed.)
+issuer: http://host.docker.internal:5556/dex
 
 storage:
   type: memory

@@ -34,8 +34,8 @@ import { classifyError } from "../api/errors";
 import { runtimeConfig } from "../config";
 import { BrandMark, MONO } from "../components/aurora";
 
-/** How the operator authenticates at the connect gate (CLOACI-T-0796/0798). */
-type Mode = "key" | "password";
+/** How the operator authenticates at the connect gate (CLOACI-T-0796/0798/0800). */
+type Mode = "key" | "password" | "sso";
 
 /** Connection gate (Aurora Dark, spec 14). Supports a pasted API key OR
  *  self-managed username/password login (mints a short-TTL key server-side). */
@@ -103,6 +103,52 @@ export function Connect() {
     }
   }
 
+  /** Start the OIDC browser flow (CLOACI-T-0800): stash the server URL so the
+   *  post-callback fragment pickup can reconnect, then full-page navigate to
+   *  the server's login route, which 302s to the identity provider. */
+  function startSso() {
+    const serverUrl = form.values.serverUrl.replace(/\/+$/, "");
+    if (!/^https?:\/\//.test(serverUrl)) {
+      setError("Server URL must start with http:// or https://");
+      return;
+    }
+    setSubmitting(true);
+    sessionStorage.setItem("cloacina.sso.server", serverUrl);
+    window.location.href = `${serverUrl}/v1/auth/oidc/login`;
+  }
+
+  // The OIDC callback returns the browser to `/connect#key=…&tenant=…&role=…`
+  // (a fragment is never sent to a server or logged). Pick it up and connect.
+  const ssoTried = useRef(false);
+  useEffect(() => {
+    if (ssoTried.current) return;
+    const hash = window.location.hash;
+    if (!hash.includes("key=")) return;
+    ssoTried.current = true;
+    const params = new URLSearchParams(hash.slice(1));
+    const key = params.get("key");
+    const tenant = params.get("tenant") || "public";
+    // Strip the key out of the URL bar / history immediately.
+    window.history.replaceState(null, "", window.location.pathname);
+    if (!key) return;
+    const serverUrl =
+      sessionStorage.getItem("cloacina.sso.server") ??
+      form.values.serverUrl.replace(/\/+$/, "");
+    sessionStorage.removeItem("cloacina.sso.server");
+    void (async () => {
+      setSubmitting(true);
+      try {
+        await connect({ label: tenant, serverUrl, apiKey: key, tenant });
+        navigate("/", { replace: true });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSubmitting(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const autoTried = useRef(false);
   useEffect(() => {
     if (
@@ -151,7 +197,9 @@ export function Connect() {
           <Box style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3, marginBottom: 14 }}>
             {mode === "password"
               ? "Sign in with your username and password."
-              : "Enter a server URL and a tenant API key."}
+              : mode === "sso"
+                ? "Sign in through your identity provider."
+                : "Enter a server URL and a tenant API key."}
           </Box>
 
           <SegmentedControl
@@ -166,6 +214,7 @@ export function Connect() {
             data={[
               { label: "Username & password", value: "password" },
               { label: "API key", value: "key" },
+              { label: "SSO", value: "sso" },
             ]}
           />
 
@@ -178,55 +227,78 @@ export function Connect() {
                 {...form.getInputProps("serverUrl")}
               />
 
-              {mode === "password" ? (
+              {mode === "sso" ? (
                 <>
-                  <TextInput
-                    label="Username"
-                    placeholder="alice"
-                    autoComplete="username"
-                    styles={monoInput}
-                    {...form.getInputProps("username")}
-                  />
-                  <PasswordInput
-                    label="Password"
-                    autoComplete="current-password"
-                    styles={monoInput}
-                    {...form.getInputProps("password")}
-                  />
+                  {error && (
+                    <Alert color="bad" role="alert" variant="light">
+                      {error}
+                    </Alert>
+                  )}
+                  <Button
+                    type="button"
+                    onClick={startSso}
+                    loading={submitting}
+                    fullWidth
+                    color="ice"
+                    radius={9}
+                    styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
+                  >
+                    Continue with SSO
+                  </Button>
                 </>
               ) : (
-                <PasswordInput
-                  label="API key"
-                  placeholder="clk_…"
-                  autoComplete="off"
-                  styles={monoInput}
-                  {...form.getInputProps("apiKey")}
-                />
+                <>
+                  {mode === "password" ? (
+                    <>
+                      <TextInput
+                        label="Username"
+                        placeholder="alice"
+                        autoComplete="username"
+                        styles={monoInput}
+                        {...form.getInputProps("username")}
+                      />
+                      <PasswordInput
+                        label="Password"
+                        autoComplete="current-password"
+                        styles={monoInput}
+                        {...form.getInputProps("password")}
+                      />
+                    </>
+                  ) : (
+                    <PasswordInput
+                      label="API key"
+                      placeholder="clk_…"
+                      autoComplete="off"
+                      styles={monoInput}
+                      {...form.getInputProps("apiKey")}
+                    />
+                  )}
+
+                  <TextInput
+                    label="Tenant"
+                    placeholder="public"
+                    styles={monoInput}
+                    {...form.getInputProps("tenant")}
+                  />
+
+                  {error && (
+                    <Alert color="bad" role="alert" variant="light">
+                      {error}
+                    </Alert>
+                  )}
+
+                  <Button
+                    type="submit"
+                    loading={submitting}
+                    fullWidth
+                    color="ice"
+                    radius={9}
+                    styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
+                  >
+                    {mode === "password" ? "Sign in" : "Connect"}
+                  </Button>
+                </>
               )}
-
-              <TextInput
-                label="Tenant"
-                placeholder="public"
-                styles={monoInput}
-                {...form.getInputProps("tenant")}
-              />
-
-              {error && (
-                <Alert color="bad" role="alert" variant="light">
-                  {error}
-                </Alert>
-              )}
-
-              <Button
-                type="submit"
-                loading={submitting}
-                fullWidth
-                color="ice"
-                radius={9}
-                styles={{ root: { color: "#0b0d10", fontWeight: 600 } }}
-              >
-                {mode === "password" ? "Sign in" : "Connect"}
-              </Button>
             </Stack>
           </form>
         </Box>

@@ -114,12 +114,26 @@ services:
       # demo (tenant:key:role). Both are tenant-admin (full access within their
       # tenant, never cross-tenant). The admin bootstrap key still seeds/manages.
       CLOACINA_DEMO_TENANT_KEYS: "public:clk_demo_public_key_0003:admin,acme:clk_demo_acme_key_0002:admin"
+      # OIDC relying party (CLOACI-I-0118) against the dex sidecar. The browser
+      # needs `127.0.0.1 host.docker.internal` in /etc/hosts (see dex-config.yaml);
+      # group `acme-admins` → tenant acme / admin via the allowlist (OIDC_MAP).
+      CLOACINA_OIDC_ISSUER: "http://host.docker.internal:5556/dex"
+      CLOACINA_OIDC_CLIENT_ID: "cloacina"
+      CLOACINA_OIDC_CLIENT_SECRET: "cloacina-dex-secret"
+      CLOACINA_OIDC_REDIRECT_URI: "http://localhost:8080/v1/auth/callback"
+      CLOACINA_OIDC_MAP: "group:acme-admins=acme:admin"
+      # On success the server hands the minted key to the SPA via the URL
+      # fragment at this address (the demo UI origin).
+      CLOACINA_OIDC_SUCCESS_REDIRECT: "http://localhost:8082/connect"
     depends_on:
       postgres:
         condition: service_healthy
       # Kafka-sourced stream accumulators connect at CG-load time, so the broker
       # must be ready before the reconciler loads those packages. (CLOACI-T-0676)
       kafka:
+        condition: service_healthy
+      # OIDC discovery runs at boot; dex must be serving first.
+      dex:
         condition: service_healthy
     # Server + compiler both run DB migrations on boot; on a fresh DB they can
     # race (duplicate type creation). restart:on-failure lets the loser retry
