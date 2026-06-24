@@ -76,6 +76,7 @@ regex = { version = "1.10" }
 semver = { version = "1.0" }
 sha2 = { version = "0.10" }
 aes-gcm = { version = "0.10" }
+argon2 = { version = "0.5", features = ["std"] }
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hex = { version = "0.4" }
 pem = { version = "3.0" }

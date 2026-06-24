@@ -47,6 +47,8 @@ use crate::database::{AnyPool, BackendType, Database};
 pub mod api_keys;
 #[cfg(feature = "postgres")]
 pub mod oidc_sessions;
+#[cfg(feature = "postgres")]
+pub mod local_accounts;
 pub mod checkpoint;
 pub mod context;
 pub mod delivery_outbox;
@@ -68,6 +70,8 @@ pub mod workflow_registry_storage;
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
 #[cfg(feature = "postgres")]
 pub use oidc_sessions::{OidcSessionDAL, RefreshSession};
+#[cfg(feature = "postgres")]
+pub use local_accounts::{LocalAccount, LocalAccountDAL, LoginOutcome};
 pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
 pub use delivery_outbox::DeliveryOutboxDAL;
@@ -142,6 +146,12 @@ impl DAL {
     #[cfg(feature = "postgres")]
     pub fn oidc_sessions(&self) -> OidcSessionDAL<'_> {
         OidcSessionDAL::new(self)
+    }
+
+    /// Returns a local-accounts DAL (Postgres only). CLOACI-T-0795.
+    #[cfg(feature = "postgres")]
+    pub fn local_accounts(&self) -> LocalAccountDAL<'_> {
+        LocalAccountDAL::new(self)
     }
 
     /// Returns a checkpoint DAL for computation graph state persistence.

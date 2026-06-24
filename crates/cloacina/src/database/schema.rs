@@ -844,6 +844,19 @@ mod postgres_schema {
         }
     }
 
+    // CLOACI-T-0795: local accounts — self-managed login (server mode only — Postgres).
+    diesel::table! {
+        local_accounts (id) {
+            id -> Uuid,
+            username -> Text,
+            password_hash -> Text,
+            tenant_id -> Nullable<Text>,
+            role -> Text,
+            status -> Text,
+            created_at -> Timestamptz,
+        }
+    }
+
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
     // of joinable! to avoid conflicts with multiple foreign keys to same table.
     // Manual join syntax should be used in queries when joining auth tables.
