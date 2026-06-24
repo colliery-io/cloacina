@@ -68,6 +68,16 @@ Tracked in [CLOACI-T-0688].
 {{< /tab >}}
 {{< /tabs >}}
 
+{{< hint type=info title="Not the same as reactor subscription fan-out" >}}
+Trigger-name fan-out (one trigger *name*, many subscribing workflows) is a
+different primitive from the DB-backed **reactor → workflow** subscription
+fan-out. The latter has a reactor publisher, a durable `reactor_firings` log, and
+at-least-once delivery; this has none of those. See
+[Trigger-name fan-out vs reactor subscription fan-out]({{< ref "/engine/explanation/subscription-fan-out#trigger-name-fan-out-vs-reactor-subscription-fan-out" >}})
+for the side-by-side.
+{{< /hint >}}
+
 ## See also
 
 - [Cron schedule]({{< ref "/engine/scheduling/cron-schedule" >}}) · [Workflow]({{< ref "/engine/workflows/workflow" >}})
+- [Subscription fan-out]({{< ref "/engine/explanation/subscription-fan-out" >}}) — the *other* fan-out (reactor → workflow)

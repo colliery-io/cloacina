@@ -532,18 +532,125 @@ Get details for a specific workflow by package name.
   "tenant_id": "tenant_acme",
   "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
   "package_name": "etl_pipeline",
+  "workflow_name": "etl_pipeline",
   "version": "1.2.0",
   "description": "Extract, transform, and load data",
   "tasks": ["extract", "transform", "load"],
-  "created_at": "2026-04-01T10:00:00+00:00"
+  "created_at": "2026-04-01T10:00:00+00:00",
+  "build_status": "success",
+  "build_error": null,
+  "paused": false,
+  "declared_params": [
+    {
+      "name": "source_url",
+      "schema": {"type": "string"},
+      "required": true
+    }
+  ],
+  "task_graph": []
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `workflow_name` | string | Executable workflow name (the identifier to execute by). Differs from `package_name` under the standard convention (package `demo-slow-rust` → workflow `demo_slow_workflow`); falls back to `package_name` for packages predating workflow-name persistence (CLOACI-T-0671). |
+| `build_status` | string | Real build state: `pending` / `building` / `failed` / `success`. |
+| `build_error` | string \| null | Build failure detail when `build_status` is `failed`. |
+| `paused` | boolean | Whether this workflow is paused (CLOACI-T-0749). A paused workflow refuses new executions until resumed. |
+| `declared_params` | array | Declared input params (named, JSON-Schema-typed slots) the workflow accepts at execute time (CLOACI-I-0128). Empty when undeclared; same slot shape as the `/interface` surfaces. The execute endpoint validates the submitted `context` against these. |
+| `task_graph` | array | Task dependency graph (nodes + upstream deps) for rendering the DAG. Empty for packages predating task-graph persistence (CLOACI-T-0663). |
 
 **Errors:**
 
 | Status | Body |
 |---|---|
 | `404` | `{"error": "workflow 'etl_pipeline' not found"}` |
+
+### GET /v1/tenants/{tenant_id}/workflows/{name}/source
+
+Return the original source files retained in the package's `.cloacina`
+archive, surfaced **read-only** for display (CLOACI-T-0750). Source is
+independent of build state, so it's available even while a package is
+building or after a failed build. `name` may be a package name or a
+package UUID (matching `GET .../workflows/{name}`).
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `tenant_id` | string | Tenant identifier |
+| `name` | string | Workflow package name or package UUID |
+
+**Response:** `200 OK`
+
+```json
+{
+  "tenant_id": "tenant_acme",
+  "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "package_name": "etl_pipeline",
+  "workflow_name": "etl_pipeline",
+  "version": "1.2.0",
+  "files": [
+    {
+      "path": "package.toml",
+      "language": "toml",
+      "contents": "[package]\nname = \"etl_pipeline\"\n…"
+    },
+    {
+      "path": "src/lib.rs",
+      "language": "rust",
+      "contents": "use cloacina::*;\n…"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `files[].path` | string | Path relative to the package source root, forward slashes (e.g. `src/lib.rs`, `package.toml`). |
+| `files[].language` | string \| null | Best-effort language id from the file extension (`rust`, `python`, `toml`, …) for syntax highlighting; `null` when unknown. |
+| `files[].contents` | string | UTF-8 file contents. Binary and oversized files are omitted from the list. |
+
+**Errors:**
+
+| Status | Body |
+|---|---|
+| `404` | `{"error": "workflow 'etl_pipeline' not found"}` |
+
+### POST /v1/tenants/{tenant_id}/workflows/{name}/pause
+
+Pause a workflow (CLOACI-T-0749). Blocks new executions of the workflow
+(manual **and** triggered) until resumed. In-flight executions are
+unaffected. `name` may be the workflow name or package name. Requires a
+`write`-or-better key.
+
+**Response:** `200 OK`
+
+```json
+{
+  "tenant_id": "tenant_acme",
+  "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "name": "etl_pipeline",
+  "status": "paused",
+  "paused": true
+}
+```
+
+The `status` field is `"paused"` here and `"resumed"` on the resume
+route; `paused` reflects the resulting state. The same `paused` flag
+surfaces on `GET .../workflows/{name}`.
+
+**Errors:**
+
+| Status | Body |
+|---|---|
+| `404` | `{"error": "workflow 'etl_pipeline' not found"}` |
+
+### POST /v1/tenants/{tenant_id}/workflows/{name}/resume
+
+Resume a paused workflow (CLOACI-T-0749). New executions are accepted
+again. Same response shape as `/pause` with `status: "resumed"` and
+`paused: false`. Requires a `write`-or-better key.
 
 ### DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}
 
@@ -605,11 +712,13 @@ Execute a workflow. Returns immediately with a scheduled execution ID.
 }
 ```
 
-**Errors:**
+**Errors** (envelope per [API Error Envelope]({{< ref "api-error-envelope" >}})):
 
-| Status | Body |
-|---|---|
-| `400` | `{"error": "<detail>"}` |
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `workflow_input_invalid` | The submitted `context` failed validation against the workflow's `declared_params` (CLOACI-T-0757). Undeclared workflows accept free-form context and never raise this. |
+| `400` | (other) | Generic execution failure (`{"error": "<detail>"}`). |
+| `409` | `workflow_paused` | The workflow is paused (CLOACI-T-0749); resume it before executing. |
 
 ### GET /v1/tenants/{tenant_id}/executions
 
@@ -810,6 +919,118 @@ Get trigger details and recent executions. Matches by trigger name or workflow n
 |---|---|
 | `404` | `{"error": "trigger 'my_trigger' not found"}` |
 
+### POST /v1/tenants/{tenant_id}/triggers/{name}/fire
+
+Manually fire a trigger, **fanning out to every subscribed workflow**
+(CLOACI-T-0777). One operator action instead of running each workflow by
+hand. An optional `event` is merged into each fired workflow's context
+(alongside the trigger metadata) and validated against the trigger's
+declared pass-through schema (see `/interface` below). The started
+executions are marked `manual` (CLOACI-T-0776). `name` resolves by
+trigger name or workflow name.
+
+**Request:**
+
+```json
+{
+  "event": {
+    "symbol": "ABC",
+    "price": 12.5
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `event` | any JSON | no | Typed event merged into each fired workflow's context. Omit to fire with just the trigger metadata. |
+
+**Response:** `200 OK`
+
+```json
+{
+  "tenant_id": "tenant_acme",
+  "trigger": "check_inbox",
+  "fired": 2,
+  "executions": [
+    {"workflow_name": "inbox_processor", "execution_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7"},
+    {"workflow_name": "inbox_archiver", "execution_id": "8d0f7780-8536-51ef-a55c-f18gd2g01bf8"}
+  ]
+}
+```
+
+`fired` is the fan-out count (how many subscribed workflows were
+started); `executions` lists each `(workflow_name, execution_id)`.
+
+**Errors:**
+
+| Status | Body | Cause |
+|---|---|---|
+| `404` | `{"error": "<detail>"}` | No enabled subscribers for this trigger. |
+
+### GET /v1/tenants/{tenant_id}/triggers/{name}/interface
+
+The trigger's declared pass-through schema (CLOACI-T-0777): the union of
+the declared params of every workflow subscribed to this trigger. Empty
+`slots` means an untyped trigger (free-form event). Read-only discovery
+— the same slots back the validation in `/fire`, and the web UI builds a
+typed fire form from them.
+
+**Response:** `200 OK`
+
+```json
+{
+  "kind": "trigger",
+  "name": "check_inbox",
+  "slots": [
+    {
+      "name": "symbol",
+      "schema": {"type": "string"},
+      "required": false
+    }
+  ]
+}
+```
+
+The `slots` shape matches the [declared input interface](#get-v1healthreactorsaccumulatorsnameinterface)
+used by the computation-graph surfaces (`name` / `schema` / `required`,
+with an optional `default`).
+
+### POST /v1/tenants/{tenant_id}/triggers/{name}/pause
+
+Pause a schedule (CLOACI-T-0749). Resolves the schedule by trigger name
+or workflow name (same as `GET .../triggers/{name}`) and sets it paused
+so the scheduler stops firing it. Works for **both** `trigger` and
+`cron` schedules. In-flight executions are unaffected; this only gates
+new ones. Requires a `write`-or-better key.
+
+**Response:** `200 OK`
+
+```json
+{
+  "tenant_id": "tenant_acme",
+  "id": "d4e5f6a7-b8c9-0123-def0-345678901234",
+  "name": "check_inbox",
+  "status": "paused",
+  "paused": true
+}
+```
+
+`id` is the schedule UUID; `name` echoes the name the schedule was
+addressed by; `paused` reflects the resulting state.
+
+**Errors:**
+
+| Status | Body |
+|---|---|
+| `404` | `{"error": "trigger 'my_trigger' not found"}` |
+
+### POST /v1/tenants/{tenant_id}/triggers/{name}/resume
+
+Resume a paused schedule (CLOACI-T-0749). Re-arms it on the normal
+schedule; missed fires are **not** caught up (skip policy). Same
+response shape as `/pause` with `status: "resumed"` and `paused: false`.
+Requires a `write`-or-better key.
+
 ## Computation Graph Health
 
 Health endpoints for the computation graph system. These endpoints require authentication.
@@ -896,6 +1117,45 @@ Get health details for a specific computation graph.
 | Status | Body |
 |---|---|
 | `404` | `{"error": "graph 'pricing_graph' not found"}` |
+
+### GET /v1/health/reactors
+
+List loaded reactors visible to the caller (CLOACI-T-0742).
+**Reactor-first:** reactors are standalone (a graph binds to a reactor,
+not vice versa), so a reactor with no graph bound appears here even
+though `GET /v1/health/graphs` omits it. Visibility reuses the same
+tenant gate as graphs.
+
+**Response:** `200 OK` — unified `{items, total}` envelope.
+
+```json
+{
+  "items": [
+    {
+      "name": "pricing_reactor",
+      "health": {"state": "running"},
+      "accumulators": ["market_data", "risk_params"],
+      "bound_graphs": ["pricing_graph"],
+      "paused": false,
+      "fires": 9861,
+      "last_fired_at": "2026-06-21T20:21:51.300+00:00",
+      "reaction_mode": "when_any",
+      "input_strategy": "latest"
+    }
+  ],
+  "total": 1
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `accumulators` | array | Accumulators this reactor consumes (its inputs). |
+| `bound_graphs` | array | Graphs bound to this reactor; empty when the reactor has no graph yet. |
+| `paused` | boolean | Pause state of the reactor. |
+| `fires` | integer | Total fires since load (the reactor's live fire counter). |
+| `last_fired_at` | string \| null | RFC 3339 timestamp of the last fire; `null` if it hasn't fired yet. |
+| `reaction_mode` | string \| null | Firing criteria: `when_any` / `when_all`. |
+| `input_strategy` | string \| null | Input strategy: `latest` / `sequential`. |
 
 ### GET /v1/health/reactors/{name}/fires
 
