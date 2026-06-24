@@ -76,6 +76,15 @@ jobs:
       - name: Run integration tests (${{ matrix.features.name }})
         run: angreal test integration --backend ${{ matrix.features.backend }} --features ${{ matrix.features.backend }},macros
 
+      # CLOACI-T-0804: full-server auth integration suite (postgres-only — the
+      # auth tables, local accounts, OIDC mapping, and the cross-tenant
+      # key-management leak fix all require Postgres). Boots a real server and
+      # exercises roles, isolation, whoami, local login, and the leak-fix
+      # regression end-to-end.
+      - name: Run auth integration tests (postgres)
+        if: matrix.features.backend == 'postgres'
+        run: angreal test auth
+
   # Unit tests - fast, fail-fast enabled, cross-platform
   unit-tests:
     name: Unit Tests (${{ matrix.os }})
