@@ -28,19 +28,20 @@ initiative_id: CLOACI-I-0118
 
 ## Objective **[REQUIRED]**
 
-On a successful login + mapping, mint a cloacina API key via the existing `api_keys` DAL + `generate_api_key`, scoped to the resolved tenant + role, tagged with provenance (`issued_via = oidc:<issuer>:<sub>` or similar), with a short TTL (default ~15 min — OQ-3 default, revisit in hardening). The plaintext key is returned exactly once. The minted key is an ordinary `api_keys` row and flows through the existing bearer + LRU cache + Phase 0 authZ matcher unchanged.
+Mint a short-TTL cloacina API key from an abstract **resolved principal** `{tenant, role, provenance}` — produced by EITHER OIDC mapping (T-0791) OR local login (T-0796). Build the mint path **provider-agnostic** over that handoff, not OIDC-specific types, so it can land before either producer exists. Reuse the existing `api_keys` DAL + `generate_api_key`; scope to the resolved tenant + role; tag provenance (`issued_via = <provider>:<subject>`, e.g. `oidc:<issuer>:<sub>` or `local:<account_id>`); short TTL (~15 min — OQ-3 default). Plaintext returned exactly once; the minted key is an ordinary `api_keys` row flowing through the existing bearer + LRU cache + Phase 0 authZ matcher unchanged.
 
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] Login yields a working scoped key authorized identically to an equivalent manually-created key.
-- [ ] The key carries OIDC provenance and a short TTL; it appears as an ordinary `api_keys` row.
+- [ ] A resolved principal (from any provider) yields a working scoped key authorized identically to an equivalent manually-created key.
+- [ ] The mint API takes an abstract resolved principal `{tenant, role, provenance}` — no OIDC-specific types in its signature.
+- [ ] The key carries provider provenance + a short TTL; it appears as an ordinary `api_keys` row.
 - [ ] Integration test of the mint → authorized-call path (the minted key passes the normal auth middleware).
 
 ## Implementation Notes
 
-**Scope:** minting + provenance + TTL. Needs an `api_keys` schema touch for TTL + provenance (additive migration, no DROP+CREATE).
-**Depends on:** Task 4 (mapping).
-**References:** CLOACI-I-0118 REQ-006; OQ-3 (TTL default ~15 min).
+**Scope:** minting + provenance + TTL + the provider-agnostic resolved-principal handoff type. Needs an `api_keys` schema touch for TTL + provenance (additive migration, no DROP+CREATE).
+**Depends on:** T-0782 / T-0783 (matcher + middleware). The resolved-principal handoff is provider-agnostic — OIDC mapping (T-0791) and local login (T-0796) are both producers and may land before or after this task.
+**References:** CLOACI-I-0118 REQ-006 + "Local accounts strand" (provider-agnostic handoff); OQ-3 (TTL ~15 min).
 
 ## Status Updates **[REQUIRED]**
 
