@@ -282,6 +282,12 @@ Candidate phases (task batches on decomposition):
 
 Sequencing: Phases 1→3 are the spine (login → key → all-day refresh). Phase 4 (GitHub) parallels once the provider abstraction from Phase 1 exists. **I-0117 dependency:** the UI can ship its API-key `/connect` gate immediately, but its OIDC "Login with X" feature depends on this initiative reaching ~Phase 3 (mint + refresh) with a stable `/auth/*` contract.
 
+### Decomposition status (2026-06-23)
+- **Phase 0 decomposed** → CLOACI-T-0782..0787 (matcher, route-table middleware, leak fix + tenant-admin keys, agent hardening, UI surface, UI demo). Independently shippable.
+- **Phases 1–3 decomposed** → CLOACI-T-0788..0794 (library spike, config+discovery+JWKS, login/callback+validation, mapping policy, key minting, encrypted refresh store, refresh+logout+audit).
+- **Held until the provider questions are taken up:** Phase 4 (GitHub OAuth2, OQ-5), Phase 5 (hardening/e2e/security-review/docs/ADR), and multi-issuer (OQ-4) — not yet decomposed.
+- **Baked design defaults (each revisitable, recorded with the resolving task):** OQ-1 → **allowlist** mapping policy, god-owned (T-0791); OQ-2 → **dedicated `oidc_sessions` table**, AES-GCM, key from server config/env (T-0793); OQ-3 → **~15 min minted-key TTL, refresh at ~⅓ remaining** (T-0792/T-0794); OQ-6 → **spike-pending** (T-0788). OQ-4/OQ-5 remain open (provider questions, intentionally deferred).
+
 ## Open Questions **[resolve in design]**
 
 - **OQ-1 — Mapping policy** (now an ABAC concern): how IdP claims (`sub`, `email`/domain, `org`, `groups`) resolve to the ABAC subject attributes (`tenant_id`, `role`). Options: allowlist (explicit identity→tenant/role) vs org/domain auto-map vs first-login-approval (pending until an admin assigns). One fixed policy or pluggable? Still the product crux. It now lands in the same attribute vocabulary the matcher uses, so "mapping" and "authorization" share one model. **Multi-tenant individuals**: because the isolation boundary is the tenant and an individual may belong to several tenants, a login resolves to a *set* of `{tenant, role}` memberships. This is handled entirely at mapping + UI: mint **one tenant-scoped key per tenant**, and the UI switches tenant context by swapping which scoped key it presents. The subject stays a single-tenant key — no multi-tenant subject, no change to the matcher — which confirms the "subject is a key, not a user" scope line.
