@@ -827,6 +827,8 @@ mod postgres_schema {
             revoked_at -> Nullable<Timestamptz>,
             tenant_id -> Nullable<Text>,
             is_admin -> Bool,
+            expires_at -> Nullable<Timestamptz>,
+            issued_via -> Nullable<Text>,
         }
     }
 

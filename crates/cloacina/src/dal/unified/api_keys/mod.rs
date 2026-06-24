@@ -36,6 +36,11 @@ pub struct ApiKeyInfo {
     pub revoked: bool,
     pub tenant_id: Option<String>,
     pub is_admin: bool,
+    /// CLOACI-T-0792: minted-key expiry (`None` for manual keys = no expiry).
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// CLOACI-T-0792: minted-key provenance (e.g. `oidc:<issuer>:<sub>` /
+    /// `local:<account_id>`; `None` for manual keys).
+    pub issued_via: Option<String>,
 }
 
 /// DAL for API key operations. Postgres only.
@@ -60,6 +65,21 @@ impl<'a> ApiKeyDAL<'a> {
         role: &str,
     ) -> Result<ApiKeyInfo, ValidationError> {
         crud::create_key(self.dal, key_hash, name, tenant_id, is_admin, role).await
+    }
+
+    /// CLOACI-T-0792: mint a short-TTL, provenance-tagged key (never god-mode).
+    #[cfg(feature = "postgres")]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn mint_key(
+        &self,
+        key_hash: &str,
+        name: &str,
+        tenant_id: Option<&str>,
+        role: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+        issued_via: &str,
+    ) -> Result<ApiKeyInfo, ValidationError> {
+        crud::mint_key(self.dal, key_hash, name, tenant_id, role, expires_at, issued_via).await
     }
 
     /// Validate a key hash — returns key info if found and not revoked.
