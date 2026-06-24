@@ -54,6 +54,10 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `tenant_removal_failed` | `DELETE /v1/tenants/{schema_name}` | Step 4 (schema drop) of the 4-step teardown orchestration failed. Steps 1-3 may have committed; a retry resumes from the failure point (each step is idempotent). |
 | `execution_failed` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | Tenant runner refused the execution (workflow not registered for the tenant, validation error in submitted context, etc.). |
 | `upload_failed` | `POST /v1/tenants/{tenant_id}/workflows` | Package registration via the tenant's `WorkflowRegistry` failed (manifest invalid, duplicate version, etc.). |
+| `workflow_input_invalid` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | A declared workflow param is missing or its top-level type doesn't match the declared schema; the message names the offending field(s). (CLOACI-T-0757) |
+| `reactor_input_invalid` | `POST /v1/health/reactors/{name}/fire` | The injected event doesn't match the reactor's declared input interface. (CLOACI-T-0758) |
+| `accumulator_input_invalid` | `POST /v1/health/accumulators/{name}/inject` | The injected event doesn't match the accumulator's declared input interface. (CLOACI-T-0759) |
+| `invalid_callback` | `GET /v1/auth/callback` | The OIDC callback is missing `code` or `state`. |
 
 ### 401 Unauthorized
 
@@ -68,6 +72,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `admin_required` | `POST /v1/tenants`, `DELETE /v1/tenants/{schema_name}`, `POST /v1/tenants/{tenant_id}/keys` (when caller is not the tenant) | Operation requires an `is_admin = true` key. |
 | `tenant_access_denied` | All `/v1/tenants/{tenant_id}/*` routes | Authenticated key exists but does not have access to the requested tenant. |
 | `insufficient_permissions` | Tenant-scoped write routes (`execute_workflow`, package upload, etc.) | Authenticated key can read the tenant but lacks write/admin role. |
+| `identity_not_mapped` | `GET /v1/auth/callback` | A validated OIDC identity matched no rule in the god-owned tenant allowlist (`CLOACINA_OIDC_MAP`). (CLOACI-I-0118) |
 | `signature_verification_unconfigured` | `POST /v1/tenants/{tenant_id}/workflows` | Server started with `--require-signatures` but `--verification-org-id` is not configured. Operator misconfiguration. |
 | `signature_verification_failed` | `POST /v1/tenants/{tenant_id}/workflows` | Generic verification failure that doesn't match a more specific code below. |
 | `invalid_signature` | `POST /v1/tenants/{tenant_id}/workflows` | Cryptographic signature check failed — bytes were tampered with, or signed by an untrusted key. |
@@ -84,11 +89,23 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `trigger_not_found` | `GET /v1/tenants/{tenant_id}/triggers/{name}` | No schedule row with that name in the tenant's schema. |
 | `workflow_not_found` | `GET /v1/tenants/{tenant_id}/workflows/{name}`, `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | Tenant registry has no entry for `name` (or `(name, version)` for delete). |
 
+### 409 Conflict
+
+| Code | Routes | When it fires |
+|---|---|---|
+| `workflow_paused` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | The workflow (or its schedule) is paused; resume it before executing. (CLOACI-T-0749) |
+
 ### 500 Internal Server Error
 
 | Code | Routes | When it fires |
 |---|---|---|
 | `internal_error` | All routes | Catch-all for failures the server cannot turn into a more specific code: tenant database resolve failure, registry I/O error, deserialization panic caught by the framework, etc. The `error` message field carries the underlying cause; the server log carries the full stack via `request_id`. |
+
+### 501 Not Implemented
+
+| Code | Routes | When it fires |
+|---|---|---|
+| `oidc_disabled` | `GET /v1/auth/oidc/login`, `GET /v1/auth/callback` | OIDC single sign-on is not configured on this server (no `CLOACINA_OIDC_ISSUER`, or discovery failed at startup). (CLOACI-I-0118) |
 
 ## Client retry guidance
 

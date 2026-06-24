@@ -66,6 +66,49 @@ with cloaca.WorkflowBuilder("greeting") as builder:
 {{< /tab >}}
 {{< /tabs >}}
 
+## Declared inputs (params)
+
+A workflow can declare **typed inputs** so callers know what to pass and bad input
+is caught before the run starts (rather than surfacing as a task failure mid-DAG).
+Declared params derive a JSON Schema, surface on `WorkflowDetail.declared_params`,
+and are validated at execute time — a missing required param or a top-level type
+mismatch is rejected with `400 workflow_input_invalid`. A workflow that declares
+no params keeps free-form, unvalidated context.
+
+{{< tabs "workflow-params" >}}
+{{< tab "Rust" >}}
+A `params(...)` clause inside `#[workflow]`; each entry is `name: Type` (required)
+or `name: Type = default` (optional). The type must be
+`serde::Serialize + schemars::JsonSchema` (the schema is derived automatically):
+
+```rust
+#[workflow(
+    name = "report",
+    params(
+        account_id: String,
+        window_days: u32 = 30,
+    ),
+)]
+pub mod report { /* … */ }
+```
+{{< /tab >}}
+{{< tab "Python" >}}
+The `@cloaca.workflow_params(...)` decorator; required is `name=type`, optional is
+`name=(type, default)`. It is parsed from source at build time (a runtime no-op),
+so it must be present in the packaged source:
+
+```python
+@cloaca.workflow_params(account_id=str, window_days=(int, 30))
+with cloaca.WorkflowBuilder("report") as builder:
+    ...
+```
+{{< /tab >}}
+{{< /tabs >}}
+
+See [Declare Workflow Inputs]({{< ref "/embed/how-to/declare-workflow-inputs" >}})
+for the full guide. (Validation is currently required-presence + top-level type;
+nested-schema validation is a planned follow-up.)
+
 ## Key facts
 
 - **Naming:** the name you register is the name you pass to `run`/`execute`.
