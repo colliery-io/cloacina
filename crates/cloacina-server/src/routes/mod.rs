@@ -18,6 +18,7 @@
 
 pub mod agent;
 pub mod auth;
+pub mod authz;
 pub mod compiler;
 pub mod delivery_ws;
 pub mod error;
