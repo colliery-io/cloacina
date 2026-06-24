@@ -4,14 +4,14 @@ level: task
 title: "Identity→tenant/role mapping policy (allowlist default, god-owned)"
 short_code: "CLOACI-T-0791"
 created_at: 2026-06-24T01:08:30.974333+00:00
-updated_at: 2026-06-24T01:08:30.974333+00:00
+updated_at: 2026-06-24T04:15:50.697779+00:00
 parent: CLOACI-I-0118
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -30,6 +30,10 @@ initiative_id: CLOACI-I-0118
 
 Resolve a validated OIDC identity to ABAC `Principal` attributes (tenant + role) via a god-owned, config-driven ALLOWLIST policy: explicit `claim(group | email-domain | sub) → {tenant, role}` rules. An unmapped identity is denied. The default policy is allowlist; org/domain auto-map and first-login-approval are deferred variants (note them, do not build). Uses the same attribute vocabulary as the Phase 0 ABAC matcher.
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] A validated identity resolves to a `{tenant, role}` pair or is denied with a typed error when unmapped.
@@ -44,4 +48,4 @@ Resolve a validated OIDC identity to ABAC `Principal` attributes (tenant + role)
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-06-24 — COMPLETE (policy logic; producer pending).** New `crates/cloacina-server/src/oidc.rs`: `IdentityClaims { subject, email, groups }`, `ClaimMatch::{Group, EmailDomain, Subject}`, `MappingRule { claim, tenant, role }`, `MappingPolicy::resolve(claims, issuer) -> Option<ResolvedPrincipal>` — **god-owned config-driven allowlist** (OQ-1 default, OQ-11 god-owned), **first match wins**, unmatched → `None` (denied), provenance `oidc:<issuer>:<sub>`. Produces the same provider-agnostic `ResolvedPrincipal` local login does → feeds `identity::mint_for_principal`. `angreal check` clean; **5/5 unit tests**. **Pending (the producer):** the OIDC RP that extracts these claims from a validated ID token — config/discovery/JWKS (T-0789) + login/callback (T-0790) via `openidconnect` (OQ-6) — plus a Dex sidecar for live verification. **Depends on:** T-0782 (done).
